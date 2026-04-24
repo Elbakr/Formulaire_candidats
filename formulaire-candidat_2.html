@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Votre dossier — Caftan Factory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --or:#c8a96e;--or2:#a07840;--noir:#141412;--noir2:#1e1e1c;
+  --blanc:#fafaf8;--gris:#f3f2ef;--line:#e8e6e0;
+  --vert:#059669;--vertl:#f0fdf4;--rouge:#dc2626;--rougel:#fef2f2;
+  --bleu:#1d4ed8;--bleul:#eff6ff;
+  --warn:#d97706;--warnl:#fffbeb;
+  --r:12px;--rs:8px;--shadow:0 4px 24px rgba(0,0,0,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--noir);min-height:100vh;color:var(--noir)}
+.bg{
+  background:linear-gradient(170deg,var(--noir) 0%,var(--noir2) 60%,#0d0d0b 100%);
+  min-height:100vh;padding:0 0 60px;
+}
+/* Header */
+.header{
+  background:linear-gradient(135deg,var(--noir),var(--noir2));
+  border-bottom:1px solid rgba(200,169,110,.2);
+  padding:20px 20px 16px;
+  position:sticky;top:0;z-index:100;
+  backdrop-filter:blur(12px);
+}
+.header-inner{max-width:640px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}
+.logo{font-family:'Cormorant Garamond',serif;font-size:1.4rem;font-weight:700;color:var(--or);letter-spacing:.02em}
+.progress-wrap{display:flex;align-items:center;gap:10px}
+.progress-bar{width:80px;height:4px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden}
+.progress-fill{height:100%;background:var(--or);border-radius:2px;transition:width .4s ease}
+.progress-label{font-size:.68rem;color:rgba(255,255,255,.5);white-space:nowrap}
+
+/* Wrapper */
+.wrap{max-width:640px;margin:0 auto;padding:20px 16px}
+
+/* Status banner */
+.status-banner{
+  border-radius:var(--r);padding:14px 16px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px;
+}
+.status-banner.warn{background:var(--warnl);border:1.5px solid var(--warn)}
+.status-banner.ok{background:var(--vertl);border:1.5px solid var(--vert)}
+.status-banner.error{background:var(--rougel);border:1.5px solid var(--rouge)}
+.status-icon{font-size:1.4rem;flex-shrink:0;margin-top:2px}
+.status-text strong{font-size:.84rem;font-weight:700;display:block;margin-bottom:3px}
+.status-text p{font-size:.76rem;line-height:1.5}
+
+/* Greeting */
+.greeting{background:linear-gradient(135deg,rgba(200,169,110,.15),rgba(200,169,110,.05));border:1px solid rgba(200,169,110,.2);border-radius:var(--r);padding:18px 20px;margin-bottom:20px;color:white}
+.greeting-name{font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:600;color:var(--or);margin-bottom:6px}
+.greeting p{font-size:.84rem;color:rgba(255,255,255,.7);line-height:1.6}
+
+/* Section */
+.section{background:white;border-radius:var(--r);margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow)}
+.section-head{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:14px 16px;cursor:pointer;user-select:none;
+  border-bottom:1px solid transparent;transition:border-color .2s;
+}
+.section-head:hover{background:#fafaf8}
+.section-head.open{border-bottom-color:var(--line)}
+.section-title{display:flex;align-items:center;gap:10px}
+.section-emoji{font-size:1.1rem}
+.section-label{font-size:.88rem;font-weight:700;color:var(--noir)}
+.section-badge{
+  font-size:.62rem;padding:2px 8px;border-radius:10px;font-weight:700;
+}
+.section-badge.done{background:var(--vertl);color:var(--vert)}
+.section-badge.partial{background:var(--warnl);color:var(--warn)}
+.section-badge.missing{background:var(--rougel);color:var(--rouge)}
+.section-toggle{font-size:.8rem;color:#999;transition:transform .3s}
+.section-toggle.open{transform:rotate(180deg)}
+.section-body{display:none;padding:14px 16px}
+.section-body.open{display:block}
+
+/* Field */
+.field{margin-bottom:14px}
+.field-label{
+  display:flex;align-items:center;gap:6px;
+  font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:#666;margin-bottom:6px;
+}
+.field-label .req{color:var(--rouge);font-size:.8rem}
+.field-label .known{color:var(--vert);font-size:.9rem}
+.field input,.field select,.field textarea{
+  width:100%;padding:11px 14px;
+  border:1.5px solid var(--line);border-radius:var(--rs);
+  font-family:'DM Sans',sans-serif;font-size:.88rem;
+  background:white;color:var(--noir);
+  transition:border-color .2s,box-shadow .2s;
+  -webkit-appearance:none;
+}
+.field input:focus,.field select:focus,.field textarea:focus{
+  outline:none;border-color:var(--or);box-shadow:0 0 0 3px rgba(200,169,110,.15)
+}
+.field input.prefilled{background:#f0fdf4;border-color:#86efac;color:var(--vert);font-weight:600}
+.field input.prefilled:focus{border-color:var(--vert);box-shadow:0 0 0 3px rgba(5,150,105,.12)}
+.field-hint{font-size:.66rem;color:#999;margin-top:4px;line-height:1.4}
+.field-known{font-size:.72rem;color:var(--vert);margin-top:4px;font-weight:600;display:flex;align-items:center;gap:4px}
+
+/* Jours checkboxes */
+.days-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.day-btn{
+  padding:8px 4px;border:1.5px solid var(--line);border-radius:8px;background:white;
+  font-family:'DM Sans',sans-serif;font-size:.76rem;font-weight:600;color:#666;
+  cursor:pointer;text-align:center;transition:all .15s;-webkit-tap-highlight-color:transparent;
+}
+.day-btn.checked{background:#f0fdf4;border-color:var(--vert);color:var(--vert)}
+.day-btn.prefilled-day{background:var(--vertl);border-color:#86efac;color:var(--vert)}
+
+/* Langue niveaux */
+.lang-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
+.lang-row:last-child{border-bottom:none}
+.lang-name{font-size:.8rem;font-weight:600;min-width:90px}
+.lang-levels{display:flex;gap:5px;flex-wrap:wrap}
+.lang-level{
+  padding:4px 9px;border:1.5px solid var(--line);border-radius:20px;
+  font-size:.7rem;font-weight:600;color:#666;cursor:pointer;
+  transition:all .15s;-webkit-tap-highlight-color:transparent;
+}
+.lang-level.active{background:var(--bleu);border-color:var(--bleu);color:white}
+.lang-level.known-lang{background:var(--vertl);border-color:var(--vert);color:var(--vert)}
+
+/* ── Upload zones ── */
+.upload-zone{
+  border:2px dashed var(--line);border-radius:var(--rs);
+  cursor:pointer;transition:all .2s;overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--or);background:rgba(200,169,110,.04)}
+.upload-idle{padding:22px 16px;text-align:center}
+.upload-icon{font-size:2rem;margin-bottom:6px}
+.upload-label{font-size:.84rem;font-weight:700;color:#444;margin-bottom:3px}
+.upload-hint{font-size:.68rem;color:#999}
+.upload-progress{padding:20px 18px}
+.up-bar-wrap{height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin-bottom:8px}
+.up-bar{height:100%;background:linear-gradient(90deg,var(--or),var(--or2));border-radius:3px;width:0%;transition:width .2s}
+.up-pct{font-size:.76rem;font-weight:700;color:var(--or);text-align:center}
+.upload-done{
+  display:flex;align-items:center;gap:9px;padding:14px 14px;
+  background:var(--vertl);border:1.5px solid var(--vert);border-radius:var(--rs);
+}
+.ud-icon{font-size:1.2rem;flex-shrink:0}
+.ud-name{font-size:.78rem;font-weight:700;color:var(--vert);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ud-view{font-size:.72rem;font-weight:700;color:var(--bleu);text-decoration:none;white-space:nowrap;padding:4px 9px;background:var(--bleul);border-radius:5px}
+.ud-remove{background:none;border:1px solid #fca5a5;border-radius:5px;color:var(--rouge);font-size:.8rem;cursor:pointer;padding:3px 8px;flex-shrink:0}
+
+
+/* Submit section */
+.submit-section{background:linear-gradient(135deg,rgba(200,169,110,.15),rgba(200,169,110,.05));border:1px solid rgba(200,169,110,.2);border-radius:var(--r);padding:20px;margin-top:20px;text-align:center}
+.btn-submit{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:16px 36px;border:none;border-radius:var(--r);
+  background:linear-gradient(135deg,var(--or),var(--or2));
+  color:var(--noir);font-family:'DM Sans',sans-serif;font-size:.96rem;font-weight:800;
+  cursor:pointer;transition:all .2s;box-shadow:0 4px 20px rgba(200,169,110,.4);
+  width:100%;justify-content:center;
+}
+.btn-submit:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(200,169,110,.5)}
+.btn-submit:disabled{opacity:.6;transform:none;cursor:not-allowed}
+.submit-note{font-size:.7rem;color:rgba(255,255,255,.4);margin-top:10px;line-height:1.5}
+
+/* Success */
+.success-screen{display:none;text-align:center;padding:40px 20px}
+.success-icon{font-size:4rem;margin-bottom:16px}
+.success-title{font-family:'Cormorant Garamond',serif;font-size:2rem;font-weight:700;color:var(--or);margin-bottom:10px}
+.success-text{font-size:.88rem;color:rgba(255,255,255,.7);line-height:1.6;max-width:400px;margin:0 auto}
+
+/* Loading */
+.loading-overlay{
+  display:none;position:fixed;inset:0;background:rgba(20,20,18,.85);z-index:999;
+  align-items:center;justify-content:center;flex-direction:column;gap:16px;
+}
+.loading-overlay.show{display:flex}
+.spinner{width:44px;height:44px;border:3px solid rgba(200,169,110,.2);border-top-color:var(--or);border-radius:50%;animation:spin 1s linear infinite}
+.loading-text{color:rgba(255,255,255,.7);font-size:.88rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Autosave indicator */
+.autosave{position:fixed;bottom:16px;right:16px;background:var(--noir2);color:rgba(255,255,255,.6);font-size:.68rem;padding:5px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);opacity:0;transition:opacity .3s;z-index:200}
+.autosave.show{opacity:1}
+
+@media(max-width:420px){
+  .days-grid{grid-template-columns:repeat(4,1fr)}
+  .lang-levels{gap:4px}
+  .lang-level{font-size:.66rem;padding:3px 7px}
+  .section-label{font-size:.82rem}
+}
+</style>
+</head>
+<body>
+<div class="bg">
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Chargement...</div>
+</div>
+
+<!-- Autosave indicator -->
+<div class="autosave" id="autosave-indicator">💾 Sauvegarde automatique</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-inner">
+    <div class="logo">Caftan Factory</div>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      <div class="progress-label" id="progress-label">0% complet</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main form -->
+<div class="wrap" id="form-wrap">
+
+  <!-- Greeting (populated by JS) -->
+  <div class="greeting" id="greeting" style="display:none">
+    <div class="greeting-name" id="greeting-name"></div>
+    <p id="greeting-text"></p>
+  </div>
+
+  <!-- Status banner (populated by JS) -->
+  <div class="status-banner" id="status-banner" style="display:none">
+    <div class="status-icon" id="status-icon"></div>
+    <div class="status-text">
+      <strong id="status-title"></strong>
+      <p id="status-desc"></p>
+    </div>
+  </div>
+
+  <!-- Error: token invalide -->
+  <div class="status-banner error" id="error-banner" style="display:none">
+    <div class="status-icon">❌</div>
+    <div class="status-text">
+      <strong>Lien invalide ou expiré</strong>
+      <p>Ce lien de formulaire n'est pas reconnu. Contactez Caftan Factory pour recevoir un nouveau lien.</p>
+    </div>
+  </div>
+
+  <!-- SECTION 1: Identité -->
+  <div class="section" id="sec-identity">
+    <div class="section-head open" onclick="toggleSection('identity')">
+      <div class="section-title">
+        <span class="section-emoji">🪪</span>
+        <span class="section-label">Identification</span>
+        <span class="section-badge" id="badge-identity"></span>
+      </div>
+      <span class="section-toggle open" id="toggle-identity">▼</span>
+    </div>
+    <div class="section-body open" id="body-identity">
+      <div class="field">
+        <div class="field-label">Prénom <span class="known">✓</span></div>
+        <input type="text" id="f-firstname" placeholder="Votre prénom" autocomplete="given-name">
+      </div>
+      <div class="field">
+        <div class="field-label">Nom de famille <span class="known">✓</span></div>
+        <input type="text" id="f-lastname" placeholder="Votre nom" autocomplete="family-name">
+      </div>
+      <div class="field">
+        <div class="field-label">Email <span class="known">✓</span></div>
+        <input type="email" id="f-email" placeholder="votre@email.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <div class="field-label">Téléphone <span class="known">✓</span></div>
+        <input type="tel" id="f-phone" placeholder="+32 4XX XXX XXX" autocomplete="tel">
+      </div>
+      <div class="field">
+        <div class="field-label">Date de naissance <span class="known">✓</span></div>
+        <input type="date" id="f-birthdate" autocomplete="bday">
+      </div>
+      <div class="field">
+        <div class="field-label">Lieu de naissance <span class="req">*</span></div>
+        <input type="text" id="f-birthcity" placeholder="ex: Casablanca, Maroc — Bruxelles, Belgique">
+        <div class="field-hint">Ville et pays de naissance comme sur votre carte d'identité</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Nationalité <span class="req">*</span></div>
+        <input type="text" id="f-nationality" placeholder="ex: Belge, Marocaine, Française...">
+      </div>
+      <div class="field">
+        <div class="field-label">Numéro de registre national <span class="req">*</span></div>
+        <input type="text" id="f-nrn" placeholder="XX.XX.XX-XXX.XX" maxlength="15" style="font-family:'DM Mono',monospace;letter-spacing:.05em" autocomplete="off">
+        <div class="field-hint">11 chiffres — format : 85.03.14-123.45 (date naissance + séquence + clé)</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Adresse complète <span class="req">*</span></div>
+        <input type="text" id="f-address" placeholder="Rue, numéro, code postal, ville" autocomplete="street-address">
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: Finances -->
+  <div class="section" id="sec-finance">
+    <div class="section-head" onclick="toggleSection('finance')">
+      <div class="section-title">
+        <span class="section-emoji">💳</span>
+        <span class="section-label">Coordonnées bancaires</span>
+        <span class="section-badge" id="badge-finance"></span>
+      </div>
+      <span class="section-toggle" id="toggle-finance">▼</span>
+    </div>
+    <div class="section-body" id="body-finance">
+      <div class="field">
+        <div class="field-label">IBAN <span class="req">*</span></div>
+        <input type="text" id="f-iban" placeholder="BE00 0000 0000 0000" maxlength="20" style="font-family:'DM Mono',monospace;letter-spacing:.05em" autocomplete="off">
+        <div class="field-hint">Indispensable pour le paiement du salaire · Traitement confidentiel et sécurisé</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Titulaire du compte</div>
+        <input type="text" id="f-iban-name" placeholder="Nom exact tel qu'il figure sur le compte">
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3: Transport -->
+  <div class="section" id="sec-transport">
+    <div class="section-head" onclick="toggleSection('transport')">
+      <div class="section-title">
+        <span class="section-emoji">🚇</span>
+        <span class="section-label">Transport</span>
+        <span class="section-badge" id="badge-transport"></span>
+      </div>
+      <span class="section-toggle" id="toggle-transport">▼</span>
+    </div>
+    <div class="section-body" id="body-transport">
+      <div class="field">
+        <div class="field-label">Type de transport principal</div>
+        <select id="f-transport-type">
+          <option value="">— Choisir —</option>
+          <option>STIB (Bruxelles)</option>
+          <option>SNCB (train)</option>
+          <option>TEC (Wallonie)</option>
+          <option>De Lijn (Flandre)</option>
+          <option>Voiture personnelle</option>
+          <option>Vélo / trottinette</option>
+          <option>À pied</option>
+          <option>Combinaison STIB + train</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label">Nom exact de l'abonnement</div>
+        <input type="text" id="f-transport-name" placeholder="ex: STIB Tout Bruxelles, SNCB 1ère classe...">
+      </div>
+      <div class="field">
+        <div class="field-label">Prix de l'abonnement</div>
+        <input type="text" id="f-transport-price" placeholder="ex: 52€ / mois · 125€ / trimestre · gratuit">
+        <div class="field-hint">L'employeur peut rembourser tout ou partie des frais de transport</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Distance domicile → travail (km)</div>
+        <input type="number" id="f-transport-km" placeholder="ex: 4" min="0" max="200">
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4: Disponibilités -->
+  <div class="section" id="sec-dispo">
+    <div class="section-head" onclick="toggleSection('dispo')">
+      <div class="section-title">
+        <span class="section-emoji">📅</span>
+        <span class="section-label">Disponibilités</span>
+        <span class="section-badge" id="badge-dispo"></span>
+      </div>
+      <span class="section-toggle" id="toggle-dispo">▼</span>
+    </div>
+    <div class="section-body" id="body-dispo">
+      <div class="field">
+        <div class="field-label">Jours disponibles pour travailler</div>
+        <div class="days-grid" id="days-grid">
+          <div class="day-btn" data-day="Lundi" onclick="toggleDay(this)">Lun</div>
+          <div class="day-btn" data-day="Mardi" onclick="toggleDay(this)">Mar</div>
+          <div class="day-btn" data-day="Mercredi" onclick="toggleDay(this)">Mer</div>
+          <div class="day-btn" data-day="Jeudi" onclick="toggleDay(this)">Jeu</div>
+          <div class="day-btn" data-day="Vendredi" onclick="toggleDay(this)">Ven</div>
+          <div class="day-btn" data-day="Samedi" onclick="toggleDay(this)">Sam</div>
+          <div class="day-btn" data-day="Dimanche" onclick="toggleDay(this)">Dim</div>
+        </div>
+        <div class="field-hint" style="margin-top:8px">Cochez tous les jours où vous êtes disponible · Le samedi est un jour clé en boutique</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Horaire préféré</div>
+        <select id="f-worktime">
+          <option value="">— Choisir votre disponibilité horaire —</option>
+          <option value="Toute la journée de 10h00 à 20h00">Toute la journée (10h → 20h) ← Idéal boutique</option>
+          <option value="Matin uniquement (avant 14h)">Matin uniquement (avant 14h)</option>
+          <option value="Après-midi uniquement (après 13h)">Après-midi uniquement (après 13h)</option>
+          <option value="Temps plein flexible">Temps plein flexible</option>
+          <option value="Temps partiel flexible">Temps partiel flexible</option>
+          <option value="Étudiant — horaires adaptables">Étudiant — horaires adaptables</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label">Disponible à partir du</div>
+        <input type="date" id="f-available-from">
+        <div class="field-hint">Laissez vide si vous êtes disponible immédiatement</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Contrat souhaité</div>
+        <select id="f-contract">
+          <option value="">— Choisir —</option>
+          <option>CDD</option>
+          <option>CDI</option>
+          <option>Contrat étudiant</option>
+          <option>Flexi-job</option>
+          <option>Intérim</option>
+          <option>Les deux (CDD ou CDI)</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label">Indisponibilités prévues (congés, examens, etc.)</div>
+        <textarea id="f-unavail" rows="2" placeholder="ex: vacances du 15 au 30 août · examens en juin · Ramadan..." style="resize:none"></textarea>
+        <div class="field-hint">Ces périodes seront respectées dans la planification</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 5: Langues -->
+  <div class="section" id="sec-langs">
+    <div class="section-head" onclick="toggleSection('langs')">
+      <div class="section-title">
+        <span class="section-emoji">🗣</span>
+        <span class="section-label">Langues parlées</span>
+        <span class="section-badge" id="badge-langs"></span>
+      </div>
+      <span class="section-toggle" id="toggle-langs">▼</span>
+    </div>
+    <div class="section-body" id="body-langs">
+      <div class="field-hint" style="margin-bottom:12px;font-size:.76rem">Indiquez votre niveau pour chaque langue · FR + AR sont essentiels chez Caftan Factory</div>
+      <div id="langs-container">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 6: Documents — Upload direct -->
+  <div class="section" id="sec-docs">
+    <div class="section-head" onclick="toggleSection('docs')">
+      <div class="section-title">
+        <span class="section-emoji">📎</span>
+        <span class="section-label">Documents</span>
+        <span class="section-badge" id="badge-docs"></span>
+      </div>
+      <span class="section-toggle" id="toggle-docs">▼</span>
+    </div>
+    <div class="section-body" id="body-docs">
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:var(--rs);padding:11px 14px;margin-bottom:16px;font-size:.76rem;color:#0369a1;line-height:1.5">
+        📱 <strong>Simple et rapide</strong> — Appuyez sur chaque zone pour choisir un fichier depuis votre téléphone ou ordinateur. PDF, photos et images sont acceptés.
+      </div>
+
+      <!-- CV -->
+      <div class="field">
+        <div class="field-label">📄 CV <span class="req">*</span></div>
+        <div class="upload-zone" id="uz-cv" onclick="triggerUpload('cv')" ondragover="dragOver(event,this)" ondragleave="dragLeave(this)" ondrop="dropFile(event,'cv')">
+          <input type="file" id="fi-cv" accept=".pdf,.doc,.docx,image/*" onchange="handleFile(this,'cv')" style="display:none">
+          <div class="upload-idle" id="ui-cv">
+            <div class="upload-icon">📄</div>
+            <div class="upload-label">Appuyez pour choisir votre CV</div>
+            <div class="upload-hint">PDF, Word ou image · max 10 Mo</div>
+          </div>
+          <div class="upload-progress" id="up-cv" style="display:none">
+            <div class="up-bar-wrap"><div class="up-bar" id="upb-cv"></div></div>
+            <div class="up-pct" id="upp-cv">0%</div>
+          </div>
+          <div class="upload-done" id="ud-cv" style="display:none">
+            <span class="ud-icon">✅</span>
+            <span class="ud-name" id="udn-cv"></span>
+            <a class="ud-view" id="udv-cv" target="_blank">Voir →</a>
+            <button class="ud-remove" onclick="removeUpload(event,'cv')">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CIN -->
+      <div class="field">
+        <div class="field-label">🪪 Carte d'identité recto/verso <span class="req">*</span></div>
+        <div class="upload-zone" id="uz-cin" onclick="triggerUpload('cin')" ondragover="dragOver(event,this)" ondragleave="dragLeave(this)" ondrop="dropFile(event,'cin')">
+          <input type="file" id="fi-cin" accept=".pdf,image/*" onchange="handleFile(this,'cin')" style="display:none">
+          <div class="upload-idle" id="ui-cin">
+            <div class="upload-icon">🪪</div>
+            <div class="upload-label">Photo ou scan recto/verso</div>
+            <div class="upload-hint">JPG, PNG ou PDF · Requis pour l'enregistrement ONSS</div>
+          </div>
+          <div class="upload-progress" id="up-cin" style="display:none">
+            <div class="up-bar-wrap"><div class="up-bar" id="upb-cin"></div></div>
+            <div class="up-pct" id="upp-cin">0%</div>
+          </div>
+          <div class="upload-done" id="ud-cin" style="display:none">
+            <span class="ud-icon">✅</span>
+            <span class="ud-name" id="udn-cin"></span>
+            <a class="ud-view" id="udv-cin" target="_blank">Voir →</a>
+            <button class="ud-remove" onclick="removeUpload(event,'cin')">✕</button>
+          </div>
+        </div>
+        <div class="field-hint">Traitement strictement confidentiel — utilisé uniquement pour l'administration</div>
+      </div>
+
+      <!-- Photo (optionnel) -->
+      <div class="field">
+        <div class="field-label">📸 Photo professionnelle <span style="font-size:.68rem;color:#999;font-weight:400;text-transform:none">(optionnel)</span></div>
+        <div class="upload-zone" id="uz-photo" onclick="triggerUpload('photo')" ondragover="dragOver(event,this)" ondragleave="dragLeave(this)" ondrop="dropFile(event,'photo')">
+          <input type="file" id="fi-photo" accept="image/*" onchange="handleFile(this,'photo')" style="display:none">
+          <div class="upload-idle" id="ui-photo">
+            <div class="upload-icon">📸</div>
+            <div class="upload-label">Photo de profil ou selfie professionnel</div>
+            <div class="upload-hint">JPG ou PNG — optionnel</div>
+          </div>
+          <div class="upload-progress" id="up-photo" style="display:none">
+            <div class="up-bar-wrap"><div class="up-bar" id="upb-photo"></div></div>
+            <div class="up-pct" id="upp-photo">0%</div>
+          </div>
+          <div class="upload-done" id="ud-photo" style="display:none">
+            <span class="ud-icon">✅</span>
+            <span class="ud-name" id="udn-photo"></span>
+            <a class="ud-view" id="udv-photo" target="_blank">Voir →</a>
+            <button class="ud-remove" onclick="removeUpload(event,'photo')">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Autre document -->
+      <div class="field">
+        <div class="field-label">📋 Autre document <span style="font-size:.68rem;color:#999;font-weight:400;text-transform:none">(diplôme, attestation — optionnel)</span></div>
+        <div class="upload-zone" id="uz-other" onclick="triggerUpload('other')" ondragover="dragOver(event,this)" ondragleave="dragLeave(this)" ondrop="dropFile(event,'other')">
+          <input type="file" id="fi-other" accept=".pdf,.doc,.docx,image/*" onchange="handleFile(this,'other')" style="display:none">
+          <div class="upload-idle" id="ui-other">
+            <div class="upload-icon">📋</div>
+            <div class="upload-label">Diplôme, certificat, attestation...</div>
+            <div class="upload-hint">PDF ou image — optionnel</div>
+          </div>
+          <div class="upload-progress" id="up-other" style="display:none">
+            <div class="up-bar-wrap"><div class="up-bar" id="upb-other"></div></div>
+            <div class="up-pct" id="upp-other">0%</div>
+          </div>
+          <div class="upload-done" id="ud-other" style="display:none">
+            <span class="ud-icon">✅</span>
+            <span class="ud-name" id="udn-other"></span>
+            <a class="ud-view" id="udv-other" target="_blank">Voir →</a>
+            <button class="ud-remove" onclick="removeUpload(event,'other')">✕</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SECTION 7: Message libre -->
+  <div class="section" id="sec-message">
+    <div class="section-head" onclick="toggleSection('message')">
+      <div class="section-title">
+        <span class="section-emoji">💬</span>
+        <span class="section-label">Message libre</span>
+        <span class="section-badge section-badge done" id="badge-message">Optionnel</span>
+      </div>
+      <span class="section-toggle" id="toggle-message">▼</span>
+    </div>
+    <div class="section-body" id="body-message">
+      <div class="field">
+        <textarea id="f-message" rows="4" placeholder="Questions, précisions, informations complémentaires que vous souhaitez nous communiquer..." style="resize:none"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-section">
+    <button class="btn-submit" id="btn-submit" onclick="submitForm()">
+      <span>📤</span>
+      <span>Envoyer mon dossier</span>
+    </button>
+    <div class="submit-note">Vos données sont transmises directement et de façon sécurisée à l'équipe RH de Caftan Factory.<br>Elles seront traitées conformément au RGPD.</div>
+  </div>
+
+</div>
+
+<!-- Success screen -->
+<div class="success-screen" id="success-screen">
+  <div class="success-icon">🎉</div>
+  <div class="success-title" style="color:var(--or)">Dossier envoyé !</div>
+  <p class="success-text" style="color:rgba(255,255,255,.7)">Merci <strong id="success-name" style="color:var(--or)"></strong> ! Votre dossier a bien été reçu par l'équipe RH de Caftan Factory. Nous vous contacterons très prochainement.</p>
+  <div style="margin-top:24px;font-size:.8rem;color:rgba(255,255,255,.4)">Vous pouvez fermer cette page.</div>
+</div>
+
+</div><!-- .bg -->
+
+<script>
+// ══════════════════════════════════════════════════════
+// CONFIG — À synchroniser avec recrutement.html
+// ══════════════════════════════════════════════════════
+const CF = {
+  name:'Caftan Factory',
+  email:'hr@caftanfactory.com',
+  wa:'32468596100',
+};
+
+// JSONBin.io — clé API + bin ID (configurables via URL params)
+// Le bin ID est créé automatiquement par recrutement.html
+let JSONBIN_KEY  = '$2a$10$YOUR_JSONBIN_KEY'; // remplacer
+let JSONBIN_BIN  = null; // passé via URL ?bin=XXX
+let CANDIDATE_ID = null; // passé via URL ?cid=XXX
+let CANDIDATE_DATA = {}; // données GF existantes du candidat
+
+// ── Cloudinary — upload direct sans serveur ──
+// Créez un compte gratuit sur cloudinary.com
+// Dashboard → Settings → Upload → Add upload preset (unsigned, mode=unsigned)
+const CLOUDINARY = {
+  cloudName:    'drzkhse8u',
+  uploadPreset: 'caftan_rh',         // Preset unsigned à créer sur Cloudinary
+};
+// Résultats des uploads : {cv:'https://...', cin:'https://...', ...}
+const uploads = {};
+
+
+// Langues configurées
+const LANGS = [
+  {code:'FR', label:'🇫🇷 Français', essential:true},
+  {code:'AR', label:'🇸🇦 Arabe', essential:true},
+  {code:'NL', label:'🇳🇱 Néerlandais', essential:false},
+  {code:'EN', label:'🇬🇧 Anglais', essential:false},
+  {code:'ES', label:'🇪🇸 Espagnol', essential:false},
+  {code:'IT', label:'🇮🇹 Italien', essential:false},
+  {code:'TR', label:'🇹🇷 Turc', essential:false},
+  {code:'PT', label:'🇵🇹 Portugais', essential:false},
+];
+const LEVELS = ['Débutant','Intermédiaire','Courant','Langue maternelle'];
+let langValues = {}; // {FR:'Courant', AR:'Langue maternelle', ...}
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+window.addEventListener('load', async ()=>{
+  // Parse URL params
+  const p = new URLSearchParams(location.search);
+  JSONBIN_BIN  = p.get('bin')   || localStorage.getItem('cf_form_bin');
+  CANDIDATE_ID = p.get('cid')   || '';
+  JSONBIN_KEY  = p.get('key')   || JSONBIN_KEY;
+  if(p.get('cloud')) CLOUDINARY.cloudName = p.get('cloud'); // URL param overrides hardcoded value
+  if(p.get('preset')) CLOUDINARY.uploadPreset = p.get('preset');
+
+  // Update CF email display
+  document.querySelectorAll('#cf-email-display').forEach(el=>el.textContent=CF.email);
+
+  // Build language rows
+  buildLangRows();
+
+  if(!JSONBIN_BIN){
+    document.getElementById('error-banner').style.display='flex';
+    document.getElementById('greeting').style.display='none';
+    return;
+  }
+
+  // Load existing candidate data from JSONBin
+  showLoading('Chargement de votre dossier...');
+  try{
+    const data = await loadFromBin();
+    CANDIDATE_DATA = data || {};
+    hideLoading();
+    prefillForm(CANDIDATE_DATA);
+    showGreeting(CANDIDATE_DATA);
+    showStatusBanner(CANDIDATE_DATA);
+    updateProgress();
+    startAutosave();
+  }catch(e){
+    hideLoading();
+    // If bin not found, show blank form
+    CANDIDATE_DATA={};
+    updateProgress();
+    startAutosave();
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// JSONBIN API
+// ══════════════════════════════════════════════════════
+async function loadFromBin(){
+  if(!JSONBIN_BIN) return null;
+  const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN}/latest`,{
+    headers:{'X-Master-Key':JSONBIN_KEY,'X-Bin-Meta':'false'}
+  });
+  if(!r.ok) throw new Error('Bin introuvable ('+r.status+')');
+  return await r.json();
+}
+
+async function saveToBin(data){
+  if(!JSONBIN_BIN) return;
+  const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN}`,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error('Sauvegarde échouée ('+r.status+')');
+  return await r.json();
+}
+
+async function createBin(data){
+  const r = await fetch('https://api.jsonbin.io/v3/b',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Name':'CaftanRH-'+Date.now(),'X-Bin-Private':'false'},
+    body: JSON.stringify(data)
+  });
+  const j = await r.json();
+  return j.metadata?.id;
+}
+
+// ══════════════════════════════════════════════════════
+// PRÉ-REMPLISSAGE
+// ══════════════════════════════════════════════════════
+function prefillForm(d){
+  const adm = d.adminData||{};
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if(!el || !val) return;
+    el.value = val;
+    if(['f-firstname','f-lastname','f-email','f-phone','f-birthdate'].includes(id)){
+      el.classList.add('prefilled');
+    }
+  };
+
+  set('f-firstname', d.firstname);
+  set('f-lastname',  d.lastname);
+  set('f-email',     d.email);
+  set('f-phone',     d.phone);
+  set('f-birthdate', d.birthdate);
+  set('f-birthcity', adm.ville_nais || d.birthcity);
+  set('f-nationality', adm.nationalite || d.nationality);
+  set('f-nrn',       adm.nrn || d.nrn);
+  set('f-address',   adm.adresse || d.address);
+  set('f-iban',      adm.iban && adm.iban.includes('****') ? '' : adm.iban);
+  set('f-iban-name', d.ibanName || (d.firstname+' '+d.lastname));
+  set('f-transport-type', adm.transport || d.transportType);
+  set('f-transport-name', d.transportName);
+  set('f-transport-price', adm.transport_prix || d.transportPrice);
+  set('f-transport-km',   d.transportKm);
+  set('f-worktime',  d.worktime);
+  set('f-available-from', d.availableFrom);
+  set('f-contract',  d.contractType);
+  set('f-cv',        d.cv || d.cvUrl);
+  set('f-cin',       adm.cin_pdf || d.cin);
+  set('f-unavail', (d.unavailableDays||[]).map(u=>(u.label||'')+(u.from?' '+u.from:'')+(u.to?' → '+u.to:'')).filter(Boolean).join('\n'));
+
+  // Pre-fill uploaded files if already present
+  prefillUploads(d);
+  const dispoRaw = (d.dispo||'').toLowerCase();
+  document.querySelectorAll('.day-btn').forEach(btn=>{
+    const day = btn.dataset.day.toLowerCase().slice(0,3);
+    if(dispoRaw.includes(day)){
+      btn.classList.add('checked');
+      btn.classList.add('prefilled-day');
+    }
+  });
+
+  // Langues
+  if(Array.isArray(d.langs) && d.langs.length){
+    d.langs.forEach(code=>{
+      langValues[code] = langValues[code] || 'Courant'; // default confirmed = Courant
+    });
+    // If form has level data
+    if(d.langLevels){ Object.assign(langValues, d.langLevels); }
+    renderLangValues();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// GREETING & STATUS
+// ══════════════════════════════════════════════════════
+function showGreeting(d){
+  const el = document.getElementById('greeting');
+  const nameEl = document.getElementById('greeting-name');
+  const textEl = document.getElementById('greeting-text');
+  if(!d.firstname){ el.style.display='none'; return; }
+  el.style.display='block';
+  nameEl.textContent = 'Bonjour '+d.firstname+' 👋';
+  const adm=d.adminData||{};
+  const missing=[
+    !adm.nrn&&'N° national',!adm.ville_nais&&'Ville de naissance',
+    !adm.nationalite&&'Nationalité',!adm.adresse&&'Adresse',
+    !adm.iban&&'IBAN',!d.cv&&'CV',
+    !adm.cin_pdf&&'CIN PDF',!(d.langs&&d.langs.length)&&'Langues',
+  ].filter(Boolean);
+  if(missing.length===0){
+    textEl.textContent = 'Votre dossier est complet. Vérifiez les informations ci-dessous et confirmez si tout est correct.';
+  }else{
+    textEl.textContent = `Votre dossier est en cours de constitution. Merci de compléter les ${missing.length} information(s) manquante(s) : ${missing.join(', ')}.`;
+  }
+}
+
+function showStatusBanner(d){
+  const adm=d.adminData||{};
+  const missing=[!adm.nrn,!adm.ville_nais,!adm.nationalite,!adm.adresse,!adm.iban,!d.cv,!adm.cin_pdf,!(d.langs&&d.langs.length)].filter(Boolean).length;
+  const banner=document.getElementById('status-banner');
+  const icon=document.getElementById('status-icon');
+  const title=document.getElementById('status-title');
+  const desc=document.getElementById('status-desc');
+  banner.style.display='flex';
+  if(missing===0){
+    banner.className='status-banner ok';
+    icon.textContent='✅';
+    title.textContent='Dossier complet !';
+    desc.textContent='Nous avons toutes vos informations. Vérifiez et confirmez.';
+  }else{
+    banner.className='status-banner warn';
+    icon.textContent='📋';
+    title.textContent=missing+' information(s) à compléter';
+    desc.textContent='Les champs marqués ★ sont prioritaires. Remplissez-les puis cliquez "Envoyer".';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// SECTIONS — toggle
+// ══════════════════════════════════════════════════════
+function toggleSection(id){
+  const body=document.getElementById('body-'+id);
+  const head=document.querySelector('#sec-'+id+' .section-head');
+  const tog=document.getElementById('toggle-'+id);
+  const open=body.classList.contains('open');
+  body.classList.toggle('open',!open);
+  if(head) head.classList.toggle('open',!open);
+  if(tog) tog.classList.toggle('open',!open);
+}
+
+// ══════════════════════════════════════════════════════
+// JOURS
+// ══════════════════════════════════════════════════════
+function toggleDay(btn){
+  btn.classList.toggle('checked');
+  btn.classList.remove('prefilled-day');
+  updateProgress();
+  autoSaveDebounced();
+}
+
+function getSelectedDays(){
+  return [...document.querySelectorAll('.day-btn.checked')].map(b=>b.dataset.day);
+}
+
+// ══════════════════════════════════════════════════════
+// LANGUES
+// ══════════════════════════════════════════════════════
+function buildLangRows(){
+  const container=document.getElementById('langs-container');
+  container.innerHTML=LANGS.map(lang=>`
+    <div class="lang-row">
+      <div class="lang-name">${lang.label}${lang.essential?'<br><span style="font-size:.6rem;color:var(--rouge)">★ Requis</span>':''}</div>
+      <div class="lang-levels" id="levels-${lang.code}">
+        <div class="lang-level" data-lang="${lang.code}" data-level="Pas du tout" onclick="setLangLevel('${lang.code}','Pas du tout',this)">✗ Pas du tout</div>
+        ${LEVELS.map(lv=>`<div class="lang-level" data-lang="${lang.code}" data-level="${lv}" onclick="setLangLevel('${lang.code}','${lv}',this)">${lv}</div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function setLangLevel(code, level, btn){
+  langValues[code] = level;
+  const container=document.getElementById('levels-'+code);
+  container.querySelectorAll('.lang-level').forEach(el=>{
+    el.classList.toggle('active', el.dataset.level===level);
+  });
+  updateProgress();
+  autoSaveDebounced();
+}
+
+function renderLangValues(){
+  Object.entries(langValues).forEach(([code, level])=>{
+    const container=document.getElementById('levels-'+code);
+    if(!container) return;
+    container.querySelectorAll('.lang-level').forEach(el=>{
+      if(el.dataset.level===level){
+        el.classList.add('active');
+        if(['Courant','Langue maternelle'].includes(level)) el.classList.add('known-lang');
+      }
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// PROGRESSION
+// ══════════════════════════════════════════════════════
+function calcProgress(){
+  const fields=[
+    document.getElementById('f-nrn')?.value,
+    document.getElementById('f-birthcity')?.value,
+    document.getElementById('f-nationality')?.value,
+    document.getElementById('f-address')?.value,
+    document.getElementById('f-iban')?.value,
+    document.getElementById('f-cv')?.value,
+    document.getElementById('f-cin')?.value,
+    getSelectedDays().length>0?'ok':'',
+    Object.keys(langValues).length>0?'ok':'',
+    document.getElementById('f-worktime')?.value,
+  ];
+  const filled=fields.filter(f=>f&&String(f).trim()).length;
+  // Base fields (always filled from GF)
+  const baseFields=[
+    document.getElementById('f-firstname')?.value,
+    document.getElementById('f-lastname')?.value,
+    document.getElementById('f-email')?.value,
+    document.getElementById('f-phone')?.value,
+    document.getElementById('f-birthdate')?.value,
+  ];
+  const baseFilled=baseFields.filter(f=>f&&String(f).trim()).length;
+  const total=fields.length+baseFields.length;
+  return Math.round((filled+baseFilled)/total*100);
+}
+
+function updateProgress(){
+  const pct=calcProgress();
+  const fill=document.getElementById('progress-fill');
+  const label=document.getElementById('progress-label');
+  if(fill) fill.style.width=pct+'%';
+  if(label) label.textContent=pct+'% complet';
+  // Update section badges
+  updateBadges();
+}
+
+function updateBadges(){
+  const setBadge=(id, done, total, label)=>{
+    const el=document.getElementById('badge-'+id);
+    if(!el) return;
+    if(total===0){el.textContent='';return;}
+    if(done>=total){el.textContent='✓ Complet';el.className='section-badge done';}
+    else if(done>0){el.textContent=done+'/'+total;el.className='section-badge partial';}
+    else{el.textContent=total+' champs';el.className='section-badge missing';}
+  };
+  const v=(id)=>document.getElementById(id)?.value?.trim();
+  setBadge('identity',
+    [v('f-firstname'),v('f-lastname'),v('f-email'),v('f-phone'),v('f-birthdate'),v('f-birthcity'),v('f-nationality'),v('f-nrn'),v('f-address')].filter(Boolean).length,9);
+  setBadge('finance',[v('f-iban'),v('f-iban-name')].filter(Boolean).length,2);
+  setBadge('transport',[v('f-transport-type'),v('f-transport-price')].filter(Boolean).length,2);
+  setBadge('dispo',[getSelectedDays().length>0?'ok':'',v('f-worktime')].filter(Boolean).length,2);
+  setBadge('langs',Object.keys(langValues).length,LANGS.length);
+  setBadge('docs',[uploads.cv||v('f-cv'), uploads.cin||v('f-cin')].filter(Boolean).length,2);
+}
+
+// ══════════════════════════════════════════════════════
+// AUTOSAVE (localStorage + JSONBin silencieux)
+// ══════════════════════════════════════════════════════
+let _autoSaveTimer;
+function autoSaveDebounced(){ clearTimeout(_autoSaveTimer); _autoSaveTimer=setTimeout(autoSave,2500); }
+function startAutosave(){ setInterval(autoSave, 60000); } // every minute
+
+async function autoSave(){
+  const data=collectFormData();
+  // Save locally
+  if(JSONBIN_BIN) localStorage.setItem('cf_form_draft_'+JSONBIN_BIN, JSON.stringify(data));
+  // Show indicator
+  const ind=document.getElementById('autosave-indicator');
+  ind.classList.add('show'); setTimeout(()=>ind.classList.remove('show'),2000);
+}
+
+// ══════════════════════════════════════════════════════
+// COLLECT FORM DATA
+// ══════════════════════════════════════════════════════
+function collectFormData(){
+  const v=(id)=>document.getElementById(id)?.value?.trim()||'';
+  const days=getSelectedDays();
+  // Build langues list (those with level set)
+  const langs=Object.entries(langValues).filter(([,lv])=>lv&&lv!=='Pas du tout').map(([code])=>code);
+  const langLevels={...langValues};
+
+  return {
+    // Identité
+    firstname: v('f-firstname'),
+    lastname:  v('f-lastname'),
+    email:     v('f-email'),
+    phone:     v('f-phone'),
+    birthdate: v('f-birthdate'),
+    // Admin data
+    adminData:{
+      ville_nais:    v('f-birthcity'),
+      nationalite:   v('f-nationality'),
+      nrn:           v('f-nrn'),
+      adresse:       v('f-address'),
+      iban:          v('f-iban'),
+      ibanName:      v('f-iban-name'),
+      transport:     v('f-transport-type'),
+      transportName: v('f-transport-name'),
+      transport_prix:v('f-transport-price'),
+      transportKm:   v('f-transport-km'),
+      cin_pdf:       uploads.cin  || v('f-cin') || '',
+    },
+    // Dispo
+    dispo:        days.join(', '),
+    nbJours:      days.length,
+    worktime:     v('f-worktime'),
+    availableFrom:v('f-available-from'),
+    contractType: v('f-contract'),
+    // Langues
+    langs,
+    langLevels,
+    // Docs — depuis les uploads Cloudinary
+    cv:      uploads.cv      || v('f-cv')   || '',
+    photo:   uploads.photo   || v('f-photo')|| '',
+    otherDoc:uploads.other   || v('f-other-doc')|| '',
+    // Message
+    message: v('f-message'),
+    // Meta
+    candidateId:     CANDIDATE_ID,
+    submittedAt:     new Date().toISOString(),
+    formVersion:     '2.0',
+    _formComplete:   true,
+  };
+}
+
+// ══════════════════════════════════════════════════════
+// SUBMIT
+// ══════════════════════════════════════════════════════
+async function submitForm(){
+  const btn=document.getElementById('btn-submit');
+  // Basic validation
+  const email=document.getElementById('f-email')?.value?.trim();
+  const nrn=document.getElementById('f-nrn')?.value?.trim();
+  if(!email || !email.includes('@')){
+    alert('Merci de vérifier votre adresse email.'); return;
+  }
+
+  btn.disabled=true;
+  btn.innerHTML='<div class="spinner" style="width:20px;height:20px;border-width:2px"></div> <span>Envoi en cours...</span>';
+  showLoading('Envoi de votre dossier...');
+
+  try{
+    const data = collectFormData();
+
+    if(JSONBIN_BIN){
+      await saveToBin(data);
+    }else{
+      // Fallback: create a new bin
+      const binId = await createBin(data);
+      JSONBIN_BIN = binId;
+      localStorage.setItem('cf_form_bin', binId);
+    }
+
+    // Clear local draft
+    if(JSONBIN_BIN) localStorage.removeItem('cf_form_draft_'+JSONBIN_BIN);
+
+    hideLoading();
+    // Show success
+    document.getElementById('form-wrap').style.display='none';
+    const succ=document.getElementById('success-screen');
+    succ.style.display='block';
+    document.getElementById('success-name').textContent=data.firstname||'';
+    window.scrollTo(0,0);
+
+  }catch(e){
+    hideLoading();
+    btn.disabled=false;
+    btn.innerHTML='<span>📤</span><span>Envoyer mon dossier</span>';
+    alert('Erreur lors de l\'envoi : '+e.message+'\n\nMerci d\'essayer à nouveau ou de contacter '+CF.email);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// UI HELPERS
+// ══════════════════════════════════════════════════════
+function showLoading(msg){
+  const el=document.getElementById('loading');
+  const txt=document.getElementById('loading-text');
+  el.classList.add('show');
+  if(txt) txt.textContent=msg||'Chargement...';
+}
+function hideLoading(){ document.getElementById('loading').classList.remove('show'); }
+
+// Live updates on input
+document.addEventListener('input', function(e){
+  if(e.target.closest('.wrap')){
+    updateProgress();
+    autoSaveDebounced();
+  }
+});
+// ══════════════════════════════════════════════════════
+// UPLOAD CLOUDINARY — Direct depuis le navigateur
+// ══════════════════════════════════════════════════════
+
+function triggerUpload(key){
+  // Don't trigger if clicking remove button or view link
+  document.getElementById('fi-'+key)?.click();
+}
+
+function dragOver(e, zone){
+  e.preventDefault();
+  zone.classList.add('drag');
+}
+function dragLeave(zone){
+  zone.classList.remove('drag');
+}
+function dropFile(e, key){
+  e.preventDefault();
+  const zone = document.getElementById('uz-'+key);
+  if(zone) zone.classList.remove('drag');
+  const file = e.dataTransfer?.files?.[0];
+  if(file) uploadFile(file, key);
+}
+
+function handleFile(input, key){
+  const file = input.files?.[0];
+  if(file) uploadFile(file, key);
+  // Reset input so same file can be re-selected
+  input.value='';
+}
+
+async function uploadFile(file, key){
+  // Validation
+  const maxMb = 10;
+  if(file.size > maxMb*1024*1024){
+    alert(`Ce fichier est trop volumineux (${(file.size/1024/1024).toFixed(1)} Mo).\nLimite : ${maxMb} Mo.`);
+    return;
+  }
+  const allowed = ['image/jpeg','image/png','image/gif','image/webp','application/pdf',
+    'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+  if(!allowed.includes(file.type) && !file.name.match(/\.(pdf|jpg|jpeg|png|doc|docx)$/i)){
+    alert('Format non accepté. Utilisez PDF, JPG, PNG ou Word.');
+    return;
+  }
+
+  // Check Cloudinary config
+  if(!CLOUDINARY.cloudName || CLOUDINARY.cloudName==='YOUR_CLOUD_NAME'){
+    // Fallback: show error with setup instructions
+    showCloudinarySetupError(key);
+    return;
+  }
+
+  // Show progress
+  showUploadProgress(key);
+
+  try{
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY.uploadPreset);
+    // Nom de fichier unique garanti : candidatID_type_timestamp
+    // Évite les conflits même si deux candidats uploadent le même fichier
+    const uniqueName = (CANDIDATE_ID||'anon').replace(/[^a-zA-Z0-9]/g,'_')+'_'+key+'_'+Date.now();
+    formData.append('public_id', uniqueName);
+    formData.append('asset_folder', 'caftan_rh');
+    formData.append('tags', 'caftan_rh,'+key+','+(CANDIDATE_ID||'unknown'));
+
+    const xhr = new XMLHttpRequest();
+    const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/auto/upload`;
+
+    // Progress tracking
+    xhr.upload.addEventListener('progress', e=>{
+      if(e.lengthComputable){
+        const pct = Math.round(e.loaded/e.total*100);
+        setUploadProgress(key, pct);
+      }
+    });
+
+    // Wrap XHR in Promise
+    const result = await new Promise((resolve, reject)=>{
+      xhr.onload = ()=>{
+        if(xhr.status===200){
+          try{ resolve(JSON.parse(xhr.responseText)); }
+          catch(e){ reject(new Error('Réponse invalide')); }
+        } else {
+          reject(new Error('Erreur '+xhr.status+': '+xhr.responseText));
+        }
+      };
+      xhr.onerror = ()=>reject(new Error('Erreur réseau'));
+      xhr.open('POST', url);
+      xhr.send(formData);
+    });
+
+    // Success
+    const fileUrl = result.secure_url;
+    uploads[key] = fileUrl;
+
+    showUploadDone(key, file.name, fileUrl);
+    updateProgress();
+    autoSaveDebounced();
+
+  }catch(err){
+    showUploadIdle(key);
+    alert('Erreur lors de l\'envoi du fichier : '+err.message+'\n\nVérifiez votre connexion et réessayez.');
+    console.error('[Upload]', key, err);
+  }
+}
+
+function showUploadProgress(key){
+  document.getElementById('ui-'+key).style.display='none';
+  document.getElementById('up-'+key).style.display='block';
+  document.getElementById('ud-'+key).style.display='none';
+  setUploadProgress(key, 0);
+}
+
+function setUploadProgress(key, pct){
+  const bar = document.getElementById('upb-'+key);
+  const pctEl = document.getElementById('upp-'+key);
+  if(bar) bar.style.width = pct+'%';
+  if(pctEl) pctEl.textContent = pct < 100 ? pct+'% — Envoi en cours...' : '✅ Traitement...';
+}
+
+function showUploadDone(key, filename, url){
+  document.getElementById('ui-'+key).style.display='none';
+  document.getElementById('up-'+key).style.display='none';
+  const done = document.getElementById('ud-'+key);
+  done.style.display='flex';
+  const nameEl = document.getElementById('udn-'+key);
+  const viewEl = document.getElementById('udv-'+key);
+  if(nameEl) nameEl.textContent = filename;
+  if(viewEl){ viewEl.href=url; viewEl.style.display='inline-block'; }
+}
+
+function showUploadIdle(key){
+  document.getElementById('ui-'+key).style.display='block';
+  document.getElementById('up-'+key).style.display='none';
+  document.getElementById('ud-'+key).style.display='none';
+}
+
+function removeUpload(e, key){
+  e.stopPropagation();
+  delete uploads[key];
+  showUploadIdle(key);
+  updateProgress();
+  autoSaveDebounced();
+}
+
+// Prefill existing uploads
+function prefillUploads(d){
+  const adm = d.adminData||{};
+  if(d.cv)        showUploadDone('cv',  'CV existant', d.cv);
+  if(adm.cin_pdf) showUploadDone('cin', 'CIN existant', adm.cin_pdf);
+  if(d.photo)     showUploadDone('photo', 'Photo existante', d.photo);
+  // Store in uploads object
+  if(d.cv)        uploads.cv    = d.cv;
+  if(adm.cin_pdf) uploads.cin   = adm.cin_pdf;
+  if(d.photo)     uploads.photo = d.photo;
+}
+
+function showCloudinarySetupError(key){
+  // Show inline setup message instead of blocking alert
+  const idle = document.getElementById('ui-'+key);
+  if(idle) idle.innerHTML = `
+    <div style="padding:4px">
+      <div style="font-size:.78rem;font-weight:700;color:#dc2626;margin-bottom:8px">⚠️ Configuration Cloudinary requise</div>
+      <div style="font-size:.7rem;color:#666;line-height:1.6;text-align:left">
+        1. Créez un compte gratuit sur <strong>cloudinary.com</strong><br>
+        2. Dashboard → Settings → Upload → <strong>Add upload preset</strong><br>
+        3. Choisissez "Unsigned" · Nom : <code>caftan_rh</code><br>
+        4. Dans CaftanRH → ⚙️ Paramètres → ajoutez votre <strong>Cloud name</strong><br>
+        5. Le lien sera regénéré avec les bonnes clés
+      </div>
+    </div>`;
+}
+
+</script>
+</body>
+</html>
