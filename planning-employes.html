@@ -339,7 +339,10 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 <body>
 
 <div class="topbar" id="topbar" style="display:none">
-  <div class="logo">Gesti<span>Planning</span></div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <div class="logo">Gesti<span>Planning</span></div>
+    <span style="background:#2d5be3;color:#fff;font-size:.65rem;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap">v2026.04.25</span>
+  </div>
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
     <!-- Undo / Redo -->
     <button id="btn-undo" onclick="histUndo()" title="Annuler (Ctrl+Z)"
@@ -1671,7 +1674,8 @@ function isPeriodForte(date){
 // Format: { jour: [{debut, fin, vendeurs, role}] }
 // jour: 0=Dim, 1=Lun, 2=Mar, 3=Mer, 4=Jeu, 5=Ven, 6=Sam
 const STORE_NEEDS = {
-  SCH: {
+  // A = Schaerbeek — Rue de Brabant 230 — Lun→Sam + Dim
+  A: {
     1: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
     2: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
@@ -1680,7 +1684,8 @@ const STORE_NEEDS = {
     6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
     0: [{debut:'12:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
   },
-  MOL: {
+  // B = Molenbeek — Rue Ransfort 67 — Lun→Sam
+  B: {
     1: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
     2: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
@@ -1689,7 +1694,8 @@ const STORE_NEEDS = {
     6: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
     0: [],
   },
-  ANT: {
+  // C = Anvers — Lange Kievitstraat 64 — Lun→Sam
+  C: {
     1: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
     2: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
@@ -1698,7 +1704,37 @@ const STORE_NEEDS = {
     6: [{debut:'10:00',fin:'18:30',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'17:00',vendeurs:1,role:'Vendeur(se)'}],
     0: [],
   },
+  // D = Entrepôt Bruxelles — livraisons et stock
+  D: {
+    1: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
+    2: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
+    3: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
+    4: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
+    5: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
+    6: [], 0: [],
+  },
+  // E = Online / Télétravail
+  E: {
+    1: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
+    2: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
+    3: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
+    4: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
+    5: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
+    6: [], 0: [],
+  },
+  // F = Événements / Déplacements Belgique
+  F: {
+    6: [{debut:'09:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
+    0: [{debut:'10:00',fin:'18:00',vendeurs:2,role:'Vendeur(se)'}],
+    1: [], 2: [], 3: [], 4: [], 5: [],
+  },
+  // Aliases pour compatibilité anciens données
+  SCH: null, MOL: null, ANT: null,
 };
+// Résoudre les aliases
+STORE_NEEDS.SCH = STORE_NEEDS.A;
+STORE_NEEDS.MOL = STORE_NEEDS.B;
+STORE_NEEDS.ANT = STORE_NEEDS.C;
 
 // Obtenir les besoins pour une date précise (avec multiplicateur période forte)
 function getBesoinsDate(siteId, date){
@@ -1729,19 +1765,46 @@ function getWorkerAvailability(e){
 // Vérifier si un travailleur est disponible pour un créneau précis
 function isWorkerAvailable(e, date, debut, fin){
   const d = new Date(date);
-  const day = d.getDay();
+  const day = d.getDay(); // JS: 0=Dim, 1=Lun...
   const avail = getWorkerAvailability(e);
   const debH = timeToMin(debut);
   const finH = timeToMin(fin);
 
-  // Vérifier indisponibilités (récurrentes ou ponctuelles)
+  // 1. Vérifier indisponibilités récurrentes
   for(const u of (avail.unavail||[])){
-    if(u.day !== day && u.day !== undefined) continue;
+    if(!u.recurrent) continue;
+    if(u.day !== day) continue;
     const uDeb = timeToMin(u.debut||'00:00');
     const uFin = timeToMin(u.fin||'23:59');
-    // Chevauchement ?
     if(debH < uFin && finH > uDeb) return false;
   }
+
+  // 2. Vérifier jours fixes de congé (fixedOff/prefOff)
+  const fixedOff = e.fixedOff||e.prefOff||[];
+  // Convertir day JS (0=Dim) → idx semaine (0=Lun) pour matcher fixedOff
+  const dayIdx = (day===0)?6:(day-1);
+  if(fixedOff.includes(dayIdx)) return false;
+
+  // 3. Si des préférences sont définies → vérifier que ce jour est dans les prefs
+  const prefs = avail.preferred||[];
+  if(prefs.length > 0){
+    const dayPrefs = prefs.filter(p=>p.day===day);
+    if(dayPrefs.length === 0) return false; // ce jour n'est pas dans les préférences
+    // Vérifier que le créneau est dans au moins une préférence
+    const inPref = dayPrefs.some(p=>{
+      const pDeb=timeToMin(p.debut||'10:00');
+      const pFin=timeToMin(p.fin||'20:00');
+      return debH >= pDeb && finH <= pFin;
+    });
+    // Tolérer si le créneau est proche (±1h) d'une préférence
+    const nearPref = dayPrefs.some(p=>{
+      const pDeb=timeToMin(p.debut||'10:00')-60;
+      const pFin=timeToMin(p.fin||'20:00')+60;
+      return debH >= pDeb && finH <= pFin;
+    });
+    if(!inPref && !nearPref) return false;
+  }
+  // Pas de préférences = disponible tous les jours (par défaut)
   return true;
 }
 
@@ -1862,32 +1925,35 @@ function genPlanningProposals(siteId, weekStart, n=3){
 function syncUnavailabilities(e){
   if(!e) return;
   const avail = e.availability||{};
-  const unavails = avail.unavail||[];
+  const unavails = (avail.unavail||[]).filter(u=>u.recurrent);
   if(!unavails.length) return;
 
+  // S'assurer que la semaine existe (via getWeekDays qui l'initialise)
+  const days = getWeekDays(e, curWeek);
   const dates = getWeekDates(curWeek);
-  dates.forEach((date,dayIdx)=>{
-    const dayOfWeek = date.getDay(); // 0=Dim, 1=Lun...
-    const matching = unavails.filter(u => u.day === dayOfWeek && u.recurrent);
+
+  dates.forEach((date, dayIdx)=>{
+    const dayOfWeek = date.getDay();
+    const matching = unavails.filter(u => u.day === dayOfWeek);
     if(!matching.length) return;
 
-    if(!e.weeks) e.weeks={};
-    const weekOff = curWeek;
-    if(!e.weeks[weekOff]) e.weeks[weekOff]={};
-    const day = e.weeks[weekOff][dayIdx];
+    const day = days[dayIdx];
+    if(!day) return;
 
-    // Marquer les indisponibilités sur le jour si pas déjà planifié
-    // On stocke dans la fiche jour un flag 'unavail' pour l'affichage
-    if(!e.weeks[weekOff][dayIdx]) {
-      e.weeks[weekOff][dayIdx] = { unavailSlots: matching, _auto: true };
-    } else {
-      e.weeks[weekOff][dayIdx].unavailSlots = matching;
+    // Attacher les infos d'indispo au jour pour l'affichage
+    day.unavailSlots = matching;
+
+    // Si indispo toute la journée → passer en congé automatiquement
+    const fullDay = matching.some(u => u.debut <= '09:00' && u.fin >= '20:00');
+    if(fullDay && day.status === 'work' && !day._manualOverride){
+      day.status = 'leave';
+      day._autoUnavail = true;
     }
   });
 }
 
 // ══════════════════════════════════════════════════════════════
-// VUE MENSUELLE — Planning grille mois complet
+// VUE MENSUELLE — Planning grille mois complet avec one-click
 // ══════════════════════════════════════════════════════════════
 
 let _viewMode = 'week'; // 'week' | 'month'
@@ -1897,259 +1963,407 @@ function toggleViewMode(){
   const btn = document.getElementById('btn-view-toggle');
   if(btn) btn.textContent = _viewMode === 'week' ? '📅 Vue mensuelle' : '📋 Vue hebdomadaire';
   if(_viewMode === 'month') renderMonthView();
-  else { renderWeek(); hideMonthView(); }
+  else { hideMonthView(); renderWeek(); }
 }
 
 function hideMonthView(){
   const mv = document.getElementById('month-view-grid');
   if(mv) mv.style.display = 'none';
-  const wv = document.getElementById('week-view-container');
-  if(wv) wv.style.display = '';
+}
+
+// ── Calcule l'offset entier de semaine depuis une date ──
+function dateToWeekOffset(dateStr){
+  const d = new Date(dateStr+'T12:00:00');
+  const dow = (d.getDay()||7) - 1; // 0=Lun
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - dow);
+  monday.setHours(12,0,0,0);
+  const ref = getWeekDates(0)[0];
+  ref.setHours(12,0,0,0);
+  return Math.round((monday - ref) / (7*24*3600*1000));
+}
+
+// ── Trouve le dayIdx (0=Lun…6=Dim) dans la semaine pour une date ──
+function dateToDayIdx(dateStr){
+  const d = new Date(dateStr+'T12:00:00');
+  return (d.getDay()||7) - 1; // 0=Lun, 4=Ven, 6=Dim
+}
+
+// ── Trouve les données d'un jour dans e.weeks ──
+function getDayData(e, dateStr){
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  return { wOff, di, day: e.weeks?.[wOff]?.[di] || null };
+}
+
+// ── Pré-planifier tout un mois selon les préférences ──
+function preFillMonthFromPrefs(e, year, month){
+  const avail = getWorkerAvailability(e);
+  const prefs  = avail.preferred||[];
+  const unavails = (avail.unavail||[]).filter(u=>u.recurrent);
+  if(!prefs.length && !unavails.length) return 0;
+
+  const fp = getFridayPause(0); // pause vendredi (approximation)
+  let filled = 0;
+  const lastDay = new Date(year, month+1, 0).getDate();
+
+  for(let d=1; d<=lastDay; d++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const date = new Date(dateStr+'T12:00:00');
+    const dow = date.getDay(); // 0=Dim JS
+    const wOff = dateToWeekOffset(dateStr);
+    const di   = dateToDayIdx(dateStr);
+    if(!e.weeks) e.weeks={};
+    if(!e.weeks[wOff]) e.weeks[wOff]={};
+    const existing = e.weeks[wOff][di];
+    if(existing && existing.start && !existing._autoFilled) continue; // déjà planifié manuellement
+
+    // Indisponibilité plein jour ?
+    const fullUnavail = unavails.some(u=>u.day===dow && u.debut<='09:00' && u.fin>='20:00');
+    if(fullUnavail){ e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue; }
+
+    // Préférence ce jour ?
+    const dayPrefs = prefs.filter(p=>p.day===dow);
+    if(dayPrefs.length){
+      const pref = dayPrefs[0];
+      const isFriday = (di===4);
+      e.weeks[wOff][di]={
+        status:'work',
+        start: pref.debut,
+        end:   pref.fin,
+        pause: isFriday ? getFridayPause(wOff).dur : e.pause||0,
+        pause2: isFriday ? 15 : 0,
+        fridayLocked: isFriday,
+        endManual: true,
+        _autoFilled: true,
+        unavailSlots: unavails.filter(u=>u.day===dow)
+      };
+      filled++;
+    } else {
+      // Pas de préférence ce jour = congé
+      if(!existing || existing._autoFilled){
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true};
+      }
+    }
+  }
+  return filled;
 }
 
 function renderMonthView(){
   const e = emp(); if(!e) return;
 
-  // Cacher la vue semaine
-  const wv = document.getElementById('week-view-container');
-  if(wv) wv.style.display = 'none';
+  // Cacher la vue semaine (day-grid uniquement, pas la nav)
+  const dg = document.getElementById('day-grid');
+  if(dg) dg.style.display='none';
 
   // Créer ou récupérer le conteneur mensuel
   let mv = document.getElementById('month-view-grid');
   if(!mv){
     mv = document.createElement('div');
     mv.id = 'month-view-grid';
-    const main = document.getElementById('planning-panel');
-    if(main) main.appendChild(mv);
+    mv.style.cssText='margin-top:8px';
+    const card = document.querySelector('#day-grid')?.closest('.card');
+    if(card) card.appendChild(mv);
   }
   mv.style.display = 'block';
 
   // Calculer le mois basé sur curWeek
   const baseDate = getWeekDates(curWeek)[0];
-  const year = baseDate.getFullYear();
+  const year  = baseDate.getFullYear();
   const month = baseDate.getMonth();
   const monthName = baseDate.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
 
-  // Tous les jours du mois
+  // Préparer les données du mois
   const firstDay = new Date(year, month, 1);
   const lastDay  = new Date(year, month+1, 0);
-  const DAYS_FR  = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
-  const avail = e.availability||{};
+  const avail    = getWorkerAvailability(e);
 
-  // Heures max mois
+  // Heures max + total planifié
   const hoursMax = e.hoursMaxMonth || 0;
-  const allowOver = e.allowOvertime || false;
-
-  // Calculer heures planifiées ce mois
   let totalPlanned = 0;
-  const dayPlan = {};
+  const DAYS_FR  = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
-  for(let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate()+1)){
-    const ds = d.toISOString().slice(0,10);
-    const dow = d.getDay();
-    // Trouver la semaine offset
-    const mondayD = new Date(d);
-    const diff = (dow||7) - 1;
-    mondayD.setDate(d.getDate() - diff);
-    const wk = getWeekKey(mondayD);
-
-    // Chercher dans e.weeks (qui utilise curWeek offset)
-    // On cherche dans toutes les semaines enregistrées
-    let dayData = null;
-    Object.entries(e.weeks||{}).forEach(([wOff, days])=>{
-      const wDates = getWeekDates(parseInt(wOff));
-      wDates.forEach((wd,di)=>{
-        if(wd.toISOString().slice(0,10) === ds && days[di]){
-          dayData = {data:days[di], di};
-        }
-      });
-    });
-
-    // Indisponibilités récurrentes ce jour
-    const unavails = (avail.unavail||[]).filter(u=>u.day===dow&&u.recurrent);
-    // Préférences ce jour
-    const prefs = (avail.preferred||[]).filter(u=>u.day===dow);
-
-    let dayHours = 0;
-    if(dayData && dayData.data && dayData.data.start && dayData.data.end){
-      const s = dayData.data.start.split(':').map(Number);
-      const en = dayData.data.end.split(':').map(Number);
-      dayHours = (en[0]*60+en[1] - s[0]*60-s[1]) / 60;
-      if(dayHours > 0) totalPlanned += dayHours;
-    }
-
-    dayPlan[ds] = {dayData, dayHours, unavails, prefs, dow};
+  // Pré-remplir selon préférences si premier affichage (aucun jour planifié ce mois)
+  let monthHasData = false;
+  for(let d=1; d<=lastDay.getDate(); d++){
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const {day} = getDayData(e, ds);
+    if(day && day.start) { monthHasData=true; break; }
+  }
+  if(!monthHasData && (avail.preferred||[]).length>0){
+    const filled = preFillMonthFromPrefs(e, year, month);
+    if(filled>0) showToast(`📅 ${filled} jours pré-remplis selon vos préférences`);
   }
 
-  const overBudget = hoursMax > 0 && totalPlanned > hoursMax;
-  const pctMonth = hoursMax > 0 ? Math.min(100, Math.round(totalPlanned/hoursMax*100)) : 0;
+  // Recalculer totalPlanned
+  for(let d=1; d<=lastDay.getDate(); d++){
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const {day} = getDayData(e, ds);
+    if(day && day.start && day.end && day.status!=='leave'){
+      const s=day.start.split(':').map(Number), en=day.end.split(':').map(Number);
+      const h=(en[0]*60+en[1]-s[0]*60-s[1])/60;
+      if(h>0) totalPlanned+=h;
+    }
+  }
 
-  // Générer la grille HTML
+  const overBudget = hoursMax>0 && totalPlanned>hoursMax;
+  const pctMonth   = hoursMax>0 ? Math.min(100,Math.round(totalPlanned/hoursMax*100)) : 0;
+  const allowOver  = e.allowOvertime||false;
+
   let html = `
-  <div style="background:white;border-radius:12px;padding:16px;margin-top:12px;box-shadow:var(--sh)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-      <div>
-        <div style="font-size:1rem;font-weight:800;color:var(--ink);text-transform:capitalize">${monthName}</div>
-        <div style="font-size:.72rem;color:var(--ink3);margin-top:2px">
-          ${toHM(totalPlanned)} planifiées
-          ${hoursMax>0?` / ${toHM(hoursMax)} max${overBudget&&!allowOver?' · <span style="color:var(--red);font-weight:700">⚠️ Dépassement</span>':overBudget&&allowOver?' · <span style="color:var(--orange);font-weight:700">✓ Dépassement autorisé</span>':''}`:' (pas de max défini)'}
-        </div>
-        ${hoursMax>0?`<div style="margin-top:6px;height:5px;border-radius:3px;background:var(--line);overflow:hidden;width:200px">
-          <div style="height:100%;border-radius:3px;width:${pctMonth}%;background:${overBudget?'var(--red)':pctMonth>80?'var(--orange)':'var(--accent)'};transition:width .4s"></div>
-        </div>`:''}
-      </div>
-      <div style="display:flex;gap:6px">
-        <button onclick="changeMonthView(-1)" style="padding:5px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--white);cursor:pointer;font-size:.82rem">◀</button>
-        <button onclick="changeMonthView(1)" style="padding:5px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--white);cursor:pointer;font-size:.82rem">▶</button>
-      </div>
+  <!-- Barre résumé heures mois -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div>
+      <span style="font-size:.82rem;font-weight:700;color:var(--ink);text-transform:capitalize">${monthName}</span>
+      <span style="font-size:.72rem;color:var(--ink3);margin-left:8px">${toHM(totalPlanned)} planifiées${hoursMax>0?' / '+toHM(hoursMax)+' max':''}</span>
+      ${overBudget&&!allowOver?'<span style="color:var(--red);font-weight:700;font-size:.72rem;margin-left:6px">⚠️ Dépassement</span>':''}
+      ${overBudget&&allowOver?'<span style="color:var(--orange);font-size:.72rem;margin-left:6px">✓ Dépassement autorisé</span>':''}
     </div>
-
-    <!-- En-têtes jours -->
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">
-      ${DAYS_FR.map(d=>`<div style="text-align:center;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);padding:4px 0">${d}</div>`).join('')}
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button onclick="preFillAndRefresh()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.7rem;font-weight:700;cursor:pointer">⭐ Pré-remplir selon préfs</button>
+      <button onclick="clearMonthPlan()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink3);font-size:.7rem;font-weight:600;cursor:pointer">🗑 Effacer mois</button>
+      <button onclick="changeMonthView(-1)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--white);font-size:.8rem;cursor:pointer">◀</button>
+      <button onclick="changeMonthView(1)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--white);font-size:.8rem;cursor:pointer">▶</button>
     </div>
+  </div>
+  ${hoursMax>0?`<div style="margin-bottom:10px;height:5px;border-radius:3px;background:var(--line);overflow:hidden">
+    <div style="height:100%;border-radius:3px;width:${pctMonth}%;background:${overBudget?'var(--red)':pctMonth>80?'var(--orange)':'var(--accent)'};transition:width .4s"></div>
+  </div>`:''}
 
-    <!-- Grille jours -->
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
+  <!-- Légende one-click -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.64rem;color:var(--ink3);margin-bottom:8px;padding:6px 10px;background:var(--bg);border-radius:7px">
+    <span>💡 <strong>1 clic</strong> = activer/désactiver · <strong>Double-clic</strong> = modifier horaire</span>
+    <span style="margin-left:auto"><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:50%;margin-right:3px"></span>Travail</span>
+    <span><span style="display:inline-block;width:8px;height:8px;background:#e2e0d8;border-radius:50%;margin-right:3px"></span>Congé</span>
+    <span><span style="display:inline-block;width:8px;height:8px;background:var(--red);border-radius:50%;margin-right:3px"></span>Indispo</span>
+    <span><span style="display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;margin-right:3px"></span>Pref</span>
+  </div>
 
-  // Padding début de mois
-  const startPad = firstDay.getDay(); // 0=Dim
+  <!-- En-têtes jours -->
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">
+    ${DAYS_FR.map((d,i)=>`<div style="text-align:center;font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${i===0||i===6?'var(--ink3)':'var(--ink2)'};padding:3px 0">${d}</div>`).join('')}
+  </div>
+
+  <!-- Grille jours -->
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px" id="month-grid-cells">`;
+
+  // Padding début
+  const startPad = firstDay.getDay();
   for(let i=0;i<startPad;i++){
-    html += `<div style="min-height:70px;border-radius:6px;background:#f9f9f7"></div>`;
+    html += `<div style="min-height:64px;border-radius:6px;background:var(--bg);opacity:.3"></div>`;
   }
 
   // Jours du mois
   for(let d=1; d<=lastDay.getDate(); d++){
-    const date = new Date(year, month, d);
-    const ds = date.toISOString().slice(0,10);
-    const dp = dayPlan[ds]||{};
-    const isToday = ds === new Date().toISOString().slice(0,10);
-    const dow = date.getDay();
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const date = new Date(ds+'T12:00:00');
+    const dow  = date.getDay(); // 0=Dim
+    const {wOff, di, day} = getDayData(e, ds);
+    const todayStr = new Date().toISOString().slice(0,10);
+    const isToday_ = ds === todayStr;
     const isWeekend = dow===0||dow===6;
 
-    const hasPlanning = dp.dayData && dp.dayData.data && dp.dayData.data.start;
-    const hasUnavail = dp.unavails && dp.unavails.length;
-    const hasPref = dp.prefs && dp.prefs.length;
-    const isPeriodForteDay = isPeriodForte(ds);
+    // Statut du jour
+    const isWork  = day && day.status==='work' && day.start;
+    const isLeave = !day || day.status==='leave' || !day.start;
+    const dayUnavails = (avail.unavail||[]).filter(u=>u.recurrent&&u.day===dow);
+    const isUnavail  = dayUnavails.length>0;
+    const isPref     = (avail.preferred||[]).some(p=>p.day===dow);
+    const needsVal   = day && day._needsValidation && day._validationStatus==='pending';
 
-    let dayBg = isWeekend?'#f5f4f0':'white';
-    let border = isToday?'2px solid var(--accent)':'1px solid var(--line)';
+    // Heures du jour
+    let dayH = 0;
+    if(isWork){
+      const s=day.start.split(':').map(Number), en=day.end.split(':').map(Number);
+      dayH = Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1])/60);
+    }
 
-    html += `<div style="min-height:70px;border-radius:6px;background:${dayBg};border:${border};padding:4px;cursor:pointer;position:relative" onclick="openDayEdit('${ds}','${dow}')">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-        <div style="font-size:.78rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--accent)':isWeekend?'var(--ink3)':'var(--ink)'}">${d}</div>
-        ${isPeriodForteDay.isForte?'<span style="font-size:.5rem;background:var(--olight);color:var(--orange);border-radius:3px;padding:0 3px">💰</span>':''}
-        ${isPeriodForteDay.isFerie?'<span style="font-size:.5rem;background:var(--glight);color:var(--green);border-radius:3px;padding:0 3px">🎉</span>':''}
+    // Couleurs
+    let bg, border, textColor;
+    if(isWork && !isUnavail){
+      bg='var(--alight)'; border='1.5px solid var(--accent)'; textColor='var(--accent)';
+    } else if(isUnavail && isWork){
+      bg='#fef3c7'; border='1.5px solid #f59e0b'; textColor='#92400e';
+    } else if(isUnavail && isLeave){
+      bg='var(--rlight)'; border='1px solid var(--red)'; textColor='var(--red)';
+    } else if(isPref && isLeave){
+      bg='var(--glight)'; border='1px solid var(--green)'; textColor='var(--green)';
+    } else {
+      bg=isWeekend?'#f5f4f0':'var(--white)';
+      border=isToday_?'2px solid var(--accent)':'1px solid var(--line)';
+      textColor=isWeekend?'var(--ink3)':'var(--ink)';
+    }
+
+    html += `<div
+      data-ds="${ds}" data-woff="${wOff}" data-di="${di}"
+      onclick="toggleDayWork('${ds}')"
+      ondblclick="event.stopPropagation();openDayEdit('${ds}',${dow})"
+      style="min-height:64px;border-radius:7px;background:${bg};border:${border};padding:4px 5px;cursor:pointer;transition:all .15s;position:relative;user-select:none"
+      title="Clic=activer/désactiver · Dblclic=modifier horaire"
+    >
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px">
+        <div style="font-size:.76rem;font-weight:${isToday_?'800':'600'};color:${isToday_?'var(--accent)':textColor}">${d}</div>
+        ${needsVal?'<span style="font-size:.5rem;color:#f59e0b">⏳</span>':''}
       </div>
-      ${hasPlanning?`<div style="background:var(--alight);border-radius:4px;padding:2px 5px;font-size:.6rem;font-weight:700;color:var(--accent);margin-bottom:2px">${dp.dayData.data.start}→${dp.dayData.data.end}</div>`:''}
-      ${hasUnavail?`<div style="background:var(--rlight);border-radius:4px;padding:2px 5px;font-size:.58rem;font-weight:600;color:var(--red)">🚫 Indispo</div>`:''}
-      ${!hasPlanning&&!hasUnavail&&hasPref?`<div style="background:var(--glight);border-radius:4px;padding:2px 5px;font-size:.58rem;font-weight:600;color:var(--green)">⭐ Pref</div>`:''}
-      ${dp.dayHours>0?`<div style="font-size:.58rem;color:var(--ink3);margin-top:2px">${toHM(dp.dayHours)}</div>`:''}
+      ${isWork?`<div style="font-size:.58rem;font-weight:700;color:${textColor};line-height:1.2">${day.start}<br>→${day.end}</div>`:''}
+      ${dayH>0?`<div style="font-size:.58rem;color:${textColor};opacity:.7;margin-top:1px">${toHM(dayH)}</div>`:''}
+      ${isUnavail&&isLeave?`<div style="font-size:.56rem;color:var(--red)">🚫</div>`:''}
+      ${isPref&&isLeave&&!isUnavail?`<div style="font-size:.56rem;color:var(--green)">⭐</div>`:''}
     </div>`;
   }
 
-  // Padding fin de mois
+  // Padding fin
   const endPad = (7 - (lastDay.getDay()+1)) % 7;
   for(let i=0;i<endPad;i++){
-    html += `<div style="min-height:70px;border-radius:6px;background:#f9f9f7"></div>`;
+    html += `<div style="min-height:64px;border-radius:6px;background:var(--bg);opacity:.3"></div>`;
   }
 
-  html += `</div>
-
-    <!-- Légende -->
-    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;font-size:.64rem;color:var(--ink3)">
-      <span><span style="display:inline-block;width:10px;height:10px;background:var(--alight);border-radius:2px;margin-right:3px"></span>Planifié</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:var(--rlight);border-radius:2px;margin-right:3px"></span>Indisponible</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:var(--glight);border-radius:2px;margin-right:3px"></span>Préférence</span>
-      <span>💰 Période forte · 🎉 Jour férié</span>
-    </div>
-
-    <!-- Légende validation -->
-    <div style="margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:.68rem;color:var(--ink2)">
-      ℹ️ Cliquez sur un jour pour planifier. Les modifications <strong>hors préférences</strong> seront soumises à validation RH.
-    </div>
-  </div>`;
-
+  html += `</div>`;
   mv.innerHTML = html;
 }
 
-function changeMonthView(dir){
-  // Naviguer d'un mois
-  const baseDate = getWeekDates(curWeek)[0];
-  const newDate = new Date(baseDate);
-  newDate.setMonth(newDate.getMonth() + dir);
-  // Recalculer curWeek pour pointer vers ce mois
-  const monday = new Date(newDate);
-  const dow = monday.getDay()||7;
-  monday.setDate(monday.getDate() - dow + 1);
-  const ref = getWeekDates(0)[0];
-  curWeek = Math.round((monday - ref) / (7*24*3600*1000));
+// ── Toggle un jour travail↔congé en 1 clic ──────────────────
+function toggleDayWork(dateStr){
+  const e = emp(); if(!e) return;
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  const dow  = new Date(dateStr+'T12:00').getDay();
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+  const day = e.weeks[wOff][di];
+  const avail = getWorkerAvailability(e);
+  const dayPrefs = (avail.preferred||[]).filter(p=>p.day===dow);
+  const isFriday = di===4;
+  const fp = getFridayPause(wOff);
+
+  if(day && day.status==='work' && day.start){
+    // → DÉSACTIVER (congé)
+    e.weeks[wOff][di] = {...day, status:'leave', _manualOverride:true};
+  } else {
+    // → ACTIVER (travail) — utiliser préférences ou horaire par défaut
+    const start = dayPrefs.length ? dayPrefs[0].debut : e.startTime||'10:00';
+    const end   = dayPrefs.length ? dayPrefs[0].fin   : calcDayEnd(e, e.hours/5);
+    e.weeks[wOff][di] = {
+      status:'work',
+      start, end,
+      pause: isFriday ? fp.dur : e.pause||0,
+      pause2: isFriday?15:0,
+      fridayLocked: isFriday,
+      endManual: true,
+      _manualOverride: true,
+      // Si hors prefs → marquer validation
+      _needsValidation: dayPrefs.length===0,
+      _validationStatus: dayPrefs.length===0 ? 'pending' : 'approved'
+    };
+  }
+  histPush();
+  autoSave();
+  // Re-render juste la cellule pour performance
   renderMonthView();
   updateMonthBox();
 }
 
-// Ouvrir un mini-modal pour planifier un jour depuis la vue mensuelle
+function preFillAndRefresh(){
+  const e=emp();if(!e)return;
+  const baseDate=getWeekDates(curWeek)[0];
+  const year=baseDate.getFullYear();
+  const month=baseDate.getMonth();
+  // Effacer les auto-fills existants
+  const lastDay=new Date(year,month+1,0).getDate();
+  for(let d=1;d<=lastDay;d++){
+    const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const wOff=dateToWeekOffset(ds);
+    const di=dateToDayIdx(ds);
+    if(e.weeks?.[wOff]?.[di]?._autoFilled) delete e.weeks[wOff][di];
+  }
+  const filled=preFillMonthFromPrefs(e,year,month);
+  autoSave();
+  renderMonthView();
+  updateMonthBox();
+  showToast(filled>0?`⭐ ${filled} jours pré-remplis`:'Aucune préférence définie dans la fiche');
+}
+
+function clearMonthPlan(){
+  if(!confirm('Effacer tout le planning de ce mois ?')) return;
+  const e=emp();if(!e)return;
+  const baseDate=getWeekDates(curWeek)[0];
+  const year=baseDate.getFullYear();
+  const month=baseDate.getMonth();
+  const lastDay=new Date(year,month+1,0).getDate();
+  histPush();
+  for(let d=1;d<=lastDay;d++){
+    const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const wOff=dateToWeekOffset(ds);
+    const di=dateToDayIdx(ds);
+    if(e.weeks?.[wOff]) delete e.weeks[wOff][di];
+  }
+  autoSave();
+  renderMonthView();
+  updateMonthBox();
+  showToast('🗑 Planning du mois effacé');
+}
+
+function changeMonthView(dir){
+  const baseDate = getWeekDates(curWeek)[0];
+  const newDate  = new Date(baseDate);
+  newDate.setMonth(newDate.getMonth() + dir);
+  curWeek = dateToWeekOffset(newDate.toISOString().slice(0,10));
+  renderMonthView();
+  updateMonthBox();
+}
+
+// Ouvrir un mini-modal pour éditer un jour (double-clic)
 function openDayEdit(dateStr, dow){
   const e = emp(); if(!e) return;
-  const avail = e.availability||{};
-  const unavails = (avail.unavail||[]).filter(u=>u.day===parseInt(dow)&&u.recurrent);
-  const prefs = (avail.preferred||[]).filter(u=>u.day===parseInt(dow));
+  const avail = getWorkerAvailability(e);
+  const dayDow = parseInt(dow);
+  const unavails = (avail.unavail||[]).filter(u=>u.day===dayDow&&u.recurrent);
+  const prefs    = (avail.preferred||[]).filter(u=>u.day===dayDow);
   const DAYS_FR2 = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
-  const dayName = DAYS_FR2[parseInt(dow)];
-  const dateLabel = new Date(dateStr+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+  const dayName  = DAYS_FR2[dayDow];
+  const dateLabel= new Date(dateStr+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
 
-  // Trouver planification existante
-  let existing = null;
-  Object.entries(e.weeks||{}).forEach(([wOff,days])=>{
-    const wDates = getWeekDates(parseInt(wOff));
-    wDates.forEach((wd,di)=>{
-      if(wd.toISOString().slice(0,10) === dateStr && days[di]) existing = {data:days[di],wOff:parseInt(wOff),di};
-    });
-  });
-
-  const isOutsidePref = prefs.length > 0; // Si préfs définies et on modifie = validation
+  // Données existantes
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  const existing = e.weeks?.[wOff]?.[di];
 
   let modal = document.getElementById('day-edit-modal');
   if(!modal){
     modal = document.createElement('div');
-    modal.id = 'day-edit-modal';
+    modal.id='day-edit-modal';
     modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
     document.body.appendChild(modal);
   }
 
-  modal.innerHTML = `
-  <div style="background:white;border-radius:14px;width:100%;max-width:400px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
+  modal.innerHTML=`
+  <div style="background:white;border-radius:14px;width:100%;max-width:380px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
     <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
       <div>
         <div style="font-size:.9rem;font-weight:700;color:white">${dayName} ${dateLabel}</div>
-        ${unavails.length?`<div style="font-size:.7rem;color:#fca5a5;margin-top:2px">⚠️ Indisponibilité récurrente ce jour</div>`:''}
-        ${prefs.length?`<div style="font-size:.7rem;color:#86efac;margin-top:2px">⭐ Préférence: ${prefs[0].debut}→${prefs[0].fin}</div>`:''}
+        ${unavails.length?`<div style="font-size:.68rem;color:#fca5a5;margin-top:2px">⚠️ Indispo récurrente : ${unavails.map(u=>u.debut+'→'+u.fin).join(', ')}</div>`:''}
+        ${prefs.length?`<div style="font-size:.68rem;color:#86efac;margin-top:2px">⭐ Préférence : ${prefs[0].debut}→${prefs[0].fin}</div>`:''}
       </div>
-      <button onclick="document.getElementById('day-edit-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+      <button onclick="document.getElementById('day-edit-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:1rem">✕</button>
     </div>
     <div style="padding:16px">
-      ${unavails.length?`<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:.76rem;color:#dc2626">
-        🚫 Ce travailleur est habituellement indisponible ce jour (${unavails.map(u=>u.debut+'→'+u.fin).join(', ')}). Planifier quand même ?
-      </div>`:''}
+      ${unavails.length?`<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:.74rem;color:#dc2626">
+        🚫 Ce travailleur est habituellement indisponible ce jour. Confirmer quand même ?</div>`:''}
       <div style="margin-bottom:10px">
-        <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure début</label>
-        <input type="time" id="de-start" value="${existing?.data?.start||prefs[0]?.debut||'10:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+        <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure début</label>
+        <input type="time" id="de-start" value="${existing?.start||prefs[0]?.debut||'10:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
       </div>
       <div style="margin-bottom:14px">
-        <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure fin</label>
-        <input type="time" id="de-end" value="${existing?.data?.end||prefs[0]?.fin||'20:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+        <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure fin</label>
+        <input type="time" id="de-end" value="${existing?.end||prefs[0]?.fin||'20:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
       </div>
-      ${isOutsidePref&&!prefs.some(p=>true)?`<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.72rem;color:#92400e">
-        ⚠️ Cette modification est hors des préférences habituelles et sera soumise à validation RH.
-      </div>`:''}
       <div style="display:flex;gap:8px">
-        ${existing?`<button onclick="removeDayPlan('${dateStr}')" style="flex:1;padding:9px;border-radius:8px;border:1.5px solid #fee2e2;background:none;color:#dc2626;cursor:pointer;font-size:.82rem;font-weight:600">🗑 Supprimer</button>`:''}
-        <button onclick="saveDayPlan('${dateStr}',${dow})" style="flex:2;padding:9px;border-radius:8px;border:none;background:#2d5be3;color:white;cursor:pointer;font-size:.82rem;font-weight:700">
-          ${isOutsidePref&&unavails.length?'💬 Soumettre validation':'✓ Enregistrer'}
-        </button>
+        ${existing&&existing.start?`<button onclick="removeDayPlan('${dateStr}')" style="flex:1;padding:9px;border-radius:8px;border:1.5px solid #fee2e2;background:none;color:#dc2626;cursor:pointer;font-size:.8rem;font-weight:600">🗑 Supprimer</button>`:''}
+        <button onclick="saveDayPlan('${dateStr}',${dayDow})" style="flex:2;padding:9px;border-radius:8px;border:none;background:#2d5be3;color:white;cursor:pointer;font-size:.82rem;font-weight:700">✓ Enregistrer</button>
       </div>
     </div>
   </div>`;
+  modal.onclick = ()=>modal.remove();
   modal.style.display='flex';
 }
 
@@ -2159,50 +2373,45 @@ function saveDayPlan(dateStr, dow){
   const end   = document.getElementById('de-end')?.value;
   if(!start||!end||start>=end){ showToast('Horaire invalide'); return; }
 
-  // Trouver la semaine offset pour cette date
-  const d = new Date(dateStr+'T12:00');
-  const mondayD = new Date(d);
-  const diff = (d.getDay()||7) - 1;
-  mondayD.setDate(d.getDate() - diff);
-  const ref = getWeekDates(0)[0];
-  const wOff = Math.round((mondayD - ref) / (7*24*3600*1000));
-  const di = (d.getDay()||7) - 1; // 0=Lundi
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  const dayDow = parseInt(dow);
+  const isFriday = di===4;
+  const fp = getFridayPause(wOff);
+
+  // Vérifier si hors préférences → validation
+  const avail  = getWorkerAvailability(e);
+  const prefs  = (avail.preferred||[]).filter(u=>u.day===dayDow);
+  const inPref = prefs.some(p=>start>=p.debut&&end<=p.fin);
+  const needsValidation = prefs.length>0 && !inPref;
 
   if(!e.weeks) e.weeks={};
   if(!e.weeks[wOff]) e.weeks[wOff]={};
-
-  // Vérifier si hors préférences → flag validation
-  const avail = e.availability||{};
-  const prefs = (avail.preferred||[]).filter(u=>u.day===parseInt(dow));
-  const isInPref = prefs.some(p=>start>=p.debut&&end<=p.fin);
-  const needsValidation = prefs.length>0 && !isInPref;
-
   e.weeks[wOff][di] = {
-    start, end,
+    status:'work', start, end,
+    pause: isFriday ? fp.dur : e.pause||0,
+    pause2: isFriday?15:0,
+    fridayLocked: isFriday,
+    endManual: true,
+    _manualOverride: true,
     _needsValidation: needsValidation,
     _validationStatus: needsValidation ? 'pending' : 'approved'
   };
 
-  histPush();
-  autoSave();
+  histPush(); autoSave();
   document.getElementById('day-edit-modal')?.remove();
   if(_viewMode==='month') renderMonthView(); else renderWeek();
   updateMonthBox();
   if(needsValidation) showToast('⏳ Modification soumise à validation RH');
-  else showToast('✅ Planning mis à jour');
+  else showToast('✅ Jour enregistré');
 }
 
 function removeDayPlan(dateStr){
   const e = emp(); if(!e) return;
-  const d = new Date(dateStr+'T12:00');
-  const mondayD = new Date(d);
-  const diff = (d.getDay()||7) - 1;
-  mondayD.setDate(d.getDate() - diff);
-  const ref = getWeekDates(0)[0];
-  const wOff = Math.round((mondayD - ref) / (7*24*3600*1000));
-  const di = (d.getDay()||7) - 1;
-  if(e.weeks?.[wOff]?.[di]) delete e.weeks[wOff][di];
-  autoSave();
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  if(e.weeks?.[wOff]) delete e.weeks[wOff][di];
+  histPush(); autoSave();
   document.getElementById('day-edit-modal')?.remove();
   if(_viewMode==='month') renderMonthView(); else renderWeek();
   updateMonthBox();
@@ -2480,19 +2689,30 @@ function applyProposal(siteId, weekStart, propIdx){
   let applied = 0;
 
   prop.plan.forEach(slot=>{
-    slot.assigned.forEach(emp=>{
-      const e = employees.find(x=>x.id===emp.id);
+    slot.assigned.forEach(empRef=>{
+      const e = employees.find(x=>x.id===empRef.id);
       if(!e) return;
       const dateStr = slot.dateStr;
-      const weekKey = getWeekKey(new Date(dateStr));
+      // Calculer l'offset entier depuis getWeekDates(0)
+      const d = new Date(dateStr+'T12:00:00');
+      const mondayD = new Date(d);
+      const diffDay = (d.getDay()||7) - 1;
+      mondayD.setDate(d.getDate() - diffDay);
+      const ref = getWeekDates(0)[0];
+      ref.setHours(12,0,0,0);
+      const wOff = Math.round((mondayD - ref) / (7*24*3600*1000));
+      const dayIdx = (d.getDay()||7) - 1; // 0=Lun...6=Dim
       if(!e.weeks) e.weeks={};
-      if(!e.weeks[weekKey]) e.weeks[weekKey]={};
-      const dayIdx = new Date(dateStr).getDay();
+      if(!e.weeks[wOff]) e.weeks[wOff]={};
       // Ne pas écraser si déjà planifié
-      if(!e.weeks[weekKey][dayIdx]){
-        e.weeks[weekKey][dayIdx]={
+      if(!e.weeks[wOff][dayIdx] || !e.weeks[wOff][dayIdx].start){
+        e.weeks[wOff][dayIdx]={
+          status:'work',
           start: slot.creneau.debut,
           end:   slot.creneau.fin,
+          pause: e.pause||0,
+          pause2:0,
+          endManual:true,
           site:  siteId,
           note:  '🤖 Auto-planifié'
         };
@@ -3035,27 +3255,68 @@ function getWeekDays(e, off){
     } else {
       // ── Nombre de jours et répartition des heures ──
       const n = calcOptimalDays(e);
-      const workDays = buildWorkDaysList(e, n);
 
-      // Heures à prester par jour = heures semaine / jours travaillés
+      // ── PRIORITÉ : créneaux préférés de la fiche travailleur ──
+      const avail = getWorkerAvailability(e);
+      const prefSlots = avail.preferred||[];
+      const unavailSlots = avail.unavail||[];
+
+      // Construire la liste des jours travaillés en tenant compte des préférences
+      let workDays;
+      if(prefSlots.length > 0){
+        // Jours avec préférence = jours de travail potentiels
+        const prefDays = [...new Set(prefSlots.map(p=>p.day))];
+        // Exclure les indisponibilités récurrentes qui couvrent toute la journée
+        const fullUnavailDays = unavailSlots
+          .filter(u=>u.recurrent && u.debut<='09:00' && u.fin>='20:00')
+          .map(u=>u.day);
+        workDays = prefDays.filter(d=>!fullUnavailDays.includes(d));
+        // Compléter si pas assez de jours
+        if(workDays.length < n){
+          const fixed = e.fixedOff||e.prefOff||[];
+          for(let i=1;i<=6;i++){
+            if(workDays.length>=n) break;
+            if(!workDays.includes(i) && !fixed.includes(i) && !fullUnavailDays.includes(i))
+              workDays.push(i);
+          }
+        }
+      } else {
+        workDays = buildWorkDaysList(e, n);
+      }
+
+      // ── Heures et horaires par jour ──
       const hPerDay = workDays.length > 0 ? e.hours / workDays.length : e.hours;
-      // Heure de fin TOUJOURS calculée depuis les heures à prester (jamais depuis e.endTime)
-      // pour garantir que les heures contractuelles sont respectées
       const computedEnd = calcDayEnd(e, hPerDay);
+      const fp = getFridayPause(off);
+      // Dates réelles de cette semaine (pour matcher indisponibilités par date)
+      const weekDates = getWeekDates(off);
 
       e.weeks[off] = Array.from({length:7}, (_,i)=>{
         const isFriday = (i===4);
-        const fp = getFridayPause(off);
-        const isWork = workDays.includes(i);
+        const dayOfWeek = weekDates[i].getDay(); // 0=Dim, 1=Lun...
+        const isWork = workDays.includes(i) || workDays.includes(dayOfWeek);
+
+        // Trouver le créneau préféré pour ce jour s'il existe
+        const dayPrefs = prefSlots.filter(p=>p.day===dayOfWeek);
+        const dayStart = dayPrefs.length ? dayPrefs[0].debut : e.startTime;
+        const dayEnd   = dayPrefs.length ? dayPrefs[0].fin   : computedEnd;
+
+        // Indisponibilités récurrentes : ce jour est-il indispo ?
+        const dayUnavails = unavailSlots.filter(u=>u.recurrent && u.day===dayOfWeek);
+        const fullDayUnavail = dayUnavails.some(u=>u.debut<='09:00' && u.fin>='20:00');
+
+        const finalStatus = (isWork && !fullDayUnavail) ? 'work' : 'leave';
+
         return {
-          status: isWork ? 'work' : 'leave',
-          start: e.startTime,
-          end: isWork ? computedEnd : computedEnd, // fin calculée, modifiable manuellement ensuite
-          endManual: false,  // pas de fin manuelle à l'initialisation
+          status: finalStatus,
+          start:  dayStart,
+          end:    dayEnd,
+          endManual: dayPrefs.length > 0, // préfs = fin manuelle
           pause:  isFriday ? fp.dur : e.pause,
           pause2: isFriday ? 15 : 0,
           fridayLocked: isFriday,
-          inactive: false
+          inactive: false,
+          unavailSlots: dayUnavails.length ? dayUnavails : undefined
         };
       });
     }
@@ -4014,6 +4275,8 @@ function submitEmployee(){
       employees[idx]=updated;
       selId=old.id;
     }
+    // Invalider le cache de la semaine courante pour forcer recalcul depuis la fiche
+    if(employees[idx] && employees[idx].weeks) delete employees[idx].weeks[curWeek];
     closeModal('add-modal');renderSidebar();loadPanel();showToast(t('toastSaved'));autoSave();
   } else {
     const e=mkEmp(data);employees.push(e);
