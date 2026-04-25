@@ -1762,155 +1762,215 @@ function getWorkerAvailability(e){
   return e.availability || {preferred:[], unavail:[], defaultSite:''};
 }
 
-// Vérifier si un travailleur est disponible pour un créneau précis
-function isWorkerAvailable(e, date, debut, fin){
-  const d = new Date(date);
-  const day = d.getDay(); // JS: 0=Dim, 1=Lun...
-  const avail = getWorkerAvailability(e);
-  const debH = timeToMin(debut);
-  const finH = timeToMin(fin);
-
-  // 1. Vérifier indisponibilités récurrentes
-  for(const u of (avail.unavail||[])){
-    if(!u.recurrent) continue;
-    if(u.day !== day) continue;
-    const uDeb = timeToMin(u.debut||'00:00');
-    const uFin = timeToMin(u.fin||'23:59');
-    if(debH < uFin && finH > uDeb) return false;
-  }
-
-  // 2. Vérifier jours fixes de congé (fixedOff/prefOff)
-  const fixedOff = e.fixedOff||e.prefOff||[];
-  // Convertir day JS (0=Dim) → idx semaine (0=Lun) pour matcher fixedOff
-  const dayIdx = (day===0)?6:(day-1);
-  if(fixedOff.includes(dayIdx)) return false;
-
-  // 3. Si des préférences sont définies → vérifier que ce jour est dans les prefs
-  const prefs = avail.preferred||[];
-  if(prefs.length > 0){
-    const dayPrefs = prefs.filter(p=>p.day===day);
-    if(dayPrefs.length === 0) return false; // ce jour n'est pas dans les préférences
-    // Vérifier que le créneau est dans au moins une préférence
-    const inPref = dayPrefs.some(p=>{
-      const pDeb=timeToMin(p.debut||'10:00');
-      const pFin=timeToMin(p.fin||'20:00');
-      return debH >= pDeb && finH <= pFin;
-    });
-    // Tolérer si le créneau est proche (±1h) d'une préférence
-    const nearPref = dayPrefs.some(p=>{
-      const pDeb=timeToMin(p.debut||'10:00')-60;
-      const pFin=timeToMin(p.fin||'20:00')+60;
-      return debH >= pDeb && finH <= pFin;
-    });
-    if(!inPref && !nearPref) return false;
-  }
-  // Pas de préférences = disponible tous les jours (par défaut)
-  return true;
-}
-
-// Vérifier si le créneau correspond à une préférence
-function isWorkerPreferred(e, date, debut, fin){
-  const d = new Date(date);
-  const day = d.getDay();
-  const avail = getWorkerAvailability(e);
-  const debH = timeToMin(debut);
-  const finH = timeToMin(fin);
-  for(const p of (avail.preferred||[])){
-    if(p.day !== day) continue;
-    const pDeb = timeToMin(p.debut||'10:00');
-    const pFin = timeToMin(p.fin||'20:00');
-    if(debH >= pDeb && finH <= pFin) return true;
-  }
-  return avail.preferred.length === 0; // si pas de préférences = toujours ok
-}
-
 function timeToMin(t){
   const [h,m]=(t||'00:00').split(':').map(Number);
   return h*60+(m||0);
 }
 
 // ══════════════════════════════════════════════════════════════
-// MOTEUR DE MATCHING — Croisement Offre / Demande
+// MOTEUR DE MATCHING — Règles de priorité claires
+//
+// RÈGLE 1 — SITE : un travailleur est éligible à un site si :
+//   • Il a ce site dans sa liste e.sites[], OU
+//   • Son defaultSite correspond, OU
+//   • Il n'a aucun site assigné (polyvalent, peut aller partout)
+//
+// RÈGLE 2 — JOUR BLOQUÉ : éliminatoire si :
+//   • Le jour est dans ses congés fixes (fixedOff/prefOff), OU
+//   • Il a une indisponibilité récurrente qui couvre le créneau
+//
+// RÈGLE 3 — PRÉFÉRENCES (non éliminatoire, influe sur le score) :
+//   • Si des préférences sont définies pour ce jour → +score si créneau compatible
+//   • Si aucune préférence → disponible par défaut pour tout créneau
+//
+// SCORING (priorité décroissante) :
+//   +10 = site principal du travailleur (defaultSite)
+//   + 6 = site dans sa liste e.sites[]
+//   + 4 = créneau dans ses plages préférées exactes
+//   + 2 = créneau proche de ses préférences (±1h)
+//   + 1 = travailleur polyvalent (plusieurs sites)
+//   - 2 = déjà très chargé cette semaine (>35h)
 // ══════════════════════════════════════════════════════════════
 
-function matchWorkersToCreneau(siteId, date, creneau, activeEmployees){
-  const candidates = activeEmployees.filter(e=>{
-    // Doit être assigné à ce site OU ne pas avoir de site par défaut
-    const avail = getWorkerAvailability(e);
-    const siteOk = !avail.defaultSite || avail.defaultSite===siteId || (e.sites||[]).includes(siteId);
-    if(!siteOk) return false;
-    // Doit être disponible
-    return isWorkerAvailable(e, date, creneau.debut, creneau.fin);
-  });
+// Vérifier si un travailleur est ÉLIGIBLE (pas bloqué) pour un créneau
+function isWorkerAvailable(e, dateStr, debut, fin){
+  const d   = new Date(dateStr+'T12:00');
+  const dow = d.getDay(); // 0=Dim, 1=Lun, …, 6=Sam
+  const avail = getWorkerAvailability(e);
+  const debH  = timeToMin(debut);
+  const finH  = timeToMin(fin);
 
-  // Scorer chaque candidat
-  return candidates.map(e=>{
-    let score = 0;
-    const avail = getWorkerAvailability(e);
-    // +3 si c'est son magasin par défaut
-    if(avail.defaultSite===siteId) score+=3;
-    // +2 si créneau préféré
-    if(isWorkerPreferred(e, date, creneau.debut, creneau.fin)) score+=2;
-    // +1 si polyvalent (plusieurs sites)
-    if((e.sites||[]).length>1) score+=1;
-    return {emp:e, score};
-  }).sort((a,b)=>b.score-a.score);
+  // ── RÈGLE 2a : jours de congé fixes ───────────────────────
+  const fixedOff = e.fixedOff||e.prefOff||[];
+  // fixedOff stocke les index 0=Lun…6=Dim → convertir dow JS
+  const dowIdx = (dow===0) ? 6 : (dow-1); // 0=Lun…6=Dim
+  if(fixedOff.includes(dowIdx)) return false;
+
+  // ── RÈGLE 2b : indisponibilités récurrentes ─────────────────
+  for(const u of (avail.unavail||[])){
+    if(!u.recurrent) continue;
+    if(u.day !== dow) continue;
+    const uDeb = timeToMin(u.debut||'00:00');
+    const uFin = timeToMin(u.fin||'23:59');
+    // Chevauchement : le créneau demandé tombe dans la plage d'indispo
+    if(debH < uFin && finH > uDeb) return false;
+  }
+
+  // ── RÈGLE 3 : si pas de préférences définies → toujours dispo ──
+  // (ne pas bloquer les travailleurs qui n'ont pas rempli leurs prefs)
+  return true;
 }
 
-// Générer N propositions de planning pour une semaine
+// Calculer le score de préférence d'un travailleur pour un créneau
+function workerPrefScore(e, dateStr, debut, fin){
+  const d   = new Date(dateStr+'T12:00');
+  const dow = d.getDay();
+  const avail = getWorkerAvailability(e);
+  const prefs = (avail.preferred||[]).filter(p=>p.day===dow);
+  const debH  = timeToMin(debut);
+  const finH  = timeToMin(fin);
+
+  if(prefs.length===0) return 1; // pas de prefs = score neutre (non pénalisé)
+
+  // Correspondance exacte (le créneau est dans la plage préférée)
+  const exact = prefs.some(p=>
+    debH >= timeToMin(p.debut||'10:00') &&
+    finH <= timeToMin(p.fin||'20:00')
+  );
+  if(exact) return 4;
+
+  // Correspondance proche (±1h de tolérance)
+  const near = prefs.some(p=>
+    debH >= timeToMin(p.debut||'10:00')-60 &&
+    finH <= timeToMin(p.fin||'20:00')+60
+  );
+  if(near) return 2;
+
+  // Ce jour a des prefs mais le créneau ne correspond pas → préférence non respectée
+  return 0;
+}
+
+// Matcher les travailleurs à un créneau avec scoring complet
+function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad){
+  const candidates = [];
+
+  for(const e of activeEmployees){
+    const avail = getWorkerAvailability(e);
+
+    // ── RÈGLE 1 : éligibilité site ──────────────────────────
+    const inSiteList   = (e.sites||[]).includes(siteId);
+    const isDefaultSite = avail.defaultSite === siteId;
+    const hasNoSite    = !avail.defaultSite && !(e.sites||[]).length;
+    // Pas éligible si le travailleur a des sites définis mais pas celui-ci
+    const hasSitesDefined = avail.defaultSite || (e.sites||[]).length > 0;
+    if(hasSitesDefined && !inSiteList && !isDefaultSite) continue;
+
+    // ── RÈGLE 2 : disponibilité ─────────────────────────────
+    if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
+
+    // ── SCORING ─────────────────────────────────────────────
+    let score = 0;
+
+    // Priorité site
+    if(isDefaultSite)          score += 10; // site principal → priorité max
+    else if(inSiteList)        score += 6;  // site secondaire
+    else if(hasNoSite)         score += 3;  // polyvalent sans site défini
+
+    // Préférences horaires
+    score += workerPrefScore(e, dateStr, creneau.debut, creneau.fin);
+
+    // Polyvalence
+    if((e.sites||[]).length > 1) score += 1;
+
+    // Charge semaine (pénalité si déjà très chargé)
+    const loadH = ((workerLoad||{})[e.id]||0) / 60;
+    if(loadH > 35) score -= 2;
+
+    candidates.push({emp: e, score, isDefaultSite, inSiteList});
+  }
+
+  // Trier : meilleur score en premier
+  return candidates.sort((a,b) => b.score - a.score);
+}
+
+// ══════════════════════════════════════════════════════════════
+// GÉNÉRATION DES PROPOSITIONS
+// ══════════════════════════════════════════════════════════════
+
 function genPlanningProposals(siteId, weekStart, n=3){
   const active = employees.filter(e=>!e.archived);
   const proposals = [];
 
-  for(let proposal=0; proposal<n; proposal++){
-    const plan = []; // [{date, creneau, assigned:[emp,...], manquants:0}]
-    const workerLoad = {}; // {empId: heures déjà planifiées cette semaine}
+  for(let propIdx=0; propIdx<n; propIdx++){
+    const plan = [];
+    const workerLoad = {};      // {empId: minutes planifiées cette semaine}
+    const workerDays  = {};     // {empId: Set de jours déjà planifiés}
 
-    for(let dayOffset=0; dayOffset<7; dayOffset++){
-      const date = new Date(weekStart);
-      date.setDate(date.getDate()+dayOffset);
+    for(let dayOff=0; dayOff<7; dayOff++){
+      const date = new Date(weekStart+'T12:00');
+      date.setDate(date.getDate()+dayOff);
       const dateStr = date.toISOString().slice(0,10);
       const besoins = getBesoinsDate(siteId, dateStr);
 
       for(const creneau of besoins){
-        const candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active);
+        // Obtenir les candidats triés par score
+        let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
+
+        // Proposition 2 & 3 : équilibrer la charge en triant différemment
+        if(propIdx === 1){
+          // Proposition 2 : équilibre charge (moins chargés d'abord, à score égal)
+          candidats = [...candidats].sort((a,b)=>{
+            const diff = b.score - a.score;
+            if(Math.abs(diff) > 3) return -diff; // score très différent → respecter l'ordre
+            return ((workerLoad[a.emp.id]||0) - (workerLoad[b.emp.id]||0));
+          });
+        } else if(propIdx === 2){
+          // Proposition 3 : rotation (décaler pour varier les personnes assignées)
+          if(candidats.length > 2){
+            const cut = Math.floor(candidats.length/3);
+            candidats = [...candidats.slice(cut), ...candidats.slice(0,cut)];
+          }
+        }
+
         const assigned = [];
-        let manquants = creneau.vendeurs;
+        let manquants  = creneau.vendeurs;
 
-        // Rotation selon la proposition (décaler l'ordre pour varier)
-        const rotated = proposal===0
-          ? candidats // Proposition 1 = meilleure (préférée)
-          : [...candidats].sort((a,b)=>{
-              // Propositions suivantes : équilibrer la charge
-              const loadA = workerLoad[a.emp.id]||0;
-              const loadB = workerLoad[b.emp.id]||0;
-              return loadA-loadB + (b.score-a.score)*0.5;
-            });
-
-        for(const {emp} of rotated){
+        for(const {emp} of candidats){
           if(assigned.length >= creneau.vendeurs) break;
-          // Éviter de placer le même travailleur deux fois le même jour
-          if(assigned.find(a=>a.id===emp.id)) continue;
+          // Ne pas placer deux fois le même jour
+          if(!workerDays[emp.id]) workerDays[emp.id] = new Set();
+          if(workerDays[emp.id].has(dateStr)) continue;
+          // Ne pas dépasser les heures max du mois si définies
+          if(emp.hoursMaxMonth && !emp.allowOvertime){
+            const loadH = (workerLoad[emp.id]||0)/60;
+            const crenH = (timeToMin(creneau.fin)-timeToMin(creneau.debut))/60;
+            if(loadH + crenH > emp.hoursMaxMonth) continue;
+          }
           assigned.push(emp);
-          const h = timeToMin(creneau.fin)-timeToMin(creneau.debut);
-          workerLoad[emp.id]=(workerLoad[emp.id]||0)+h;
+          workerDays[emp.id].add(dateStr);
+          workerLoad[emp.id] = (workerLoad[emp.id]||0) + (timeToMin(creneau.fin)-timeToMin(creneau.debut));
           manquants--;
         }
 
-        plan.push({dateStr, creneau, assigned, manquants:Math.max(0,manquants), periode:creneau.periode});
+        plan.push({
+          dateStr, creneau, assigned,
+          manquants: Math.max(0, manquants),
+          periode: creneau.periode
+        });
       }
     }
 
-    // Score global de la proposition
-    const totalCover = plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants),0);
-    const totalNeeds = plan.reduce((s,p)=>s+p.creneau.vendeurs,0);
-    const coverage = totalNeeds>0 ? Math.round(totalCover/totalNeeds*100) : 100;
-    const prefScore = plan.reduce((s,p)=>s+p.assigned.filter(e=>isWorkerPreferred(e,p.dateStr,p.creneau.debut,p.creneau.fin)).length,0);
+    // Calcul couverture
+    const totalCover = plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants), 0);
+    const totalNeeds = plan.reduce((s,p)=>s+p.creneau.vendeurs, 0);
+    const coverage   = totalNeeds>0 ? Math.round(totalCover/totalNeeds*100) : 0;
 
     proposals.push({
-      id: proposal+1,
-      label: proposal===0?'⭐ Proposé (préféré de tous)':proposal===1?'⚖️ Optimisé (équilibré)':'🔄 Alternatif',
-      plan, coverage, prefScore,
+      id: propIdx+1,
+      label: propIdx===0 ? '⭐ Optimal (préférences + site principal)' :
+             propIdx===1 ? '⚖️ Équilibré (charge répartie)' :
+                           '🔄 Alternatif (rotation)',
+      plan, coverage,
       workerLoad: {...workerLoad}
     });
   }
@@ -2718,18 +2778,31 @@ function runPlanningEngine(){
             <tbody>
               ${prop.plan.map(slot=>`
               <tr style="border-bottom:1px solid #f0eeea">
-                <td style="padding:7px 8px;font-weight:600">${DAYS[new Date(slot.dateStr).getDay()]} ${new Date(slot.dateStr).toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}</td>
+                <td style="padding:7px 8px;font-weight:600">${DAYS[new Date(slot.dateStr+'T12:00').getDay()]} ${new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}</td>
                 <td style="padding:7px 8px;font-family:monospace;font-size:.76rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
                 <td style="padding:7px 8px">
                   ${slot.creneau.vendeurs} vendeur${slot.creneau.vendeurs>1?'s':''}
                   ${slot.periode!=='Normal'?`<span style="font-size:.62rem;background:#fef3c7;padding:1px 5px;border-radius:3px;margin-left:4px">${slot.periode}</span>`:''}
                 </td>
                 <td style="padding:7px 8px">
-                  ${slot.assigned.length?slot.assigned.map(e=>`<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:600;background:${empColor(e).bg};color:${empColor(e).fg};margin:1px">${e.firstname}</span>`).join(''):'<span style="color:#dc2626;font-size:.72rem">—</span>'}
+                  ${slot.assigned.length
+                    ? slot.assigned.map(emp=>{
+                        const avail = getWorkerAvailability(emp);
+                        const isDefault = avail.defaultSite===siteId;
+                        const inList    = (emp.sites||[]).includes(siteId);
+                        const prefS     = workerPrefScore(emp, slot.dateStr, slot.creneau.debut, slot.creneau.fin);
+                        const tag       = isDefault ? '🏪' : inList ? '📍' : '🔄';
+                        const prefTag   = prefS>=4 ? '⭐' : prefS>=2 ? '✓' : '';
+                        const col       = empColor(emp);
+                        return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:600;background:${col.bg};color:${col.fg};margin:1px" title="${isDefault?'Site principal':''}${inList?'Site assigné':''}${!isDefault&&!inList?'Polyvalent':''}">
+                          ${tag} ${emp.firstname} ${prefTag}
+                        </span>`;
+                      }).join('')
+                    : '<span style="color:#dc2626;font-size:.72rem">— Manquant</span>'}
                 </td>
                 <td style="padding:7px 8px;text-align:center">
                   ${slot.manquants>0
-                    ?`<span style="color:#dc2626;font-weight:700;font-size:.72rem">⚠️ ${slot.manquants} manquant${slot.manquants>1?'s':''}</span>`
+                    ?`<span style="color:#dc2626;font-weight:700;font-size:.72rem">⚠️ ${slot.manquants}</span>`
                     :`<span style="color:#16a34a;font-weight:700;font-size:.72rem">✓</span>`}
                 </td>
               </tr>`).join('')}
@@ -2740,8 +2813,26 @@ function runPlanningEngine(){
     </div>
 
     <div style="margin-top:14px;padding:12px 14px;background:#f5f4f0;border-radius:8px;font-size:.72rem;color:#9898b8">
-      💡 Les propositions sont basées sur les disponibilités déclarées + magasin par défaut + préférences horaires de chaque travailleur.
-      Cliquez "Appliquer" pour intégrer une proposition dans le planning de la semaine.
+      <div style="margin-bottom:6px;font-weight:700;color:#1a1a2e">Légende :</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <span>🏪 Site principal de ce travailleur</span>
+        <span>📍 Site assigné (secondaire)</span>
+        <span>🔄 Polyvalent (pas de site défini)</span>
+        <span>⭐ Dans ses plages préférées</span>
+        <span>✓ Proche de ses préférences (±1h)</span>
+      </div>
+    </div>
+    <div style="margin-top:8px;padding:10px 14px;background:#eef1fd;border-radius:8px;font-size:.72rem;color:#2d5be3">
+      <strong>Travailleurs éligibles pour ${siteId} :</strong>
+      ${employees.filter(e=>!e.archived).map(e=>{
+        const avail = getWorkerAvailability(e);
+        const isDefault = avail.defaultSite===siteId;
+        const inList = (e.sites||[]).includes(siteId);
+        const hasNoSite = !avail.defaultSite && !(e.sites||[]).length;
+        if(!isDefault && !inList && !hasNoSite) return '';
+        const reason = isDefault ? '🏪 Principal' : inList ? '📍 Assigné' : '🔄 Polyvalent';
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:white;margin:2px;border:1px solid #c7d2fe">${e.firstname} ${e.lastname} — ${reason}</span>`;
+      }).filter(Boolean).join('') || '<em>Aucun travailleur assigné à ce site</em>'}
     </div>`;
   }, 50);
 }
