@@ -341,7 +341,8 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 <div class="topbar" id="topbar" style="display:none">
   <div style="display:flex;align-items:center;gap:8px">
     <div class="logo">Gesti<span>Planning</span></div>
-    <span style="background:#2d5be3;color:#fff;font-size:.65rem;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap">v2026.04.25 17:18</span>
+    <span id="app-version" style="background:#2d5be3;color:#fff;font-size:.65rem;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap">v2026.04.25 17:59</span>
+    
   </div>
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
     <!-- Undo / Redo -->
@@ -786,11 +787,20 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
           <select id="new-grade">
             <option value="directeur">👑 Directeur(rice) de magasin</option>
             <option value="manager">⭐ Manager / Responsable</option>
-            <option value="senior">🔵 Senior (>1 an)</option>
+            <option value="senior">🔵 Senior (&gt;1 an)</option>
             <option value="vendeur" selected>🟢 Vendeur(se)</option>
             <option value="junior">🟡 Junior (&lt;3 mois)</option>
             <option value="stagiaire">⚪ Stagiaire / Intérimaire</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label>🌍 Profil d'intégration</label>
+          <select id="new-profil-integration">
+            <option value="natif">🇧🇪 Natif / Intégré Belgique</option>
+            <option value="arrivant">🌍 Arrivant (installé, en cours)</option>
+            <option value="nouvel_arrivant">🆕 Nouvel arrivant</option>
+          </select>
+          <div style="font-size:.62rem;color:var(--ink3);margin-top:3px">Règle autoplan : les 3 profils ne peuvent coexister sans manager ou senior ancien</div>
         </div>
       <div class="form-row">
         <div class="form-group"><label data-i18n="startDate">Date d'entrée *</label><input type="date" id="new-start-date"></div>
@@ -1987,14 +1997,34 @@ function isJuniorProfile(e){
   return false;
 }
 
-// Vérifier si une équipe assignée respecte la règle de mix
+// Vérifier si une équipe assignée respecte toutes les règles de mix
 function teamRespectsMixRule(assigned){
-  if(!AUTOPLAN_RULES.mixProfiles.active) return true;
   if(assigned.length < 2) return true;
-  const nbJunior = assigned.filter(isJuniorProfile).length;
-  const nbSenior = assigned.filter(isSeniorProfile).length;
-  // Si au moins 2 juniors sans aucun senior → violation
-  if(nbJunior >= 2 && nbSenior === 0) return false;
+
+  // Règle mix profils : 2+ juniors sans senior
+  if(AUTOPLAN_RULES.mixProfiles.active){
+    const nbJunior = assigned.filter(isJuniorProfile).length;
+    const nbSenior = assigned.filter(isSeniorProfile).length;
+    if(nbJunior >= 2 && nbSenior === 0) return false;
+  }
+
+  // Règle intégration : mélange natif/arrivant/nouvel_arrivant sans supervisor
+  if(AUTOPLAN_RULES.integrationBalance.active && assigned.length >= 2){
+    const hasNatif    = assigned.some(e=>(e.profilIntegration||'natif')==='natif');
+    const hasArrivant = assigned.some(e=>(e.profilIntegration||'natif')==='arrivant');
+    const hasNouveau  = assigned.some(e=>(e.profilIntegration||'natif')==='nouvel_arrivant');
+    const mixed = hasNatif && (hasArrivant||hasNouveau) || (hasArrivant&&hasNouveau);
+    if(mixed){
+      const hasSupervisor = assigned.some(e=>{
+        const grade=e.grade||'vendeur'; const anc=getAnciennete(e);
+        return ['directeur','manager'].includes(grade)||
+               (grade==='senior'&&anc>=3)||
+               (['CDI','CDD'].includes(e.status)&&anc>=6);
+      });
+      if(!hasSupervisor) return false;
+    }
+  }
+
   return true;
 }
 
@@ -2014,67 +2044,87 @@ function genPlanningProposals(siteId, weekStart, n=3){
   const active = employees.filter(e=>!e.archived);
   const proposals = [];
 
-  // ── RÈGLE 1 : Ordre prioritaire des jours ──────────────────
-  // Construire la liste des 7 jours dans l'ordre voulu
-  function buildDayOrder(weekStartStr){
+  // ── Classifier les 7 jours de la semaine ──────────────────
+  function classifyDays(weekStartStr){
     const days = [];
     for(let i=0;i<7;i++){
       const d = new Date(weekStartStr+'T12:00');
       d.setDate(d.getDate()+i);
       const dateStr = d.toISOString().slice(0,10);
-      const dow = d.getDay(); // 0=Dim, 6=Sam
+      const dow = d.getDay();
       const {isFerie} = isPeriodForte(dateStr);
       const isSat = dow===6;
       const isSun = dow===0;
-      // Priorité : Sam=1, Férié=2, Dim=3, Normal=4
-      let priority;
-      if(isSat)         priority = 1;
-      else if(isFerie)  priority = 2;
-      else if(isSun)    priority = 3;
-      else              priority = 4;
-      days.push({dateStr, dow, priority, isSat, isSun, isFerie, offset:i});
-    }
-    if(AUTOPLAN_RULES.priorityDayOrder.active){
-      // Trier par priorité puis par offset pour garder l'ordre dans chaque groupe
-      days.sort((a,b)=> a.priority!==b.priority ? a.priority-b.priority : a.offset-b.offset);
+      // Niveau de difficulté : 1=Sam (le + difficile), 2=Férié, 3=Dim, 4=Semaine normale
+      let difficulty = isSat ? 1 : isFerie ? 2 : isSun ? 3 : 4;
+      days.push({dateStr, dow, difficulty, isSat, isSun, isFerie});
     }
     return days;
   }
 
+  // ── Vérifier si un travailleur est "réservé" pour un jour difficile
+  // qui n'est pas encore couvert et pour lequel il est disponible ──
+  function isReservedForHardDay(emp, currentDateStr, allDays, workerDays, workerLoad){
+    if(!AUTOPLAN_RULES.priorityDayOrder.active) return false;
+    const currentDifficulty = allDays.find(d=>d.dateStr===currentDateStr)?.difficulty||4;
+    if(currentDifficulty <= 1) return false; // le samedi lui-même → jamais réservé
+
+    // Ce travailleur est-il disponible pour un jour PLUS difficile pas encore planifié ?
+    const harderDays = allDays.filter(d=>d.difficulty < currentDifficulty);
+    for(const hd of harderDays){
+      if(workerDays[emp.id]?.has(hd.dateStr)) continue; // déjà planifié ce jour-là
+      const besoinsHard = getBesoinsDate(siteId, hd.dateStr);
+      if(!besoinsHard.length) continue; // pas de créneau ce jour-là
+      // Ce travailleur est-il disponible et éligible pour ce jour difficile ?
+      const eligHard = matchWorkersToCreneau(siteId, hd.dateStr, besoinsHard[0], [emp], workerLoad);
+      if(eligHard.length > 0) return true; // oui → le garder pour ce jour difficile
+    }
+    return false;
+  }
+
   for(let propIdx=0; propIdx<n; propIdx++){
-    const plan        = [];
-    const workerLoad  = {}; // {empId: minutes planifiées}
-    const workerDays  = {}; // {empId: Set de dateStr}
+    const plan       = [];
+    const workerLoad = {}; // {empId: minutes planifiées cette semaine}
+    const workerDays = {}; // {empId: Set<dateStr>}
 
-    const dayOrder = buildDayOrder(weekStart);
-
-    for(const {dateStr, dow} of dayOrder){
+    const allDays = classifyDays(weekStart);
+    // Parcourir les jours dans l'ordre calendaire (Lun→Dim)
+    // mais TRIER les candidats en tenant compte de la réservation pour jours difficiles
+    for(const {dateStr, dow, difficulty} of allDays){
       const besoins = getBesoinsDate(siteId, dateStr);
 
       for(const creneau of besoins){
-        // Candidats de base (filtre site + dispo)
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
+
+        // ── RÈGLE 1 : Réservation jours difficiles ─────────────
+        // Pour les jours normaux (difficulty=4) : si un travailleur
+        // est "réservé" pour Sam/Fériés/Dim → le passer en dernier
+        // Pour les jours difficiles : les meilleurs profils en premier
+        if(AUTOPLAN_RULES.priorityDayOrder.active){
+          candidats = [...candidats].sort((a,b)=>{
+            const aReserved = isReservedForHardDay(a.emp, dateStr, allDays, workerDays, workerLoad) ? 1 : 0;
+            const bReserved = isReservedForHardDay(b.emp, dateStr, allDays, workerDays, workerLoad) ? 1 : 0;
+            if(aReserved !== bReserved) return aReserved - bReserved; // non-réservés d'abord
+            return b.score - a.score; // ensuite par score
+          });
+        }
+
+        if(propIdx===1){
+          candidats = [...candidats].sort((a,b)=>{
+            const aRes = isReservedForHardDay(a.emp, dateStr, allDays, workerDays, workerLoad)?1:0;
+            const bRes = isReservedForHardDay(b.emp, dateStr, allDays, workerDays, workerLoad)?1:0;
+            if(aRes!==bRes) return aRes-bRes;
+            const loadDiff=(workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
+            return Math.abs(loadDiff)>120 ? loadDiff : b.score-a.score;
+          });
+        } else if(propIdx===2 && candidats.length>2){
+          const cut=Math.floor(candidats.length/3);
+          candidats=[...candidats.slice(cut),...candidats.slice(0,cut)];
+        }
 
         const assigned = [];
         let manquants  = creneau.vendeurs;
 
-        // Tri selon la proposition
-        if(propIdx===1){
-          // Équilibré : charge d'abord, score ensuite
-          candidats = [...candidats].sort((a,b)=>{
-            const loadDiff = (workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
-            if(Math.abs(loadDiff)>120) return loadDiff;
-            return b.score-a.score;
-          });
-        } else if(propIdx===2){
-          // Alternatif : rotation (décaler d'un tiers)
-          if(candidats.length>2){
-            const cut=Math.floor(candidats.length/3);
-            candidats=[...candidats.slice(cut),...candidats.slice(0,cut)];
-          }
-        }
-
-        // Assigner les travailleurs avec les règles de mix
         for(const {emp} of candidats){
           if(assigned.length >= creneau.vendeurs) break;
 
@@ -2084,25 +2134,52 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
           // ── RÈGLE 6 : heures max mois ──
           if(AUTOPLAN_RULES.respectMonthlyMax.active && emp.hoursMaxMonth && !emp.allowOvertime){
-            const loadH = (workerLoad[emp.id]||0)/60;
-            const crenH = (timeToMin(creneau.fin)-timeToMin(creneau.debut))/60;
-            if(loadH+crenH > emp.hoursMaxMonth) continue;
+            const loadH=(workerLoad[emp.id]||0)/60;
+            const crenH=(timeToMin(creneau.fin)-timeToMin(creneau.debut))/60;
+            if(loadH+crenH>emp.hoursMaxMonth) continue;
           }
 
-          // ── RÈGLE 2+3 : mix profils ─────────────────────────
-          // Si on a déjà le nombre voulu et que le mix est respecté → stop
-          // Si ce candidat est junior ET l'équipe en cours n'a pas de senior
-          // ET il reste des candidats seniors → différer ce junior
+          // ── RÈGLE 2+3 : mix profils ──
+          // Un junior ne prend pas la place d'un senior si un senior est encore dispo
           if(AUTOPLAN_RULES.mixProfiles.active && isJuniorProfile(emp) && assigned.length>=1){
-            const hasSenior = assigned.some(isSeniorProfile);
-            if(!hasSenior){
-              // Chercher s'il y a un senior disponible après
+            if(!assigned.some(isSeniorProfile)){
               const hasSeniorAvail = candidats.some(({emp:e2})=>
                 isSeniorProfile(e2) &&
                 (!workerDays[e2.id]||!workerDays[e2.id].has(dateStr)) &&
-                !assigned.find(a=>a.id===e2.id)
+                !assigned.some(a=>a.id===e2.id)
               );
-              if(hasSeniorAvail) continue; // passer ce junior, prendre le senior d'abord
+              if(hasSeniorAvail) continue;
+            }
+          }
+
+          // ── RÈGLE 4 : profil intégration ──
+          // Natif + Arrivant + Nouvel arrivant ensemble → besoin d'un supervisor
+          if(AUTOPLAN_RULES.integrationBalance.active && assigned.length>=1){
+            const profiles = [...assigned, emp].map(e=>e.profilIntegration||'natif');
+            const hasNatif    = profiles.includes('natif');
+            const hasArrivant = profiles.includes('arrivant');
+            const hasNouveau  = profiles.includes('nouvel_arrivant');
+            const mixedInteg  = hasNatif && (hasArrivant||hasNouveau) || (hasArrivant&&hasNouveau);
+            if(mixedInteg){
+              // Exiger qu'il y ait un supervisor (manager, directeur, senior >3 mois CDI/CDD)
+              const hasSupervisor = [...assigned,emp].some(e=>{
+                const grade=e.grade||'vendeur';
+                const anc=getAnciennete(e);
+                return ['directeur','manager'].includes(grade) ||
+                       (grade==='senior' && anc>=3) ||
+                       (['CDI','CDD'].includes(e.status) && anc>=6);
+              });
+              if(!hasSupervisor){
+                // Chercher si un supervisor est encore disponible dans les candidats
+                const supAvail=candidats.some(({emp:e2})=>{
+                  const g=e2.grade||'vendeur';
+                  const a=getAnciennete(e2);
+                  return (['directeur','manager'].includes(g)||(g==='senior'&&a>=3)||(['CDI','CDD'].includes(e2.status)&&a>=6))
+                    &&(!workerDays[e2.id]||!workerDays[e2.id].has(dateStr))
+                    &&!assigned.some(a=>a.id===e2.id);
+                });
+                if(supAvail) continue; // attendre le supervisor
+              }
             }
           }
 
@@ -2114,28 +2191,28 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
         plan.push({
           dateStr, creneau, assigned,
-          manquants: Math.max(0,manquants),
-          periode: creneau.periode,
-          mixOk: teamRespectsMixRule(assigned)
+          manquants:Math.max(0,manquants),
+          periode:creneau.periode,
+          difficulty,
+          mixOk:teamRespectsMixRule(assigned)
         });
       }
     }
 
-    const totalCover = plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants),0);
-    const totalNeeds = plan.reduce((s,p)=>s+p.creneau.vendeurs,0);
-    const coverage   = totalNeeds>0 ? Math.round(totalCover/totalNeeds*100) : 0;
-    const mixViolations = plan.filter(p=>!p.mixOk).length;
+    const totalCover=plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants),0);
+    const totalNeeds=plan.reduce((s,p)=>s+p.creneau.vendeurs,0);
+    const coverage=totalNeeds>0?Math.round(totalCover/totalNeeds*100):0;
+    const mixViolations=plan.filter(p=>!p.mixOk).length;
 
     proposals.push({
-      id: propIdx+1,
-      label: propIdx===0?'⭐ Optimal (priorités + règles)':
-             propIdx===1?'⚖️ Équilibré (charge répartie)':
-                         '🔄 Alternatif (rotation)',
-      plan, coverage, mixViolations,
+      id:propIdx+1,
+      label:propIdx===0?'⭐ Optimal (priorités + règles)':
+            propIdx===1?'⚖️ Équilibré (charge répartie)':
+                        '🔄 Alternatif (rotation)',
+      plan,coverage,mixViolations,
       workerLoad:{...workerLoad}
     });
   }
-
   return proposals;
 }
 
@@ -2954,7 +3031,9 @@ function runPlanningEngine(){
             <tbody>
               ${prop.plan.map(slot=>`
               <tr style="border-bottom:1px solid #f0eeea">
-                <td style="padding:7px 8px;font-weight:600">${DAYS[new Date(slot.dateStr+'T12:00').getDay()]} ${new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}</td>
+                <td style="padding:7px 8px;font-weight:600">
+                  ${slot.difficulty===1?'⭐ ':slot.difficulty===2?'🎉 ':slot.difficulty===3?'☀️ ':''}${DAYS[new Date(slot.dateStr+'T12:00').getDay()]} ${new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}
+                </td>
                 <td style="padding:7px 8px;font-family:monospace;font-size:.76rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
                 <td style="padding:7px 8px">
                   ${slot.creneau.vendeurs} vendeur${slot.creneau.vendeurs>1?'s':''}
@@ -3442,6 +3521,8 @@ function mkEmp(o){
     // Grade / responsabilité
     grade: o.grade||'vendeur',              // 'directeur'|'manager'|'senior'|'vendeur'|'junior'|'stagiaire'
     anciennete: +o.anciennete||0,           // mois d'ancienneté (calculé si startDate défini)
+    // Profil d'intégration (utilisé par autoplan règle mixité)
+    profilIntegration: o.profilIntegration||'natif', // 'natif'|'arrivant'|'nouvel_arrivant'
   };
 }
 function empName(e){return e.firstname+' '+e.lastname;}
@@ -4541,6 +4622,9 @@ function openEditModal(){
   // Grade
   const gradeEl = document.getElementById('new-grade');
   if(gradeEl) gradeEl.value = e.grade||'vendeur';
+  // Profil intégration
+  const piEl = document.getElementById('new-profil-integration');
+  if(piEl) piEl.value = e.profilIntegration||'natif';
   // Score
   setTimeout(updatePlanScore, 50);
   openModal('add-modal');
@@ -4606,6 +4690,7 @@ function submitEmployee(){
     hoursMaxMonth: parseFloat(document.getElementById('new-hours-max-month')?.value||'0')||0,
     allowOvertime: document.getElementById('new-allow-overtime')?.checked||false,
     grade: document.getElementById('new-grade')?.value||'vendeur',
+    profilIntegration: document.getElementById('new-profil-integration')?.value||'natif',
   };
   if(editId!==null){
     const idx=employees.findIndex(e=>e.id===editId);
