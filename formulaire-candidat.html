@@ -1162,11 +1162,18 @@ async function uploadFile(file, key){
       xhr.send(formData);
     });
 
-    // Success
-    const fileUrl = result.secure_url;
-    uploads[key] = fileUrl;
+    // Forcer l'URL correcte selon le type de fichier
+    // PDF → fl_attachment pour téléchargement direct
+    let fileUrl = result.secure_url;
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const viewUrl = isPdf
+      ? fileUrl.replace('/upload/', '/upload/fl_attachment/')
+      : fileUrl;
 
-    showUploadDone(key, file.name, fileUrl);
+    uploads[key] = fileUrl; // stocker l'URL originale
+    uploads[key+'_view'] = viewUrl; // URL pour visualisation
+
+    showUploadDone(key, file.name, fileUrl, viewUrl);
     updateProgress();
     autoSaveDebounced();
 
@@ -1191,7 +1198,7 @@ function setUploadProgress(key, pct){
   if(pctEl) pctEl.textContent = pct < 100 ? pct+'% — Envoi en cours...' : '✅ Traitement...';
 }
 
-function showUploadDone(key, filename, url){
+function showUploadDone(key, filename, url, viewUrl){
   document.getElementById('ui-'+key).style.display='none';
   document.getElementById('up-'+key).style.display='none';
   const done = document.getElementById('ud-'+key);
@@ -1199,7 +1206,7 @@ function showUploadDone(key, filename, url){
   const nameEl = document.getElementById('udn-'+key);
   const viewEl = document.getElementById('udv-'+key);
   if(nameEl) nameEl.textContent = filename;
-  if(viewEl){ viewEl.href=url; viewEl.style.display='inline-block'; }
+  if(viewEl){ viewEl.href = viewUrl||url; viewEl.style.display='inline-block'; }
 }
 
 function showUploadIdle(key){
