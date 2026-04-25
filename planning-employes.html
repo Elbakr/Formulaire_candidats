@@ -347,6 +347,8 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     <button id="btn-redo" onclick="histRedo()" title="Rétablir (Ctrl+Y)"
       style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--line);background:var(--white);font-size:.82rem;cursor:pointer;color:var(--ink3);opacity:.35" disabled>↪</button>
     <button onclick="openPlanningEngine()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #2d5be3;background:linear-gradient(135deg,#eef1fd,#f3e8ff);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#2d5be3">🤖 Autoplan</button>
+    <button id="btn-view-toggle" onclick="toggleViewMode()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--purple);background:var(--plight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--purple)">📅 Vue mensuelle</button>
+    <button onclick="openValidationCenter()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--orange);background:var(--olight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--orange)">⏳ Validations</button>
     <button onclick="openCandidatesModal()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">👥 Candidats</button>
     <!-- Notifications manager -->
     <button onclick="openNotifCenter()" id="btn-notif"
@@ -942,7 +944,16 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
           <div id="new-sites-picker" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px"></div>
         </div>
         <div class="form-group">
-          <label>🏪 Magasin par défaut</label>
+          <label>⏱ Heures max / mois</label>
+          <input type="number" id="new-hours-max-month" min="0" max="300" placeholder="ex: 130 — laisser 0 si pas de limite" style="font-size:.84rem">
+          <div style="font-size:.62rem;color:var(--ink3);margin-top:3px">Limite mensuelle prise en compte dans l'autoplanification et la vue mensuelle</div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+          <input type="checkbox" id="new-allow-overtime" style="width:16px;height:16px;accent-color:var(--green);flex-shrink:0">
+          <label style="margin:0;text-transform:none;letter-spacing:0;font-size:.82rem;font-weight:600;cursor:pointer" for="new-allow-overtime">
+            ✓ Dépassement autorisé — Ce travailleur peut dépasser son quota mensuel si nécessaire
+          </label>
+        </div>
           <select id="new-default-site" style="font-size:.84rem;padding:8px">
             <option value="">— Pas de magasin par défaut —</option>
             ${Object.values(SITES).map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
@@ -1625,9 +1636,12 @@ const SHIFTS = [
 // SITES CAFTAN FACTORY — Configuration réelle
 // ══════════════════════════════════════════════════════════════
 const SITES = {
-  SCH:{ id:'SCH', name:'Schaerbeek',  city:'Bruxelles', address:'Rue de Brabant 230, 1030 Schaerbeek',  color:'#2d5be3', light:'#eef1fd' },
-  MOL:{ id:'MOL', name:'Molenbeek',   city:'Bruxelles', address:'Rue Ransfort 67, 1080 Molenbeek',      color:'#16a34a', light:'#dcfce7' },
-  ANT:{ id:'ANT', name:'Anvers',      city:'Anvers',    address:'Lange Kievitstraat 64, 2018 Antwerpen', color:'#7c3aed', light:'#f3e8ff' },
+  A:{ id:'A', name:'Schaerbeek',  city:'Bruxelles', address:'Rue de Brabant 230, 1030 Schaerbeek',   color:'#2d5be3', light:'#eef1fd' },
+  B:{ id:'B', name:'Molenbeek',   city:'Bruxelles', address:'Rue Ransfort 67, 1080 Molenbeek',       color:'#16a34a', light:'#dcfce7' },
+  C:{ id:'C', name:'Anvers',      city:'Anvers',    address:'Lange Kievitstraat 64, 2018 Antwerpen',  color:'#7c3aed', light:'#f3e8ff' },
+  D:{ id:'D', name:'Entrepôt',    city:'Bruxelles', address:'Bruxelles',                              color:'#ea580c', light:'#ffedd5' },
+  E:{ id:'E', name:'Online',      city:'Bruxelles', address:'Télétravail / Mobile',                   color:'#0891b2', light:'#cffafe' },
+  F:{ id:'F', name:'Événements',  city:'Belg.',     address:'Déplacements Belgique',                  color:'#be185d', light:'#fce7f3' },
 };
 let curSiteFilter = null;
 
@@ -1841,7 +1855,433 @@ function genPlanningProposals(siteId, weekStart, n=3){
   return proposals;
 }
 
-// ── Gestion créneaux préférés / indisponibilités dans le modal ──
+// ══════════════════════════════════════════════════════════════
+// INDISPONIBILITÉS RÉCURRENTES — Synchronisation planning
+// ══════════════════════════════════════════════════════════════
+
+function syncUnavailabilities(e){
+  if(!e) return;
+  const avail = e.availability||{};
+  const unavails = avail.unavail||[];
+  if(!unavails.length) return;
+
+  const dates = getWeekDates(curWeek);
+  dates.forEach((date,dayIdx)=>{
+    const dayOfWeek = date.getDay(); // 0=Dim, 1=Lun...
+    const matching = unavails.filter(u => u.day === dayOfWeek && u.recurrent);
+    if(!matching.length) return;
+
+    if(!e.weeks) e.weeks={};
+    const weekOff = curWeek;
+    if(!e.weeks[weekOff]) e.weeks[weekOff]={};
+    const day = e.weeks[weekOff][dayIdx];
+
+    // Marquer les indisponibilités sur le jour si pas déjà planifié
+    // On stocke dans la fiche jour un flag 'unavail' pour l'affichage
+    if(!e.weeks[weekOff][dayIdx]) {
+      e.weeks[weekOff][dayIdx] = { unavailSlots: matching, _auto: true };
+    } else {
+      e.weeks[weekOff][dayIdx].unavailSlots = matching;
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// VUE MENSUELLE — Planning grille mois complet
+// ══════════════════════════════════════════════════════════════
+
+let _viewMode = 'week'; // 'week' | 'month'
+
+function toggleViewMode(){
+  _viewMode = _viewMode === 'week' ? 'month' : 'week';
+  const btn = document.getElementById('btn-view-toggle');
+  if(btn) btn.textContent = _viewMode === 'week' ? '📅 Vue mensuelle' : '📋 Vue hebdomadaire';
+  if(_viewMode === 'month') renderMonthView();
+  else { renderWeek(); hideMonthView(); }
+}
+
+function hideMonthView(){
+  const mv = document.getElementById('month-view-grid');
+  if(mv) mv.style.display = 'none';
+  const wv = document.getElementById('week-view-container');
+  if(wv) wv.style.display = '';
+}
+
+function renderMonthView(){
+  const e = emp(); if(!e) return;
+
+  // Cacher la vue semaine
+  const wv = document.getElementById('week-view-container');
+  if(wv) wv.style.display = 'none';
+
+  // Créer ou récupérer le conteneur mensuel
+  let mv = document.getElementById('month-view-grid');
+  if(!mv){
+    mv = document.createElement('div');
+    mv.id = 'month-view-grid';
+    const main = document.getElementById('planning-panel');
+    if(main) main.appendChild(mv);
+  }
+  mv.style.display = 'block';
+
+  // Calculer le mois basé sur curWeek
+  const baseDate = getWeekDates(curWeek)[0];
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const monthName = baseDate.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+
+  // Tous les jours du mois
+  const firstDay = new Date(year, month, 1);
+  const lastDay  = new Date(year, month+1, 0);
+  const DAYS_FR  = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  const avail = e.availability||{};
+
+  // Heures max mois
+  const hoursMax = e.hoursMaxMonth || 0;
+  const allowOver = e.allowOvertime || false;
+
+  // Calculer heures planifiées ce mois
+  let totalPlanned = 0;
+  const dayPlan = {};
+
+  for(let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate()+1)){
+    const ds = d.toISOString().slice(0,10);
+    const dow = d.getDay();
+    // Trouver la semaine offset
+    const mondayD = new Date(d);
+    const diff = (dow||7) - 1;
+    mondayD.setDate(d.getDate() - diff);
+    const wk = getWeekKey(mondayD);
+
+    // Chercher dans e.weeks (qui utilise curWeek offset)
+    // On cherche dans toutes les semaines enregistrées
+    let dayData = null;
+    Object.entries(e.weeks||{}).forEach(([wOff, days])=>{
+      const wDates = getWeekDates(parseInt(wOff));
+      wDates.forEach((wd,di)=>{
+        if(wd.toISOString().slice(0,10) === ds && days[di]){
+          dayData = {data:days[di], di};
+        }
+      });
+    });
+
+    // Indisponibilités récurrentes ce jour
+    const unavails = (avail.unavail||[]).filter(u=>u.day===dow&&u.recurrent);
+    // Préférences ce jour
+    const prefs = (avail.preferred||[]).filter(u=>u.day===dow);
+
+    let dayHours = 0;
+    if(dayData && dayData.data && dayData.data.start && dayData.data.end){
+      const s = dayData.data.start.split(':').map(Number);
+      const en = dayData.data.end.split(':').map(Number);
+      dayHours = (en[0]*60+en[1] - s[0]*60-s[1]) / 60;
+      if(dayHours > 0) totalPlanned += dayHours;
+    }
+
+    dayPlan[ds] = {dayData, dayHours, unavails, prefs, dow};
+  }
+
+  const overBudget = hoursMax > 0 && totalPlanned > hoursMax;
+  const pctMonth = hoursMax > 0 ? Math.min(100, Math.round(totalPlanned/hoursMax*100)) : 0;
+
+  // Générer la grille HTML
+  let html = `
+  <div style="background:white;border-radius:12px;padding:16px;margin-top:12px;box-shadow:var(--sh)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:1rem;font-weight:800;color:var(--ink);text-transform:capitalize">${monthName}</div>
+        <div style="font-size:.72rem;color:var(--ink3);margin-top:2px">
+          ${toHM(totalPlanned)} planifiées
+          ${hoursMax>0?` / ${toHM(hoursMax)} max${overBudget&&!allowOver?' · <span style="color:var(--red);font-weight:700">⚠️ Dépassement</span>':overBudget&&allowOver?' · <span style="color:var(--orange);font-weight:700">✓ Dépassement autorisé</span>':''}`:' (pas de max défini)'}
+        </div>
+        ${hoursMax>0?`<div style="margin-top:6px;height:5px;border-radius:3px;background:var(--line);overflow:hidden;width:200px">
+          <div style="height:100%;border-radius:3px;width:${pctMonth}%;background:${overBudget?'var(--red)':pctMonth>80?'var(--orange)':'var(--accent)'};transition:width .4s"></div>
+        </div>`:''}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="changeMonthView(-1)" style="padding:5px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--white);cursor:pointer;font-size:.82rem">◀</button>
+        <button onclick="changeMonthView(1)" style="padding:5px 12px;border-radius:8px;border:1.5px solid var(--line);background:var(--white);cursor:pointer;font-size:.82rem">▶</button>
+      </div>
+    </div>
+
+    <!-- En-têtes jours -->
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">
+      ${DAYS_FR.map(d=>`<div style="text-align:center;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);padding:4px 0">${d}</div>`).join('')}
+    </div>
+
+    <!-- Grille jours -->
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
+
+  // Padding début de mois
+  const startPad = firstDay.getDay(); // 0=Dim
+  for(let i=0;i<startPad;i++){
+    html += `<div style="min-height:70px;border-radius:6px;background:#f9f9f7"></div>`;
+  }
+
+  // Jours du mois
+  for(let d=1; d<=lastDay.getDate(); d++){
+    const date = new Date(year, month, d);
+    const ds = date.toISOString().slice(0,10);
+    const dp = dayPlan[ds]||{};
+    const isToday = ds === new Date().toISOString().slice(0,10);
+    const dow = date.getDay();
+    const isWeekend = dow===0||dow===6;
+
+    const hasPlanning = dp.dayData && dp.dayData.data && dp.dayData.data.start;
+    const hasUnavail = dp.unavails && dp.unavails.length;
+    const hasPref = dp.prefs && dp.prefs.length;
+    const isPeriodForteDay = isPeriodForte(ds);
+
+    let dayBg = isWeekend?'#f5f4f0':'white';
+    let border = isToday?'2px solid var(--accent)':'1px solid var(--line)';
+
+    html += `<div style="min-height:70px;border-radius:6px;background:${dayBg};border:${border};padding:4px;cursor:pointer;position:relative" onclick="openDayEdit('${ds}','${dow}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+        <div style="font-size:.78rem;font-weight:${isToday?'800':'600'};color:${isToday?'var(--accent)':isWeekend?'var(--ink3)':'var(--ink)'}">${d}</div>
+        ${isPeriodForteDay.isForte?'<span style="font-size:.5rem;background:var(--olight);color:var(--orange);border-radius:3px;padding:0 3px">💰</span>':''}
+        ${isPeriodForteDay.isFerie?'<span style="font-size:.5rem;background:var(--glight);color:var(--green);border-radius:3px;padding:0 3px">🎉</span>':''}
+      </div>
+      ${hasPlanning?`<div style="background:var(--alight);border-radius:4px;padding:2px 5px;font-size:.6rem;font-weight:700;color:var(--accent);margin-bottom:2px">${dp.dayData.data.start}→${dp.dayData.data.end}</div>`:''}
+      ${hasUnavail?`<div style="background:var(--rlight);border-radius:4px;padding:2px 5px;font-size:.58rem;font-weight:600;color:var(--red)">🚫 Indispo</div>`:''}
+      ${!hasPlanning&&!hasUnavail&&hasPref?`<div style="background:var(--glight);border-radius:4px;padding:2px 5px;font-size:.58rem;font-weight:600;color:var(--green)">⭐ Pref</div>`:''}
+      ${dp.dayHours>0?`<div style="font-size:.58rem;color:var(--ink3);margin-top:2px">${toHM(dp.dayHours)}</div>`:''}
+    </div>`;
+  }
+
+  // Padding fin de mois
+  const endPad = (7 - (lastDay.getDay()+1)) % 7;
+  for(let i=0;i<endPad;i++){
+    html += `<div style="min-height:70px;border-radius:6px;background:#f9f9f7"></div>`;
+  }
+
+  html += `</div>
+
+    <!-- Légende -->
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;font-size:.64rem;color:var(--ink3)">
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--alight);border-radius:2px;margin-right:3px"></span>Planifié</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--rlight);border-radius:2px;margin-right:3px"></span>Indisponible</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:var(--glight);border-radius:2px;margin-right:3px"></span>Préférence</span>
+      <span>💰 Période forte · 🎉 Jour férié</span>
+    </div>
+
+    <!-- Légende validation -->
+    <div style="margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:.68rem;color:var(--ink2)">
+      ℹ️ Cliquez sur un jour pour planifier. Les modifications <strong>hors préférences</strong> seront soumises à validation RH.
+    </div>
+  </div>`;
+
+  mv.innerHTML = html;
+}
+
+function changeMonthView(dir){
+  // Naviguer d'un mois
+  const baseDate = getWeekDates(curWeek)[0];
+  const newDate = new Date(baseDate);
+  newDate.setMonth(newDate.getMonth() + dir);
+  // Recalculer curWeek pour pointer vers ce mois
+  const monday = new Date(newDate);
+  const dow = monday.getDay()||7;
+  monday.setDate(monday.getDate() - dow + 1);
+  const ref = getWeekDates(0)[0];
+  curWeek = Math.round((monday - ref) / (7*24*3600*1000));
+  renderMonthView();
+  updateMonthBox();
+}
+
+// Ouvrir un mini-modal pour planifier un jour depuis la vue mensuelle
+function openDayEdit(dateStr, dow){
+  const e = emp(); if(!e) return;
+  const avail = e.availability||{};
+  const unavails = (avail.unavail||[]).filter(u=>u.day===parseInt(dow)&&u.recurrent);
+  const prefs = (avail.preferred||[]).filter(u=>u.day===parseInt(dow));
+  const DAYS_FR2 = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const dayName = DAYS_FR2[parseInt(dow)];
+  const dateLabel = new Date(dateStr+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+
+  // Trouver planification existante
+  let existing = null;
+  Object.entries(e.weeks||{}).forEach(([wOff,days])=>{
+    const wDates = getWeekDates(parseInt(wOff));
+    wDates.forEach((wd,di)=>{
+      if(wd.toISOString().slice(0,10) === dateStr && days[di]) existing = {data:days[di],wOff:parseInt(wOff),di};
+    });
+  });
+
+  const isOutsidePref = prefs.length > 0; // Si préfs définies et on modifie = validation
+
+  let modal = document.getElementById('day-edit-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'day-edit-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+  <div style="background:white;border-radius:14px;width:100%;max-width:400px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
+    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.9rem;font-weight:700;color:white">${dayName} ${dateLabel}</div>
+        ${unavails.length?`<div style="font-size:.7rem;color:#fca5a5;margin-top:2px">⚠️ Indisponibilité récurrente ce jour</div>`:''}
+        ${prefs.length?`<div style="font-size:.7rem;color:#86efac;margin-top:2px">⭐ Préférence: ${prefs[0].debut}→${prefs[0].fin}</div>`:''}
+      </div>
+      <button onclick="document.getElementById('day-edit-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:16px">
+      ${unavails.length?`<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:.76rem;color:#dc2626">
+        🚫 Ce travailleur est habituellement indisponible ce jour (${unavails.map(u=>u.debut+'→'+u.fin).join(', ')}). Planifier quand même ?
+      </div>`:''}
+      <div style="margin-bottom:10px">
+        <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure début</label>
+        <input type="time" id="de-start" value="${existing?.data?.start||prefs[0]?.debut||'10:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure fin</label>
+        <input type="time" id="de-end" value="${existing?.data?.end||prefs[0]?.fin||'20:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+      </div>
+      ${isOutsidePref&&!prefs.some(p=>true)?`<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.72rem;color:#92400e">
+        ⚠️ Cette modification est hors des préférences habituelles et sera soumise à validation RH.
+      </div>`:''}
+      <div style="display:flex;gap:8px">
+        ${existing?`<button onclick="removeDayPlan('${dateStr}')" style="flex:1;padding:9px;border-radius:8px;border:1.5px solid #fee2e2;background:none;color:#dc2626;cursor:pointer;font-size:.82rem;font-weight:600">🗑 Supprimer</button>`:''}
+        <button onclick="saveDayPlan('${dateStr}',${dow})" style="flex:2;padding:9px;border-radius:8px;border:none;background:#2d5be3;color:white;cursor:pointer;font-size:.82rem;font-weight:700">
+          ${isOutsidePref&&unavails.length?'💬 Soumettre validation':'✓ Enregistrer'}
+        </button>
+      </div>
+    </div>
+  </div>`;
+  modal.style.display='flex';
+}
+
+function saveDayPlan(dateStr, dow){
+  const e = emp(); if(!e) return;
+  const start = document.getElementById('de-start')?.value;
+  const end   = document.getElementById('de-end')?.value;
+  if(!start||!end||start>=end){ showToast('Horaire invalide'); return; }
+
+  // Trouver la semaine offset pour cette date
+  const d = new Date(dateStr+'T12:00');
+  const mondayD = new Date(d);
+  const diff = (d.getDay()||7) - 1;
+  mondayD.setDate(d.getDate() - diff);
+  const ref = getWeekDates(0)[0];
+  const wOff = Math.round((mondayD - ref) / (7*24*3600*1000));
+  const di = (d.getDay()||7) - 1; // 0=Lundi
+
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+
+  // Vérifier si hors préférences → flag validation
+  const avail = e.availability||{};
+  const prefs = (avail.preferred||[]).filter(u=>u.day===parseInt(dow));
+  const isInPref = prefs.some(p=>start>=p.debut&&end<=p.fin);
+  const needsValidation = prefs.length>0 && !isInPref;
+
+  e.weeks[wOff][di] = {
+    start, end,
+    _needsValidation: needsValidation,
+    _validationStatus: needsValidation ? 'pending' : 'approved'
+  };
+
+  histPush();
+  autoSave();
+  document.getElementById('day-edit-modal')?.remove();
+  if(_viewMode==='month') renderMonthView(); else renderWeek();
+  updateMonthBox();
+  if(needsValidation) showToast('⏳ Modification soumise à validation RH');
+  else showToast('✅ Planning mis à jour');
+}
+
+function removeDayPlan(dateStr){
+  const e = emp(); if(!e) return;
+  const d = new Date(dateStr+'T12:00');
+  const mondayD = new Date(d);
+  const diff = (d.getDay()||7) - 1;
+  mondayD.setDate(d.getDate() - diff);
+  const ref = getWeekDates(0)[0];
+  const wOff = Math.round((mondayD - ref) / (7*24*3600*1000));
+  const di = (d.getDay()||7) - 1;
+  if(e.weeks?.[wOff]?.[di]) delete e.weeks[wOff][di];
+  autoSave();
+  document.getElementById('day-edit-modal')?.remove();
+  if(_viewMode==='month') renderMonthView(); else renderWeek();
+  updateMonthBox();
+  showToast('Jour supprimé du planning');
+}
+
+// ══════════════════════════════════════════════════════════════
+// VALIDATION RH — Modifications hors préférences
+// ══════════════════════════════════════════════════════════════
+
+function openValidationCenter(){
+  const pending = [];
+  employees.forEach(e=>{
+    Object.entries(e.weeks||{}).forEach(([wOff,days])=>{
+      Object.entries(days).forEach(([di,day])=>{
+        if(day && day._needsValidation && day._validationStatus==='pending'){
+          const dates = getWeekDates(parseInt(wOff));
+          const date = dates[parseInt(di)];
+          pending.push({e, wOff:parseInt(wOff), di:parseInt(di), day, date});
+        }
+      });
+    });
+  });
+
+  let modal = document.getElementById('validation-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id='validation-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML=`
+  <div style="background:white;border-radius:14px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
+    <div style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:.95rem;font-weight:800;color:white">⏳ Demandes de validation (${pending.length})</div>
+      <button onclick="document.getElementById('validation-modal').remove()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:16px">
+      ${!pending.length?'<div style="text-align:center;padding:32px;color:#9898b8">✅ Aucune demande en attente.</div>':
+        pending.map((p,i)=>`
+        <div style="border:1.5px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:10px;background:#fffbeb">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div>
+              <strong style="font-size:.84rem">${empName(p.e)}</strong>
+              <span style="font-size:.72rem;color:#9898b8;margin-left:6px">
+                ${p.date?p.date.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}):''}
+              </span>
+            </div>
+            <span style="font-size:.7rem;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-weight:700">En attente</span>
+          </div>
+          <div style="font-size:.78rem;color:#1a1a2e;margin-bottom:8px">
+            Horaire demandé : <strong>${p.day.start}→${p.day.end}</strong>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="validateDay(${employees.indexOf(p.e)},${p.wOff},${p.di},true)" style="flex:1;padding:7px;border-radius:7px;border:none;background:#059669;color:white;cursor:pointer;font-size:.78rem;font-weight:700">✓ Approuver</button>
+            <button onclick="validateDay(${employees.indexOf(p.e)},${p.wOff},${p.di},false)" style="flex:1;padding:7px;border-radius:7px;border:none;background:#dc2626;color:white;cursor:pointer;font-size:.78rem;font-weight:700">✕ Refuser</button>
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+  modal.style.display='flex';
+}
+
+function validateDay(empIdx, wOff, di, approved){
+  const e = employees[empIdx]; if(!e) return;
+  if(!e.weeks?.[wOff]?.[di]) return;
+  if(approved){
+    e.weeks[wOff][di]._validationStatus = 'approved';
+    e.weeks[wOff][di]._needsValidation = false;
+  } else {
+    delete e.weeks[wOff][di]; // Supprimer si refusé
+  }
+  autoSave();
+  openValidationCenter(); // Rafraîchir
+  showToast(approved ? '✅ Approuvé' : '❌ Refusé et supprimé');
+}
+
+
 let _prefSlots = [];
 let _unavailSlots = [];
 const DAY_NAMES = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -2438,6 +2878,9 @@ function mkEmp(o){
     workerAvailability: o.workerAvailability||{},
     // Disponibilités granulaires + magasin par défaut
     availability: o.availability||{preferred:[], unavail:[], defaultSite:''},
+    // Heures max/mois + permission dépassement
+    hoursMaxMonth: +o.hoursMaxMonth || 0,  // 0 = non défini
+    allowOvertime: !!o.allowOvertime,       // permission dépassement
   };
 }
 function empName(e){return e.firstname+' '+e.lastname;}
@@ -2474,6 +2917,16 @@ const emp      = ()=>employees.find(e=>e.id===selId);
 const empCol   = e=>empColor(e);
 
 // ── WEEK UTILS ─────────────────────────────────────────────────
+
+// ── Clé unique pour une semaine basée sur la date du lundi ──
+function getWeekKey(date){
+  const d=new Date(date);
+  d.setHours(0,0,0,0);
+  const day=d.getDay()||7;
+  d.setDate(d.getDate()-day+1); // Lundi
+  return d.toISOString().slice(0,10);
+}
+
 function getWeekDates(off){
   const now=new Date(),dow=now.getDay();
   const mon=new Date(now);
@@ -3052,6 +3505,10 @@ function changeWeek(dir){curWeek+=dir;renderWeek();updateMonthBox();}
 
 function renderWeek(){
   const e=emp();if(!e)return;
+  // ── SYNC INDISPONIBILITÉS RÉCURRENTES ──────────────────────────
+  // Bloquer automatiquement les créneaux des indisponibilités définies dans la fiche
+  syncUnavailabilities(e);
+  // ────────────────────────────────────────────────────────────────
   const dates=getWeekDates(curWeek);
   const days=getWeekDays(e,curWeek);
 
@@ -3474,6 +3931,11 @@ function openEditModal(){
   renderSitesPicker(e.sites||[]);
   // Créneaux préférés + indisponibilités + magasin par défaut
   loadSlotsFromEmp(e);
+  // Heures max mois + permission dépassement
+  const hmEl = document.getElementById('new-hours-max-month');
+  if(hmEl) hmEl.value = e.hoursMaxMonth || '';
+  const aoEl = document.getElementById('new-allow-overtime');
+  if(aoEl) aoEl.checked = !!e.allowOvertime;
   // Score
   setTimeout(updatePlanScore, 50);
   openModal('add-modal');
@@ -3535,7 +3997,9 @@ function submitEmployee(){
       defaultSite: document.getElementById('new-default-site')?.value||'',
       preferred:   JSON.parse(JSON.stringify(_prefSlots)),
       unavail:     JSON.parse(JSON.stringify(_unavailSlots)),
-    }
+    },
+    hoursMaxMonth: parseFloat(document.getElementById('new-hours-max-month')?.value||'0')||0,
+    allowOvertime: document.getElementById('new-allow-overtime')?.checked||false,
   };
   if(editId!==null){
     const idx=employees.findIndex(e=>e.id===editId);
