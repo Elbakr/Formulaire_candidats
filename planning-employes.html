@@ -959,7 +959,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
         </div>
           <select id="new-default-site" style="font-size:.84rem;padding:8px">
             <option value="">— Pas de magasin par défaut —</option>
-            ${Object.values(SITES).map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+            ${Object.values(SITES).map(s=>`<option value="${s.id}">${s.id} — ${s.name}</option>`).join('')}
           </select>
           <div style="font-size:.62rem;color:var(--ink3);margin-top:3px">Le magasin où ce travailleur est affecté prioritairement par l'autoplanification</div>
         </div>
@@ -2550,54 +2550,73 @@ function loadSlotsFromEmp(e){
 
 
 function openPlanningEngine(){
-  // Créer ou ouvrir la modal de planification
-  let modal = document.getElementById('planning-engine-modal');
-  if(!modal){
-    modal = document.createElement('div');
-    modal.id='planning-engine-modal';
-    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
-    modal.innerHTML=`
-    <div style="background:white;border-radius:16px;width:100%;max-width:900px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
-      <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:1.1rem;font-weight:800;color:white">🤖 Autoplanification — Croisement Offre / Demande</div>
-          <div style="font-size:.74rem;color:rgba(255,255,255,.6);margin-top:3px">Sélectionnez un magasin et une semaine pour générer les propositions</div>
-        </div>
-        <button onclick="document.getElementById('planning-engine-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1.1rem;cursor:pointer">✕</button>
-      </div>
+  // Toujours supprimer et recréer pour avoir le sélecteur à jour
+  document.getElementById('planning-engine-modal')?.remove();
 
-      <div style="padding:20px 24px;border-bottom:1px solid #e2e0d8;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-        <div>
-          <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:5px">Magasin</div>
-          <select id="pe-site" style="padding:8px 12px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.88rem;min-width:160px">
-            ${Object.values(SITES).map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:5px">Semaine du</div>
-          <input type="date" id="pe-week" style="padding:8px 12px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.88rem">
-        </div>
-        <button onclick="runPlanningEngine()" style="padding:9px 20px;background:#2d5be3;color:white;border:none;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer">
-          ⚡ Générer les propositions
-        </button>
-      </div>
+  const modal = document.createElement('div');
+  modal.id='planning-engine-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
 
-      <div id="pe-results" style="padding:20px 24px;min-height:200px">
-        <div style="text-align:center;padding:32px;color:#9898b8;font-size:.88rem">
-          Sélectionnez un magasin et une semaine, puis cliquez "Générer"
-        </div>
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-  } else {
-    modal.style.display='flex';
-  }
-
-  // Pré-remplir la semaine courante
+  // Semaine courante
   const today = new Date();
   const monday = new Date(today);
   monday.setDate(today.getDate() - (today.getDay()||7) + 1);
-  document.getElementById('pe-week').value = monday.toISOString().slice(0,10);
+  const mondayStr = monday.toISOString().slice(0,10);
+
+  // Construire les options de sites — A B C D E F avec leur nom réel
+  const siteOptions = Object.values(SITES)
+    .filter(s => STORE_NEEDS[s.id] && Object.values(STORE_NEEDS[s.id]).some(slots=>slots.length>0))
+    .map(s=>`<option value="${s.id}" style="font-weight:700">${s.id} — ${s.name}</option>`)
+    .join('');
+
+  // Nb travailleurs actifs pour info
+  const nbWorkers = employees.filter(e=>!e.archived).length;
+
+  modal.innerHTML=`
+  <div style="background:white;border-radius:16px;width:100%;max-width:920px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">
+
+    <!-- EN-TÊTE -->
+    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#2d5be3 100%);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:1.1rem;font-weight:800;color:white">🤖 Autoplanification — Croisement Offre / Demande</div>
+        <div style="font-size:.74rem;color:rgba(255,255,255,.6);margin-top:4px">
+          ${nbWorkers} travailleur${nbWorkers>1?'s':''} actif${nbWorkers>1?'s':''} · Sites disponibles : ${Object.values(SITES).map(s=>s.id).join(', ')}
+        </div>
+      </div>
+      <button onclick="document.getElementById('planning-engine-modal').remove()"
+        style="background:rgba(255,255,255,.15);border:none;color:white;width:36px;height:36px;border-radius:8px;font-size:1.2rem;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+
+    <!-- SÉLECTION -->
+    <div style="padding:18px 24px;border-bottom:2px solid #e2e0d8;background:#f8f7f5;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:6px">📍 Point de vente</div>
+        <select id="pe-site" style="padding:9px 14px;border:2px solid #2d5be3;border-radius:8px;font-size:.92rem;font-weight:700;min-width:200px;background:white;color:#1a1a2e">
+          ${siteOptions||'<option value="">Aucun site configuré</option>'}
+        </select>
+      </div>
+      <div>
+        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:6px">📅 Semaine du (lundi)</div>
+        <input type="date" id="pe-week" value="${mondayStr}"
+          style="padding:9px 14px;border:2px solid #e2e0d8;border-radius:8px;font-size:.88rem;background:white">
+      </div>
+      <button onclick="runPlanningEngine()"
+        style="padding:10px 22px;background:#2d5be3;color:white;border:none;border-radius:8px;font-size:.9rem;font-weight:800;cursor:pointer;white-space:nowrap">
+        ⚡ Générer
+      </button>
+    </div>
+
+    <!-- RÉSULTATS -->
+    <div id="pe-results" style="padding:20px 24px;min-height:220px">
+      <div style="text-align:center;padding:40px;color:#9898b8;font-size:.88rem">
+        Sélectionnez un point de vente (A, B, C…) et une semaine, puis cliquez <strong>Générer</strong>.
+      </div>
+    </div>
+
+  </div>`;
+
+  modal.onclick = ()=> modal.remove();
+  document.body.appendChild(modal);
 }
 
 function runPlanningEngine(){
@@ -2606,6 +2625,34 @@ function runPlanningEngine(){
   if(!siteId||!weekStart){ showToast('Sélectionnez un magasin et une semaine'); return; }
 
   const resultsEl = document.getElementById('pe-results');
+
+  // ── DIAGNOSTIC ─────────────────────────────────────────────
+  const besoinsTest = getBesoinsDate(siteId, weekStart);
+  const activeWorkers = employees.filter(e=>!e.archived);
+  console.log(`[Autoplan] Site: ${siteId} | Semaine: ${weekStart}`);
+  console.log(`[Autoplan] STORE_NEEDS[${siteId}]:`, STORE_NEEDS[siteId] ? '✅ trouvé' : '❌ MANQUANT');
+  console.log(`[Autoplan] Besoins lundi:`, besoinsTest);
+  console.log(`[Autoplan] Travailleurs actifs: ${activeWorkers.length}`);
+  activeWorkers.forEach(e=>{
+    const avail = getWorkerAvailability(e);
+    console.log(`  → ${e.firstname} ${e.lastname} | sites:`, e.sites, '| defaultSite:', avail.defaultSite, '| prefs:', avail.preferred.length);
+  });
+  // ─────────────────────────────────────────────────────────
+
+  if(!STORE_NEEDS[siteId]){
+    resultsEl.innerHTML=`<div style="text-align:center;padding:32px;color:#dc2626;font-weight:700">
+      ❌ Aucun horaire défini pour le site "${siteId}".<br>
+      <span style="font-size:.78rem;font-weight:400;color:#9898b8">Vérifiez STORE_NEEDS dans le code.</span>
+    </div>`;
+    return;
+  }
+  if(activeWorkers.length === 0){
+    resultsEl.innerHTML=`<div style="text-align:center;padding:32px;color:#dc2626;font-weight:700">
+      ❌ Aucun travailleur actif dans l'équipe.
+    </div>`;
+    return;
+  }
+
   resultsEl.innerHTML='<div style="text-align:center;padding:32px;color:#9898b8">⏳ Calcul en cours...</div>';
 
   setTimeout(()=>{
@@ -2614,10 +2661,34 @@ function runPlanningEngine(){
     const {isForte,isFerie,multiplier} = isPeriodForte(weekStart);
     const DAYS = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
+    // Vérifier si vraiment vide
+    const totalSlots = proposals.reduce((s,p)=>s+p.plan.length,0);
+    if(totalSlots===0){
+      resultsEl.innerHTML=`
+      <div style="text-align:center;padding:32px">
+        <div style="font-size:2rem;margin-bottom:12px">⚠️</div>
+        <div style="font-size:.92rem;font-weight:700;color:#dc2626;margin-bottom:8px">Aucun créneau généré pour ${siteId} — ${site?.name||''}</div>
+        <div style="font-size:.78rem;color:#9898b8;max-width:400px;margin:0 auto;line-height:1.6">
+          Vérifiez que :<br>
+          • Des travailleurs sont assignés au site <strong>${siteId}</strong> (ou sans site par défaut)<br>
+          • Leurs disponibilités ne bloquent pas tous les créneaux<br>
+          • Il y a au moins 1 travailleur actif dans l'équipe
+        </div>
+        <div style="margin-top:14px;font-size:.74rem;color:#9898b8">
+          Travailleurs actifs : ${employees.filter(e=>!e.archived).length} · 
+          Ouvrez la console (F12) pour voir le diagnostic détaillé.
+        </div>
+      </div>`;
+      return;
+    }
+
     resultsEl.innerHTML=`
     ${isForte||isFerie?`<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:.8rem;color:#92400e;font-weight:600">
       ${isFerie?'🎉 Semaine avec jour férié':'💰 Période forte (27-10 du mois)'} — Besoins augmentés ×${multiplier.toFixed(1)}
     </div>`:''}
+    <div style="font-size:.78rem;color:#9898b8;margin-bottom:14px;padding:8px 12px;background:#f5f4f0;border-radius:8px">
+      📍 Site <strong style="color:#1a1a2e;font-size:.88rem">${siteId}</strong> — ${site?.name||''} · ${site?.address||''} · Semaine du ${new Date(weekStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'long',year:'numeric'})}
+    </div>
 
     <div style="display:flex;flex-direction:column;gap:16px">
     ${proposals.map(prop=>`
@@ -3422,7 +3493,7 @@ function loadPanel(){
   if(e.note)  badges+=`<span class="badge" style="background:var(--olight);color:var(--orange)">💬 ${e.note.slice(0,40)}${e.note.length>40?'…':''}</span>`;
   if(e.sites&&e.sites.length) e.sites.forEach(sid=>{
     const s=SITES[sid];
-    if(s) badges+=`<span class="badge" style="background:${s.light};color:${s.color};border:1px solid ${s.color}">🏪 ${s.id} ${s.city}</span>`;
+    if(s) badges+=`<span class="badge" style="background:${s.light};color:${s.color};border:1px solid ${s.color}">🏪 ${s.id} — ${s.name}</span>`;
   });
   if(e.workerPin) badges+=`<span class="badge" style="background:var(--alight);color:var(--accent)">🔐 PIN actif</span>`;
   document.getElementById('panel-badges').innerHTML=badges;
@@ -5213,7 +5284,7 @@ function renderSiteModal(){
       style="padding:5px 14px;border-radius:9px;border:2px solid ${active?s.color:s.light};
       background:${active?s.color:s.light};color:${active?'#fff':s.color};
       font-family:'Sora',sans-serif;font-size:.74rem;font-weight:700;cursor:pointer">
-      ${s.id} — ${s.name}
+      <strong>${s.id}</strong> — ${s.name}
     </button>`;
   }).join('');
   renderSiteContent();
