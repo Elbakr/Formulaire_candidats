@@ -341,7 +341,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 <div class="topbar" id="topbar" style="display:none">
   <div style="display:flex;align-items:center;gap:8px">
     <div class="logo">Gesti<span>Planning</span></div>
-    <span style="background:#2d5be3;color:#fff;font-size:.65rem;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap">v2026.04.25</span>
+    <span style="background:#2d5be3;color:#fff;font-size:.65rem;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:20px;letter-spacing:.04em;white-space:nowrap">v2026.04.25 17:18</span>
   </div>
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
     <!-- Undo / Redo -->
@@ -776,10 +776,22 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
           </select>
         </div>
         <div class="form-group">
-          <label data-i18n="role">Poste / Fonction</label>
+          <label>Poste / Fonction</label>
           <input type="text" id="new-role" placeholder="Vendeur, Caissier...">
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>🏅 Grade / Responsabilité</label>
+          <select id="new-grade">
+            <option value="directeur">👑 Directeur(rice) de magasin</option>
+            <option value="manager">⭐ Manager / Responsable</option>
+            <option value="senior">🔵 Senior (>1 an)</option>
+            <option value="vendeur" selected>🟢 Vendeur(se)</option>
+            <option value="junior">🟡 Junior (&lt;3 mois)</option>
+            <option value="stagiaire">⚪ Stagiaire / Intérimaire</option>
+          </select>
+        </div>
       <div class="form-row">
         <div class="form-group"><label data-i18n="startDate">Date d'entrée *</label><input type="date" id="new-start-date"></div>
         <div class="form-group"><label data-i18n="endDate">Date de fin de contrat</label><input type="date" id="new-end-date"></div>
@@ -1894,84 +1906,233 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
 }
 
 // ══════════════════════════════════════════════════════════════
-// GÉNÉRATION DES PROPOSITIONS
+// RÈGLES D'AUTOPLANIFICATION — Configurables (activées par défaut)
+// ══════════════════════════════════════════════════════════════
+
+const AUTOPLAN_RULES = {
+  // Règle 1 : Ordre de priorité des jours (Sam → Fériés → Dim → Semaine)
+  priorityDayOrder: {
+    active: true,
+    label: '📅 Ordre prioritaire : Sam → Fériés → Dim → Semaine',
+    description: 'Remplit d\'abord les samedis, puis les jours fériés, puis les dimanches, puis les jours normaux'
+  },
+  // Règle 2 : Mix de profils (éviter équipe uniquement étudiants/nouveaux)
+  mixProfiles: {
+    active: true,
+    label: '👥 Équipe mixte obligatoire (senior + junior)',
+    description: 'Toute équipe de 2+ personnes doit inclure au moins 1 profil senior (>3 mois d\'ancienneté, CDI/CDD) si des étudiants sont présents'
+  },
+  // Règle 3 : Ancienneté minimum par équipe
+  seniorityBalance: {
+    active: true,
+    label: '⏱ Ancienneté : 1 senior (>3 mois) par groupe de 2 étudiants',
+    description: 'Pour chaque tranche de 2 étudiants/nouveaux, il faut au moins 1 travailleur avec >3 mois d\'ancienneté'
+  },
+  // Règle 4 : Profil intégré vs nouvel arrivant
+  integrationBalance: {
+    active: true,
+    label: '🌍 Équilibre intégration (profil intégré + nouvel arrivant)',
+    description: 'Préférer les équipes mélangeant profils expérimentés et nouveaux arrivants'
+  },
+  // Règle 5 : Grade (au moins 1 senior/manager par site si possible)
+  gradeBalance: {
+    active: true,
+    label: '🏅 Grade : 1 senior ou manager par équipe si disponible',
+    description: 'Priorité aux travailleurs de grade senior/manager pour chaque créneau d\'ouverture'
+  },
+  // Règle 6 : Heures max mois respectées
+  respectMonthlyMax: {
+    active: true,
+    label: '⏱ Respecter le quota d\'heures mensuel',
+    description: 'Ne pas dépasser le maximum mensuel sauf si "dépassement autorisé" est coché dans la fiche'
+  },
+};
+
+// Activer/désactiver une règle d'autoplan
+function toggleAutoPlanRule(key, active){
+  if(AUTOPLAN_RULES[key]) AUTOPLAN_RULES[key].active = active;
+  // Mettre à jour le style du badge
+  const lbl = document.querySelector(`[data-rule="${key}"]`)?.closest('label');
+  if(lbl){
+    lbl.style.borderColor = active?'#2d5be3':'#e2e0d8';
+    lbl.style.background  = active?'#eef1fd':'#f8f7f5';
+    lbl.style.color       = active?'#2d5be3':'#9898b8';
+  }
+}
+
+
+function getAnciennete(e){
+  if(!e.startDate) return e.anciennete||0;
+  const start = new Date(e.startDate);
+  const now   = new Date();
+  return Math.max(0, (now.getFullYear()-start.getFullYear())*12 + (now.getMonth()-start.getMonth()));
+}
+
+// Profil "senior" = CDI/CDD avec >3 mois, OU grade senior/manager/directeur
+function isSeniorProfile(e){
+  const anc = getAnciennete(e);
+  const grade = e.grade||'vendeur';
+  if(['directeur','manager','senior'].includes(grade)) return true;
+  if(['CDI','CDD','Independant'].includes(e.status) && anc >= 3) return true;
+  return false;
+}
+
+// Profil "nouveau" = Etudiant <3 mois, Interim, Stage, grade junior/stagiaire
+function isJuniorProfile(e){
+  const anc = getAnciennete(e);
+  const grade = e.grade||'vendeur';
+  if(['stagiaire','junior'].includes(grade)) return true;
+  if(e.status==='Etudiant' && anc < 3) return true;
+  if(['Interim','Stage','Flexi','Volontaire'].includes(e.status) && anc < 3) return true;
+  return false;
+}
+
+// Vérifier si une équipe assignée respecte la règle de mix
+function teamRespectsMixRule(assigned){
+  if(!AUTOPLAN_RULES.mixProfiles.active) return true;
+  if(assigned.length < 2) return true;
+  const nbJunior = assigned.filter(isJuniorProfile).length;
+  const nbSenior = assigned.filter(isSeniorProfile).length;
+  // Si au moins 2 juniors sans aucun senior → violation
+  if(nbJunior >= 2 && nbSenior === 0) return false;
+  return true;
+}
+
+// Score bonus pour la règle de grade
+function gradePriorityScore(e, assigned){
+  if(!AUTOPLAN_RULES.gradeBalance.active) return 0;
+  const hasSeniorAlready = assigned.some(isSeniorProfile);
+  if(!hasSeniorAlready && isSeniorProfile(e)) return 5; // bonus fort pour premier senior
+  return 0;
+}
+
+// ══════════════════════════════════════════════════════════════
+// GÉNÉRATION DES PROPOSITIONS — avec toutes les règles
 // ══════════════════════════════════════════════════════════════
 
 function genPlanningProposals(siteId, weekStart, n=3){
   const active = employees.filter(e=>!e.archived);
   const proposals = [];
 
-  for(let propIdx=0; propIdx<n; propIdx++){
-    const plan = [];
-    const workerLoad = {};      // {empId: minutes planifiées cette semaine}
-    const workerDays  = {};     // {empId: Set de jours déjà planifiés}
+  // ── RÈGLE 1 : Ordre prioritaire des jours ──────────────────
+  // Construire la liste des 7 jours dans l'ordre voulu
+  function buildDayOrder(weekStartStr){
+    const days = [];
+    for(let i=0;i<7;i++){
+      const d = new Date(weekStartStr+'T12:00');
+      d.setDate(d.getDate()+i);
+      const dateStr = d.toISOString().slice(0,10);
+      const dow = d.getDay(); // 0=Dim, 6=Sam
+      const {isFerie} = isPeriodForte(dateStr);
+      const isSat = dow===6;
+      const isSun = dow===0;
+      // Priorité : Sam=1, Férié=2, Dim=3, Normal=4
+      let priority;
+      if(isSat)         priority = 1;
+      else if(isFerie)  priority = 2;
+      else if(isSun)    priority = 3;
+      else              priority = 4;
+      days.push({dateStr, dow, priority, isSat, isSun, isFerie, offset:i});
+    }
+    if(AUTOPLAN_RULES.priorityDayOrder.active){
+      // Trier par priorité puis par offset pour garder l'ordre dans chaque groupe
+      days.sort((a,b)=> a.priority!==b.priority ? a.priority-b.priority : a.offset-b.offset);
+    }
+    return days;
+  }
 
-    for(let dayOff=0; dayOff<7; dayOff++){
-      const date = new Date(weekStart+'T12:00');
-      date.setDate(date.getDate()+dayOff);
-      const dateStr = date.toISOString().slice(0,10);
+  for(let propIdx=0; propIdx<n; propIdx++){
+    const plan        = [];
+    const workerLoad  = {}; // {empId: minutes planifiées}
+    const workerDays  = {}; // {empId: Set de dateStr}
+
+    const dayOrder = buildDayOrder(weekStart);
+
+    for(const {dateStr, dow} of dayOrder){
       const besoins = getBesoinsDate(siteId, dateStr);
 
       for(const creneau of besoins){
-        // Obtenir les candidats triés par score
+        // Candidats de base (filtre site + dispo)
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
-
-        // Proposition 2 & 3 : équilibrer la charge en triant différemment
-        if(propIdx === 1){
-          // Proposition 2 : équilibre charge (moins chargés d'abord, à score égal)
-          candidats = [...candidats].sort((a,b)=>{
-            const diff = b.score - a.score;
-            if(Math.abs(diff) > 3) return -diff; // score très différent → respecter l'ordre
-            return ((workerLoad[a.emp.id]||0) - (workerLoad[b.emp.id]||0));
-          });
-        } else if(propIdx === 2){
-          // Proposition 3 : rotation (décaler pour varier les personnes assignées)
-          if(candidats.length > 2){
-            const cut = Math.floor(candidats.length/3);
-            candidats = [...candidats.slice(cut), ...candidats.slice(0,cut)];
-          }
-        }
 
         const assigned = [];
         let manquants  = creneau.vendeurs;
 
+        // Tri selon la proposition
+        if(propIdx===1){
+          // Équilibré : charge d'abord, score ensuite
+          candidats = [...candidats].sort((a,b)=>{
+            const loadDiff = (workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
+            if(Math.abs(loadDiff)>120) return loadDiff;
+            return b.score-a.score;
+          });
+        } else if(propIdx===2){
+          // Alternatif : rotation (décaler d'un tiers)
+          if(candidats.length>2){
+            const cut=Math.floor(candidats.length/3);
+            candidats=[...candidats.slice(cut),...candidats.slice(0,cut)];
+          }
+        }
+
+        // Assigner les travailleurs avec les règles de mix
         for(const {emp} of candidats){
           if(assigned.length >= creneau.vendeurs) break;
-          // Ne pas placer deux fois le même jour
-          if(!workerDays[emp.id]) workerDays[emp.id] = new Set();
+
+          // Anti-doublon jour
+          if(!workerDays[emp.id]) workerDays[emp.id]=new Set();
           if(workerDays[emp.id].has(dateStr)) continue;
-          // Ne pas dépasser les heures max du mois si définies
-          if(emp.hoursMaxMonth && !emp.allowOvertime){
+
+          // ── RÈGLE 6 : heures max mois ──
+          if(AUTOPLAN_RULES.respectMonthlyMax.active && emp.hoursMaxMonth && !emp.allowOvertime){
             const loadH = (workerLoad[emp.id]||0)/60;
             const crenH = (timeToMin(creneau.fin)-timeToMin(creneau.debut))/60;
-            if(loadH + crenH > emp.hoursMaxMonth) continue;
+            if(loadH+crenH > emp.hoursMaxMonth) continue;
           }
+
+          // ── RÈGLE 2+3 : mix profils ─────────────────────────
+          // Si on a déjà le nombre voulu et que le mix est respecté → stop
+          // Si ce candidat est junior ET l'équipe en cours n'a pas de senior
+          // ET il reste des candidats seniors → différer ce junior
+          if(AUTOPLAN_RULES.mixProfiles.active && isJuniorProfile(emp) && assigned.length>=1){
+            const hasSenior = assigned.some(isSeniorProfile);
+            if(!hasSenior){
+              // Chercher s'il y a un senior disponible après
+              const hasSeniorAvail = candidats.some(({emp:e2})=>
+                isSeniorProfile(e2) &&
+                (!workerDays[e2.id]||!workerDays[e2.id].has(dateStr)) &&
+                !assigned.find(a=>a.id===e2.id)
+              );
+              if(hasSeniorAvail) continue; // passer ce junior, prendre le senior d'abord
+            }
+          }
+
           assigned.push(emp);
           workerDays[emp.id].add(dateStr);
-          workerLoad[emp.id] = (workerLoad[emp.id]||0) + (timeToMin(creneau.fin)-timeToMin(creneau.debut));
+          workerLoad[emp.id]=(workerLoad[emp.id]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
           manquants--;
         }
 
         plan.push({
           dateStr, creneau, assigned,
-          manquants: Math.max(0, manquants),
-          periode: creneau.periode
+          manquants: Math.max(0,manquants),
+          periode: creneau.periode,
+          mixOk: teamRespectsMixRule(assigned)
         });
       }
     }
 
-    // Calcul couverture
-    const totalCover = plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants), 0);
-    const totalNeeds = plan.reduce((s,p)=>s+p.creneau.vendeurs, 0);
+    const totalCover = plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants),0);
+    const totalNeeds = plan.reduce((s,p)=>s+p.creneau.vendeurs,0);
     const coverage   = totalNeeds>0 ? Math.round(totalCover/totalNeeds*100) : 0;
+    const mixViolations = plan.filter(p=>!p.mixOk).length;
 
     proposals.push({
       id: propIdx+1,
-      label: propIdx===0 ? '⭐ Optimal (préférences + site principal)' :
-             propIdx===1 ? '⚖️ Équilibré (charge répartie)' :
-                           '🔄 Alternatif (rotation)',
-      plan, coverage,
-      workerLoad: {...workerLoad}
+      label: propIdx===0?'⭐ Optimal (priorités + règles)':
+             propIdx===1?'⚖️ Équilibré (charge répartie)':
+                         '🔄 Alternatif (rotation)',
+      plan, coverage, mixViolations,
+      workerLoad:{...workerLoad}
     });
   }
 
@@ -2666,6 +2827,18 @@ function openPlanningEngine(){
       </button>
     </div>
 
+    <!-- RÈGLES ACTIVES -->
+    <div style="padding:12px 24px;border-bottom:2px solid #e2e0d8;background:#fafaf8">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:8px">⚙️ Règles actives</div>
+      <div id="pe-rules" style="display:flex;flex-wrap:wrap;gap:6px">
+        ${Object.entries(AUTOPLAN_RULES).map(([key,rule])=>`
+          <label style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1.5px solid ${rule.active?'#2d5be3':'#e2e0d8'};background:${rule.active?'#eef1fd':'#f8f7f5'};cursor:pointer;font-size:.7rem;font-weight:600;color:${rule.active?'#2d5be3':'#9898b8'};transition:all .15s" title="${rule.description}">
+            <input type="checkbox" data-rule="${key}" ${rule.active?'checked':''} onchange="toggleAutoPlanRule('${key}',this.checked)" style="accent-color:#2d5be3;width:13px;height:13px">
+            ${rule.label}
+          </label>`).join('')}
+      </div>
+    </div>
+
     <!-- RÉSULTATS -->
     <div id="pe-results" style="padding:20px 24px;min-height:220px">
       <div style="text-align:center;padding:40px;color:#9898b8;font-size:.88rem">
@@ -2753,8 +2926,11 @@ function runPlanningEngine(){
     <div style="display:flex;flex-direction:column;gap:16px">
     ${proposals.map(prop=>`
       <div style="border:2px solid ${prop.id===1?'#2d5be3':'#e2e0d8'};border-radius:12px;overflow:hidden">
-        <div style="background:${prop.id===1?'#eef1fd':'#f5f4f0'};padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
-          <div style="font-size:.9rem;font-weight:800;color:${prop.id===1?'#2d5be3':'#1a1a2e'}">${prop.label}</div>
+        <div style="background:${prop.id===1?'#eef1fd':'#f5f4f0'};padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>
+            <div style="font-size:.9rem;font-weight:800;color:${prop.id===1?'#2d5be3':'#1a1a2e'}">${prop.label}</div>
+            ${prop.mixViolations>0?`<div style="font-size:.68rem;color:#d97706;margin-top:2px">⚠️ ${prop.mixViolations} équipe${prop.mixViolations>1?'s':''} sans senior — règle mixité non respectée</div>`:`<div style="font-size:.68rem;color:#16a34a;margin-top:2px">✅ Règle mixité respectée</div>`}
+          </div>
           <div style="display:flex;gap:8px;align-items:center">
             <span style="background:${prop.coverage>=90?'#dcfce7':prop.coverage>=70?'#fef3c7':'#fee2e2'};color:${prop.coverage>=90?'#16a34a':prop.coverage>=70?'#d97706':'#dc2626'};padding:3px 10px;border-radius:20px;font-size:.74rem;font-weight:700">
               ${prop.coverage}% couverture
@@ -3263,6 +3439,9 @@ function mkEmp(o){
     // Heures max/mois + permission dépassement
     hoursMaxMonth: +o.hoursMaxMonth || 0,  // 0 = non défini
     allowOvertime: !!o.allowOvertime,       // permission dépassement
+    // Grade / responsabilité
+    grade: o.grade||'vendeur',              // 'directeur'|'manager'|'senior'|'vendeur'|'junior'|'stagiaire'
+    anciennete: +o.anciennete||0,           // mois d'ancienneté (calculé si startDate défini)
   };
 }
 function empName(e){return e.firstname+' '+e.lastname;}
@@ -4359,6 +4538,9 @@ function openEditModal(){
   if(hmEl) hmEl.value = e.hoursMaxMonth || '';
   const aoEl = document.getElementById('new-allow-overtime');
   if(aoEl) aoEl.checked = !!e.allowOvertime;
+  // Grade
+  const gradeEl = document.getElementById('new-grade');
+  if(gradeEl) gradeEl.value = e.grade||'vendeur';
   // Score
   setTimeout(updatePlanScore, 50);
   openModal('add-modal');
@@ -4423,6 +4605,7 @@ function submitEmployee(){
     },
     hoursMaxMonth: parseFloat(document.getElementById('new-hours-max-month')?.value||'0')||0,
     allowOvertime: document.getElementById('new-allow-overtime')?.checked||false,
+    grade: document.getElementById('new-grade')?.value||'vendeur',
   };
   if(editId!==null){
     const idx=employees.findIndex(e=>e.id===editId);
