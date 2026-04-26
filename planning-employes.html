@@ -1990,10 +1990,14 @@ function workerPrefScore(e, dateStr, debut, fin){
 }
 
 // Matcher les travailleurs à un créneau avec scoring complet
-function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad){
+function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed){
   const candidates = [];
+  // workerDaysUsed: Set de "empId_dateStr" déjà planifiés ce jour sur ce site
+  // Un worker déjà assigné à un créneau de ce jour ne peut pas en avoir un 2e
 
   for(const e of activeEmployees){
+    // Anti-doublon jour : un seul créneau par travailleur par jour
+    if(workerDaysUsed && workerDaysUsed.has(e.id + '_' + dateStr)) continue;
     const avail = getWorkerAvailability(e);
 
     // ── RÈGLE 1 : éligibilité site ──────────────────────────
@@ -2348,7 +2352,10 @@ function openMultiSiteAutoplan(){
 
   const today = new Date();
   const monday = new Date(today);
-  monday.setDate(today.getDate()-((today.getDay()||7)-1));
+  // Lundi qui SUIT aujourd'hui (si aujourd'hui = lundi → semaine prochaine)
+  const dayOfWeek = today.getDay()||7; // 1=Lun...7=Dim
+  const daysUntilNextMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek);
+  monday.setDate(today.getDate() + daysUntilNextMonday);
   const mondayStr = monday.toISOString().slice(0,10);
 
   const sitesHTML = Object.values(SITES).map((s,i)=>`
@@ -2682,7 +2689,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
       planMap[dateStr] = [];
 
       for(const creneau of besoins){
-        let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
+        let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad, workerDays);
 
         // ── PRÉ-ASSIGNATION : Responsable en premier si dispo ────
         // Le responsable doit être présent tous les jours sauf son congé.
@@ -4061,10 +4068,12 @@ function openPlanningEngine(){
   modal.id='planning-engine-modal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
 
-  // Semaine courante
+  // Lundi qui SUIT aujourd'hui
   const today = new Date();
   const monday = new Date(today);
-  monday.setDate(today.getDate() - (today.getDay()||7) + 1);
+  const dow3 = today.getDay()||7;
+  const daysNext3 = dow3 === 1 ? 7 : (8 - dow3);
+  monday.setDate(today.getDate() + daysNext3);
   const mondayStr = monday.toISOString().slice(0,10);
 
   // Construire les options de sites — A B C D E F avec leur nom réel
@@ -4376,10 +4385,24 @@ function openSiteWeekRecap(siteId, weekStart, prop){
   });
 
   // Calculer total heures par travailleur
+  // Un worker ne peut être compté qu'UNE FOIS par jour (même s'il apparaît dans 2 créneaux)
   const workerHours = {};
+  const workerDaysSeen = new Set(); // clé: empId+dateStr
   prop.plan.forEach(slot=>{
     slot.assigned.forEach(e=>{
-      const h = (timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut))/60;
+      const dayKey = e.id + '_' + slot.dateStr;
+      if(workerDaysSeen.has(dayKey)) return; // déjà compté ce jour
+      workerDaysSeen.add(dayKey);
+      // Heures réelles du planning (ce qui a été écrit dans e.weeks)
+      const wOff = dateToWeekOffset(slot.dateStr);
+      const di   = dateToDayIdx(slot.dateStr);
+      const day  = e.weeks?.[wOff]?.[di];
+      let h;
+      if(day && day.start && day.end){
+        h = Math.max(0,(timeToMin(day.end)-timeToMin(day.start))/60);
+      } else {
+        h = Math.max(0,(timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut))/60);
+      }
       workerHours[e.id] = (workerHours[e.id]||{emp:e, hours:0});
       workerHours[e.id].hours += h;
     });
