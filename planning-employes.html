@@ -1885,7 +1885,7 @@ function coversEnoughRushHours(e, dow, debut, fin, dateStr){
 const STORE_NEEDS = {
   // A — Schaerbeek, Rue de Brabant 230 — 7j/7 : 10h00→20h00
   A: {
-    0: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
+    0: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'12:30',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
     1: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
     2: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
@@ -2907,8 +2907,16 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // Cette assignation est INCONDITIONNELLE — avant la boucle de scoring.
         const mgrEmp  = mgrId ? active.find(x=>x.id===mgrId) : null;
         const mgrAlreadyThisDay = mgrId && workerDays[mgrId]?.has(dateStr);
+        // Vérifier si le créneau actuel correspond bien à l'heure disponible du responsable
+        const mgrEffStart = mgrEmp ? getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut) : 0;
+        const mgrCreneauMatch = mgrEmp && (
+          // Soit le responsable est dispo dès le début du créneau
+          mgrEffStart <= timeToMin(creneau.debut) + 5 ||
+          // Soit le créneau commence exactement à son heure disponible (±30min)
+          Math.abs(mgrEffStart - timeToMin(creneau.debut)) <= 30
+        );
         const mgrDispo = mgrEmp
-          && !mgrAlreadyThisDay
+          && (!mgrAlreadyThisDay || mgrCreneauMatch) // autoriser si créneau correspondant
           && isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin);
 
         if(mgrDispo && manquants > 0){
@@ -2916,12 +2924,29 @@ function genPlanningProposals(siteId, weekStart, n=3){
           // Calculer l'heure de début effective (après indisponibilité partielle)
           const effStartMin = getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut);
           const effStart = effStartMin > timeToMin(creneau.debut) ? minToTime(effStartMin) : creneau.debut;
-          assigned.push({...mgrEmp, _effectiveStart: effStart}); // noter l'heure réelle
-          workerDays[mgrId].add(dateStr);
-          workerLoad[mgrId] = (workerLoad[mgrId]||0)
-            + (timeToMin(creneau.fin) - effStartMin);
-          manquants--;
-          candidats = candidats.filter(c => c.emp.id !== mgrId);
+
+          // ── IMPORTANT : si le début effectif est APRÈS le début du créneau,
+          // vérifier s'il existe un créneau ultérieur qui correspond mieux.
+          // Ex: Omaima dispo 12:30 → ne pas l'assigner sur 10:00→20:00,
+          // mais la réserver pour le créneau 12:30→20:00 qui existe dans besoins.
+          const hasBetterSlot = besoins.some(otherCren =>
+            otherCren !== creneau &&
+            timeToMin(otherCren.debut) >= effStartMin &&
+            timeToMin(otherCren.debut) <= effStartMin + 30 // créneau qui commence au bon moment (±30min)
+          );
+
+          if(hasBetterSlot && effStartMin > timeToMin(creneau.debut)){
+            // Différer le responsable au créneau qui correspond à son heure
+            // Ne pas l'assigner maintenant, le laisser pour le bon créneau
+            candidats = candidats.filter(c => c.emp.id !== mgrId);
+          } else {
+            assigned.push({...mgrEmp, _effectiveStart: effStart});
+            workerDays[mgrId].add(dateStr);
+            workerLoad[mgrId] = (workerLoad[mgrId]||0)
+              + (timeToMin(creneau.fin) - effStartMin);
+            manquants--;
+            candidats = candidats.filter(c => c.emp.id !== mgrId);
+          }
 
         } else if(mgrEmp && !mgrAlreadyThisDay && !mgrDispo && backupSenior){
           const bsInList = candidats.find(c => c.emp.id === backupSenior.id);
@@ -4908,9 +4933,11 @@ function applyProposal(siteId, weekStart, propIdx){
       if(!e.weeks[wOff]) e.weeks[wOff]={};
       // Ne pas écraser si déjà planifié
       if(!e.weeks[wOff][dayIdx] || !e.weeks[wOff][dayIdx].start){
+        // Utiliser _effectiveStart si défini (ex: responsable avec indispo partielle)
+        const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
         e.weeks[wOff][dayIdx]={
           status:'work',
-          start: slot.creneau.debut,
+          start: effectiveStart,
           end:   slot.creneau.fin,
           pause: e.pause||0,
           pause2:0,
