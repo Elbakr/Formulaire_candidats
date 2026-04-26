@@ -2023,8 +2023,9 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(isMgr) score += 50;
 
     // ── PRIORITÉ 2 : Le responsable est absent → Senior remplace (+30) ──
-    // Si aucun responsable n'est encore assigné ce créneau ET ce worker est senior
-    if(!isMgr && ['senior','manager','directeur'].includes(grade) && anc >= 3){
+    // Utilise le grade effectif (promotion auto incluse)
+    const gradeEff = getGradeEffectif(e);
+    if(!isMgr && ['senior','manager','directeur'].includes(gradeEff) && anc >= 3){
       score += 30;
     }
 
@@ -2554,10 +2555,24 @@ function getAnciennete(e){
   return Math.max(0, (now.getFullYear()-start.getFullYear())*12 + (now.getMonth()-start.getMonth()));
 }
 
-// Profil "senior" = CDI/CDD avec >3 mois, OU grade senior/manager/directeur
-function isSeniorProfile(e){
+// ── Grade EFFECTIF : tient compte de la promotion automatique par ancienneté ──
+// Règle : CDI/CDD + >= 12 mois → promu 'senior' automatiquement si grade <= 'vendeur'
+// Cela s'applique dans tout le moteur (scoring, 6j/7, getEffectiveManager)
+function getGradeEffectif(e){
+  const gradeManuel = e.grade||'vendeur';
   const anc = getAnciennete(e);
-  const grade = e.grade||'vendeur';
+  // Promotion automatique : ancienneté >= 12 mois + CDI/CDD + pas déjà senior+
+  if(['CDI','CDD'].includes(e.status) && anc >= 12){
+    const GRADE_RANK = {directeur:6, manager:5, senior:4, vendeur:3, junior:2, stagiaire:1};
+    if((GRADE_RANK[gradeManuel]||3) < 4) return 'senior'; // promouvoir en senior
+  }
+  return gradeManuel;
+}
+
+// Profil "senior" = grade effectif senior+ OU CDI/CDD avec >3 mois
+function isSeniorProfile(e){
+  const anc   = getAnciennete(e);
+  const grade = getGradeEffectif(e);
   if(['directeur','manager','senior'].includes(grade)) return true;
   if(['CDI','CDD','Independant'].includes(e.status) && anc >= 3) return true;
   return false;
@@ -3913,11 +3928,12 @@ function getEffectiveManager(siteId){
     if(designated) return {...designated, _isDesignated:true};
   }
 
-  // Calcul automatique : Grade → Ancienneté → Score
+  // Calcul automatique : Grade effectif → Ancienneté → Score motivation
+  // getGradeEffectif tient compte de la promotion automatique (CDI/CDD >= 12 mois → senior)
   const GRADE_RANK = {directeur:6, manager:5, senior:4, vendeur:3, junior:2, stagiaire:1};
-  return siteWorkers.sort((a,b)=>{
-    const ga = GRADE_RANK[a.grade||'vendeur']||3;
-    const gb = GRADE_RANK[b.grade||'vendeur']||3;
+  return [...siteWorkers].sort((a,b)=>{
+    const ga = GRADE_RANK[getGradeEffectif(a)]||3;
+    const gb = GRADE_RANK[getGradeEffectif(b)]||3;
     if(ga!==gb) return gb-ga;
     const aa = getAnciennete(a), ab = getAnciennete(b);
     if(aa!==ab) return ab-aa;
@@ -5019,9 +5035,14 @@ function isActiveWeek(e,off){
 // Sinon → calculer depuis les heures contractuelles et la durée journalière possible
 function calcOptimalDays(e){
   // ── RÈGLE : Responsable/Senior = toujours 6 jours/semaine ──
-  const grade = e.grade||'vendeur';
+  // Utilise le grade EFFECTIF (inclut promotion auto par ancienneté)
+  const grade = getGradeEffectif(e);
   if(['directeur','manager'].includes(grade)) return 6;
   if(grade === 'senior' && getAnciennete(e) >= 3) return 6;
+
+  // CDI/CDD + ancienneté >= 12 mois → 6j/7 obligatoire (même si wdMode le contredit)
+  const anc_ = getAnciennete(e);
+  if(['CDI','CDD'].includes(e.status) && anc_ >= 12) return 6;
 
   if(e.wdMode && e.wdMode !== 'custom' && e.wdMode !== 'auto'){
     const n = parseInt(e.wdMode)||3;
