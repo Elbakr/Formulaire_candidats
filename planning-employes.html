@@ -1890,10 +1890,26 @@ function isWorkerAvailable(e, dateStr, debut, fin){
   const debH  = timeToMin(debut);
   const finH  = timeToMin(fin);
 
-  // ── RÈGLE 2a : jours de congé fixes ───────────────────────
+  // ── RÈGLE ABSOLUE : Sam, Dim et jours fériés = TOUJOURS disponible ──
+  // Ces jours ne peuvent jamais être bloqués par fixedOff ou restDays
+  const isSatOrSun = (dow === 0 || dow === 6);
+  const {isFerie}  = isPeriodForte(dateStr);
+  if(isSatOrSun || isFerie){
+    // Seules les indisponibilités explicitement marquées peuvent bloquer
+    for(const u of (avail.unavail||[])){
+      if(!u.recurrent) continue;
+      if(u.day !== dow) continue;
+      const uDeb = timeToMin(u.debut||'00:00');
+      const uFin = timeToMin(u.fin||'23:59');
+      if(debH < uFin && finH > uDeb) return false;
+    }
+    return true; // Sam/Dim/Féries : disponible par défaut
+  }
+
+  // ── RÈGLE 2a : jours de congé fixes (Lun→Ven uniquement) ──
   const fixedOff = e.fixedOff||e.prefOff||[];
-  // fixedOff stocke les index 0=Lun…6=Dim → convertir dow JS
-  const dowIdx = (dow===0) ? 6 : (dow-1); // 0=Lun…6=Dim
+  // fixedOff : 0=Lun…6=Dim (notre système interne)
+  const dowIdx = (dow===0) ? 6 : (dow-1);
   if(fixedOff.includes(dowIdx)) return false;
 
   // ── RÈGLE 2b : indisponibilités récurrentes ─────────────────
@@ -1902,12 +1918,9 @@ function isWorkerAvailable(e, dateStr, debut, fin){
     if(u.day !== dow) continue;
     const uDeb = timeToMin(u.debut||'00:00');
     const uFin = timeToMin(u.fin||'23:59');
-    // Chevauchement : le créneau demandé tombe dans la plage d'indispo
     if(debH < uFin && finH > uDeb) return false;
   }
 
-  // ── RÈGLE 3 : si pas de préférences définies → toujours dispo ──
-  // (ne pas bloquer les travailleurs qui n'ont pas rempli leurs prefs)
   return true;
 }
 
@@ -2801,54 +2814,82 @@ function getDayData(e, dateStr){
 }
 
 // ── Pré-planifier tout un mois selon les préférences ──
-function preFillMonthFromPrefs(e, year, month){
-  const avail = getWorkerAvailability(e);
-  const prefs  = avail.preferred||[];
+function preFillMonthFromPrefs(e, year, month, overwrite=false){
+  const avail   = getWorkerAvailability(e);
+  const prefs   = avail.preferred||[];
   const unavails = (avail.unavail||[]).filter(u=>u.recurrent);
-  if(!prefs.length && !unavails.length) return 0;
+  const siteId  = avail.defaultSite || (e.sites||[])[0] || '';
+  const restDays = e.restDays||[];
 
-  const fp = getFridayPause(0); // pause vendredi (approximation)
+  // Fallback horaires : utiliser heures du travailleur si pas de prefs
+  const fallbackStart = e.startTime||'10:00';
+  const fallbackEnd   = calcDayEnd(e, e.hours>0 ? e.hours/Math.max(1,calcOptimalDays(e)) : 8);
+
   let filled = 0;
   const lastDay = new Date(year, month+1, 0).getDate();
 
   for(let d=1; d<=lastDay; d++){
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const date = new Date(dateStr+'T12:00:00');
-    const dow = date.getDay(); // 0=Dim JS
+    const dow  = date.getDay(); // 0=Dim JS
     const wOff = dateToWeekOffset(dateStr);
     const di   = dateToDayIdx(dateStr);
     if(!e.weeks) e.weeks={};
     if(!e.weeks[wOff]) e.weeks[wOff]={};
     const existing = e.weeks[wOff][di];
-    if(existing && existing.start && !existing._autoFilled) continue; // déjà planifié manuellement
 
-    // Indisponibilité plein jour ?
+    // Ne pas écraser les planifications manuelles (sauf si overwrite=true)
+    if(!overwrite && existing && existing.start && !existing._autoFilled) continue;
+
+    // Indisponibilité plein jour → congé
     const fullUnavail = unavails.some(u=>u.day===dow && u.debut<='09:00' && u.fin>='20:00');
-    if(fullUnavail){ e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue; }
-
-    // Préférence ce jour ?
-    const dayPrefs = prefs.filter(p=>p.day===dow);
-    if(dayPrefs.length){
-      const pref = dayPrefs[0];
-      const isFriday = (di===4);
-      e.weeks[wOff][di]={
-        status:'work',
-        start: pref.debut,
-        end:   pref.fin,
-        pause: isFriday ? getFridayPause(wOff).dur : e.pause||0,
-        pause2: isFriday ? 15 : 0,
-        fridayLocked: isFriday,
-        endManual: true,
-        _autoFilled: true,
-        unavailSlots: unavails.filter(u=>u.day===dow)
-      };
-      filled++;
-    } else {
-      // Pas de préférence ce jour = congé
-      if(!existing || existing._autoFilled){
-        e.weeks[wOff][di]={status:'leave',_autoFilled:true};
-      }
+    if(fullUnavail){
+      e.weeks[wOff][di]={status:'leave',_autoFilled:true};
+      continue;
     }
+
+    // Jour de repos fixe (restDays) → congé
+    // EXCEPTION : Sam(di=5), Dim(di=6) et jours fériés sont toujours travaillables
+    const isSatOrSunPF = (dow===0 || dow===6);
+    const {isFerie:isHolPF} = isPeriodForte(dateStr);
+    if(restDays.includes(di) && !isSatOrSunPF && !isHolPF){
+      e.weeks[wOff][di]={status:'leave',_autoFilled:true};
+      continue;
+    }
+
+    const isFriday = (di===4);
+    // Trouver les horaires du créneau : préférences > horaires site > fallback travailleur
+    const dayPrefs = prefs.filter(p=>p.day===dow);
+    let startH, endH;
+    if(dayPrefs.length){
+      startH = dayPrefs[0].debut;
+      endH   = dayPrefs[0].fin;
+    } else if(siteId && STORE_NEEDS[siteId]){
+      // Utiliser le premier créneau du site pour ce jour
+      const siteDay = (STORE_NEEDS[siteId][dow]||[]);
+      if(siteDay.length){
+        startH = siteDay[0].debut;
+        endH   = siteDay[0].fin;
+      } else {
+        // Site fermé ce jour → congé
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true};
+        continue;
+      }
+    } else {
+      startH = fallbackStart;
+      endH   = fallbackEnd;
+    }
+
+    e.weeks[wOff][di]={
+      status:'work', start:startH, end:endH,
+      pause: isFriday ? getFridayPause(wOff).dur : e.pause||0,
+      pause2: isFriday ? 15 : 0,
+      fridayLocked: isFriday,
+      endManual: true,
+      _autoFilled: true,
+      unavailSlots: unavails.filter(u=>u.day===dow)
+    };
+    filled++;
   }
   return filled;
 }
@@ -2924,7 +2965,8 @@ function renderMonthView(){
       ${overBudget&&allowOver?'<span style="color:var(--orange);font-size:.72rem;margin-left:6px">✓ Dépassement autorisé</span>':''}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button onclick="preFillAndRefresh()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.7rem;font-weight:700;cursor:pointer">⭐ Pré-remplir selon préfs</button>
+      <button onclick="preFillAndRefresh(false)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.7rem;font-weight:700;cursor:pointer" title="Remplir uniquement les jours vides">⭐ Pré-remplir</button>
+      <button onclick="preFillAndRefresh(true)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--orange);background:var(--olight);color:var(--orange);font-size:.7rem;font-weight:700;cursor:pointer" title="Remplir TOUT le mois (écrase les planifications existantes)">🔄 Tout remplir</button>
       <button onclick="clearMonthPlan()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink3);font-size:.7rem;font-weight:600;cursor:pointer">🗑 Effacer mois</button>
       <button onclick="changeMonthView(-1)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--white);font-size:.8rem;cursor:pointer">◀</button>
       <button onclick="changeMonthView(1)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--white);font-size:.8rem;cursor:pointer">▶</button>
@@ -3067,24 +3109,28 @@ function toggleDayWork(dateStr){
   updateMonthBox();
 }
 
-function preFillAndRefresh(){
+function preFillAndRefresh(overwrite=false){
   const e=emp();if(!e)return;
   const baseDate=getWeekDates(curWeek)[0];
   const year=baseDate.getFullYear();
   const month=baseDate.getMonth();
-  // Effacer les auto-fills existants
   const lastDay=new Date(year,month+1,0).getDate();
+
+  // Effacer les auto-fills existants (toujours)
   for(let d=1;d<=lastDay;d++){
     const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const wOff=dateToWeekOffset(ds);
     const di=dateToDayIdx(ds);
     if(e.weeks?.[wOff]?.[di]?._autoFilled) delete e.weeks[wOff][di];
   }
-  const filled=preFillMonthFromPrefs(e,year,month);
+
+  const filled=preFillMonthFromPrefs(e,year,month,overwrite);
   autoSave();
   renderMonthView();
   updateMonthBox();
-  showToast(filled>0?`⭐ ${filled} jours pré-remplis`:'Aucune préférence définie dans la fiche');
+  showToast(filled>0
+    ?`⭐ ${filled} jours pré-remplis sur le mois complet`
+    :'Aucun créneau généré — vérifiez la fiche du travailleur');
 }
 
 function clearMonthPlan(){
