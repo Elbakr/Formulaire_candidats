@@ -365,6 +365,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     <button onclick="toggleBulkMode()" id="btn-bulk" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--ink3);background:var(--bg);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--ink3)">☑ Sélection</button>
     <button onclick="openStoreManagerConfig()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">🏪 Responsables</button>
     <button onclick="openRestDaysManager()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--purple);background:var(--plight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--purple)">🔄 Jours repos</button>
+    <button onclick="openStoreNeedsEditor()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#0891b2">📋 Besoins magasins</button>
     <button onclick="openValidationCenter()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--orange);background:var(--olight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--orange)">⏳ Validations</button>
     <button onclick="openCandidatesModal()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">👥 Candidats</button>
     <!-- Notifications manager -->
@@ -2865,8 +2866,31 @@ function genPlanningProposals(siteId, weekStart, n=3){
       const besoins = getBesoinsDate(siteId, dateStr);
       planMap[dateStr] = [];
 
+      // ── VENDREDI : Suivre l'équipe du matin pour priorité l'après-midi ──
+      // Après splitVendrediPause, les créneaux sont triés : matin d'abord, aprem ensuite
+      // On identifie la pause vendredi pour ce jour
+      const isFriday = (dow === 5);
+      const fridayPause = isFriday ? getVendrediPause(dateStr) : null;
+      // morningTeamFriday : Set des empId assignés aux créneaux AVANT la pause
+      const morningTeamFriday = new Set();
+
       for(const creneau of besoins){
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad, workerDays);
+
+        // ── VENDREDI après-midi : prioriser l'équipe du matin ───────────
+        if(isFriday && fridayPause && morningTeamFriday.size > 0){
+          const pauseDebMin = timeToMin(fridayPause.deb);
+          const isAfternoon = timeToMin(creneau.debut) >= timeToMin(fridayPause.fin);
+          if(isAfternoon){
+            // Séparer les candidats : équipe du matin d'abord, puis les autres
+            const morningCandidats = candidats.filter(c => morningTeamFriday.has(c.emp.id));
+            const otherCandidats   = candidats.filter(c => !morningTeamFriday.has(c.emp.id));
+            // Au sein de chaque groupe, trier par score décroissant
+            morningCandidats.sort((a,b)=>b.score-a.score);
+            otherCandidats.sort((a,b)=>b.score-a.score);
+            candidats = [...morningCandidats, ...otherCandidats];
+          }
+        }
 
         // ── Déclarer assigned et manquants avant la pré-assignation ──
         const assigned = [];
@@ -2975,6 +2999,14 @@ function genPlanningProposals(siteId, weekStart, n=3){
           difficulty,
           mixOk:teamRespectsMixRule(assigned)
         });
+
+        // ── VENDREDI : mémoriser l'équipe du matin ──────────────────────
+        if(isFriday && fridayPause){
+          const isBeforePause = timeToMin(creneau.fin) <= timeToMin(fridayPause.deb);
+          if(isBeforePause){
+            assigned.forEach(emp => morningTeamFriday.add(emp.id));
+          }
+        }
       }
     }
 
@@ -4113,6 +4145,328 @@ function getEffectiveManager(siteId){
   })[0] || null;
 }
 
+// ══════════════════════════════════════════════════════════════
+// ÉDITEUR DES BESOINS MAGASINS — Visualisation + modification bulk
+// ══════════════════════════════════════════════════════════════
+
+const DAYS_EDITOR = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+const DAYS_FULL_ED = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+
+// Charger STORE_NEEDS depuis localStorage si modifié
+function loadStoreNeedsOverrides(){
+  try {
+    const saved = localStorage.getItem('gp_store_needs');
+    if(!saved) return;
+    const overrides = JSON.parse(saved);
+    Object.entries(overrides).forEach(([siteId, days])=>{
+      if(STORE_NEEDS[siteId]) STORE_NEEDS[siteId] = days;
+    });
+  } catch(e){ console.warn('StoreNeeds load error:', e); }
+}
+
+function saveStoreNeedsOverrides(){
+  const data = {};
+  ['A','B','C','D','E','F'].forEach(id=>{ data[id] = STORE_NEEDS[id]; });
+  // Sauvegarder localement
+  localStorage.setItem('gp_store_needs', JSON.stringify(data));
+  // Resync aliases
+  STORE_NEEDS.SCH = STORE_NEEDS.A;
+  STORE_NEEDS.MOL = STORE_NEEDS.B;
+  STORE_NEEDS.ANT = STORE_NEEDS.C;
+  // Pousser vers JSONBin (persistance multi-machine)
+  scheduleSyncPush();
+}
+
+// Ouvrir l'éditeur
+function openStoreNeedsEditor(){
+  let modal = document.getElementById('store-needs-modal');
+  if(modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'store-needs-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+
+  const sites = ['A','B','C','D','E','F'];
+
+  // ── Vue globale : grille sites × jours ─────────────────────
+  const globalGrid = `
+  <div style="overflow-x:auto;margin-bottom:20px">
+    <table style="border-collapse:collapse;font-size:.72rem;min-width:700px;width:100%">
+      <thead>
+        <tr style="background:#1a1a2e;color:white">
+          <th style="padding:8px 12px;text-align:left;font-weight:700;min-width:80px">Site</th>
+          ${DAYS_FULL_ED.map((d,i)=>`<th style="padding:8px 6px;text-align:center;font-weight:700;background:${i===0||i===6?'#2d5be3':'#1a1a2e'}">${d}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${sites.map(siteId=>{
+          const site = SITES[siteId]||{};
+          return `<tr style="border-bottom:1px solid #e2e0d8;cursor:pointer" onclick="switchToSiteTab('${siteId}')" title="Cliquez pour modifier ${siteId}">
+            <td style="padding:8px 12px;font-weight:800">
+              <span style="display:inline-block;width:24px;height:24px;border-radius:6px;background:${site.color||'#2d5be3'};color:white;text-align:center;line-height:24px;font-size:.72rem;font-weight:800;margin-right:4px">${siteId}</span>
+              ${site.name||siteId}
+            </td>
+            ${DAYS_FULL_ED.map((_,dow)=>{
+              const slots = STORE_NEEDS[siteId]?.[dow]||[];
+              const total = slots.reduce((s,c)=>s+c.vendeurs,0);
+              const bg = dow===0||dow===6 ? '#eef1fd' : total===0 ? '#f5f4f0' : '#f0fdf4';
+              return `<td style="padding:6px 4px;text-align:center;background:${bg}">
+                ${slots.length===0
+                  ? '<span style="color:#d0d0e8;font-size:.7rem">—</span>'
+                  : `<div style="font-size:.68rem;font-weight:700;color:#059669">${total} poste${total>1?'s':''}</div>
+                     <div style="font-size:.6rem;color:#9898b8">${slots.map(s=>s.debut+'→'+s.fin).join('<br>')}</div>`}
+              </td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+
+  // ── Actions bulk ─────────────────────────────────────────────
+  const bulkActions = `
+  <div style="background:#f8f7f5;border-radius:10px;padding:14px;margin-bottom:20px">
+    <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#9898b8;margin-bottom:10px">⚡ Actions bulk</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+
+      <!-- Copier jour → jours -->
+      <div style="background:white;border-radius:8px;padding:10px 12px;border:1px solid #e2e0d8;flex:1;min-width:200px">
+        <div style="font-size:.66rem;font-weight:700;color:#9898b8;margin-bottom:6px">📋 Copier un jour vers d'autres jours</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select id="bulk-src-site" style="padding:5px 8px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+            ${sites.map(s=>`<option value="${s}">${s} — ${SITES[s]?.name||s}</option>`).join('')}
+          </select>
+          <select id="bulk-src-day" style="padding:5px 8px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+            ${DAYS_FULL_ED.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+          </select>
+          <span style="font-size:.7rem;color:#9898b8">→</span>
+          <div style="display:flex;gap:3px">
+            ${DAYS_FULL_ED.map((d,i)=>`<label style="display:flex;align-items:center;gap:2px;font-size:.65rem;cursor:pointer">
+              <input type="checkbox" class="bulk-dst-day" value="${i}" style="accent-color:#2d5be3;width:12px;height:12px">${d.slice(0,3)}
+            </label>`).join('')}
+          </div>
+          <button onclick="bulkCopyDay()" style="padding:5px 12px;border-radius:6px;border:none;background:#2d5be3;color:white;font-size:.72rem;font-weight:700;cursor:pointer">Copier</button>
+        </div>
+      </div>
+
+      <!-- Copier site → site -->
+      <div style="background:white;border-radius:8px;padding:10px 12px;border:1px solid #e2e0d8;flex:1;min-width:200px">
+        <div style="font-size:.66rem;font-weight:700;color:#9898b8;margin-bottom:6px">🏪 Copier un site vers un autre</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select id="bulk-copy-src" style="padding:5px 8px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+            ${sites.map(s=>`<option value="${s}">${s} — ${SITES[s]?.name||s}</option>`).join('')}
+          </select>
+          <span style="font-size:.7rem;color:#9898b8">→</span>
+          <select id="bulk-copy-dst" style="padding:5px 8px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+            ${sites.map(s=>`<option value="${s}">${s} — ${SITES[s]?.name||s}</option>`).join('')}
+          </select>
+          <button onclick="bulkCopySite()" style="padding:5px 12px;border-radius:6px;border:none;background:#7c3aed;color:white;font-size:.72rem;font-weight:700;cursor:pointer">Copier</button>
+        </div>
+      </div>
+
+      <!-- Modifier vendeurs globalement -->
+      <div style="background:white;border-radius:8px;padding:10px 12px;border:1px solid #e2e0d8;flex:1;min-width:200px">
+        <div style="font-size:.66rem;font-weight:700;color:#9898b8;margin-bottom:6px">👥 Ajuster nb vendeurs (tous sites)</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:.72rem">Jour :</span>
+          <select id="bulk-vend-day" style="padding:5px 8px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+            <option value="-1">Tous les jours</option>
+            ${DAYS_FULL_ED.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+          </select>
+          <span style="font-size:.72rem">Vendeurs :</span>
+          <input type="number" id="bulk-vend-nb" min="0" max="10" value="2" style="width:50px;padding:5px;border:1px solid #e2e0d8;border-radius:6px;font-size:.75rem">
+          <button onclick="bulkSetVendeurs()" style="padding:5px 12px;border-radius:6px;border:none;background:#059669;color:white;font-size:.72rem;font-weight:700;cursor:pointer">Appliquer</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // ── Onglets par site ──────────────────────────────────────────
+  const siteTabs = `
+  <div>
+    <div style="display:flex;gap:4px;margin-bottom:0;flex-wrap:wrap" id="site-tabs-bar">
+      ${sites.map((s,i)=>`
+        <button onclick="switchToSiteTab('${s}')" id="tab-btn-${s}"
+          style="padding:8px 16px;border-radius:8px 8px 0 0;border:1.5px solid #e2e0d8;border-bottom:none;
+          background:${i===0?'white':'#f5f4f0'};font-size:.78rem;font-weight:700;cursor:pointer;
+          color:${i===0?SITES[s]?.color||'#2d5be3':'#9898b8'}">
+          ${s} — ${SITES[s]?.name||s}
+        </button>`).join('')}
+    </div>
+    <div id="site-tabs-content" style="border:1.5px solid #e2e0d8;border-radius:0 8px 8px 8px;padding:16px;background:white">
+      <!-- rempli par switchToSiteTab -->
+    </div>
+  </div>`;
+
+  modal.innerHTML = `
+  <div style="background:white;border-radius:16px;width:100%;max-width:1100px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+
+    <div style="background:linear-gradient(135deg,#0891b2,#0e7490);padding:16px 22px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.95rem;font-weight:800;color:white">📋 Besoins des magasins — Horaires & Effectifs requis</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">
+          Modifiez les créneaux et le nombre de vendeurs requis par site et par jour
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="saveStoreNeedsOverrides();showToast('✅ Besoins sauvegardés');openStoreNeedsEditor()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.2);color:white;font-size:.76rem;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
+        <button onclick="resetStoreNeeds()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.74rem;cursor:pointer">↺ Réinitialiser</button>
+        <button onclick="document.getElementById('store-needs-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">✕</button>
+      </div>
+    </div>
+
+    <div style="padding:20px 22px;overflow-y:auto;max-height:85vh">
+      ${globalGrid}
+      ${bulkActions}
+      ${siteTabs}
+    </div>
+  </div>`;
+
+  modal.onclick = ()=>modal.remove();
+  document.body.appendChild(modal);
+  switchToSiteTab('A');
+}
+
+// Afficher le détail d'un site dans l'onglet
+function switchToSiteTab(siteId){
+  // Mettre à jour les styles des boutons d'onglet
+  ['A','B','C','D','E','F'].forEach(s=>{
+    const btn = document.getElementById(`tab-btn-${s}`);
+    if(!btn) return;
+    btn.style.background   = s===siteId ? 'white' : '#f5f4f0';
+    btn.style.color        = s===siteId ? (SITES[s]?.color||'#2d5be3') : '#9898b8';
+    btn.style.borderBottom = s===siteId ? '2px solid white' : '1.5px solid #e2e0d8';
+  });
+
+  const content = document.getElementById('site-tabs-content');
+  if(!content) return;
+  const site = SITES[siteId]||{};
+
+  let html = `
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:8px;background:${site.color||'#2d5be3'};color:white;display:flex;align-items:center;justify-content:center;font-weight:800">${siteId}</div>
+    <div>
+      <div style="font-weight:800;font-size:.9rem">${site.name||siteId}</div>
+      <div style="font-size:.7rem;color:#9898b8">${site.address||''}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px">`;
+
+  DAYS_FULL_ED.forEach((dayName, dow)=>{
+    const slots = STORE_NEEDS[siteId]?.[dow]||[];
+    const isWE = (dow===0||dow===6);
+    html += `
+    <div style="border:1.5px solid ${isWE?'#c7d2fe':'#e2e0d8'};border-radius:8px;padding:10px;background:${isWE?'#eef1fd':'white'}">
+      <div style="font-size:.72rem;font-weight:800;color:${isWE?'#2d5be3':'#1a1a2e'};margin-bottom:8px;text-align:center">${dayName}</div>
+      <div id="slots-${siteId}-${dow}">
+        ${renderSlotsForDay(siteId, dow)}
+      </div>
+      <button onclick="addSlot('${siteId}',${dow})"
+        style="width:100%;margin-top:6px;padding:4px;border-radius:6px;border:1.5px dashed #c7d2fe;background:transparent;color:#2d5be3;font-size:.7rem;font-weight:600;cursor:pointer">
+        + Ajouter créneau
+      </button>
+    </div>`;
+  });
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
+
+function renderSlotsForDay(siteId, dow){
+  const slots = STORE_NEEDS[siteId]?.[dow]||[];
+  if(!slots.length) return '<div style="text-align:center;font-size:.68rem;color:#d0d0e8;padding:8px">Fermé</div>';
+  return slots.map((slot,idx)=>`
+    <div style="background:#f5f4f0;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:.68rem">
+      <div style="display:flex;gap:4px;margin-bottom:4px">
+        <input type="time" value="${slot.debut}" onchange="updateSlot('${siteId}',${dow},${idx},'debut',this.value)"
+          style="flex:1;padding:2px 4px;border:1px solid #e2e0d8;border-radius:4px;font-size:.68rem">
+        <span style="line-height:24px;color:#9898b8">→</span>
+        <input type="time" value="${slot.fin}" onchange="updateSlot('${siteId}',${dow},${idx},'fin',this.value)"
+          style="flex:1;padding:2px 4px;border:1px solid #e2e0d8;border-radius:4px;font-size:.68rem">
+      </div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="color:#9898b8;font-size:.65rem">👥</span>
+        <input type="number" min="0" max="10" value="${slot.vendeurs}" onchange="updateSlot('${siteId}',${dow},${idx},'vendeurs',+this.value)"
+          style="width:40px;padding:2px 4px;border:1px solid #e2e0d8;border-radius:4px;font-size:.68rem">
+        <span style="font-size:.63rem;color:#9898b8">vendeurs</span>
+        <button onclick="removeSlot('${siteId}',${dow},${idx})"
+          style="margin-left:auto;padding:1px 6px;border-radius:4px;border:none;background:#fee2e2;color:#dc2626;font-size:.65rem;cursor:pointer">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function updateSlot(siteId, dow, idx, field, value){
+  if(!STORE_NEEDS[siteId]) return;
+  if(!STORE_NEEDS[siteId][dow]) STORE_NEEDS[siteId][dow] = [];
+  STORE_NEEDS[siteId][dow][idx][field] = value;
+  // Refresh juste ce day-slot
+  const container = document.getElementById(`slots-${siteId}-${dow}`);
+  if(container) container.innerHTML = renderSlotsForDay(siteId, dow);
+}
+
+function addSlot(siteId, dow){
+  if(!STORE_NEEDS[siteId]) STORE_NEEDS[siteId] = {};
+  if(!STORE_NEEDS[siteId][dow]) STORE_NEEDS[siteId][dow] = [];
+  STORE_NEEDS[siteId][dow].push({debut:'10:00', fin:'20:00', vendeurs:1, role:'Vendeur(se)'});
+  const container = document.getElementById(`slots-${siteId}-${dow}`);
+  if(container) container.innerHTML = renderSlotsForDay(siteId, dow);
+}
+
+function removeSlot(siteId, dow, idx){
+  if(!STORE_NEEDS[siteId]?.[dow]) return;
+  STORE_NEEDS[siteId][dow].splice(idx, 1);
+  const container = document.getElementById(`slots-${siteId}-${dow}`);
+  if(container) container.innerHTML = renderSlotsForDay(siteId, dow);
+}
+
+// ── Actions bulk ──────────────────────────────────────────────
+function bulkCopyDay(){
+  const srcSite = document.getElementById('bulk-src-site').value;
+  const srcDay  = parseInt(document.getElementById('bulk-src-day').value);
+  const dstDays = [...document.querySelectorAll('.bulk-dst-day:checked')].map(el=>parseInt(el.value));
+  if(!dstDays.length){ showToast('Sélectionnez au moins un jour de destination'); return; }
+  const srcSlots = JSON.parse(JSON.stringify(STORE_NEEDS[srcSite]?.[srcDay]||[]));
+  dstDays.forEach(d=>{
+    if(!STORE_NEEDS[srcSite]) STORE_NEEDS[srcSite] = {};
+    STORE_NEEDS[srcSite][d] = JSON.parse(JSON.stringify(srcSlots));
+  });
+  switchToSiteTab(srcSite);
+  showToast(`✅ ${DAYS_FULL_ED[srcDay]} copié vers ${dstDays.map(d=>DAYS_FULL_ED[d]).join(', ')}`);
+}
+
+function bulkCopySite(){
+  const src = document.getElementById('bulk-copy-src').value;
+  const dst = document.getElementById('bulk-copy-dst').value;
+  if(src===dst){ showToast('Source et destination identiques'); return; }
+  if(!confirm(`Copier tous les horaires de ${src} vers ${dst} ? Les horaires de ${dst} seront écrasés.`)) return;
+  STORE_NEEDS[dst] = JSON.parse(JSON.stringify(STORE_NEEDS[src]||{}));
+  showToast(`✅ Site ${src} copié vers ${dst}`);
+  openStoreNeedsEditor();
+}
+
+function bulkSetVendeurs(){
+  const day = parseInt(document.getElementById('bulk-vend-day').value);
+  const nb  = parseInt(document.getElementById('bulk-vend-nb').value)||1;
+  const sites = ['A','B','C','D','E','F'];
+  const days  = day===-1 ? [0,1,2,3,4,5,6] : [day];
+  sites.forEach(s=>{
+    days.forEach(d=>{
+      (STORE_NEEDS[s]?.[d]||[]).forEach(slot=>{ slot.vendeurs = nb; });
+    });
+  });
+  const dayLabel = day===-1 ? 'tous les jours' : DAYS_FULL_ED[day];
+  showToast(`✅ ${nb} vendeur(s) appliqué à ${dayLabel} sur tous les sites`);
+  openStoreNeedsEditor();
+}
+
+function resetStoreNeeds(){
+  if(!confirm('Réinitialiser tous les besoins aux valeurs par défaut ? Toutes vos modifications seront perdues.')) return;
+  localStorage.removeItem('gp_store_needs');
+  location.reload();
+}
+
+// Charger les overrides au démarrage
+loadStoreNeedsOverrides();
+
 function openStoreManagerConfig(){
   let modal = document.getElementById('store-manager-modal');
   if(modal) modal.remove();
@@ -4886,13 +5240,20 @@ async function cloudPull(){
 }
 
 function buildStatePayload(){
+  // Inclure les besoins magasins personnalisés dans le payload
+  const storeNeedsOverrides = {};
+  ['A','B','C','D','E','F'].forEach(id=>{
+    if(STORE_NEEDS[id]) storeNeedsOverrides[id] = STORE_NEEDS[id];
+  });
   return {
     employees: employees.map(e=>({...e, weeks:{...e.weeks}, weekHoursOverride:{...(e.weekHoursOverride||{})}})),
     candidates, nid, candNid,
     curWeek, selId,
+    storeManagers,
+    storeNeedsOverrides,
     planningHistory: getPlanningHistory(),
     savedAt: new Date().toISOString(),
-    version: 4
+    version: 5
   };
 }
 
@@ -4911,6 +5272,22 @@ function applyStatePayload(data){
   if(data.candNid && data.candNid > candNid) candNid = data.candNid;
   if(data.curWeek !== undefined) curWeek = data.curWeek;
   if(data.selId !== undefined) selId = data.selId;
+  // Restaurer les responsables désignés
+  if(data.storeManagers) {
+    Object.assign(storeManagers, data.storeManagers);
+    saveStoreManagers();
+  }
+  // Restaurer les besoins magasins personnalisés
+  if(data.storeNeedsOverrides){
+    Object.entries(data.storeNeedsOverrides).forEach(([siteId, days])=>{
+      if(STORE_NEEDS[siteId]) STORE_NEEDS[siteId] = days;
+    });
+    // Resync aliases
+    STORE_NEEDS.SCH = STORE_NEEDS.A;
+    STORE_NEEDS.MOL = STORE_NEEDS.B;
+    STORE_NEEDS.ANT = STORE_NEEDS.C;
+    localStorage.setItem('gp_store_needs', JSON.stringify(data.storeNeedsOverrides));
+  }
   if(data.planningHistory) localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(data.planningHistory));
   saveStateLocal();
 }
