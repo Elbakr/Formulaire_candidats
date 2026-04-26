@@ -2502,70 +2502,181 @@ function restoreFixedOffAfterAutoplan(backup){
 // pas être utilisés dans le suivant
 // ══════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════
+// Sites compatibles pour multi-affectation le même jour
+// Un travailleur peut être sur 2 de ces sites le même jour
+// si les horaires ne se chevauchent pas ET les sites sont dans sa fiche
+// ══════════════════════════════════════════════════════════════
+const COMPATIBLE_SITES = {
+  'A': ['B','D','E'],
+  'B': ['A','D','E'],
+  'D': ['A','B','E'],
+  'E': ['A','B','D'],
+  'C': [], // Anvers — trop loin
+  'F': [], // Anvers 2 — trop loin
+};
+
+function sitesAreCompatible(s1, s2){
+  return (COMPATIBLE_SITES[s1]||[]).includes(s2);
+}
+
+// Vérifier si un travailleur peut être sur site2 un jour où il est déjà sur site1
+// (pas de chevauchement horaire + sites compatibles + sites dans sa fiche)
+function canWorkerDoMultiSite(emp, site1, site2, dateStr, endTime1){
+  if(!sitesAreCompatible(site1, site2)) return false;
+  const avail = getWorkerAvailability(emp);
+  const hasSite2 = avail.defaultSite===site2 || (emp.sites||[]).includes(site2)
+    || (!avail.defaultSite && !(emp.sites||[]).length);
+  if(!hasSite2) return false;
+  // L'heure de fin du site1 doit être avant l'ouverture du site2
+  // (le travailleur a le temps de se déplacer — min 30 min de trajet)
+  const endMin = timeToMin(endTime1||'20:00') + 30;
+  const site2Open = Math.min(...(Object.values(STORE_NEEDS[site2]||{}).flat()
+    .map(c=>timeToMin(c.debut)).filter(x=>x>0)));
+  return endMin <= site2Open + 60; // tolérance 1h
+}
+
 function openMultiSiteAutoplan(){
   let modal = document.getElementById('multisite-modal');
   if(modal) modal.remove();
   modal = document.createElement('div');
   modal.id = 'multisite-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
 
+  // ── Dates par défaut ──────────────────────────────────────────
   const today = new Date();
-  const monday = new Date(today);
-  // Lundi qui SUIT aujourd'hui (si aujourd'hui = lundi → semaine prochaine)
-  const dayOfWeek = today.getDay()||7; // 1=Lun...7=Dim
-  const daysUntilNextMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek);
-  monday.setDate(today.getDate() + daysUntilNextMonday);
-  const mondayStr = monday.toISOString().slice(0,10);
+  const dow = today.getDay()||7;
+  const nextMon = new Date(today);
+  nextMon.setDate(today.getDate() + (dow===1?7:(8-dow)));
+  const nextMon2 = new Date(nextMon); nextMon2.setDate(nextMon.getDate()+7);
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth()+1, 0);
+  const startNextMonth = new Date(today.getFullYear(), today.getMonth()+1, 1);
+  const endNextMonth = new Date(today.getFullYear(), today.getMonth()+2, 0);
+
+  const fmt = d => d.toISOString().slice(0,10);
+  const defaultStart = fmt(nextMon);
+  const defaultEnd   = fmt(new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate()+6));
 
   const sitesHTML = Object.values(SITES).map((s,i)=>`
-    <div class="ms-site-row" data-site="${s.id}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:grab;background:white">
-      <input type="checkbox" class="ms-check" data-site="${s.id}" checked style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0">
-      <div style="width:28px;height:28px;border-radius:7px;background:${s.color||'#2d5be3'};color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0">${s.id}</div>
-      <div style="flex:1">
-        <div style="font-weight:700;font-size:.82rem">${s.name}</div>
-        <div style="font-size:.64rem;color:var(--ink3)">${s.address||''}</div>
+    <div class="ms-site-row" data-site="${s.id}"
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--line);
+             border-radius:8px;margin-bottom:6px;cursor:grab;background:white;user-select:none">
+      <input type="checkbox" class="ms-check" data-site="${s.id}" checked
+        style="width:16px;height:16px;accent-color:${s.color||'#2d5be3'};flex-shrink:0">
+      <div style="width:30px;height:30px;border-radius:8px;background:${s.color||'#2d5be3'};color:white;
+                  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem;flex-shrink:0">${s.id}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:.82rem;white-space:nowrap">${s.name}</div>
+        <div style="font-size:.62rem;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.address||''}</div>
       </div>
-      <div class="ms-order" style="font-size:.72rem;font-weight:800;color:var(--ink3);min-width:20px;text-align:center">${i+1}</div>
-      <div style="cursor:grab;color:var(--ink3);font-size:1rem">⠿</div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${(COMPATIBLE_SITES[s.id]||[]).length
+          ? `<span style="font-size:.6rem;background:#cffafe;color:#0891b2;padding:1px 6px;border-radius:10px;font-weight:600">↔ ${(COMPATIBLE_SITES[s.id]||[]).join(',')}</span>`
+          : `<span style="font-size:.6rem;background:#f5f4f0;color:#9898b8;padding:1px 6px;border-radius:10px">autonome</span>`}
+        <div class="ms-order" style="font-size:.7rem;font-weight:800;color:var(--ink3);min-width:18px;text-align:center;
+             background:var(--bg);border-radius:4px;padding:2px 5px">${i+1}</div>
+        <span style="cursor:grab;color:var(--ink3);font-size:1.1rem;line-height:1">⠿</span>
+      </div>
     </div>`).join('');
 
   modal.innerHTML = `
-  <div style="background:white;border-radius:16px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
-    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+  <div style="background:white;border-radius:16px;width:100%;max-width:680px;overflow:hidden;
+              box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">
+
+    <!-- EN-TÊTE -->
+    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:16px 22px;
+                display:flex;justify-content:space-between;align-items:center">
       <div>
-        <div style="font-size:.95rem;font-weight:800;color:white">🤖 Autoplan Multi-Magasins</div>
-        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">Les magasins sont remplis dans l'ordre affiché — les effectifs restants passent au suivant</div>
-      </div>
-      <button onclick="document.getElementById('multisite-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
-    </div>
-
-    <div style="padding:16px 20px;border-bottom:1px solid var(--line);background:#f8f7f5">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-        <div>
-          <div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:4px">Semaine du (lundi)</div>
-          <input type="date" id="ms-week" value="${mondayStr}" style="padding:8px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:.86rem">
+        <div style="font-size:1rem;font-weight:800;color:white">🤖 Autoplan Multi-Magasins</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">
+          Planification simultanée de plusieurs sites — les travailleurs polyvalents couvrent plusieurs sites
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;cursor:pointer">
-          <input type="checkbox" id="ms-carry-over" checked style="accent-color:var(--accent);width:14px;height:14px">
-          Garder effectifs restants pour le site suivant
-        </label>
+      </div>
+      <button onclick="document.getElementById('multisite-modal').remove()"
+        style="background:rgba(255,255,255,.15);border:none;color:white;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">✕</button>
+    </div>
+
+    <!-- PLAGE DE DATES -->
+    <div style="padding:14px 20px;border-bottom:1px solid var(--line);background:#f8f7f5">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9898b8;margin-bottom:8px">
+        📅 Période à planifier
+      </div>
+      <!-- Raccourcis -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
+        ${[
+          {label:'Sem. prochaine', start:fmt(nextMon), end:fmt(new Date(nextMon.getFullYear(),nextMon.getMonth(),nextMon.getDate()+6))},
+          {label:'2 semaines',     start:fmt(nextMon), end:fmt(new Date(nextMon.getFullYear(),nextMon.getMonth(),nextMon.getDate()+13))},
+          {label:'Ce mois',        start:fmt(nextMon), end:fmt(endOfMonth)},
+          {label:'Mois prochain',  start:fmt(startNextMonth), end:fmt(endNextMonth)},
+        ].map(r=>`<button onclick="setMsDateRange('${r.start}','${r.end}')"
+          style="padding:4px 10px;border-radius:20px;border:1.5px solid var(--accent);background:var(--alight);
+                 color:var(--accent);font-size:.7rem;font-weight:700;cursor:pointer">${r.label}</button>`).join('')}
+      </div>
+      <!-- Saisie manuelle -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div>
+          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Du (lundi)</div>
+          <input type="date" id="ms-date-start" value="${defaultStart}"
+            style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
+        </div>
+        <div style="font-size:.84rem;color:var(--ink3);margin-top:14px">→</div>
+        <div>
+          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Au (dimanche)</div>
+          <input type="date" id="ms-date-end" value="${defaultEnd}"
+            style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
+        </div>
+        <div style="margin-top:14px">
+          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Propositions / site</div>
+          <select id="ms-nb-props" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
+            <option value="1">1 — Optimal uniquement</option>
+            <option value="2">2 — Optimal + Équilibré</option>
+            <option value="3" selected>3 — Optimal + Équilibré + Alternatif</option>
+          </select>
+        </div>
       </div>
     </div>
 
-    <div style="padding:16px 20px">
-      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:8px">Ordre des magasins (cochez + glissez pour réordonner)</div>
+    <!-- LISTE DES SITES -->
+    <div style="padding:14px 20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9898b8">
+          🏪 Magasins (cochez + glissez pour réordonner)
+        </div>
+        <div style="font-size:.64rem;color:#9898b8">↔ = sites compatibles pour multi-affectation même jour</div>
+      </div>
       <div id="ms-sites-list">${sitesHTML}</div>
     </div>
 
-    <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px">
-      <button onclick="document.getElementById('multisite-modal').remove()" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--line);background:transparent;font-size:.82rem;cursor:pointer">Annuler</button>
-      <button onclick="runMultiSiteAutoplan()" style="padding:8px 20px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:700;cursor:pointer">⚡ Générer</button>
+    <!-- FOOTER -->
+    <div style="padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:.68rem;color:var(--ink3)">
+        Les sites sont remplis dans l'ordre — les travailleurs polyvalents couvrent plusieurs sites si compatible
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('multisite-modal').remove()"
+          style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--line);background:transparent;font-size:.82rem;cursor:pointer">
+          Annuler
+        </button>
+        <button onclick="runMultiSiteAutoplan()"
+          style="padding:8px 22px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.86rem;font-weight:800;cursor:pointer">
+          ⚡ Générer
+        </button>
+      </div>
     </div>
   </div>`;
 
   modal.onclick = ()=>modal.remove();
   document.body.appendChild(modal);
   initMultiSiteDragSort();
+}
+
+function setMsDateRange(start, end){
+  const s = document.getElementById('ms-date-start');
+  const e = document.getElementById('ms-date-end');
+  if(s) s.value = start;
+  if(e) e.value = end;
+  // Feedback visuel
+  [s,e].forEach(el=>{ if(!el) return; el.style.borderColor='var(--accent)'; setTimeout(()=>el.style.borderColor='var(--line)',600); });
 }
 
 function initMultiSiteDragSort(){
@@ -2576,7 +2687,10 @@ function initMultiSiteDragSort(){
     row.draggable = true;
     row.addEventListener('dragstart', ()=>{ dragging=row; row.style.opacity='.4'; });
     row.addEventListener('dragend',   ()=>{ dragging=null; row.style.opacity=''; updateMsOrder(); });
-    row.addEventListener('dragover',  e=>{ e.preventDefault(); const after=getDragAfterElement(list,e.clientY); if(after) list.insertBefore(dragging,after); else list.appendChild(dragging); });
+    row.addEventListener('dragover',  e=>{ e.preventDefault();
+      const after=getDragAfterElement(list,e.clientY);
+      if(after) list.insertBefore(dragging,after); else list.appendChild(dragging);
+    });
   });
 }
 
@@ -2595,11 +2709,13 @@ function updateMsOrder(){
 }
 
 async function runMultiSiteAutoplan(){
-  const weekStart = document.getElementById('ms-week').value;
-  if(!weekStart){ showToast('Sélectionnez une semaine'); return; }
-  const carryOver = document.getElementById('ms-carry-over').checked;
+  const dateStart = document.getElementById('ms-date-start')?.value;
+  const dateEnd   = document.getElementById('ms-date-end')?.value;
+  const nbProps   = parseInt(document.getElementById('ms-nb-props')?.value||'3');
 
-  // Ordre des sites sélectionnés
+  if(!dateStart||!dateEnd){ showToast('Sélectionnez une plage de dates'); return; }
+  if(dateEnd < dateStart){ showToast('La date de fin doit être après la date de début'); return; }
+
   const orderedSites = [...document.querySelectorAll('.ms-site-row')]
     .filter(row=>row.querySelector('.ms-check').checked)
     .map(row=>row.dataset.site);
@@ -2607,51 +2723,267 @@ async function runMultiSiteAutoplan(){
   if(!orderedSites.length){ showToast('Sélectionnez au moins un magasin'); return; }
 
   document.getElementById('multisite-modal').remove();
-  histPush();
 
-  // Travailleurs déjà assignés (ne peuvent pas être utilisés dans le site suivant)
-  const usedWorkers = new Set();
-  let totalApplied = 0;
-
-  for(const siteId of orderedSites){
-    // Si carryOver : exclure temporairement les travailleurs déjà utilisés
-    if(carryOver){
-      employees.forEach(e=>{ e._tempExclude = usedWorkers.has(e.id); });
-    }
-
-    const props = genPlanningProposals(siteId, weekStart, 1);
-    const prop = props[0];
-    let applied = 0;
-
-    prop.plan.forEach(slot=>{
-      slot.assigned.forEach(emp=>{
-        if(carryOver && emp._tempExclude) return;
-        const wOff = dateToWeekOffset(slot.dateStr);
-        const di   = dateToDayIdx(slot.dateStr);
-        if(!emp.weeks) emp.weeks={};
-        if(!emp.weeks[wOff]) emp.weeks[wOff]={};
-        if(!emp.weeks[wOff][di]?.start){
-          emp.weeks[wOff][di]={
-            status:'work', start:slot.creneau.debut, end:slot.creneau.fin,
-            pause:emp.pause||0, endManual:true, site:siteId, note:'🤖 Auto'
-          };
-          usedWorkers.add(emp.id);
-          applied++;
-        }
-      });
-    });
-
-    totalApplied += applied;
-    console.log(`[Autoplan] Site ${siteId}: ${applied} créneaux appliqués`);
+  // Collecter toutes les semaines dans la plage
+  const weeks = [];
+  const cur = new Date(dateStart+'T12:00');
+  // Aligner sur le lundi
+  const dowCur = (cur.getDay()||7)-1;
+  cur.setDate(cur.getDate()-dowCur);
+  const endD = new Date(dateEnd+'T12:00');
+  while(cur <= endD){
+    weeks.push(cur.toISOString().slice(0,10));
+    cur.setDate(cur.getDate()+7);
   }
 
-  // Nettoyer le flag temporaire
-  employees.forEach(e=>{ delete e._tempExclude; });
+  // ── Générer les propositions pour toutes les semaines et tous les sites ──
+  const allResults = {}; // {siteId: [{weekStart, proposals}]}
+  const today2 = new Date().toISOString().slice(0,10);
 
-  autoSave();
-  renderSidebar();
+  for(const siteId of orderedSites){
+    allResults[siteId] = [];
+    for(const weekStart of weeks){
+      if(weekStart < today2.slice(0,10-3)) continue; // sécurité passé
+      try {
+        const props = genPlanningProposals(siteId, weekStart, nbProps);
+        allResults[siteId].push({weekStart, proposals:props});
+      } catch(err){
+        console.error(`[Autoplan] ${siteId} sem ${weekStart}:`, err);
+      }
+    }
+  }
+
+  // Stocker pour les boutons d'action
+  _msResults = allResults;
+  _msOrderedSites = orderedSites;
+
+  // Afficher les résultats
+  openMultiSiteResults(allResults, orderedSites, weeks);
+}
+
+// Stockage global des résultats multi-sites
+let _msResults = {};
+let _msOrderedSites = [];
+
+function openMultiSiteResults(allResults, orderedSites, weeks){
+  let modal = document.getElementById('ms-results-modal');
+  if(modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'ms-results-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+
+  // ── Vue globale : tableau synthèse ───────────────────────────
+  const globalRows = weeks.map(wStart=>{
+    const wLabel = new Date(wStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+    const cells = orderedSites.map(siteId=>{
+      const siteWeek = allResults[siteId]?.find(r=>r.weekStart===wStart);
+      if(!siteWeek) return `<td style="padding:6px 8px;text-align:center;color:#d0d0e8">—</td>`;
+      const best = siteWeek.proposals[0];
+      const color = best.coverage>=90?'#16a34a':best.coverage>=70?'#d97706':'#dc2626';
+      const bg    = best.coverage>=90?'#dcfce7':best.coverage>=70?'#fef3c7':'#fee2e2';
+      return `<td style="padding:6px 8px;text-align:center">
+        <span style="background:${bg};color:${color};padding:2px 8px;border-radius:12px;font-size:.7rem;font-weight:700">${best.coverage}%</span>
+      </td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #f0eeea">
+      <td style="padding:6px 10px;font-weight:600;font-size:.78rem;white-space:nowrap">Sem. ${wLabel}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  // ── Onglets par site ──────────────────────────────────────────
+  const siteTabBtns = orderedSites.map((s,i)=>`
+    <button onclick="switchMsTab('${s}')" id="ms-tab-btn-${s}"
+      style="padding:8px 14px;border-radius:8px 8px 0 0;border:1.5px solid #e2e0d8;border-bottom:none;
+             background:${i===0?'white':'#f5f4f0'};font-size:.76rem;font-weight:700;cursor:pointer;
+             color:${i===0?SITES[s]?.color||'#2d5be3':'#9898b8'}">
+      ${s} — ${SITES[s]?.name||s}
+    </button>`).join('');
+
+  modal.innerHTML = `
+  <div style="background:white;border-radius:16px;width:100%;max-width:1000px;overflow:hidden;
+              box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">
+
+    <!-- EN-TÊTE -->
+    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 20px;
+                display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.95rem;font-weight:800;color:white">📊 Résultats Autoplan Multi-Magasins</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">
+          ${orderedSites.length} site(s) · ${weeks.length} semaine(s)
+          · ${weeks.length * orderedSites.length} plannings générés
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="applyAllMultiSite()" style="padding:7px 16px;border-radius:8px;border:none;
+          background:#059669;color:white;font-size:.8rem;font-weight:800;cursor:pointer">
+          ✓ Tout appliquer (meilleure proposition)
+        </button>
+        <button onclick="document.getElementById('ms-results-modal').remove()"
+          style="background:rgba(255,255,255,.15);border:none;color:white;width:30px;height:30px;border-radius:7px;cursor:pointer">✕</button>
+      </div>
+    </div>
+
+    <div style="padding:16px 20px;overflow-y:auto;max-height:85vh">
+
+      <!-- VUE GLOBALE -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:.78rem;font-weight:800;color:var(--ink);margin-bottom:10px">Vue globale — Couverture par site et semaine</div>
+        <div style="overflow-x:auto">
+          <table style="border-collapse:collapse;font-size:.76rem;min-width:400px">
+            <thead>
+              <tr style="background:#f5f4f0">
+                <th style="padding:6px 10px;text-align:left;font-weight:700;color:var(--ink3)">Semaine</th>
+                ${orderedSites.map(s=>`<th style="padding:6px 10px;text-align:center;font-weight:800;color:${SITES[s]?.color||'#2d5be3'}">${s} — ${SITES[s]?.name||s}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>${globalRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ONGLETS PAR SITE -->
+      <div>
+        <div style="font-size:.78rem;font-weight:800;color:var(--ink);margin-bottom:8px">Détail par site</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:0">${siteTabBtns}</div>
+        <div id="ms-tab-content" style="border:1.5px solid #e2e0d8;border-radius:0 8px 8px 8px;padding:16px;background:white">
+          <!-- rempli par switchMsTab -->
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  modal.onclick = ()=>modal.remove();
+  document.body.appendChild(modal);
+  if(orderedSites.length) switchMsTab(orderedSites[0]);
+}
+
+function switchMsTab(siteId){
+  _msOrderedSites.forEach(s=>{
+    const btn = document.getElementById(`ms-tab-btn-${s}`);
+    if(!btn) return;
+    btn.style.background = s===siteId?'white':'#f5f4f0';
+    btn.style.color = s===siteId?(SITES[s]?.color||'#2d5be3'):'#9898b8';
+  });
+  const content = document.getElementById('ms-tab-content');
+  if(!content) return;
+  const site = SITES[siteId]||{};
+  const siteData = _msResults[siteId]||[];
+  if(!siteData.length){
+    content.innerHTML='<div style="text-align:center;padding:24px;color:var(--ink3)">Aucune donnée pour ce site.</div>';
+    return;
+  }
+
+  const html = siteData.map(({weekStart, proposals})=>{
+    const wLabel = new Date(weekStart+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'});
+    const propTabs = proposals.map((p,pi)=>`
+      <div style="border:1.5px solid ${pi===0?site.color||'#2d5be3':'#e2e0d8'};border-radius:8px;margin-bottom:10px">
+        <div style="background:${pi===0?(site.color||'#2d5be3')+'18':'#f5f4f0'};padding:8px 12px;
+                    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>
+            <div style="font-size:.8rem;font-weight:800;color:${pi===0?site.color||'#2d5be3':'var(--ink)'}">${p.label}</div>
+            <div style="font-size:.65rem;color:var(--ink3);margin-top:1px">
+              ${p.coverage}% couverture · ${p.mixViolations>0?'⚠️ '+p.mixViolations+' violation(s) mixité':'✅ Mixité ok'}
+            </div>
+          </div>
+          <button onclick="applyMsSiteWeek('${siteId}','${weekStart}',${pi})"
+            style="padding:4px 12px;border-radius:6px;border:none;
+                   background:${pi===0?site.color||'#2d5be3':'#6b7280'};
+                   color:white;font-size:.72rem;font-weight:700;cursor:pointer">
+            ✓ Appliquer
+          </button>
+        </div>
+        <div style="padding:8px 12px;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.7rem;min-width:500px">
+            ${p.plan.slice(0,7).map(slot=>{
+              const dow = new Date(slot.dateStr+'T12:00').getDay();
+              const DAYS=['D','L','M','M','J','V','S'];
+              const diffIcon = slot.difficulty===1?'⭐':slot.difficulty===2?'🎉':slot.difficulty===3?'☀️':'';
+              return `<tr style="border-bottom:1px solid #f5f4f0">
+                <td style="padding:4px 6px;font-weight:600;white-space:nowrap">
+                  ${diffIcon}${DAYS[dow]} ${new Date(slot.dateStr+'T12:00').getDate()}
+                </td>
+                <td style="padding:4px 6px;font-family:monospace;font-size:.66rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
+                <td style="padding:4px 6px">
+                  ${slot.assigned.map(e=>{
+                    const col=empColor(e);
+                    return `<span style="padding:1px 6px;border-radius:10px;font-size:.65rem;font-weight:700;
+                                         background:${col.bg};color:${col.fg}">${e.firstname}</span>`;
+                  }).join(' ')}
+                  ${slot.manquants>0?`<span style="color:#dc2626;font-size:.65rem">⚠️${slot.manquants}</span>`:''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </table>
+          ${p.plan.length>7?`<div style="font-size:.64rem;color:var(--ink3);margin-top:4px">… ${p.plan.length-7} autres créneaux</div>`:''}
+        </div>
+      </div>`).join('');
+
+    return `<div style="margin-bottom:20px;border:1px solid var(--line);border-radius:10px;overflow:hidden">
+      <div style="background:#f8f7f5;padding:8px 14px;font-size:.82rem;font-weight:700">
+        Semaine du ${wLabel}
+      </div>
+      <div style="padding:12px">${propTabs}</div>
+    </div>`;
+  }).join('');
+
+  content.innerHTML = html;
+}
+
+function applyMsSiteWeek(siteId, weekStart, propIdx){
+  const siteData = _msResults[siteId]?.find(r=>r.weekStart===weekStart);
+  if(!siteData) return;
+  const prop = siteData.proposals[propIdx];
+  if(!prop) return;
+  histPush();
+  let applied = 0;
+  prop.plan.forEach(slot=>{
+    slot.assigned.forEach(empRef=>{
+      const e = employees.find(x=>x.id===empRef.id); if(!e) return;
+      const wOff = dateToWeekOffset(slot.dateStr);
+      const di   = dateToDayIdx(slot.dateStr);
+      if(!e.weeks) e.weeks={};
+      if(!e.weeks[wOff]) e.weeks[wOff]={};
+      const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
+      if(!e.weeks[wOff][di]?.start){
+        e.weeks[wOff][di]={status:'work',start:effectiveStart,end:slot.creneau.fin,
+          pause:e.pause||0,endManual:true,site:siteId,note:'🤖 Auto'};
+        applied++;
+      }
+    });
+  });
+  autoSave(); renderSidebar();
+  showToast(`✅ ${siteId} sem. ${weekStart}: ${applied} créneaux appliqués`);
+}
+
+function applyAllMultiSite(){
+  if(!confirm('Appliquer la meilleure proposition pour tous les sites et toutes les semaines ?')) return;
+  histPush();
+  let total = 0;
+  _msOrderedSites.forEach(siteId=>{
+    (_msResults[siteId]||[]).forEach(({weekStart, proposals})=>{
+      const prop = proposals[0]; if(!prop) return;
+      prop.plan.forEach(slot=>{
+        slot.assigned.forEach(empRef=>{
+          const e = employees.find(x=>x.id===empRef.id); if(!e) return;
+          const wOff = dateToWeekOffset(slot.dateStr);
+          const di   = dateToDayIdx(slot.dateStr);
+          if(!e.weeks) e.weeks={};
+          if(!e.weeks[wOff]) e.weeks[wOff]={};
+          const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
+          if(!e.weeks[wOff][di]?.start){
+            e.weeks[wOff][di]={status:'work',start:effectiveStart,end:slot.creneau.fin,
+              pause:e.pause||0,endManual:true,site:siteId,note:'🤖 Auto'};
+            total++;
+          }
+        });
+      });
+    });
+  });
+  autoSave(); renderSidebar();
   if(emp()) loadPanel();
-  showToast(`✅ ${totalApplied} créneaux appliqués sur ${orderedSites.length} magasin(s)`);
+  document.getElementById('ms-results-modal')?.remove();
+  showToast(`✅ ${total} créneaux appliqués sur ${_msOrderedSites.length} site(s)`);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4262,6 +4594,23 @@ function saveStoreNeedsOverrides(){
 }
 
 // Ouvrir l'éditeur
+function saveMsNeedsWithFeedback(){
+  const btn = document.getElementById('btn-save-needs');
+  if(btn){ btn.textContent='⏳ Sauvegarde...'; btn.disabled=true; btn.style.background='rgba(255,255,255,.1)'; }
+  try {
+    saveStoreNeedsOverrides();
+    if(btn){ btn.textContent='✅ Sauvegardé !'; btn.style.background='rgba(5,150,105,.6)'; }
+    showToast('✅ Besoins magasins sauvegardés');
+    setTimeout(()=>{
+      if(btn){ btn.textContent='💾 Sauvegarder'; btn.disabled=false; btn.style.background='rgba(255,255,255,.2)'; }
+    }, 2000);
+  } catch(err){
+    if(btn){ btn.textContent='❌ Erreur — réessayer'; btn.style.background='rgba(220,38,38,.6)'; btn.disabled=false; }
+    showToast('❌ Erreur lors de la sauvegarde : ' + err.message);
+    console.error('SaveStoreNeeds error:', err);
+  }
+}
+
 function openStoreNeedsEditor(){
   let modal = document.getElementById('store-needs-modal');
   if(modal) modal.remove();
@@ -4392,7 +4741,7 @@ function openStoreNeedsEditor(){
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="saveStoreNeedsOverrides();showToast('✅ Besoins sauvegardés');openStoreNeedsEditor()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.2);color:white;font-size:.76rem;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
+        <button onclick="saveMsNeedsWithFeedback()" id="btn-save-needs" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.2);color:white;font-size:.76rem;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
         <button onclick="resetStoreNeeds()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.74rem;cursor:pointer">↺ Réinitialiser</button>
         <button onclick="document.getElementById('store-needs-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">✕</button>
       </div>
