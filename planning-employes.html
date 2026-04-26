@@ -1992,12 +1992,12 @@ function workerPrefScore(e, dateStr, debut, fin){
 // Matcher les travailleurs à un créneau avec scoring complet
 function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed){
   const candidates = [];
-  // workerDaysUsed: Set de "empId_dateStr" déjà planifiés ce jour sur ce site
+  // workerDaysUsed: {empId: Set<dateStr>} — même structure que workerDays dans genPlanningProposals
   // Un worker déjà assigné à un créneau de ce jour ne peut pas en avoir un 2e
 
   for(const e of activeEmployees){
     // Anti-doublon jour : un seul créneau par travailleur par jour
-    if(workerDaysUsed && workerDaysUsed.has(e.id + '_' + dateStr)) continue;
+    if(workerDaysUsed && workerDaysUsed[e.id]?.has(dateStr)) continue;
     const avail = getWorkerAvailability(e);
 
     // ── RÈGLE 1 : éligibilité site ──────────────────────────
