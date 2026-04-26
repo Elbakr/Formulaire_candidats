@@ -2969,6 +2969,9 @@ function genPlanningProposals(siteId, weekStart, n=3){
         for(const {emp} of candidats){
           if(assigned.length >= creneau.vendeurs) break;
 
+          // Ne pas ajouter si déjà dans assigned (pré-assignation du responsable)
+          if(assigned.some(a => a.id === emp.id)) continue;
+
           // Anti-doublon jour
           if(!workerDays[emp.id]) workerDays[emp.id]=new Set();
           if(workerDays[emp.id].has(dateStr)) continue;
@@ -3784,7 +3787,20 @@ function openGlobalWorkerView(){
       let h = 0;
       if(isWork){
         const s=day.start.split(':').map(Number), en=day.end.split(':').map(Number);
-        h = Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1])/60);
+        let minutes = Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1]));
+        // Déduire pause journalière
+        minutes -= (e.pause||0);
+        // Déduire fermeture vendredi (50 min en moyenne, calculée précisément)
+        if(dow === 5){
+          const vp = getVendrediPause(ds);
+          const vpDeb=timeToMin(vp.deb), vpFin=timeToMin(vp.fin);
+          const cDeb=s[0]*60+s[1], cFin=en[0]*60+en[1];
+          const ov = Math.max(0, Math.min(cFin,vpFin) - Math.max(cDeb,vpDeb));
+          minutes -= ov;
+        }
+        // Déduire lunchBreak si défini
+        if(day.lunchBreak && day.lunchDuration) minutes -= day.lunchDuration;
+        h = Math.max(0, minutes/60);
         monthHours += h;
       }
 
@@ -3792,7 +3808,7 @@ function openGlobalWorkerView(){
       const col = isWork ? 'white' : isPast ? 'var(--ink3)' : 'var(--ink)';
       const border = isToday_ ? '2px solid var(--accent)' : '1px solid transparent';
 
-      cells.push(`<div style="text-align:center;font-size:.6rem;padding:2px 0;border-radius:4px;background:${bg};color:${col};border:${border};cursor:default;line-height:1.3" title="${isWork?day.start+'→'+day.end+' ('+toHM(h)+')':''}">
+      cells.push(`<div onclick="jumpToDay('${ds}')" style="text-align:center;font-size:.6rem;padding:2px 0;border-radius:4px;background:${bg};color:${col};border:${border};cursor:${isWork?'pointer':'default'};line-height:1.3;transition:opacity .1s" title="${isWork?day.start+'→'+day.end+' ('+toHM(h)+') — Clic pour modifier':''}">
         <div style="font-weight:${isToday_?800:isWork?700:400}">${d}</div>
         ${isWork&&h>0?`<div style="font-size:.48rem;opacity:.85">${toHM(h)}</div>`:''}
       </div>`);
@@ -3824,7 +3840,19 @@ function openGlobalWorkerView(){
       const day = e.weeks?.[wOff]?.[di];
       if(day && day.status==='work' && day.start && day.end){
         const s=day.start.split(':').map(Number), en=day.end.split(':').map(Number);
-        wH += Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1])/60);
+        let mins = Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1]));
+        mins -= (e.pause||0);
+        // Vendredi : déduire fermeture
+        const wDates = getWeekDates(wOff);
+        if(wDates[di] && wDates[di].getDay()===5){
+          const ds2 = wDates[di].toISOString().slice(0,10);
+          const vp=getVendrediPause(ds2);
+          const vpDeb=timeToMin(vp.deb),vpFin=timeToMin(vp.fin);
+          const cDeb=s[0]*60+s[1],cFin=en[0]*60+en[1];
+          mins -= Math.max(0,Math.min(cFin,vpFin)-Math.max(cDeb,vpDeb));
+        }
+        if(day.lunchBreak&&day.lunchDuration) mins-=day.lunchDuration;
+        wH += Math.max(0,mins/60);
       }
     }
     if(wH>0) weekStats.push({wStart, wH, wOff});
@@ -3866,35 +3894,50 @@ function openGlobalWorkerView(){
 
     <!-- VUE HEBDOMADAIRE -->
     <div id="gview-week" style="padding:20px 24px;display:none">
-      ${weekStats.length===0?'<div style="text-align:center;padding:32px;color:var(--ink3)">Aucun créneau planifié sur la période.</div>':
-        `<table style="width:100%;border-collapse:collapse;font-size:.78rem">
-          <thead>
-            <tr style="background:var(--bg)">
-              <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--ink3)">Semaine</th>
-              <th style="padding:8px 12px;text-align:center;font-weight:700;color:var(--ink3)">Heures</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:700;color:var(--ink3)">Jours travaillés</th>
-              <th style="padding:8px 12px;text-align:center;font-weight:700;color:var(--ink3)">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${weekStats.map(({wStart,wH,wOff})=>{
-              const days = Array.from({length:7},(_,di)=>{
-                const d = e.weeks?.[wOff]?.[di];
-                if(!d||d.status!=='work'||!d.start) return '';
-                const DAYS=['L','M','M','J','V','S','D'];
-                return `<span style="padding:1px 6px;border-radius:4px;background:var(--alight);color:var(--accent);font-size:.68rem;font-weight:700">${DAYS[di]} ${d.start}→${d.end}</span>`;
-              }).filter(Boolean).join(' ');
-              return `<tr style="border-bottom:1px solid var(--line)">
-                <td style="padding:7px 12px;font-weight:600">Sem. du ${new Date(wStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}</td>
-                <td style="padding:7px 12px;text-align:center;font-weight:700;color:var(--accent)">${toHM(wH)}</td>
-                <td style="padding:7px 12px">${days||'—'}</td>
-                <td style="padding:7px 12px;text-align:center">
-                  <button onclick="jumpToWeek(${wOff})" style="padding:3px 10px;border-radius:6px;border:1.5px solid var(--accent);background:var(--alight);color:var(--accent);font-size:.68rem;font-weight:700;cursor:pointer">Voir</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>`}
+      ${weekStats.length===0
+        ? '<div style="text-align:center;padding:32px;color:var(--ink3)">Aucun créneau planifié sur la période.</div>'
+        : weekStats.map(({wStart,wH,wOff})=>{
+            const DAYS_FULL_W=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+            const wDates = getWeekDates(wOff);
+            const dayCards = Array.from({length:7},(_,di)=>{
+              const d = e.weeks?.[wOff]?.[di];
+              const dateStr2 = wDates[di]?.toISOString().slice(0,10)||'';
+              const dow2 = wDates[di]?.getDay()??-1;
+              const isWE = dow2===0||dow2===6;
+              const {isFerie:isFer2} = dateStr2 ? isPeriodForte(dateStr2) : {isFerie:false};
+              if(!d||d.status!=='work'||!d.start) return `
+                <div style="flex:1;min-width:90px;border-radius:8px;background:${isWE?'#eef1fd':'#f5f4f0'};padding:8px;border:1px solid ${isWE?'#c7d2fe':'#e2e0d8'}">
+                  <div style="font-size:.66rem;font-weight:700;color:${isWE?'#2d5be3':'#9898b8'}">${DAYS_FULL_W[di]}</div>
+                  <div style="font-size:.58rem;color:#d0d0e8;margin-top:2px">${wDates[di]?.getDate()||''}</div>
+                  <div style="font-size:.6rem;color:#d0d0e8;margin-top:4px">—</div>
+                </div>`;
+              // Calculer heures effectives
+              const s2=d.start.split(':').map(Number),en2=d.end.split(':').map(Number);
+              let mins2=Math.max(0,(en2[0]*60+en2[1]-s2[0]*60-s2[1]));
+              mins2-=(e.pause||0);
+              if(dow2===5&&dateStr2){const vp=getVendrediPause(dateStr2);const vpD=timeToMin(vp.deb),vpF=timeToMin(vp.fin);const cD=s2[0]*60+s2[1],cF=en2[0]*60+en2[1];mins2-=Math.max(0,Math.min(cF,vpF)-Math.max(cD,vpD));}
+              const hEff=Math.max(0,mins2/60);
+              return `
+                <div onclick="jumpToDay('${dateStr2}')" style="flex:1;min-width:90px;border-radius:8px;background:var(--alight);padding:8px;border:1.5px solid var(--accent);cursor:pointer;transition:opacity .15s" title="Clic pour modifier">
+                  <div style="font-size:.66rem;font-weight:800;color:var(--accent)">${isFer2?'🎉 ':isWE?'☀️ ':''}${DAYS_FULL_W[di]}</div>
+                  <div style="font-size:.58rem;color:var(--accent);opacity:.7;margin-top:1px">${wDates[di]?.getDate()||''}</div>
+                  <div style="font-size:.68rem;font-weight:700;color:var(--ink);margin-top:4px;font-family:monospace">${d.start}→${d.end}</div>
+                  <div style="font-size:.6rem;color:var(--accent);margin-top:2px;font-weight:700">${toHM(hEff)}</div>
+                  ${d.site?`<div style="font-size:.56rem;color:#2d5be3;margin-top:1px">📍 ${d.site}</div>`:''}
+                </div>`;
+            }).join('');
+            return `
+            <div style="margin-bottom:16px;border:1px solid var(--line);border-radius:10px;overflow:hidden">
+              <div style="background:#f5f4f0;padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
+                <div style="font-size:.8rem;font-weight:700">Semaine du ${new Date(wStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'long'})}</div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="font-size:.76rem;font-weight:800;color:var(--accent)">${toHM(wH)}</span>
+                  <button onclick="jumpToWeek(${wOff})" style="padding:3px 10px;border-radius:6px;border:1.5px solid var(--accent);background:var(--alight);color:var(--accent);font-size:.68rem;font-weight:700;cursor:pointer">Planning</button>
+                </div>
+              </div>
+              <div style="padding:10px 14px;display:flex;gap:6px;overflow-x:auto">${dayCards}</div>
+            </div>`;
+          }).join('')}
     </div>
   </div>`;
 
@@ -3916,6 +3959,17 @@ function jumpToWeek(wOff){
   document.getElementById('global-view-modal')?.remove();
   if(_viewMode==='month') toggleViewMode();
   renderWeek(); updateMonthBox();
+}
+
+// Aller à un jour depuis la vue annuelle et ouvrir son modal d'édition
+function jumpToDay(dateStr){
+  const wOff = dateToWeekOffset(dateStr);
+  const dow  = new Date(dateStr+'T12:00').getDay();
+  curWeek = wOff;
+  document.getElementById('global-view-modal')?.remove();
+  if(_viewMode === 'month') renderMonthView();
+  else { renderWeek(); updateMonthBox(); }
+  setTimeout(()=> openDayEdit(dateStr, dow), 250);
 }
 
 function printGlobalView(){
