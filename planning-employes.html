@@ -5051,89 +5051,8 @@ function loadSlotsFromEmp(e){
 
 
 
-function openPlanningEngine(){
-  // Toujours supprimer et recréer pour avoir le sélecteur à jour
-  document.getElementById('planning-engine-modal')?.remove();
+// (openPlanningEngine → défini ci-dessus, appelle openMultiSiteAutoplan)
 
-  const modal = document.createElement('div');
-  modal.id='planning-engine-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
-
-  // Lundi qui SUIT aujourd'hui
-  const today = new Date();
-  const monday = new Date(today);
-  const dow3 = today.getDay()||7;
-  const daysNext3 = dow3 === 1 ? 7 : (8 - dow3);
-  monday.setDate(today.getDate() + daysNext3);
-  const mondayStr = monday.toISOString().slice(0,10);
-
-  // Construire les options de sites — A B C D E F avec leur nom réel
-  const siteOptions = Object.values(SITES)
-    .filter(s => STORE_NEEDS[s.id] && Object.values(STORE_NEEDS[s.id]).some(slots=>slots.length>0))
-    .map(s=>`<option value="${s.id}" style="font-weight:700">${s.id} — ${s.name}</option>`)
-    .join('');
-
-  // Nb travailleurs actifs pour info
-  const nbWorkers = employees.filter(e=>!e.archived).length;
-
-  modal.innerHTML=`
-  <div style="background:white;border-radius:16px;width:100%;max-width:920px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">
-
-    <!-- EN-TÊTE -->
-    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#2d5be3 100%);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-size:1.1rem;font-weight:800;color:white">🤖 Autoplanification — Croisement Offre / Demande</div>
-        <div style="font-size:.74rem;color:rgba(255,255,255,.6);margin-top:4px">
-          ${nbWorkers} travailleur${nbWorkers>1?'s':''} actif${nbWorkers>1?'s':''} · Sites disponibles : ${Object.values(SITES).map(s=>s.id).join(', ')}
-        </div>
-      </div>
-      <button onclick="document.getElementById('planning-engine-modal').remove()"
-        style="background:rgba(255,255,255,.15);border:none;color:white;width:36px;height:36px;border-radius:8px;font-size:1.2rem;cursor:pointer;flex-shrink:0">✕</button>
-    </div>
-
-    <!-- SÉLECTION -->
-    <div style="padding:18px 24px;border-bottom:2px solid #e2e0d8;background:#f8f7f5;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-      <div>
-        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:6px">📍 Point de vente</div>
-        <select id="pe-site" style="padding:9px 14px;border:2px solid #2d5be3;border-radius:8px;font-size:.92rem;font-weight:700;min-width:200px;background:white;color:#1a1a2e">
-          ${siteOptions||'<option value="">Aucun site configuré</option>'}
-        </select>
-      </div>
-      <div>
-        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:6px">📅 Semaine du (lundi)</div>
-        <input type="date" id="pe-week" value="${mondayStr}"
-          style="padding:9px 14px;border:2px solid #e2e0d8;border-radius:8px;font-size:.88rem;background:white">
-      </div>
-      <button onclick="runPlanningEngine()"
-        style="padding:10px 22px;background:#2d5be3;color:white;border:none;border-radius:8px;font-size:.9rem;font-weight:800;cursor:pointer;white-space:nowrap">
-        ⚡ Générer
-      </button>
-    </div>
-
-    <!-- RÈGLES ACTIVES -->
-    <div style="padding:12px 24px;border-bottom:2px solid #e2e0d8;background:#fafaf8">
-      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9898b8;margin-bottom:8px">⚙️ Règles actives</div>
-      <div id="pe-rules" style="display:flex;flex-wrap:wrap;gap:6px">
-        ${Object.entries(AUTOPLAN_RULES).map(([key,rule])=>`
-          <label style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1.5px solid ${rule.active?'#2d5be3':'#e2e0d8'};background:${rule.active?'#eef1fd':'#f8f7f5'};cursor:pointer;font-size:.7rem;font-weight:600;color:${rule.active?'#2d5be3':'#9898b8'};transition:all .15s" title="${rule.description}">
-            <input type="checkbox" data-rule="${key}" ${rule.active?'checked':''} onchange="toggleAutoPlanRule('${key}',this.checked)" style="accent-color:#2d5be3;width:13px;height:13px">
-            ${rule.label}
-          </label>`).join('')}
-      </div>
-    </div>
-
-    <!-- RÉSULTATS -->
-    <div id="pe-results" style="padding:20px 24px;min-height:220px">
-      <div style="text-align:center;padding:40px;color:#9898b8;font-size:.88rem">
-        Sélectionnez un point de vente (A, B, C…) et une semaine, puis cliquez <strong>Générer</strong>.
-      </div>
-    </div>
-
-  </div>`;
-
-  modal.onclick = ()=> modal.remove();
-  document.body.appendChild(modal);
-}
 
 // Variable globale pour stocker les propositions courantes (accessible depuis le HTML)
 let _currentProposals = [];
@@ -5236,43 +5155,51 @@ function runPlanningEngine(){
               <th style="text-align:center;padding:6px 8px;color:#9898b8;font-weight:700">Statut</th>
             </tr></thead>
             <tbody>
-            ${prop.plan.map(slot=>{
-              const dow = new Date(slot.dateStr+'T12:00').getDay();
-              const dayLabel = DAYS[dow]+' '+new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+            ${(()=>{
+              // ── Regrouper les créneaux par jour ──────────────────────
+              const byDay = {};
+              prop.plan.forEach(slot=>{
+                if(!byDay[slot.dateStr]) byDay[slot.dateStr]={
+                  dateStr:slot.dateStr, difficulty:slot.difficulty,
+                  slots:[], allAssigned:new Set(), hasManquant:false
+                };
+                byDay[slot.dateStr].slots.push(slot);
+                slot.assigned.forEach(e=>byDay[slot.dateStr].allAssigned.add(e));
+                if(slot.manquants>0) byDay[slot.dateStr].hasManquant=true;
+              });
+
               const effMgr = getEffectiveManager(siteId);
-              return `<tr style="border-bottom:1px solid #f0eeea">
-                <td style="padding:7px 8px;font-weight:600">
-                  ${slot.difficulty===1?'⭐ ':slot.difficulty===2?'🎉 ':slot.difficulty===3?'☀️ ':''}${dayLabel}
-                </td>
-                <td style="padding:7px 8px;font-family:monospace;font-size:.7rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
-                <td style="padding:7px 8px">${slot.creneau.vendeurs} poste${slot.creneau.vendeurs>1?'s':''}</td>
-                <td style="padding:7px 8px">
-                  ${slot.assigned.length
-                    ? slot.assigned.map(emp=>{
-                        const col=empColor(emp);
-                        const g=emp.grade||'vendeur';
-                        const gi=g==='directeur'?'👑':g==='manager'?'⭐':g==='senior'?'🔵':'🟢';
-                        const isMgr2=effMgr&&effMgr.id===emp.id;
-                        return `<span style="padding:2px 8px;border-radius:20px;font-size:.68rem;font-weight:700;background:${col.bg};color:${col.fg};border:${isMgr2?'1.5px solid #059669':'none'};display:inline-block;margin:1px">${gi} ${emp.firstname}${isMgr2?' 🏪':''}</span>`;
-                      }).join('')
-                    : '<span style="color:#dc2626;font-size:.7rem">— Manquant</span>'}
-                  ${(()=>{
-                    if(!effMgr) return '';
-                    const mgrAssigned=slot.assigned.some(x=>x.id===effMgr.id);
-                    if(mgrAssigned) return '';
-                    const mgrE=employees.find(x=>x.id===effMgr.id);
-                    const mgrOk=mgrE&&isWorkerAvailable(mgrE,slot.dateStr,slot.creneau.debut,slot.creneau.fin);
-                    if(!mgrOk) return '<span style="padding:1px 7px;border-radius:10px;font-size:.62rem;background:#f0fdf4;color:#059669;margin-left:3px">🔄 Senior remplace</span>';
-                    return '';
-                  })()}
-                </td>
-                <td style="padding:7px 8px;text-align:center">
-                  ${slot.manquants>0
-                    ?`<span style="color:#dc2626;font-weight:700;font-size:.7rem">⚠️ ${slot.manquants}</span>`
-                    :`<span style="color:#16a34a;font-weight:700;font-size:.7rem">✓</span>`}
-                </td>
-              </tr>`;
-            }).join('')}
+              return Object.values(byDay).map(day=>{
+                const dow = new Date(day.dateStr+'T12:00').getDay();
+                const dayLabel = DAYS[dow]+' '+new Date(day.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+                const diffIcon = day.difficulty===1?'⭐':day.difficulty===2?'🎉':day.difficulty===3?'☀️':'';
+
+                // Créneaux horaires du jour (compact, une seule ligne)
+                const creneaux = day.slots.map(s=>`<span style="font-family:monospace;font-size:.68rem;color:var(--ink3)">${s.creneau.debut}→${s.creneau.fin}</span>`).join(' · ');
+
+                // Workers uniques ce jour (dédupliqués, sans doublon)
+                const workers = [...day.allAssigned].map(emp=>{
+                  const col=empColor(emp);
+                  const g=emp.grade||'vendeur';
+                  const gi=g==='directeur'?'👑':g==='manager'?'⭐':g==='senior'?'🔵':'🟢';
+                  const isMgr2=effMgr&&effMgr.id===emp.id;
+                  return `<span onclick="openWorkerQuickView(${emp.id},event)" style="padding:2px 10px;border-radius:20px;font-size:.72rem;font-weight:700;background:${col.bg};color:${col.fg};${isMgr2?'border:1.5px solid #059669;':''}cursor:pointer;display:inline-flex;align-items:center;gap:3px">${gi} ${emp.firstname}${isMgr2?' 🏪':''}</span>`;
+                }).join(' ');
+
+                const status = day.hasManquant
+                  ? `<span style="color:#dc2626;font-weight:700;font-size:.72rem">⚠️ Incomplet</span>`
+                  : `<span style="color:#16a34a;font-weight:700;font-size:.72rem">✓</span>`;
+
+                return `<tr style="border-bottom:1px solid #f5f4f0">
+                  <td style="padding:8px 10px;font-weight:700;white-space:nowrap;font-size:.78rem">
+                    ${diffIcon} ${dayLabel}
+                  </td>
+                  <td style="padding:8px 10px">${creneaux}</td>
+                  <td style="padding:8px 10px">${workers||'<span style="color:#dc2626;font-size:.7rem">— Aucun</span>'}</td>
+                  <td style="padding:8px 10px;text-align:center">${status}</td>
+                </tr>`;
+              }).join('');
+            })()}
             </tbody>
           </table>
         </div>
