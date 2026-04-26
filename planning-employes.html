@@ -2894,80 +2894,131 @@ function getDayData(e, dateStr){
 
 // ── Pré-planifier tout un mois selon les préférences ──
 function preFillMonthFromPrefs(e, year, month, overwrite=false){
-  const avail   = getWorkerAvailability(e);
-  const prefs   = avail.preferred||[];
-  const unavails = (avail.unavail||[]).filter(u=>u.recurrent);
-  const siteId  = avail.defaultSite || (e.sites||[])[0] || '';
-  const restDays = e.restDays||[];
-
-  // Fallback horaires : utiliser heures du travailleur si pas de prefs
-  const fallbackStart = e.startTime||'10:00';
-  const fallbackEnd   = calcDayEnd(e, e.hours>0 ? e.hours/Math.max(1,calcOptimalDays(e)) : 8);
+  // ── Lire TOUS les champs de la fiche travailleur ──────────────
+  const avail     = getWorkerAvailability(e);
+  const prefs     = avail.preferred||[];
+  const unavails  = (avail.unavail||[]).filter(u=>u.recurrent);
+  const siteId    = avail.defaultSite || (e.sites||[])[0] || '';
+  const fixedOff  = e.fixedOff||e.prefOff||[];
+  const restDays  = e.restDays||[];
+  const grade     = e.grade||'vendeur';
+  const anc       = getAnciennete(e);
+  const is6Days   = ['directeur','manager'].includes(grade)||(grade==='senior'&&anc>=3);
+  const nWorkDays = calcOptimalDays(e);
+  const weekCycle = e.weekCycle||1;
+  const weekPhase = e.weekPhase||0;
+  const hoursMax  = e.hoursMaxMonth||0;
+  const allowOver = !!e.allowOvertime;
+  const defaultStart = e.startTime||'10:00';
+  const hPerDay   = e.hours>0 ? e.hours/Math.max(1,nWorkDays) : 8;
+  const defaultEnd = e.endTime || calcDayEnd(e, hPerDay);
 
   let filled = 0;
+  let monthHours = 0;
   const lastDay = new Date(year, month+1, 0).getDate();
 
+  // Heures déjà planifiées manuellement ce mois
+  for(let d=1;d<=lastDay;d++){
+    const ds=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const {day}=getDayData(e,ds);
+    if(day&&day.status==='work'&&day.start&&day.end&&!day._autoFilled){
+      const s=day.start.split(':').map(Number),en=day.end.split(':').map(Number);
+      monthHours+=Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1])/60);
+    }
+  }
+
   for(let d=1; d<=lastDay; d++){
-    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const date = new Date(dateStr+'T12:00:00');
-    const dow  = date.getDay(); // 0=Dim JS
-    const wOff = dateToWeekOffset(dateStr);
-    const di   = dateToDayIdx(dateStr);
+    const dateStr=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const date=new Date(dateStr+'T12:00:00');
+    const dow=date.getDay();
+    const di=dateToDayIdx(dateStr);
+    const wOff=dateToWeekOffset(dateStr);
     if(!e.weeks) e.weeks={};
     if(!e.weeks[wOff]) e.weeks[wOff]={};
-    const existing = e.weeks[wOff][di];
+    const existing=e.weeks[wOff][di];
 
-    // Ne pas écraser les planifications manuelles (sauf si overwrite=true)
+    // Ne pas écraser les planifications manuelles
     if(!overwrite && existing && existing.start && !existing._autoFilled) continue;
 
-    // Indisponibilité plein jour → congé
-    const fullUnavail = unavails.some(u=>u.day===dow && u.debut<='09:00' && u.fin>='20:00');
-    if(fullUnavail){
-      e.weeks[wOff][di]={status:'leave',_autoFilled:true};
-      continue;
+    // Hors période contractuelle
+    if(e.startDate && dateStr < e.startDate) continue;
+    if(e.endDate   && dateStr > e.endDate)   continue;
+
+    // weekCycle : semaines alternées (1/2, 1/3...)
+    if(weekCycle > 1){
+      const refM=getWeekDates(0)[0];
+      const thisM=new Date(dateStr+'T12:00');
+      const dif=(thisM.getDay()||7)-1;
+      thisM.setDate(thisM.getDate()-dif);
+      const wkNb=Math.round((thisM-refM)/(7*24*3600*1000));
+      if(((wkNb%weekCycle)+weekCycle)%weekCycle!==weekPhase){
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue;
+      }
     }
 
-    // Jour de repos fixe (restDays) → congé
-    // EXCEPTION : Sam(di=5), Dim(di=6) et jours fériés sont toujours travaillables
-    const isSatOrSunPF = (dow===0 || dow===6);
-    const {isFerie:isHolPF} = isPeriodForte(dateStr);
-    if(restDays.includes(di) && !isSatOrSunPF && !isHolPF){
-      e.weeks[wOff][di]={status:'leave',_autoFilled:true};
-      continue;
+    const isSatOrSun=(dow===0||dow===6);
+    const {isFerie}=isPeriodForte(dateStr);
+    const isFriday=(di===4);
+
+    // Indisponibilité récurrente plein jour
+    const fullUnavail=unavails.some(u=>u.day===dow&&u.debut<='09:00'&&u.fin>='20:00');
+    if(fullUnavail){ e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue; }
+
+    // Congé fixe (jamais Sam/Dim/Fériés)
+    if(fixedOff.includes(di)&&!isSatOrSun&&!isFerie){
+      e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue;
     }
 
-    const isFriday = (di===4);
-    // Trouver les horaires du créneau : préférences > horaires site > fallback travailleur
-    const dayPrefs = prefs.filter(p=>p.day===dow);
+    // Jour de repos calculé (jamais Sam/Dim/Fériés)
+    if(restDays.includes(di)&&!isSatOrSun&&!isFerie){
+      e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue;
+    }
+
+    // Quota mensuel heures
+    if(hoursMax>0&&!allowOver){
+      if(monthHours+hPerDay>hoursMax){
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true,_quotaReached:true}; continue;
+      }
+    }
+
+    // Limiter au nombre de jours de travail/semaine (temps partiel)
+    if(!is6Days&&nWorkDays<5&&!isSatOrSun&&!isFerie){
+      let daysW=0;
+      for(let di2=0;di2<7;di2++){
+        const d2=e.weeks[wOff]?.[di2];
+        if(d2&&d2.status==='work'&&d2._autoFilled) daysW++;
+      }
+      if(daysW>=nWorkDays){
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue;
+      }
+    }
+
+    // Horaires : 1. préférences fiche  2. site par défaut  3. horaires contrat
+    const dayPrefs=prefs.filter(p=>p.day===dow);
     let startH, endH;
     if(dayPrefs.length){
-      startH = dayPrefs[0].debut;
-      endH   = dayPrefs[0].fin;
-    } else if(siteId && STORE_NEEDS[siteId]){
-      // Utiliser le premier créneau du site pour ce jour
-      const siteDay = (STORE_NEEDS[siteId][dow]||[]);
-      if(siteDay.length){
-        startH = siteDay[0].debut;
-        endH   = siteDay[0].fin;
-      } else {
-        // Site fermé ce jour → congé
-        e.weeks[wOff][di]={status:'leave',_autoFilled:true};
-        continue;
-      }
-    } else {
-      startH = fallbackStart;
-      endH   = fallbackEnd;
-    }
+      startH=dayPrefs[0].debut; endH=dayPrefs[0].fin;
+    } else if(siteId&&STORE_NEEDS[siteId]){
+      const sd=(STORE_NEEDS[siteId][dow]||[]);
+      if(sd.length){ startH=sd[0].debut; endH=sd[0].fin; }
+      else if(!isSatOrSun&&!isFerie){
+        e.weeks[wOff][di]={status:'leave',_autoFilled:true}; continue;
+      } else { startH=defaultStart; endH=defaultEnd; }
+    } else { startH=defaultStart; endH=defaultEnd; }
+
+    // Pause vendredi saisonnière
+    let pauseDur=e.pause||0, pause2=0;
+    if(isFriday){ const fp=getFridayPause(wOff); pauseDur=fp.dur||30; pause2=15; }
 
     e.weeks[wOff][di]={
       status:'work', start:startH, end:endH,
-      pause: isFriday ? getFridayPause(wOff).dur : e.pause||0,
-      pause2: isFriday ? 15 : 0,
-      fridayLocked: isFriday,
-      endManual: true,
-      _autoFilled: true,
-      unavailSlots: unavails.filter(u=>u.day===dow)
+      pause:pauseDur, pause2, fridayLocked:isFriday,
+      endManual:true, _autoFilled:true, site:siteId||undefined,
+      unavailSlots:unavails.filter(u=>u.day===dow)||undefined,
     };
+
+    const s2=startH.split(':').map(Number),en2=endH.split(':').map(Number);
+    monthHours+=Math.max(0,(en2[0]*60+en2[1]-s2[0]*60-s2[1])/60);
     filled++;
   }
   return filled;
