@@ -2155,6 +2155,20 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     // ── RÈGLE 2 : disponibilité ─────────────────────────────
     if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
+    // ── RÈGLE 2c : 1 site par jour par travailleur ──────────────
+    // Si ce worker est déjà planifié ce jour (dans e.weeks OU dans
+    // _blockedDates mis à jour entre sites) → exclu sans exception.
+    // Un travailleur ne peut couvrir qu'un seul endroit à la fois.
+    if(e._blockedDates?.has(dateStr)) continue;
+    {
+      const wOff2 = dateToWeekOffset(dateStr);
+      const di2   = dateToDayIdx(dateStr);
+      const existing = e.weeks?.[wOff2]?.[di2];
+      if(existing && existing.status==='work' && existing.start){
+        continue; // déjà planifié ce jour → 1 site max
+      }
+    }
+
     // ── SCORING ─────────────────────────────────────────────
     let score = 0;
     const grade = e.grade||'vendeur';
@@ -2740,18 +2754,37 @@ async function runMultiSiteAutoplan(){
   const allResults = {}; // {siteId: [{weekStart, proposals}]}
   const today2 = new Date().toISOString().slice(0,10);
 
+  // Nettoyer les _blockedDates avant de commencer
+  employees.forEach(e=>{ delete e._blockedDates; });
+
   for(const siteId of orderedSites){
     allResults[siteId] = [];
     for(const weekStart of weeks){
-      if(weekStart < today2.slice(0,10-3)) continue; // sécurité passé
       try {
         const props = genPlanningProposals(siteId, weekStart, nbProps);
         allResults[siteId].push({weekStart, proposals:props});
+
+        // Après génération : marquer TOUS les workers assignés sur
+        // ce site/semaine comme bloqués pour les sites suivants
+        // (1 travailleur = 1 site par jour, sans exception)
+        if(props[0]){
+          props[0].plan.forEach(slot=>{
+            slot.assigned.forEach(emp=>{
+              const e = employees.find(x=>x.id===emp.id);
+              if(!e) return;
+              if(!e._blockedDates) e._blockedDates = new Set();
+              e._blockedDates.add(slot.dateStr);
+            });
+          });
+        }
       } catch(err){
         console.error(`[Autoplan] ${siteId} sem ${weekStart}:`, err);
       }
     }
   }
+
+  // Nettoyer après génération
+  employees.forEach(e=>{ delete e._blockedDates; });
 
   // Stocker pour les boutons d'action
   _msResults = allResults;
@@ -2886,7 +2919,8 @@ function switchMsTab(siteId){
               ${p.coverage}% couverture · ${p.mixViolations>0?'⚠️ '+p.mixViolations+' violation(s) mixité':'✅ Mixité ok'}
             </div>
           </div>
-          <button onclick="applyMsSiteWeek('${siteId}','${weekStart}',${pi})"
+          <button data-apply-site="${siteId}" data-apply-week="${weekStart}" data-apply-idx="${pi}"
+            onclick="applyMsSiteWeek(this.dataset.applySite, this.dataset.applyWeek, parseInt(this.dataset.applyIdx))"
             style="padding:4px 12px;border-radius:6px;border:none;
                    background:${pi===0?site.color||'#2d5be3':'#6b7280'};
                    color:white;font-size:.72rem;font-weight:700;cursor:pointer">
@@ -2894,28 +2928,38 @@ function switchMsTab(siteId){
           </button>
         </div>
         <div style="padding:8px 12px;overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:.7rem;min-width:500px">
-            ${p.plan.slice(0,7).map(slot=>{
-              const dow = new Date(slot.dateStr+'T12:00').getDay();
-              const DAYS=['D','L','M','M','J','V','S'];
-              const diffIcon = slot.difficulty===1?'⭐':slot.difficulty===2?'🎉':slot.difficulty===3?'☀️':'';
-              return `<tr style="border-bottom:1px solid #f5f4f0">
-                <td style="padding:4px 6px;font-weight:600;white-space:nowrap">
-                  ${diffIcon}${DAYS[dow]} ${new Date(slot.dateStr+'T12:00').getDate()}
-                </td>
-                <td style="padding:4px 6px;font-family:monospace;font-size:.66rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
-                <td style="padding:4px 6px">
-                  ${slot.assigned.map(e=>{
-                    const col=empColor(e);
-                    return `<span style="padding:1px 6px;border-radius:10px;font-size:.65rem;font-weight:700;
-                                         background:${col.bg};color:${col.fg}">${e.firstname}</span>`;
-                  }).join(' ')}
-                  ${slot.manquants>0?`<span style="color:#dc2626;font-size:.65rem">⚠️${slot.manquants}</span>`:''}
-                </td>
-              </tr>`;
-            }).join('')}
+          <table style="width:100%;border-collapse:collapse;font-size:.7rem">
+            ${(()=>{
+              // Regrouper par jour — 1 ligne par jour, workers dédupliqués
+              const byDay2 = {};
+              p.plan.forEach(slot=>{
+                if(!byDay2[slot.dateStr]) byDay2[slot.dateStr]={
+                  dateStr:slot.dateStr, difficulty:slot.difficulty,
+                  creneaux:[], workers:new Map(), hasManquant:false
+                };
+                const d2 = byDay2[slot.dateStr];
+                d2.creneaux.push(slot.creneau.debut+'→'+slot.creneau.fin);
+                slot.assigned.forEach(e=>d2.workers.set(e.id,e));
+                if(slot.manquants>0) d2.hasManquant=true;
+              });
+              const DAYS2=['D','L','M','M','J','V','S'];
+              return Object.values(byDay2).map(d2=>{
+                const dow2=new Date(d2.dateStr+'T12:00').getDay();
+                const di2=new Date(d2.dateStr+'T12:00').getDate();
+                const diffIcon=d2.difficulty===1?'⭐':d2.difficulty===2?'🎉':d2.difficulty===3?'☀️':'';
+                const crStr=[...new Set(d2.creneaux)].join(' · ');
+                const wStr=[...d2.workers.values()].map(e=>{
+                  const col=empColor(e);
+                  return `<span style="padding:1px 7px;border-radius:10px;font-size:.65rem;font-weight:700;background:${col.bg};color:${col.fg}">${e.firstname}</span>`;
+                }).join(' ');
+                return `<tr style="border-bottom:1px solid #f5f4f0">
+                  <td style="padding:5px 6px;font-weight:700;white-space:nowrap;font-size:.72rem">${diffIcon}${DAYS2[dow2]} ${di2}</td>
+                  <td style="padding:5px 6px;font-family:monospace;font-size:.65rem;color:var(--ink3)">${crStr}</td>
+                  <td style="padding:5px 6px">${wStr||'<span style="color:#dc2626;font-size:.65rem">—</span>'}${d2.hasManquant?'<span style="color:#dc2626;font-size:.65rem;margin-left:4px">⚠️</span>':''}</td>
+                </tr>`;
+              }).join('');
+            })()}
           </table>
-          ${p.plan.length>7?`<div style="font-size:.64rem;color:var(--ink3);margin-top:4px">… ${p.plan.length-7} autres créneaux</div>`:''}
         </div>
       </div>`).join('');
 
