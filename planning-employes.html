@@ -533,7 +533,43 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 
 <div class="layout" id="app-layout" style="display:none"><!-- will be shown after login -->
   <aside class="sidebar">
-    <div class="sidebar-header"><div class="section-label" data-i18n="staff">Etudiantes</div></div>
+    <div class="sidebar-header">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="section-label" data-i18n="staff">Personnel</div>
+        <span id="emp-count-badge" style="font-size:.64rem;font-weight:700;color:var(--ink3)"></span>
+      </div>
+      <!-- Recherche -->
+      <input type="text" id="sidebar-search" placeholder="🔍 Nom, poste, site..." oninput="renderSidebar()"
+        style="width:100%;padding:6px 10px;border:1.5px solid var(--line);border-radius:8px;font-family:'Sora',sans-serif;font-size:.76rem;margin-bottom:6px;background:var(--bg)">
+      <!-- Filtres rapides -->
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <select id="sidebar-filter-site" onchange="renderSidebar()"
+          style="flex:1;min-width:60px;padding:4px 6px;border:1.5px solid var(--line);border-radius:7px;font-family:'Sora',sans-serif;font-size:.68rem;background:var(--bg)">
+          <option value="">Tous sites</option>
+        </select>
+        <select id="sidebar-filter-status" onchange="renderSidebar()"
+          style="flex:1;min-width:60px;padding:4px 6px;border:1.5px solid var(--line);border-radius:7px;font-family:'Sora',sans-serif;font-size:.68rem;background:var(--bg)">
+          <option value="">Tous statuts</option>
+          <option value="CDI">CDI</option>
+          <option value="CDD">CDD</option>
+          <option value="Etudiant">Étudiant</option>
+          <option value="Interim">Intérim</option>
+          <option value="Stage">Stage</option>
+          <option value="Independant">Indépendant</option>
+          <option value="Flexi">Flexi</option>
+        </select>
+        <select id="sidebar-filter-grade" onchange="renderSidebar()"
+          style="flex:1;min-width:60px;padding:4px 6px;border:1.5px solid var(--line);border-radius:7px;font-family:'Sora',sans-serif;font-size:.68rem;background:var(--bg)">
+          <option value="">Tous grades</option>
+          <option value="directeur">👑 Directeur</option>
+          <option value="manager">⭐ Manager</option>
+          <option value="senior">🔵 Senior</option>
+          <option value="vendeur">🟢 Vendeur</option>
+          <option value="junior">🟡 Junior</option>
+          <option value="stagiaire">⚪ Stagiaire</option>
+        </select>
+      </div>
+    </div>
     <div class="emp-list" id="emp-list"></div>
     <div class="sidebar-footer">
       <button class="btn-add-emp" onclick="openAddModal()" data-i18n="addEmp">+ Nouvel employe</button>
@@ -4992,16 +5028,68 @@ function getWeekDays(e, off){
 
 // ── SIDEBAR ────────────────────────────────────────────────────
 function renderSidebar(){
-  const list=document.getElementById('emp-list');
-  const active=employees.filter(e=>!e.archived);
-  updateArchivesCount();
+  const list = document.getElementById('emp-list');
+
+  // ── Peupler le filtre site si vide ──────────────────────────
+  const siteSelEl = document.getElementById('sidebar-filter-site');
+  if(siteSelEl && siteSelEl.options.length <= 1){
+    Object.values(SITES).filter(s=>s&&s.id&&s.name).forEach(s=>{
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.id + ' — ' + s.name;
+      siteSelEl.appendChild(opt);
+    });
+  }
+
+  // ── Lire les filtres actifs ──────────────────────────────────
+  const searchQ  = (document.getElementById('sidebar-search')?.value||'').toLowerCase().trim();
+  const filtSite = document.getElementById('sidebar-filter-site')?.value||'';
+  const filtStat = document.getElementById('sidebar-filter-status')?.value||'';
+  const filtGrad = document.getElementById('sidebar-filter-grade')?.value||'';
+
+  const allActive = employees.filter(e=>!e.archived);
+
+  // ── Appliquer les filtres ────────────────────────────────────
+  let active = allActive.filter(e=>{
+    // Recherche texte : nom, prénom, poste, site
+    if(searchQ){
+      const name  = (empName(e)||'').toLowerCase();
+      const role  = (e.role||'').toLowerCase();
+      const avail = getWorkerAvailability(e);
+      const sites = ((e.sites||[]).concat(avail.defaultSite||[])).join(' ').toLowerCase();
+      if(!name.includes(searchQ) && !role.includes(searchQ) && !sites.includes(searchQ)) return false;
+    }
+    // Filtre site
+    if(filtSite){
+      const avail = getWorkerAvailability(e);
+      const inSites = (e.sites||[]).includes(filtSite) || avail.defaultSite===filtSite;
+      if(!inSites) return false;
+    }
+    // Filtre statut
+    if(filtStat && e.status !== filtStat) return false;
+    // Filtre grade
+    if(filtGrad && (e.grade||'vendeur') !== filtGrad) return false;
+    return true;
+  });
+
+  // Compteur
+  const badge = document.getElementById('emp-count-badge');
+  if(badge) badge.textContent = active.length < allActive.length
+    ? `${active.length}/${allActive.length}`
+    : `${allActive.length}`;
+
   if(!active.length){
-    list.innerHTML='<div style="padding:14px;text-align:center;font-size:.78rem;color:var(--ink3)">Aucun employe actif.</div>';
+    const msg = (searchQ||filtSite||filtStat||filtGrad)
+      ? '<div style="padding:20px 14px;text-align:center;font-size:.78rem;color:var(--ink3)">Aucun résultat pour ces filtres.<br><button onclick="clearSidebarFilters()" style="margin-top:8px;padding:5px 12px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);cursor:pointer;font-size:.74rem">Réinitialiser</button></div>'
+      : '<div style="padding:14px;text-align:center;font-size:.78rem;color:var(--ink3)">Aucun employé actif.</div>';
+    list.innerHTML = msg;
     return;
   }
+
   const today=new Date(); today.setHours(0,0,0,0);
   const in30=new Date(today); in30.setDate(today.getDate()+30);
-  list.innerHTML=active.map(e=>{
+
+  list.innerHTML = active.map(e=>{
     const c=empCol(e);
     const init=((e.firstname[0]||'')+(e.lastname[0]||'')).toUpperCase();
     const hoursLabel=e.regime==='month'
@@ -5014,13 +5102,23 @@ function renderSidebar(){
       else if(expD<=in30) expiryBadge='<span style="color:var(--orange);font-size:.58rem;font-weight:700">⏳ J-'+Math.ceil((expD-today)/86400000)+'</span>';
     }
     const isSelected = _bulkSelected.has(e.id);
+    // Badge site principal
+    const avail = getWorkerAvailability(e);
+    const siteBadge = avail.defaultSite
+      ? `<span style="font-size:.56rem;padding:1px 5px;border-radius:4px;background:${SITES[avail.defaultSite]?.light||'var(--bg)'};color:${SITES[avail.defaultSite]?.color||'var(--ink3)'};font-weight:700">${avail.defaultSite}</span>`
+      : '';
+    // Surligné si match texte
+    const nameHtml = searchQ
+      ? (empName(e)||'').replace(new RegExp(`(${searchQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'), '<mark style="background:#fef08a;border-radius:2px">$1</mark>')
+      : empName(e);
+
     return `<div class="emp-item ${e.id===selId&&!_bulkMode?'active':''} ${isSelected?'bulk-selected':''}"
       onclick="${_bulkMode?`toggleBulkSelect(${e.id},event)`:`selectEmp(${e.id})`}"
       style="${isSelected?'background:var(--alight);border-left:3px solid var(--accent)':''}">
       ${_bulkMode?`<input type="checkbox" ${isSelected?'checked':''} onclick="toggleBulkSelect(${e.id},event)" style="margin-right:6px;accent-color:var(--accent);flex-shrink:0">`:''} 
       <div class="emp-dot" style="background:${c.bg};color:${c.fg}">${init}</div>
       <div class="emp-item-info">
-        <div class="emp-item-name">${empName(e)}</div>
+        <div class="emp-item-name">${nameHtml} ${siteBadge}</div>
         <div class="emp-item-meta">
           <span class="status-pill" style="background:${c.bg};color:${c.fg}">${e.status}</span>
           <span>${hoursLabel}</span>
@@ -5029,6 +5127,12 @@ function renderSidebar(){
       </div>
     </div>`;
   }).join('');
+}
+
+function clearSidebarFilters(){
+  const ids = ['sidebar-search','sidebar-filter-site','sidebar-filter-status','sidebar-filter-grade'];
+  ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  renderSidebar();
 }
 
 // ── SELECT ─────────────────────────────────────────────────────
