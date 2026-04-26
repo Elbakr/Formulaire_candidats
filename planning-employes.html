@@ -2009,15 +2009,25 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
 
     // ── SCORING ─────────────────────────────────────────────
     let score = 0;
+    const grade = e.grade||'vendeur';
+    const anc   = getAnciennete(e);
 
-    // Responsable effectif du magasin → priorité absolue (+20)
+    // ── PRIORITÉ 1 : Responsable effectif du magasin → +50 absolu ──
+    // Le responsable est TOUJOURS prioritaire, peu importe le reste
     const effectiveMgr = getEffectiveManager(siteId);
-    if(effectiveMgr && effectiveMgr.id === e.id) score += 20;
+    const isMgr = effectiveMgr && effectiveMgr.id === e.id;
+    if(isMgr) score += 50;
 
-    // Priorité site
-    if(isDefaultSite)          score += 10; // site principal → priorité max
-    else if(inSiteList)        score += 6;  // site secondaire
-    else if(hasNoSite)         score += 3;  // polyvalent sans site défini
+    // ── PRIORITÉ 2 : Le responsable est absent → Senior remplace (+30) ──
+    // Si aucun responsable n'est encore assigné ce créneau ET ce worker est senior
+    if(!isMgr && ['senior','manager','directeur'].includes(grade) && anc >= 3){
+      score += 30;
+    }
+
+    // ── PRIORITÉ 3 : Site ──────────────────────────────────
+    if(isDefaultSite)     score += 10;
+    else if(inSiteList)   score += 6;
+    else if(hasNoSite)    score += 3;
 
     // Préférences horaires
     score += workerPrefScore(e, dateStr, creneau.debut, creneau.fin);
@@ -2025,11 +2035,12 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     // Polyvalence
     if((e.sites||[]).length > 1) score += 1;
 
-    // Charge semaine (pénalité si déjà très chargé)
+    // Pénalité charge semaine (sauf pour responsable/senior qui font 6j/7)
     const loadH = ((workerLoad||{})[e.id]||0) / 60;
-    if(loadH > 35) score -= 2;
+    const is6Days = ['directeur','manager'].includes(grade) || (grade==='senior' && anc>=3);
+    if(loadH > (is6Days ? 42 : 35)) score -= 2;
 
-    candidates.push({emp: e, score, isDefaultSite, inSiteList});
+    candidates.push({emp: e, score, isDefaultSite, inSiteList, isMgr});
   }
 
   // Trier : meilleur score en premier
@@ -2642,15 +2653,27 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
     const allDays = buildWeekDays(weekStart);
 
+    // ── PRÉ-CALCUL : Responsable + Senior de remplacement ────────
+    // Identifier le responsable effectif et le senior de backup pour ce site
+    const effectiveMgr    = getEffectiveManager(siteId);
+    const mgrId           = effectiveMgr?.id;
+    // Senior de remplacement = meilleur senior du site (hors responsable)
+    const GRADE_RANK_L    = {directeur:6,manager:5,senior:4,vendeur:3,junior:2,stagiaire:1};
+    const backupSenior    = active
+      .filter(e => e.id !== mgrId && isSeniorProfile(e))
+      .filter(e => {
+        const av=getWorkerAvailability(e);
+        return av.defaultSite===siteId||(e.sites||[]).includes(siteId)||(!av.defaultSite&&!(e.sites||[]).length);
+      })
+      .sort((a,b)=>(GRADE_RANK_L[b.grade||'vendeur']||3)-(GRADE_RANK_L[a.grade||'vendeur']||3)
+                  ||(getAnciennete(b)-getAnciennete(a)))[0] || null;
+
     // ── RÈGLE 1 : traiter les jours dans l'ordre de difficulté ──
-    // Sam d'abord → Fériés → Dim → Semaine normale
-    // Cela garantit que les meilleurs profils disponibles sont
-    // assignés aux jours critiques AVANT d'être utilisés ailleurs.
     const processingOrder = AUTOPLAN_RULES.priorityDayOrder.active
       ? [...allDays].sort((a,b) => a.difficulty !== b.difficulty
-          ? a.difficulty - b.difficulty   // difficile d'abord
-          : a.calIdx - b.calIdx)          // à égalité : ordre calendaire
-      : allDays;                          // règle désactivée → ordre calendaire
+          ? a.difficulty - b.difficulty
+          : a.calIdx - b.calIdx)
+      : allDays;
 
     for(const {dateStr, dow, difficulty} of processingOrder){
       // Ne pas planifier dans le passé
@@ -2661,7 +2684,27 @@ function genPlanningProposals(siteId, weekStart, n=3){
       for(const creneau of besoins){
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
 
-        // Tri interne selon la proposition
+        // ── PRÉ-ASSIGNATION : Responsable en premier si dispo ────
+        // Le responsable doit être présent tous les jours sauf son congé.
+        // On s'assure qu'il est dans la liste et en tête.
+        const mgrDispo = mgrId && isWorkerAvailable(
+          active.find(x=>x.id===mgrId), dateStr, creneau.debut, creneau.fin
+        );
+        if(mgrDispo){
+          // S'assurer que le responsable est en tête de liste
+          const mgrInList = candidats.find(c=>c.emp.id===mgrId);
+          if(mgrInList){
+            candidats = [mgrInList, ...candidats.filter(c=>c.emp.id!==mgrId)];
+          }
+        } else if(!mgrDispo && backupSenior){
+          // Responsable absent → senior de backup en tête
+          const bsInList = candidats.find(c=>c.emp.id===backupSenior.id);
+          if(bsInList){
+            candidats = [bsInList, ...candidats.filter(c=>c.emp.id!==backupSenior.id)];
+          }
+        }
+
+        // Tri interne selon la proposition (après la pré-assignation)
         if(propIdx===1){
           candidats = [...candidats].sort((a,b)=>{
             const ld = (workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
@@ -4339,8 +4382,20 @@ function openSiteWeekRecap(siteId, weekStart, prop){
                   const anc = getAnciennete(e);
                   const grade = e.grade||'vendeur';
                   const gradeIcon = grade==='directeur'?'👑':grade==='manager'?'⭐':grade==='senior'?'🔵':anc>=3?'🟢':'🟡';
-                  return `<span style="padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;background:${col.bg};color:${col.fg}">${gradeIcon} ${e.firstname} ${e.lastname}</span>`;
+                  const effMgr2 = getEffectiveManager(siteId);
+                  const isMgr2 = effMgr2 && effMgr2.id===e.id;
+                  return `<span style="padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;background:${col.bg};color:${col.fg};border:${isMgr2?'1.5px solid #059669':'none'}">${gradeIcon} ${e.firstname} ${e.lastname}${isMgr2?' 🏪':''}</span>`;
                 }).join('')}
+                ${(()=>{
+                  const effMgr3 = getEffectiveManager(siteId);
+                  if(!effMgr3) return '';
+                  const mgrAssigned = slot.assigned.some(x=>x.id===effMgr3.id);
+                  if(mgrAssigned) return '';
+                  const mgrE = employees.find(x=>x.id===effMgr3.id);
+                  const mgrDispo3 = mgrE && isWorkerAvailable(mgrE, slot.dateStr, slot.creneau.debut, slot.creneau.fin);
+                  if(mgrDispo3) return '<span style="padding:2px 8px;border-radius:20px;font-size:.65rem;font-weight:700;background:#fef3c7;color:#92400e">⚠️ Resp. disponible non assigné</span>';
+                  return '<span style="padding:2px 8px;border-radius:20px;font-size:.65rem;font-weight:700;background:#f0fdf4;color:#059669">🔄 Resp. absent → senior remplace</span>';
+                })()}
                 ${slot.manquants>0?`<span style="padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;background:#fee2e2;color:#dc2626">⚠️ ${slot.manquants} manquant${slot.manquants>1?'s':''}</span>`:''}
               </div>
             </div>`).join('')}
@@ -4885,6 +4940,11 @@ function isActiveWeek(e,off){
 // Si wdMode est explicitement fixé par l'admin → l'utiliser
 // Sinon → calculer depuis les heures contractuelles et la durée journalière possible
 function calcOptimalDays(e){
+  // ── RÈGLE : Responsable/Senior = toujours 6 jours/semaine ──
+  const grade = e.grade||'vendeur';
+  if(['directeur','manager'].includes(grade)) return 6;
+  if(grade === 'senior' && getAnciennete(e) >= 3) return 6;
+
   if(e.wdMode && e.wdMode !== 'custom' && e.wdMode !== 'auto'){
     const n = parseInt(e.wdMode)||3;
     return Math.max(2, Math.min(6, n));
@@ -4892,7 +4952,7 @@ function calcOptimalDays(e){
   // Durée effective par jour = (fin - début) - pause
   const [sh,sm] = (e.startTime||'10:00').split(':').map(Number);
   const [eh,em] = (e.endTime||'18:30').split(':').map(Number);
-  const slotMin = (eh*60+em)-(sh*60+sm); // minutes dans la journée
+  const slotMin = (eh*60+em)-(sh*60+sm);
   const pauseMin = e.pause||0;
   const effectiveHPerDay = Math.max(0.5, (slotMin - pauseMin) / 60);
   const n = Math.ceil(e.hours / effectiveHPerDay);
