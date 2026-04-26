@@ -2133,14 +2133,15 @@ function workerPrefScore(e, dateStr, debut, fin){
 }
 
 // Matcher les travailleurs à un créneau avec scoring complet
-function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed){
+function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat){
+  // allowDayRepeat: Set d'empId autorisés à travailler un 2e créneau ce jour (vendredi équipe matin)
   const candidates = [];
-  // workerDaysUsed: {empId: Set<dateStr>} — même structure que workerDays dans genPlanningProposals
-  // Un worker déjà assigné à un créneau de ce jour ne peut pas en avoir un 2e
 
   for(const e of activeEmployees){
     // Anti-doublon jour : un seul créneau par travailleur par jour
-    if(workerDaysUsed && workerDaysUsed[e.id]?.has(dateStr)) continue;
+    // Exception : vendredi après-midi → l'équipe du matin peut travailler les 2
+    const isExempt = allowDayRepeat && allowDayRepeat.has(e.id);
+    if(!isExempt && workerDaysUsed && workerDaysUsed[e.id]?.has(dateStr)) continue;
     const avail = getWorkerAvailability(e);
 
     // ── RÈGLE 1 : éligibilité site ──────────────────────────
@@ -2875,21 +2876,25 @@ function genPlanningProposals(siteId, weekStart, n=3){
       const morningTeamFriday = new Set();
 
       for(const creneau of besoins){
-        let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad, workerDays);
+        // Déterminer si on est sur un créneau après-midi vendredi
+        const isFridayAfternoon = isFriday && fridayPause
+          && timeToMin(creneau.debut) >= timeToMin(fridayPause.fin);
 
-        // ── VENDREDI après-midi : prioriser l'équipe du matin ───────────
-        if(isFriday && fridayPause && morningTeamFriday.size > 0){
-          const pauseDebMin = timeToMin(fridayPause.deb);
-          const isAfternoon = timeToMin(creneau.debut) >= timeToMin(fridayPause.fin);
-          if(isAfternoon){
-            // Séparer les candidats : équipe du matin d'abord, puis les autres
-            const morningCandidats = candidats.filter(c => morningTeamFriday.has(c.emp.id));
-            const otherCandidats   = candidats.filter(c => !morningTeamFriday.has(c.emp.id));
-            // Au sein de chaque groupe, trier par score décroissant
-            morningCandidats.sort((a,b)=>b.score-a.score);
-            otherCandidats.sort((a,b)=>b.score-a.score);
-            candidats = [...morningCandidats, ...otherCandidats];
-          }
+        // Pour le vendredi après-midi : lever l'anti-doublon pour l'équipe du matin
+        // (ils peuvent travailler matin ET après-midi, séparés par la pause)
+        const allowDayRepeat = isFridayAfternoon ? morningTeamFriday : null;
+
+        let candidats = matchWorkersToCreneau(
+          siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat
+        );
+
+        // ── VENDREDI après-midi : équipe du matin en tête de liste ───────
+        if(isFridayAfternoon && morningTeamFriday.size > 0){
+          const morningCandidats = candidats.filter(c => morningTeamFriday.has(c.emp.id));
+          const otherCandidats   = candidats.filter(c => !morningTeamFriday.has(c.emp.id));
+          morningCandidats.sort((a,b)=>b.score-a.score);
+          otherCandidats.sort((a,b)=>b.score-a.score);
+          candidats = [...morningCandidats, ...otherCandidats];
         }
 
         // ── Déclarer assigned et manquants avant la pré-assignation ──
@@ -4467,6 +4472,22 @@ function resetStoreNeeds(){
 // Charger les overrides au démarrage
 loadStoreNeedsOverrides();
 
+// ══════════════════════════════════════════════════════════════
+// VUE RAPIDE TRAVAILLEUR — Accessible depuis le récap autoplan
+// Affiche le planning de la semaine + stats + infos fiche
+// ══════════════════════════════════════════════════════════════
+function openWorkerQuickView(empId, event){
+  if(event) event.stopPropagation();
+  const e = employees.find(x=>x.id===empId);
+  if(!e) return;
+
+  // Sélectionner ce travailleur dans la sidebar
+  selId = empId;
+
+  // Ouvrir la vue globale directement
+  openGlobalWorkerView();
+}
+
 function openStoreManagerConfig(){
   let modal = document.getElementById('store-manager-modal');
   if(modal) modal.remove();
@@ -4930,25 +4951,54 @@ function openSiteWeekRecap(siteId, weekStart, prop){
     byDay[slot.dateStr].push(slot);
   });
 
-  // Calculer total heures par travailleur
-  // Un worker ne peut être compté qu'UNE FOIS par jour (même s'il apparaît dans 2 créneaux)
+  // Calculer total heures EFFECTIVES par travailleur
+  // = heures brutes − pauses (journalière + fermeture vendredi + lunchBreak)
   const workerHours = {};
-  const workerDaysSeen = new Set(); // clé: empId+dateStr
+  const workerDaysSeen = new Set();
+
   prop.plan.forEach(slot=>{
     slot.assigned.forEach(e=>{
       const dayKey = e.id + '_' + slot.dateStr;
-      if(workerDaysSeen.has(dayKey)) return; // déjà compté ce jour
+      if(workerDaysSeen.has(dayKey)) return;
       workerDaysSeen.add(dayKey);
-      // Heures réelles du planning (ce qui a été écrit dans e.weeks)
+
       const wOff = dateToWeekOffset(slot.dateStr);
       const di   = dateToDayIdx(slot.dateStr);
       const day  = e.weeks?.[wOff]?.[di];
-      let h;
+      const dow  = new Date(slot.dateStr+'T12:00').getDay();
+
+      // Heures brutes : de start à end (ou créneau si pas encore appliqué)
+      let startT, endT;
       if(day && day.start && day.end){
-        h = Math.max(0,(timeToMin(day.end)-timeToMin(day.start))/60);
+        startT = day.start; endT = day.end;
       } else {
-        h = Math.max(0,(timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut))/60);
+        startT = slot.creneau.debut; endT = slot.creneau.fin;
       }
+      let minutes = Math.max(0, timeToMin(endT) - timeToMin(startT));
+
+      // ── Déduire pause journalière (e.pause en minutes) ──
+      const pauseMin = e.pause||0;
+      minutes -= pauseMin;
+
+      // ── Déduire fermeture vendredi (si le créneau couvre la pause) ──
+      if(dow === 5){
+        const vp = getVendrediPause(slot.dateStr);
+        const vpDeb = timeToMin(vp.deb);
+        const vpFin = timeToMin(vp.fin);
+        const cDeb  = timeToMin(startT);
+        const cFin  = timeToMin(endT);
+        // Chevauchement entre le créneau et la pause vendredi
+        const overlapStart = Math.max(cDeb, vpDeb);
+        const overlapEnd   = Math.min(cFin, vpFin);
+        if(overlapEnd > overlapStart) minutes -= (overlapEnd - overlapStart);
+      }
+
+      // ── Déduire lunchBreak si défini ──
+      if(day?.lunchBreak && day?.lunchDuration){
+        minutes -= day.lunchDuration;
+      }
+
+      const h = Math.max(0, minutes / 60);
       workerHours[e.id] = (workerHours[e.id]||{emp:e, hours:0});
       workerHours[e.id].hours += h;
     });
@@ -5004,7 +5054,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
                   const gradeIcon = grade==='directeur'?'👑':grade==='manager'?'⭐':grade==='senior'?'🔵':anc>=3?'🟢':'🟡';
                   const effMgr2 = getEffectiveManager(siteId);
                   const isMgr2 = effMgr2 && effMgr2.id===e.id;
-                  return `<span style="padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;background:${col.bg};color:${col.fg};border:${isMgr2?'1.5px solid #059669':'none'}">${gradeIcon} ${e.firstname} ${e.lastname}${isMgr2?' 🏪':''}</span>`;
+                  return `<span onclick="openWorkerQuickView(${e.id},event)" style="padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;background:${col.bg};color:${col.fg};border:${isMgr2?'1.5px solid #059669':'none'};cursor:pointer" title="Voir le planning de ${e.firstname}">${gradeIcon} ${e.firstname} ${e.lastname}${isMgr2?' 🏪':''}</span>`;
                 }).join('')}
                 ${(()=>{
                   const effMgr3 = getEffectiveManager(siteId);
@@ -5029,7 +5079,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           ${Object.values(workerHours).sort((a,b)=>b.hours-a.hours).map(({emp,hours})=>{
             const col = empColor(emp);
-            return `<span style="padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700;background:${col.bg};color:${col.fg}">${emp.firstname} — ${toHM(hours)}</span>`;
+            return `<span onclick="openWorkerQuickView(${emp.id},event)" style="padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700;background:${col.bg};color:${col.fg};cursor:pointer" title="Voir le planning de ${emp.firstname}">${emp.firstname} — ${toHM(hours)}</span>`;
           }).join('')}
         </div>
       </div>
