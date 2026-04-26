@@ -2042,8 +2042,13 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
 
     // Pénalité charge semaine (sauf pour responsable/senior qui font 6j/7)
     const loadH = ((workerLoad||{})[e.id]||0) / 60;
-    const is6Days = ['directeur','manager'].includes(grade) || (grade==='senior' && anc>=3);
-    if(loadH > (is6Days ? 42 : 35)) score -= 2;
+    // Utiliser le grade EFFECTIF (promotion auto incluse) pour déterminer la limite
+    const gradeEffIs6 = getGradeEffectif(e);
+    const is6Days = ['directeur','manager'].includes(gradeEffIs6)
+                 || (gradeEffIs6==='senior' && anc>=3)
+                 || (['CDI','CDD'].includes(e.status) && anc>=12); // CDI/CDD 12 mois = 6j/7
+    // Le responsable effectif du site ne reçoit JAMAIS de pénalité de charge
+    if(!isMgr && loadH > (is6Days ? 42 : 35)) score -= 2;
 
     candidates.push({emp: e, score, isDefaultSite, inSiteList, isMgr});
   }
@@ -2627,6 +2632,12 @@ function gradePriorityScore(e, assigned){
   return 0;
 }
 
+// Helper : vérifier si un site est le site principal d'un travailleur
+function isDefaultSite_for(e, siteId){
+  const avail = getWorkerAvailability(e);
+  return avail.defaultSite === siteId || (e.sites||[])[0] === siteId;
+}
+
 // ══════════════════════════════════════════════════════════════
 // GÉNÉRATION DES PROPOSITIONS — avec toutes les règles
 // ══════════════════════════════════════════════════════════════
@@ -2706,23 +2717,32 @@ function genPlanningProposals(siteId, weekStart, n=3){
       for(const creneau of besoins){
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad, workerDays);
 
-        // ── PRÉ-ASSIGNATION : Responsable en premier si dispo ────
-        // Le responsable doit être présent tous les jours sauf son congé.
-        // On s'assure qu'il est dans la liste et en tête.
-        const mgrDispo = mgrId && isWorkerAvailable(
-          active.find(x=>x.id===mgrId), dateStr, creneau.debut, creneau.fin
-        );
-        if(mgrDispo){
-          // S'assurer que le responsable est en tête de liste
-          const mgrInList = candidats.find(c=>c.emp.id===mgrId);
-          if(mgrInList){
-            candidats = [mgrInList, ...candidats.filter(c=>c.emp.id!==mgrId)];
-          }
-        } else if(!mgrDispo && backupSenior){
-          // Responsable absent → senior de backup en tête
-          const bsInList = candidats.find(c=>c.emp.id===backupSenior.id);
+        // ── PRÉ-ASSIGNATION OBLIGATOIRE DU RESPONSABLE ───────────────
+        // Le responsable DOIT être présent sur tous les créneaux d'ouverture
+        // de son site sauf son jour de congé explicite.
+        // Cette assignation est INCONDITIONNELLE — avant la boucle de scoring.
+        const mgrEmp  = mgrId ? active.find(x=>x.id===mgrId) : null;
+        const mgrAlreadyThisDay = mgrId && workerDays[mgrId]?.has(dateStr);
+        const mgrDispo = mgrEmp
+          && !mgrAlreadyThisDay
+          && isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin);
+
+        if(mgrDispo && manquants > 0){
+          // Assigner le responsable immédiatement, indépendamment du scoring
+          if(!workerDays[mgrId]) workerDays[mgrId] = new Set();
+          assigned.push(mgrEmp);
+          workerDays[mgrId].add(dateStr);
+          workerLoad[mgrId] = (workerLoad[mgrId]||0)
+            + (timeToMin(creneau.fin) - timeToMin(creneau.debut));
+          manquants--;
+          // Retirer le responsable de candidats (déjà assigné)
+          candidats = candidats.filter(c => c.emp.id !== mgrId);
+
+        } else if(mgrEmp && !mgrAlreadyThisDay && !mgrDispo && backupSenior){
+          // Responsable indispo ce jour → senior de backup en tête
+          const bsInList = candidats.find(c => c.emp.id === backupSenior.id);
           if(bsInList){
-            candidats = [bsInList, ...candidats.filter(c=>c.emp.id!==backupSenior.id)];
+            candidats = [bsInList, ...candidats.filter(c => c.emp.id !== backupSenior.id)];
           }
         }
 
