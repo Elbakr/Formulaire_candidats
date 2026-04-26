@@ -994,7 +994,6 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
         </div>
           <select id="new-default-site" style="font-size:.84rem;padding:8px">
             <option value="">— Pas de magasin par défaut —</option>
-            ${Object.values(SITES).map(s=>`<option value="${s.id}">${s.id} — ${s.name}</option>`).join('')}
           </select>
           <div style="font-size:.62rem;color:var(--ink3);margin-top:3px">Le magasin où ce travailleur est affecté prioritairement par l'autoplanification</div>
         </div>
@@ -1708,85 +1707,121 @@ function isPeriodForte(date){
 // Besoins fixes par magasin (créneaux hebdomadaires normaux)
 // Format: { jour: [{debut, fin, vendeurs, role}] }
 // jour: 0=Dim, 1=Lun, 2=Mar, 3=Mer, 4=Jeu, 5=Ven, 6=Sam
+// ══════════════════════════════════════════════════════════════
+// HORAIRES OFFICIELS — Caftan Factory (6 sites A→F)
+// 0=Dim, 1=Lun, 2=Mar, 3=Mer, 4=Jeu, 5=Ven, 6=Sam
+// Fermeture vendredi appliquée via splitVendrediPause()
+// ══════════════════════════════════════════════════════════════
 const STORE_NEEDS = {
-  // A = Schaerbeek — Rue de Brabant 230 — Lun→Sam + Dim
+  // A — Schaerbeek, Rue de Brabant 230 — 7j/7 : 10h00→20h00
   A: {
-    1: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
+    0: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
+    1: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
     2: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     4: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
-    5: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
-    6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
-    0: [{debut:'12:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'14:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
+    6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
   },
-  // B = Molenbeek — Rue Ransfort 67 — Lun→Sam
+  // B — Molenbeek, Rue Ransfort 67
+  // Lun→Ven 10h30→19h30 | Sam+Dim+Fériés 10h00→20h00
   B: {
-    1: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
-    2: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
-    3: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
-    4: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
-    5: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
-    6: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'18:00',vendeurs:1,role:'Vendeur(se)'}],
-    0: [],
+    0: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
+    1: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    2: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    3: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    4: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    5: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
   },
-  // C = Anvers — Lange Kievitstraat 64 — Lun→Sam
+  // C — Anvers, Lange Kievitstraat 64 — 7j/7 : 10h00→19h00
   C: {
-    1: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
-    2: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
-    3: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
-    4: [{debut:'10:00',fin:'18:30',vendeurs:1,role:'Vendeur(se)'}],
-    5: [{debut:'10:00',fin:'18:30',vendeurs:2,role:'Vendeur(se)'}],
-    6: [{debut:'10:00',fin:'18:30',vendeurs:2,role:'Vendeur(se)'},{debut:'11:00',fin:'17:00',vendeurs:1,role:'Vendeur(se)'}],
-    0: [],
+    0: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    1: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    2: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    3: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    4: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    6: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
   },
-  // D = Entrepôt Bruxelles — livraisons et stock
+  // D — Entrepôt Bruxelles
+  // Lun→Ven 10h30→19h30 | Sam+Dim+Fériés 10h00→20h00
   D: {
-    1: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
-    2: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
-    3: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
-    4: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
-    5: [{debut:'08:00',fin:'16:00',vendeurs:1,role:'Logistique'}],
-    6: [], 0: [],
+    0: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Logistique'}],
+    1: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    2: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    3: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    4: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    5: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    6: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Logistique'}],
   },
-  // E = Online / Télétravail
+  // E — Online/Télétravail
+  // Lun→Ven 10h00→19h30 | Sam+Dim+Fériés 10h00→20h00
   E: {
-    1: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
-    2: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
-    3: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
-    4: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
-    5: [{debut:'09:00',fin:'17:00',vendeurs:1,role:'Online'}],
-    6: [], 0: [],
+    0: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Online'}],
+    1: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    2: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    3: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    4: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    5: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    6: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Online'}],
   },
-  // F = Événements / Déplacements Belgique
+  // F — Anvers (2e site), Événements — 7j/7 : 10h30→18h45
   F: {
-    6: [{debut:'09:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
-    0: [{debut:'10:00',fin:'18:00',vendeurs:2,role:'Vendeur(se)'}],
-    1: [], 2: [], 3: [], 4: [], 5: [],
+    0: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    1: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    2: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    3: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    4: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    6: [{debut:'10:30',fin:'18:45',vendeurs:2,role:'Vendeur(se)'}],
   },
-  // Aliases pour compatibilité anciens données
-  SCH: null, MOL: null, ANT: null,
 };
-// Résoudre les aliases
 STORE_NEEDS.SCH = STORE_NEEDS.A;
 STORE_NEEDS.MOL = STORE_NEEDS.B;
 STORE_NEEDS.ANT = STORE_NEEDS.C;
 
-// Obtenir les besoins pour une date précise (avec multiplicateur période forte)
-// Pause vendredi heure d'été : 12h55 → 13h45 (toutes boutiques fermées)
-const VENDREDI_PAUSE_DEB = '12:55';
-const VENDREDI_PAUSE_FIN = '13:45';
+// ══════════════════════════════════════════════════════════════
+// FERMETURE VENDREDI — Détection automatique heure été/hiver
+// Heure d'été  (fin mars → fin oct) : 13h55 → 14h45
+// Heure d'hiver (fin oct → fin mars) : 12h55 → 13h35
+// ══════════════════════════════════════════════════════════════
+function isHeureDEte(dateStr){
+  const d = new Date(dateStr+'T12:00');
+  const year = d.getFullYear();
+  // Dernier dimanche de mars → dernier dimanche d'octobre
+  const lastSunMarch = (()=>{
+    const m = new Date(year,2,31);
+    m.setDate(31-(m.getDay()||7));
+    return m;
+  })();
+  const lastSunOct = (()=>{
+    const m = new Date(year,9,31);
+    m.setDate(31-(m.getDay()||7));
+    return m;
+  })();
+  return d >= lastSunMarch && d < lastSunOct;
+}
 
-// Découpe un créneau si il chevauche la pause vendredi
-function splitVendrediPause(c){
-  const pDeb = 12*60+55;
-  const pFin = 13*60+45;
+function getVendrediPause(dateStr){
+  if(isHeureDEte(dateStr)){
+    return {deb:'13:55', fin:'14:45'}; // heure d'été
+  }
+  return {deb:'12:55', fin:'13:35'};   // heure d'hiver
+}
+
+// Découpe un créneau si il chevauche la pause vendredi du jour
+function splitVendrediPause(c, dateStr){
+  const pause = getVendrediPause(dateStr);
+  const pDeb = timeToMin(pause.deb);
+  const pFin = timeToMin(pause.fin);
   const cDeb = timeToMin(c.debut);
   const cFin = timeToMin(c.fin);
-  if(cFin <= pDeb || cDeb >= pFin) return [c]; // pas de chevauchement
+  if(cFin <= pDeb || cDeb >= pFin) return [c];
   const result = [];
-  if(cDeb < pDeb) result.push({...c, fin:VENDREDI_PAUSE_DEB});   // avant pause
-  if(cFin > pFin) result.push({...c, debut:VENDREDI_PAUSE_FIN}); // après pause
-  return result; // vide si entièrement dans la pause
+  if(cDeb < pDeb) result.push({...c, fin: pause.deb});
+  if(cFin > pFin) result.push({...c, debut: pause.fin});
+  return result;
 }
 
 function getBesoinsDate(siteId, date){
@@ -1799,8 +1834,8 @@ function getBesoinsDate(siteId, date){
     vendeurs: isFerie||isForte ? Math.ceil(b.vendeurs*multiplier) : b.vendeurs,
     periode: isFerie?'🎉 Férié':isForte?'💰 Période forte':'Normal'
   }));
-  // Vendredi → respecter la pause 12h55-13h45 (heure d'été, toutes boutiques fermées)
-  if(jour === 5) result = result.flatMap(splitVendrediPause);
+  // Vendredi → respecter la pause saisonnière (heure d'été/hiver)
+  if(jour === 5) result = result.flatMap(c => splitVendrediPause(c, date));
   return result;
 }
 
@@ -2237,6 +2272,201 @@ function restoreFixedOffAfterAutoplan(backup){
   });
 }
 
+// ══════════════════════════════════════════════════════════════
+// AUTOPLAN MULTI-MAGASINS
+// Logique : remplir les sites dans l'ordre choisi,
+// les travailleurs déjà assignés à un site ne peuvent
+// pas être utilisés dans le suivant
+// ══════════════════════════════════════════════════════════════
+
+function openMultiSiteAutoplan(){
+  let modal = document.getElementById('multisite-modal');
+  if(modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'multisite-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto';
+
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate()-((today.getDay()||7)-1));
+  const mondayStr = monday.toISOString().slice(0,10);
+
+  const sitesHTML = Object.values(SITES).map((s,i)=>`
+    <div class="ms-site-row" data-site="${s.id}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:grab;background:white">
+      <input type="checkbox" class="ms-check" data-site="${s.id}" checked style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0">
+      <div style="width:28px;height:28px;border-radius:7px;background:${s.color||'#2d5be3'};color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0">${s.id}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:.82rem">${s.name}</div>
+        <div style="font-size:.64rem;color:var(--ink3)">${s.address||''}</div>
+      </div>
+      <div class="ms-order" style="font-size:.72rem;font-weight:800;color:var(--ink3);min-width:20px;text-align:center">${i+1}</div>
+      <div style="cursor:grab;color:var(--ink3);font-size:1rem">⠿</div>
+    </div>`).join('');
+
+  modal.innerHTML = `
+  <div style="background:white;border-radius:16px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.95rem;font-weight:800;color:white">🤖 Autoplan Multi-Magasins</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">Les magasins sont remplis dans l'ordre affiché — les effectifs restants passent au suivant</div>
+      </div>
+      <button onclick="document.getElementById('multisite-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+    </div>
+
+    <div style="padding:16px 20px;border-bottom:1px solid var(--line);background:#f8f7f5">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:4px">Semaine du (lundi)</div>
+          <input type="date" id="ms-week" value="${mondayStr}" style="padding:8px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:.86rem">
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="ms-carry-over" checked style="accent-color:var(--accent);width:14px;height:14px">
+          Garder effectifs restants pour le site suivant
+        </label>
+      </div>
+    </div>
+
+    <div style="padding:16px 20px">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:8px">Ordre des magasins (cochez + glissez pour réordonner)</div>
+      <div id="ms-sites-list">${sitesHTML}</div>
+    </div>
+
+    <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px">
+      <button onclick="document.getElementById('multisite-modal').remove()" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--line);background:transparent;font-size:.82rem;cursor:pointer">Annuler</button>
+      <button onclick="runMultiSiteAutoplan()" style="padding:8px 20px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:700;cursor:pointer">⚡ Générer</button>
+    </div>
+  </div>`;
+
+  modal.onclick = ()=>modal.remove();
+  document.body.appendChild(modal);
+  initMultiSiteDragSort();
+}
+
+function initMultiSiteDragSort(){
+  const list = document.getElementById('ms-sites-list');
+  if(!list) return;
+  let dragging = null;
+  list.querySelectorAll('.ms-site-row').forEach(row=>{
+    row.draggable = true;
+    row.addEventListener('dragstart', ()=>{ dragging=row; row.style.opacity='.4'; });
+    row.addEventListener('dragend',   ()=>{ dragging=null; row.style.opacity=''; updateMsOrder(); });
+    row.addEventListener('dragover',  e=>{ e.preventDefault(); const after=getDragAfterElement(list,e.clientY); if(after) list.insertBefore(dragging,after); else list.appendChild(dragging); });
+  });
+}
+
+function getDragAfterElement(container, y){
+  const els=[...container.querySelectorAll('.ms-site-row:not([style*="opacity: 0.4"])')];
+  return els.reduce((closest,el)=>{
+    const box=el.getBoundingClientRect();
+    const offset=y-box.top-box.height/2;
+    if(offset<0 && offset>closest.offset) return {offset,element:el};
+    return closest;
+  },{offset:-Infinity}).element;
+}
+
+function updateMsOrder(){
+  document.querySelectorAll('.ms-order').forEach((el,i)=>{ el.textContent=i+1; });
+}
+
+async function runMultiSiteAutoplan(){
+  const weekStart = document.getElementById('ms-week').value;
+  if(!weekStart){ showToast('Sélectionnez une semaine'); return; }
+  const carryOver = document.getElementById('ms-carry-over').checked;
+
+  // Ordre des sites sélectionnés
+  const orderedSites = [...document.querySelectorAll('.ms-site-row')]
+    .filter(row=>row.querySelector('.ms-check').checked)
+    .map(row=>row.dataset.site);
+
+  if(!orderedSites.length){ showToast('Sélectionnez au moins un magasin'); return; }
+
+  document.getElementById('multisite-modal').remove();
+  histPush();
+
+  // Travailleurs déjà assignés (ne peuvent pas être utilisés dans le site suivant)
+  const usedWorkers = new Set();
+  let totalApplied = 0;
+
+  for(const siteId of orderedSites){
+    // Si carryOver : exclure temporairement les travailleurs déjà utilisés
+    if(carryOver){
+      employees.forEach(e=>{ e._tempExclude = usedWorkers.has(e.id); });
+    }
+
+    const props = genPlanningProposals(siteId, weekStart, 1);
+    const prop = props[0];
+    let applied = 0;
+
+    prop.plan.forEach(slot=>{
+      slot.assigned.forEach(emp=>{
+        if(carryOver && emp._tempExclude) return;
+        const wOff = dateToWeekOffset(slot.dateStr);
+        const di   = dateToDayIdx(slot.dateStr);
+        if(!emp.weeks) emp.weeks={};
+        if(!emp.weeks[wOff]) emp.weeks[wOff]={};
+        if(!emp.weeks[wOff][di]?.start){
+          emp.weeks[wOff][di]={
+            status:'work', start:slot.creneau.debut, end:slot.creneau.fin,
+            pause:emp.pause||0, endManual:true, site:siteId, note:'🤖 Auto'
+          };
+          usedWorkers.add(emp.id);
+          applied++;
+        }
+      });
+    });
+
+    totalApplied += applied;
+    console.log(`[Autoplan] Site ${siteId}: ${applied} créneaux appliqués`);
+  }
+
+  // Nettoyer le flag temporaire
+  employees.forEach(e=>{ delete e._tempExclude; });
+
+  autoSave();
+  renderSidebar();
+  if(emp()) loadPanel();
+  showToast(`✅ ${totalApplied} créneaux appliqués sur ${orderedSites.length} magasin(s)`);
+}
+
+// ══════════════════════════════════════════════════════════════
+// RÉPARTITION DES PAUSES DÉJEUNER
+// Éviter que 2 collègues du même site soient en pause en même temps
+// Créneaux rush (Sam/Fériés) : pas de pause entre 12h-14h
+// ══════════════════════════════════════════════════════════════
+
+function distributeLunchBreaks(siteId, dateStr, workingEmps){
+  // workingEmps = [{emp, start, end}] — travailleurs présents ce jour sur ce site
+  if(workingEmps.length <= 1) return; // pas besoin de répartir si 1 seul
+
+  const dow = new Date(dateStr+'T12:00').getDay();
+  const {isFerie} = isPeriodForte(dateStr);
+  const isRush = dow===6 || dow===0 || isFerie; // Sam, Dim, Fériés = rush
+
+  // Créneaux de pause possibles (slots de 30 min)
+  // Hors rush : 11h30 → 14h30 (en évitant 12h-14h si rush)
+  const pauseSlots = isRush
+    ? ['11:30','14:30','15:00','15:30'] // rush : pauses tôt ou tard
+    : ['11:30','12:00','12:30','13:00','13:30','14:00'];
+
+  workingEmps.forEach((item, idx)=>{
+    const slot = pauseSlots[idx % pauseSlots.length];
+    // Stocker dans la fiche semaine
+    const wOff = dateToWeekOffset(dateStr);
+    const di   = dateToDayIdx(dateStr);
+    const day  = item.emp.weeks?.[wOff]?.[di];
+    if(day){
+      day.lunchBreak = slot;    // heure de début de pause déjeuner
+      day.lunchDuration = 30;  // durée en minutes
+    }
+  });
+}
+
+// Remplacer le bouton Autoplan dans la topbar pour ouvrir le multi-site
+function openPlanningEngine(){
+  openMultiSiteAutoplan();
+}
+
+
 // Activer/désactiver une règle d'autoplan (réécrit proprement)
 function toggleAutoPlanRule(key, active){
   if(AUTOPLAN_RULES[key]) AUTOPLAN_RULES[key].active = active;
@@ -2540,6 +2770,9 @@ function toggleViewMode(){
 function hideMonthView(){
   const mv = document.getElementById('month-view-grid');
   if(mv) mv.style.display = 'none';
+  // Remettre la vue semaine visible
+  const dg = document.getElementById('day-grid');
+  if(dg) dg.style.display = '';
 }
 
 // ── Calcule l'offset entier de semaine depuis une date ──
@@ -5490,9 +5723,25 @@ function openAddModal(){
   if(nrnStatus) nrnStatus.textContent='';
   if(nrnHint){ nrnHint.textContent='Format : AA.MM.JJ-SSS.CC (11 chiffres)'; nrnHint.style.color='var(--ink3)'; }
   setMotivation(3);
-  resetSlots(); // reset créneaux préférés / indispos
+  resetSlots();
+  populateSiteSelect('new-default-site', '');
   setTimeout(updatePlanScore, 30);
   openModal('add-modal');
+}
+
+// Remplir un <select> avec les sites A→F (proprement)
+function populateSiteSelect(selectId, selectedValue){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  // Garder la première option vide
+  sel.innerHTML = '<option value="">— Pas de magasin par défaut —</option>';
+  Object.values(SITES).filter(s=>s&&s.id&&s.name).forEach(s=>{
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.id + ' — ' + s.name;
+    if(s.id === selectedValue) opt.selected = true;
+    sel.appendChild(opt);
+  });
 }
 
 function openEditModal(){
@@ -5555,6 +5804,9 @@ function openEditModal(){
   renderSitesPicker(e.sites||[]);
   // Créneaux préférés + indisponibilités + magasin par défaut
   loadSlotsFromEmp(e);
+  // Remplir le sélecteur de site proprement
+  const avail = getWorkerAvailability(e);
+  populateSiteSelect('new-default-site', avail.defaultSite||'');
   // Heures max mois + permission dépassement
   const hmEl = document.getElementById('new-hours-max-month');
   if(hmEl) hmEl.value = e.hoursMaxMonth || '';
