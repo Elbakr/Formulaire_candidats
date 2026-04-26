@@ -2717,6 +2717,10 @@ function genPlanningProposals(siteId, weekStart, n=3){
       for(const creneau of besoins){
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad, workerDays);
 
+        // ── Déclarer assigned et manquants avant la pré-assignation ──
+        const assigned = [];
+        let manquants  = creneau.vendeurs;
+
         // ── PRÉ-ASSIGNATION OBLIGATOIRE DU RESPONSABLE ───────────────
         // Le responsable DOIT être présent sur tous les créneaux d'ouverture
         // de son site sauf son jour de congé explicite.
@@ -2728,18 +2732,15 @@ function genPlanningProposals(siteId, weekStart, n=3){
           && isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin);
 
         if(mgrDispo && manquants > 0){
-          // Assigner le responsable immédiatement, indépendamment du scoring
           if(!workerDays[mgrId]) workerDays[mgrId] = new Set();
           assigned.push(mgrEmp);
           workerDays[mgrId].add(dateStr);
           workerLoad[mgrId] = (workerLoad[mgrId]||0)
             + (timeToMin(creneau.fin) - timeToMin(creneau.debut));
           manquants--;
-          // Retirer le responsable de candidats (déjà assigné)
           candidats = candidats.filter(c => c.emp.id !== mgrId);
 
         } else if(mgrEmp && !mgrAlreadyThisDay && !mgrDispo && backupSenior){
-          // Responsable indispo ce jour → senior de backup en tête
           const bsInList = candidats.find(c => c.emp.id === backupSenior.id);
           if(bsInList){
             candidats = [bsInList, ...candidats.filter(c => c.emp.id !== backupSenior.id)];
@@ -2756,9 +2757,6 @@ function genPlanningProposals(siteId, weekStart, n=3){
           const cut=Math.floor(candidats.length/3);
           candidats=[...candidats.slice(cut),...candidats.slice(0,cut)];
         }
-
-        const assigned = [];
-        let manquants  = creneau.vendeurs;
 
         for(const {emp} of candidats){
           if(assigned.length >= creneau.vendeurs) break;
