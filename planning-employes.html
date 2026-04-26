@@ -4144,177 +4144,181 @@ function openPlanningEngine(){
   document.body.appendChild(modal);
 }
 
+// Variable globale pour stocker les propositions courantes (accessible depuis le HTML)
+let _currentProposals = [];
+
 function runPlanningEngine(){
-  const siteId = document.getElementById('pe-site').value;
-  const weekStart = document.getElementById('pe-week').value;
+  const siteId   = document.getElementById('pe-site')?.value;
+  const weekStart= document.getElementById('pe-week')?.value;
   if(!siteId||!weekStart){ showToast('Sélectionnez un magasin et une semaine'); return; }
 
   const resultsEl = document.getElementById('pe-results');
-
-  // ── DIAGNOSTIC ─────────────────────────────────────────────
-  const besoinsTest = getBesoinsDate(siteId, weekStart);
-  const activeWorkers = employees.filter(e=>!e.archived);
-  console.log(`[Autoplan] Site: ${siteId} | Semaine: ${weekStart}`);
-  console.log(`[Autoplan] STORE_NEEDS[${siteId}]:`, STORE_NEEDS[siteId] ? '✅ trouvé' : '❌ MANQUANT');
-  console.log(`[Autoplan] Besoins lundi:`, besoinsTest);
-  console.log(`[Autoplan] Travailleurs actifs: ${activeWorkers.length}`);
-  activeWorkers.forEach(e=>{
-    const avail = getWorkerAvailability(e);
-    console.log(`  → ${e.firstname} ${e.lastname} | sites:`, e.sites, '| defaultSite:', avail.defaultSite, '| prefs:', avail.preferred.length);
-  });
-  // ─────────────────────────────────────────────────────────
+  if(!resultsEl){ showToast('Erreur: panneau résultats introuvable'); return; }
 
   if(!STORE_NEEDS[siteId]){
     resultsEl.innerHTML=`<div style="text-align:center;padding:32px;color:#dc2626;font-weight:700">
-      ❌ Aucun horaire défini pour le site "${siteId}".<br>
-      <span style="font-size:.78rem;font-weight:400;color:#9898b8">Vérifiez STORE_NEEDS dans le code.</span>
-    </div>`;
+      ❌ Aucun horaire défini pour le site "${siteId}".</div>`;
     return;
   }
-  if(activeWorkers.length === 0){
+  const activeWorkers = employees.filter(e=>!e.archived);
+  if(activeWorkers.length===0){
     resultsEl.innerHTML=`<div style="text-align:center;padding:32px;color:#dc2626;font-weight:700">
-      ❌ Aucun travailleur actif dans l'équipe.
-    </div>`;
+      ❌ Aucun travailleur actif.</div>`;
     return;
   }
 
   resultsEl.innerHTML='<div style="text-align:center;padding:32px;color:#9898b8">⏳ Calcul en cours...</div>';
 
+  // Utiliser setTimeout pour laisser le DOM se mettre à jour avant le calcul
   setTimeout(()=>{
-    const proposals = genPlanningProposals(siteId, weekStart, 3);
+    let proposals;
+    try {
+      proposals = genPlanningProposals(siteId, weekStart, 3);
+    } catch(err){
+      console.error('[Autoplan] Erreur genPlanningProposals:', err);
+      resultsEl.innerHTML=`<div style="text-align:center;padding:32px;color:#dc2626">
+        ❌ Erreur lors du calcul : ${err.message}<br>
+        <span style="font-size:.74rem;color:#9898b8">Consultez la console (F12) pour les détails.</span>
+      </div>`;
+      return;
+    }
+
+    _currentProposals = proposals; // Stocker globalement pour les boutons
+
     const site = SITES[siteId];
     const {isForte,isFerie,multiplier} = isPeriodForte(weekStart);
     const DAYS = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
-    // Vérifier si vraiment vide
     const totalSlots = proposals.reduce((s,p)=>s+p.plan.length,0);
     if(totalSlots===0){
       resultsEl.innerHTML=`
       <div style="text-align:center;padding:32px">
         <div style="font-size:2rem;margin-bottom:12px">⚠️</div>
-        <div style="font-size:.92rem;font-weight:700;color:#dc2626;margin-bottom:8px">Aucun créneau généré pour ${siteId} — ${site?.name||''}</div>
-        <div style="font-size:.78rem;color:#9898b8;max-width:400px;margin:0 auto;line-height:1.6">
-          Vérifiez que :<br>
-          • Des travailleurs sont assignés au site <strong>${siteId}</strong> (ou sans site par défaut)<br>
-          • Leurs disponibilités ne bloquent pas tous les créneaux<br>
-          • Il y a au moins 1 travailleur actif dans l'équipe
-        </div>
-        <div style="margin-top:14px;font-size:.74rem;color:#9898b8">
-          Travailleurs actifs : ${employees.filter(e=>!e.archived).length} · 
-          Ouvrez la console (F12) pour voir le diagnostic détaillé.
+        <div style="font-size:.9rem;font-weight:700;color:#dc2626;margin-bottom:8px">Aucun créneau généré pour ${siteId} — ${site?.name||''}</div>
+        <div style="font-size:.76rem;color:#9898b8;max-width:380px;margin:0 auto;line-height:1.7">
+          • Des travailleurs sont-ils assignés au site <strong>${siteId}</strong> ?<br>
+          • Leurs disponibilités ne bloquent-elles pas tous les créneaux ?<br>
+          • La semaine choisie est-elle dans le futur ?
         </div>
       </div>`;
       return;
     }
 
     resultsEl.innerHTML=`
-    ${isForte||isFerie?`<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:.8rem;color:#92400e;font-weight:600">
-      ${isFerie?'🎉 Semaine avec jour férié':'💰 Période forte (27-10 du mois)'} — Besoins augmentés ×${multiplier.toFixed(1)}
+    ${isForte||isFerie?`<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.78rem;color:#92400e;font-weight:600">
+      ${isFerie?'🎉 Semaine avec jour férié':'💰 Période forte'} — Besoins ×${multiplier.toFixed(1)}
     </div>`:''}
-    <div style="font-size:.78rem;color:#9898b8;margin-bottom:14px;padding:8px 12px;background:#f5f4f0;border-radius:8px">
-      📍 Site <strong style="color:#1a1a2e;font-size:.88rem">${siteId}</strong> — ${site?.name||''} · ${site?.address||''} · Semaine du ${new Date(weekStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'long',year:'numeric'})}
+    <div style="font-size:.76rem;color:#9898b8;margin-bottom:14px;padding:8px 12px;background:#f5f4f0;border-radius:8px">
+      📍 <strong>${siteId}</strong> — ${site?.name||''} · ${site?.address||''}<br>
+      Semaine du ${new Date(weekStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'long',year:'numeric'})}
     </div>
 
     <div style="display:flex;flex-direction:column;gap:16px">
-    ${proposals.map(prop=>`
+    ${proposals.map((prop,propIdx)=>`
       <div style="border:2px solid ${prop.id===1?'#2d5be3':'#e2e0d8'};border-radius:12px;overflow:hidden">
         <div style="background:${prop.id===1?'#eef1fd':'#f5f4f0'};padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
           <div>
-            <div style="font-size:.9rem;font-weight:800;color:${prop.id===1?'#2d5be3':'#1a1a2e'}">${prop.label}</div>
-            ${prop.mixViolations>0?`<div style="font-size:.68rem;color:#d97706;margin-top:2px">⚠️ ${prop.mixViolations} équipe${prop.mixViolations>1?'s':''} sans senior — règle mixité non respectée</div>`:`<div style="font-size:.68rem;color:#16a34a;margin-top:2px">✅ Règle mixité respectée</div>`}
+            <div style="font-size:.88rem;font-weight:800;color:${prop.id===1?'#2d5be3':'#1a1a2e'}">${prop.label}</div>
+            ${prop.mixViolations>0
+              ?`<div style="font-size:.66rem;color:#d97706;margin-top:2px">⚠️ ${prop.mixViolations} équipe(s) sans senior</div>`
+              :`<div style="font-size:.66rem;color:#16a34a;margin-top:2px">✅ Mixité respectée</div>`}
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <span style="background:${prop.coverage>=90?'#dcfce7':prop.coverage>=70?'#fef3c7':'#fee2e2'};color:${prop.coverage>=90?'#16a34a':prop.coverage>=70?'#d97706':'#dc2626'};padding:3px 10px;border-radius:20px;font-size:.74rem;font-weight:700">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="background:${prop.coverage>=90?'#dcfce7':prop.coverage>=70?'#fef3c7':'#fee2e2'};color:${prop.coverage>=90?'#16a34a':prop.coverage>=70?'#d97706':'#dc2626'};padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700">
               ${prop.coverage}% couverture
             </span>
-            <button onclick="openSiteWeekRecap('${siteId}','${weekStart}',proposals[${prop.id-1}])" style="padding:5px 12px;background:white;color:#2d5be3;border:1.5px solid #2d5be3;border-radius:6px;font-size:.74rem;font-weight:700;cursor:pointer">
+            <button onclick="_showRecap('${siteId}','${weekStart}',${propIdx})" style="padding:5px 12px;background:white;color:#2d5be3;border:1.5px solid #2d5be3;border-radius:6px;font-size:.72rem;font-weight:700;cursor:pointer">
               👁 Aperçu
             </button>
-            <button onclick="applyProposal('${siteId}','${weekStart}',${prop.id-1})" style="padding:5px 12px;background:#2d5be3;color:white;border:none;border-radius:6px;font-size:.74rem;font-weight:700;cursor:pointer">
-              ✓ Appliquer + voir
+            <button onclick="_applyAndRecap('${siteId}','${weekStart}',${propIdx})" style="padding:5px 12px;background:#2d5be3;color:white;border:none;border-radius:6px;font-size:.72rem;font-weight:700;cursor:pointer">
+              ✓ Appliquer
             </button>
           </div>
         </div>
         <div style="padding:12px 16px;overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:.74rem;min-width:600px">
-            <thead>
-              <tr style="border-bottom:1.5px solid #e2e0d8">
-                <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Jour</th>
-                <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Créneau</th>
-                <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Besoin</th>
-                <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Assignés</th>
-                <th style="text-align:center;padding:6px 8px;color:#9898b8;font-weight:700">Statut</th>
-              </tr>
-            </thead>
+          <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:540px">
+            <thead><tr style="border-bottom:1.5px solid #e2e0d8">
+              <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Jour</th>
+              <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Créneau</th>
+              <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Besoin</th>
+              <th style="text-align:left;padding:6px 8px;color:#9898b8;font-weight:700">Assignés</th>
+              <th style="text-align:center;padding:6px 8px;color:#9898b8;font-weight:700">Statut</th>
+            </tr></thead>
             <tbody>
-              ${prop.plan.map(slot=>`
-              <tr style="border-bottom:1px solid #f0eeea">
+            ${prop.plan.map(slot=>{
+              const dow = new Date(slot.dateStr+'T12:00').getDay();
+              const dayLabel = DAYS[dow]+' '+new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+              const effMgr = getEffectiveManager(siteId);
+              return `<tr style="border-bottom:1px solid #f0eeea">
                 <td style="padding:7px 8px;font-weight:600">
-                  ${slot.difficulty===1?'⭐ ':slot.difficulty===2?'🎉 ':slot.difficulty===3?'☀️ ':''}${DAYS[new Date(slot.dateStr+'T12:00').getDay()]} ${new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})}
+                  ${slot.difficulty===1?'⭐ ':slot.difficulty===2?'🎉 ':slot.difficulty===3?'☀️ ':''}${dayLabel}
                 </td>
-                <td style="padding:7px 8px;font-family:monospace;font-size:.76rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
-                <td style="padding:7px 8px">
-                  ${slot.creneau.vendeurs} vendeur${slot.creneau.vendeurs>1?'s':''}
-                  ${slot.periode!=='Normal'?`<span style="font-size:.62rem;background:#fef3c7;padding:1px 5px;border-radius:3px;margin-left:4px">${slot.periode}</span>`:''}
-                </td>
+                <td style="padding:7px 8px;font-family:monospace;font-size:.7rem">${slot.creneau.debut}→${slot.creneau.fin}</td>
+                <td style="padding:7px 8px">${slot.creneau.vendeurs} poste${slot.creneau.vendeurs>1?'s':''}</td>
                 <td style="padding:7px 8px">
                   ${slot.assigned.length
                     ? slot.assigned.map(emp=>{
-                        const avail = getWorkerAvailability(emp);
-                        const isDefault = avail.defaultSite===siteId;
-                        const inList    = (emp.sites||[]).includes(siteId);
-                        const prefS     = workerPrefScore(emp, slot.dateStr, slot.creneau.debut, slot.creneau.fin);
-                        const tag       = isDefault ? '🏪' : inList ? '📍' : '🔄';
-                        const prefTag   = prefS>=4 ? '⭐' : prefS>=2 ? '✓' : '';
-                        const col       = empColor(emp);
-                        return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:600;background:${col.bg};color:${col.fg};margin:1px" title="${isDefault?'Site principal':''}${inList?'Site assigné':''}${!isDefault&&!inList?'Polyvalent':''}">
-                          ${tag} ${emp.firstname} ${prefTag}
-                        </span>`;
+                        const col=empColor(emp);
+                        const g=emp.grade||'vendeur';
+                        const gi=g==='directeur'?'👑':g==='manager'?'⭐':g==='senior'?'🔵':'🟢';
+                        const isMgr2=effMgr&&effMgr.id===emp.id;
+                        return `<span style="padding:2px 8px;border-radius:20px;font-size:.68rem;font-weight:700;background:${col.bg};color:${col.fg};border:${isMgr2?'1.5px solid #059669':'none'};display:inline-block;margin:1px">${gi} ${emp.firstname}${isMgr2?' 🏪':''}</span>`;
                       }).join('')
-                    : '<span style="color:#dc2626;font-size:.72rem">— Manquant</span>'}
+                    : '<span style="color:#dc2626;font-size:.7rem">— Manquant</span>'}
+                  ${(()=>{
+                    if(!effMgr) return '';
+                    const mgrAssigned=slot.assigned.some(x=>x.id===effMgr.id);
+                    if(mgrAssigned) return '';
+                    const mgrE=employees.find(x=>x.id===effMgr.id);
+                    const mgrOk=mgrE&&isWorkerAvailable(mgrE,slot.dateStr,slot.creneau.debut,slot.creneau.fin);
+                    if(!mgrOk) return '<span style="padding:1px 7px;border-radius:10px;font-size:.62rem;background:#f0fdf4;color:#059669;margin-left:3px">🔄 Senior remplace</span>';
+                    return '';
+                  })()}
                 </td>
                 <td style="padding:7px 8px;text-align:center">
                   ${slot.manquants>0
-                    ?`<span style="color:#dc2626;font-weight:700;font-size:.72rem">⚠️ ${slot.manquants}</span>`
-                    :`<span style="color:#16a34a;font-weight:700;font-size:.72rem">✓</span>`}
+                    ?`<span style="color:#dc2626;font-weight:700;font-size:.7rem">⚠️ ${slot.manquants}</span>`
+                    :`<span style="color:#16a34a;font-weight:700;font-size:.7rem">✓</span>`}
                 </td>
-              </tr>`).join('')}
+              </tr>`;
+            }).join('')}
             </tbody>
           </table>
         </div>
       </div>`).join('')}
     </div>
 
-    <div style="margin-top:14px;padding:12px 14px;background:#f5f4f0;border-radius:8px;font-size:.72rem;color:#9898b8">
-      <div style="margin-bottom:6px;font-weight:700;color:#1a1a2e">Légende :</div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap">
-        <span>🏪 Site principal de ce travailleur</span>
-        <span>📍 Site assigné (secondaire)</span>
-        <span>🔄 Polyvalent (pas de site défini)</span>
-        <span>⭐ Dans ses plages préférées</span>
-        <span>✓ Proche de ses préférences (±1h)</span>
-      </div>
+    <div style="margin-top:14px;padding:10px 14px;background:#f5f4f0;border-radius:8px;font-size:.7rem;color:#9898b8">
+      🏪 = Responsable · ⭐ Sam · 🎉 Férié · ☀️ Dim · 🔄 Senior remplace responsable absent
     </div>
+
     <div style="margin-top:8px;padding:10px 14px;background:#eef1fd;border-radius:8px;font-size:.72rem;color:#2d5be3">
       <strong>Travailleurs éligibles pour ${siteId} :</strong>
       ${employees.filter(e=>!e.archived).map(e=>{
-        const avail = getWorkerAvailability(e);
-        const isDefault = avail.defaultSite===siteId;
-        const inList = (e.sites||[]).includes(siteId);
-        const hasNoSite = !avail.defaultSite && !(e.sites||[]).length;
-        if(!isDefault && !inList && !hasNoSite) return '';
-        const reason = isDefault ? '🏪 Principal' : inList ? '📍 Assigné' : '🔄 Polyvalent';
-        return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:white;margin:2px;border:1px solid #c7d2fe">${e.firstname} ${e.lastname} — ${reason}</span>`;
-      }).filter(Boolean).join('') || '<em>Aucun travailleur assigné à ce site</em>'}
+        const av=getWorkerAvailability(e);
+        const isD=av.defaultSite===siteId;
+        const inL=(e.sites||[]).includes(siteId);
+        const noS=!av.defaultSite&&!(e.sites||[]).length;
+        if(!isD&&!inL&&!noS) return '';
+        const r=isD?'🏪 Principal':inL?'📍 Assigné':'🔄 Polyvalent';
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:white;margin:2px;border:1px solid #c7d2fe;font-size:.68rem">${e.firstname} ${e.lastname} — ${r}</span>`;
+      }).filter(Boolean).join('')||'<em>Aucun travailleur assigné à ce site</em>'}
     </div>`;
-  }, 50);
+
+  }, 10); // délai minimal pour le rendu du "Calcul en cours..."
 }
 
-// Référence aux propositions générées (pour appliquer)
-let _lastProposals = [];
+// Helpers globaux pour les boutons dans le HTML généré
+function _showRecap(siteId, weekStart, propIdx){
+  if(_currentProposals[propIdx]) openSiteWeekRecap(siteId, weekStart, _currentProposals[propIdx]);
+}
+function _applyAndRecap(siteId, weekStart, propIdx){
+  if(_currentProposals[propIdx]) applyProposal(siteId, weekStart, propIdx);
+}
 
 function applyProposal(siteId, weekStart, propIdx){
-  const proposals = genPlanningProposals(siteId, weekStart, 3);
+  // Utiliser les propositions déjà calculées (éviter de recalculer)
+  const proposals = _currentProposals.length ? _currentProposals : genPlanningProposals(siteId, weekStart, 3);
   const prop = proposals[propIdx];
   if(!prop){ showToast('Proposition introuvable'); return; }
 
