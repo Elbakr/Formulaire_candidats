@@ -2044,78 +2044,53 @@ function genPlanningProposals(siteId, weekStart, n=3){
   const active = employees.filter(e=>!e.archived);
   const proposals = [];
 
-  // ── Classifier les 7 jours de la semaine ──────────────────
-  function classifyDays(weekStartStr){
+  // ── Classifier les 7 jours et construire les deux ordres ──
+  function buildWeekDays(weekStartStr){
     const days = [];
     for(let i=0;i<7;i++){
       const d = new Date(weekStartStr+'T12:00');
       d.setDate(d.getDate()+i);
       const dateStr = d.toISOString().slice(0,10);
-      const dow = d.getDay();
+      const dow = d.getDay(); // 0=Dim, 6=Sam
       const {isFerie} = isPeriodForte(dateStr);
       const isSat = dow===6;
       const isSun = dow===0;
-      // Niveau de difficulté : 1=Sam (le + difficile), 2=Férié, 3=Dim, 4=Semaine normale
-      let difficulty = isSat ? 1 : isFerie ? 2 : isSun ? 3 : 4;
-      days.push({dateStr, dow, difficulty, isSat, isSun, isFerie});
+      // Difficulté (priorité de traitement) : Sam=1, Férié=2, Dim=3, Normal=4
+      const difficulty = isSat ? 1 : isFerie ? 2 : isSun ? 3 : 4;
+      days.push({dateStr, dow, difficulty, isSat, isSun, isFerie, calIdx:i});
     }
     return days;
   }
 
-  // ── Vérifier si un travailleur est "réservé" pour un jour difficile
-  // qui n'est pas encore couvert et pour lequel il est disponible ──
-  function isReservedForHardDay(emp, currentDateStr, allDays, workerDays, workerLoad){
-    if(!AUTOPLAN_RULES.priorityDayOrder.active) return false;
-    const currentDifficulty = allDays.find(d=>d.dateStr===currentDateStr)?.difficulty||4;
-    if(currentDifficulty <= 1) return false; // le samedi lui-même → jamais réservé
-
-    // Ce travailleur est-il disponible pour un jour PLUS difficile pas encore planifié ?
-    const harderDays = allDays.filter(d=>d.difficulty < currentDifficulty);
-    for(const hd of harderDays){
-      if(workerDays[emp.id]?.has(hd.dateStr)) continue; // déjà planifié ce jour-là
-      const besoinsHard = getBesoinsDate(siteId, hd.dateStr);
-      if(!besoinsHard.length) continue; // pas de créneau ce jour-là
-      // Ce travailleur est-il disponible et éligible pour ce jour difficile ?
-      const eligHard = matchWorkersToCreneau(siteId, hd.dateStr, besoinsHard[0], [emp], workerLoad);
-      if(eligHard.length > 0) return true; // oui → le garder pour ce jour difficile
-    }
-    return false;
-  }
-
   for(let propIdx=0; propIdx<n; propIdx++){
-    const plan       = [];
-    const workerLoad = {}; // {empId: minutes planifiées cette semaine}
+    const planMap    = {}; // dateStr → [{creneau, assigned, manquants, ...}]
+    const workerLoad = {}; // {empId: minutes planifiées}
     const workerDays = {}; // {empId: Set<dateStr>}
 
-    const allDays = classifyDays(weekStart);
-    // Parcourir les jours dans l'ordre calendaire (Lun→Dim)
-    // mais TRIER les candidats en tenant compte de la réservation pour jours difficiles
-    for(const {dateStr, dow, difficulty} of allDays){
+    const allDays = buildWeekDays(weekStart);
+
+    // ── RÈGLE 1 : traiter les jours dans l'ordre de difficulté ──
+    // Sam d'abord → Fériés → Dim → Semaine normale
+    // Cela garantit que les meilleurs profils disponibles sont
+    // assignés aux jours critiques AVANT d'être utilisés ailleurs.
+    const processingOrder = AUTOPLAN_RULES.priorityDayOrder.active
+      ? [...allDays].sort((a,b) => a.difficulty !== b.difficulty
+          ? a.difficulty - b.difficulty   // difficile d'abord
+          : a.calIdx - b.calIdx)          // à égalité : ordre calendaire
+      : allDays;                          // règle désactivée → ordre calendaire
+
+    for(const {dateStr, dow, difficulty} of processingOrder){
       const besoins = getBesoinsDate(siteId, dateStr);
+      planMap[dateStr] = [];
 
       for(const creneau of besoins){
         let candidats = matchWorkersToCreneau(siteId, dateStr, creneau, active, workerLoad);
 
-        // ── RÈGLE 1 : Réservation jours difficiles ─────────────
-        // Pour les jours normaux (difficulty=4) : si un travailleur
-        // est "réservé" pour Sam/Fériés/Dim → le passer en dernier
-        // Pour les jours difficiles : les meilleurs profils en premier
-        if(AUTOPLAN_RULES.priorityDayOrder.active){
-          candidats = [...candidats].sort((a,b)=>{
-            const aReserved = isReservedForHardDay(a.emp, dateStr, allDays, workerDays, workerLoad) ? 1 : 0;
-            const bReserved = isReservedForHardDay(b.emp, dateStr, allDays, workerDays, workerLoad) ? 1 : 0;
-            if(aReserved !== bReserved) return aReserved - bReserved; // non-réservés d'abord
-            return b.score - a.score; // ensuite par score
-          });
-        }
-
+        // Tri interne selon la proposition
         if(propIdx===1){
           candidats = [...candidats].sort((a,b)=>{
-            const aRes = isReservedForHardDay(a.emp, dateStr, allDays, workerDays, workerLoad)?1:0;
-            const bRes = isReservedForHardDay(b.emp, dateStr, allDays, workerDays, workerLoad)?1:0;
-            if(aRes!==bRes) return aRes-bRes;
-            const loadDiff=(workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
-            return Math.abs(loadDiff)>120 ? loadDiff : b.score-a.score;
+            const ld = (workerLoad[a.emp.id]||0)-(workerLoad[b.emp.id]||0);
+            return Math.abs(ld)>120 ? ld : b.score-a.score;
           });
         } else if(propIdx===2 && candidats.length>2){
           const cut=Math.floor(candidats.length/3);
@@ -2139,8 +2114,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
             if(loadH+crenH>emp.hoursMaxMonth) continue;
           }
 
-          // ── RÈGLE 2+3 : mix profils ──
-          // Un junior ne prend pas la place d'un senior si un senior est encore dispo
+          // ── RÈGLE 2+3 : mix profils (senior obligatoire si 2+ juniors) ──
           if(AUTOPLAN_RULES.mixProfiles.active && isJuniorProfile(emp) && assigned.length>=1){
             if(!assigned.some(isSeniorProfile)){
               const hasSeniorAvail = candidats.some(({emp:e2})=>
@@ -2153,32 +2127,25 @@ function genPlanningProposals(siteId, weekStart, n=3){
           }
 
           // ── RÈGLE 4 : profil intégration ──
-          // Natif + Arrivant + Nouvel arrivant ensemble → besoin d'un supervisor
+          // Natif + Arrivant + Nouvel arrivant → supervisor obligatoire
           if(AUTOPLAN_RULES.integrationBalance.active && assigned.length>=1){
-            const profiles = [...assigned, emp].map(e=>e.profilIntegration||'natif');
-            const hasNatif    = profiles.includes('natif');
-            const hasArrivant = profiles.includes('arrivant');
-            const hasNouveau  = profiles.includes('nouvel_arrivant');
-            const mixedInteg  = hasNatif && (hasArrivant||hasNouveau) || (hasArrivant&&hasNouveau);
-            if(mixedInteg){
-              // Exiger qu'il y ait un supervisor (manager, directeur, senior >3 mois CDI/CDD)
-              const hasSupervisor = [...assigned,emp].some(e=>{
-                const grade=e.grade||'vendeur';
-                const anc=getAnciennete(e);
-                return ['directeur','manager'].includes(grade) ||
-                       (grade==='senior' && anc>=3) ||
-                       (['CDI','CDD'].includes(e.status) && anc>=6);
+            const profiles = [...assigned,emp].map(e=>e.profilIntegration||'natif');
+            const hasNatif   = profiles.includes('natif');
+            const hasArr     = profiles.includes('arrivant');
+            const hasNew     = profiles.includes('nouvel_arrivant');
+            if(hasNatif&&(hasArr||hasNew) || (hasArr&&hasNew)){
+              const hasSup = [...assigned,emp].some(e=>{
+                const g=e.grade||'vendeur'; const a=getAnciennete(e);
+                return ['directeur','manager'].includes(g)||(g==='senior'&&a>=3)||(['CDI','CDD'].includes(e.status)&&a>=6);
               });
-              if(!hasSupervisor){
-                // Chercher si un supervisor est encore disponible dans les candidats
+              if(!hasSup){
                 const supAvail=candidats.some(({emp:e2})=>{
-                  const g=e2.grade||'vendeur';
-                  const a=getAnciennete(e2);
+                  const g=e2.grade||'vendeur'; const a=getAnciennete(e2);
                   return (['directeur','manager'].includes(g)||(g==='senior'&&a>=3)||(['CDI','CDD'].includes(e2.status)&&a>=6))
                     &&(!workerDays[e2.id]||!workerDays[e2.id].has(dateStr))
-                    &&!assigned.some(a=>a.id===e2.id);
+                    &&!assigned.some(x=>x.id===e2.id);
                 });
-                if(supAvail) continue; // attendre le supervisor
+                if(supAvail) continue;
               }
             }
           }
@@ -2189,7 +2156,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
           manquants--;
         }
 
-        plan.push({
+        planMap[dateStr].push({
           dateStr, creneau, assigned,
           manquants:Math.max(0,manquants),
           periode:creneau.periode,
@@ -2199,6 +2166,11 @@ function genPlanningProposals(siteId, weekStart, n=3){
       }
     }
 
+    // ── Reconstruire le plan dans l'ordre CALENDAIRE pour l'affichage ──
+    const plan = allDays
+      .sort((a,b)=>a.calIdx-b.calIdx)
+      .flatMap(d=>planMap[d.dateStr]||[]);
+
     const totalCover=plan.reduce((s,p)=>s+(p.creneau.vendeurs-p.manquants),0);
     const totalNeeds=plan.reduce((s,p)=>s+p.creneau.vendeurs,0);
     const coverage=totalNeeds>0?Math.round(totalCover/totalNeeds*100):0;
@@ -2206,7 +2178,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
     proposals.push({
       id:propIdx+1,
-      label:propIdx===0?'⭐ Optimal (priorités + règles)':
+      label:propIdx===0?'⭐ Optimal (Sam→Fériés→Dim→Semaine)':
             propIdx===1?'⚖️ Équilibré (charge répartie)':
                         '🔄 Alternatif (rotation)',
       plan,coverage,mixViolations,
