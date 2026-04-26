@@ -2156,18 +2156,10 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
     // ── RÈGLE 2c : 1 site par jour par travailleur ──────────────
-    // Si ce worker est déjà planifié ce jour (dans e.weeks OU dans
-    // _blockedDates mis à jour entre sites) → exclu sans exception.
-    // Un travailleur ne peut couvrir qu'un seul endroit à la fois.
+    // Utilisé uniquement en mode multi-sites : _blockedDates est
+    // alimenté par runMultiSiteAutoplan après chaque site généré.
+    // En mode single-site, _blockedDates est undefined → pas d'effet.
     if(e._blockedDates?.has(dateStr)) continue;
-    {
-      const wOff2 = dateToWeekOffset(dateStr);
-      const di2   = dateToDayIdx(dateStr);
-      const existing = e.weeks?.[wOff2]?.[di2];
-      if(existing && existing.status==='work' && existing.start){
-        continue; // déjà planifié ce jour → 1 site max
-      }
-    }
 
     // ── SCORING ─────────────────────────────────────────────
     let score = 0;
