@@ -1725,19 +1725,152 @@ let curSiteFilter = null;
 
 // Jours fériés belges + internationaux (format MM-DD)
 const JOURS_FERIES = [
-  '01-01','05-01','07-21','08-15','11-01','11-11','12-25', // Belges
+  '01-01','05-01','07-21','08-15','11-01','11-11','12-25', // Belges fixes
   '04-01','04-21','05-09','06-19',                          // Mobiles approx.
   '06-21','10-31','02-14','03-08','12-26',                  // Internationaux importants
 ];
 
+// ══════════════════════════════════════════════════════════════
+// VACANCES SCOLAIRES BELGES — périodes approximatives récurrentes
+// Ces dates élargissent la zone de pic (comme Sam/Dim/Fériés)
+// ══════════════════════════════════════════════════════════════
+const VACANCES_SCOLAIRES = [
+  // Toussaint : fin oct → début nov
+  {debut:'10-27', fin:'11-04'},
+  // Noël : fin déc → début jan
+  {debut:'12-23', fin:'01-06'},
+  // Carnaval : mi-février
+  {debut:'02-17', fin:'02-25'},
+  // Pâques : fin mars → début avr
+  {debut:'03-28', fin:'04-14'},
+  // Grande vacances : mi-juil → fin août
+  {debut:'07-01', fin:'08-31'},
+];
+
+function isVacancesScolaires(dateStr){
+  const d = new Date(dateStr+'T12:00');
+  const mmdd = String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  // Comparer mmdd en tenant compte du passage d'année (ex: 12-23 → 01-06)
+  return VACANCES_SCOLAIRES.some(v=>{
+    if(v.debut <= v.fin){
+      return mmdd >= v.debut && mmdd <= v.fin;
+    } else {
+      // Chevauchement d'année (ex: 12-23 → 01-06)
+      return mmdd >= v.debut || mmdd <= v.fin;
+    }
+  });
+}
+
 // Règle 27-10 : fin du mois (27→31) + début du mois (1→10) = période forte
-function isPeriodForte(date){
-  const d = new Date(date);
+function isPeriodForte(dateStr){
+  const d = new Date(dateStr+'T12:00');
   const day = d.getDate();
   const mmdd = String(d.getMonth()+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
   const isFerie = JOURS_FERIES.includes(mmdd);
   const isForte = day >= 27 || day <= 10;
-  return { isForte, isFerie, multiplier: isFerie ? 1.5 : isForte ? 1.3 : 1.0 };
+  const isVacances = isVacancesScolaires(dateStr);
+  const dow = d.getDay();
+  const isWeekend = (dow===0||dow===6);
+  // "Jour spécial" = Sam, Dim, Fériés, Vacances scolaires
+  const isSpecial = isWeekend || isFerie || isVacances;
+  return { isForte, isFerie, isVacances, isSpecial, multiplier: isFerie ? 1.5 : isForte ? 1.3 : 1.0 };
+}
+
+// ══════════════════════════════════════════════════════════════
+// SCORING HORAIRE — Valeur de chaque heure selon la courbe
+// de fréquentation réelle des magasins Caftan Factory
+//
+// Courbe standard (heure d'hiver, jour normal) :
+//   10h-12h : ×0.5  (creux matin, ouverture)
+//   12h-14h : ×1.0  (montée progressive)
+//   14h-17h : ×2.0  ← PIC (présence obligatoire)
+//   17h-19h : ×1.2  (descente active)
+//   19h-20h : ×0.6  (fermeture)
+//
+// Ajustements heure d'été (avr→oct) :
+//   Pic étendu jusqu'à 18h au lieu de 17h
+//
+// Jours spéciaux (Sam/Dim/Fériés/Vacances) :
+//   Pic toujours étendu jusqu'à 18h (gens libres, sortent plus tard)
+// ══════════════════════════════════════════════════════════════
+function getRushProfile(dateStr){
+  const ete     = isHeureDEte(dateStr);
+  const {isSpecial} = isPeriodForte(dateStr);
+  // Fin du pic : 18h si été OU jour spécial, sinon 17h
+  const picEnd  = (ete || isSpecial) ? 18*60 : 17*60;
+  return {
+    segments: [
+      {from:10*60, to:12*60, weight:0.5},   // creux matin
+      {from:12*60, to:14*60, weight:1.0},   // montée
+      {from:14*60, to:picEnd, weight:2.0},  // PIC (14h→17h ou 14h→18h)
+      {from:picEnd, to:19*60, weight:1.2},  // descente active
+      {from:19*60, to:20*60, weight:0.6},   // fermeture
+    ]
+  };
+}
+
+// Calcule la valeur pondérée des minutes disponibles dans un créneau
+// Plus la valeur est élevée → plus ce worker est précieux pour ce créneau
+function calcPresenceValue(debut, fin, dateStr){
+  const deb = timeToMin(debut);
+  const fin_ = timeToMin(fin);
+  const {segments} = getRushProfile(dateStr);
+  let value = 0;
+  for(const seg of segments){
+    const start = Math.max(deb, seg.from);
+    const end_  = Math.min(fin_, seg.to);
+    if(end_ > start) value += (end_ - start) * seg.weight;
+  }
+  return value;
+}
+
+// Calcule la valeur max possible du créneau (si quelqu'un était là 100% du temps)
+function calcCreneauMaxValue(debut, fin, dateStr){
+  return calcPresenceValue(debut, fin, dateStr);
+}
+
+// Calcule la valeur disponible pour un travailleur (après soustraction indispos)
+function calcWorkerCreneauValue(e, dow, debut, fin, dateStr){
+  const avail   = getWorkerAvailability(e);
+  const debMin  = timeToMin(debut);
+  const finMin  = timeToMin(fin);
+  const {segments} = getRushProfile(dateStr);
+
+  // Construire les plages disponibles (créneau - indisponibilités)
+  let available = [{from: debMin, to: finMin}];
+  for(const u of (avail.unavail||[])){
+    if(!u.recurrent || u.day !== dow) continue;
+    const uDeb = timeToMin(u.debut||'00:00');
+    const uFin = timeToMin(u.fin||'23:59');
+    available = available.flatMap(slot=>{
+      if(uDeb >= slot.to || uFin <= slot.from) return [slot]; // pas de chevauchement
+      const result = [];
+      if(slot.from < uDeb) result.push({from:slot.from, to:uDeb});
+      if(slot.to  > uFin) result.push({from:uFin,  to:slot.to});
+      return result;
+    });
+  }
+
+  // Calculer la valeur des plages disponibles
+  let value = 0;
+  for(const slot of available){
+    for(const seg of segments){
+      const start = Math.max(slot.from, seg.from);
+      const end_  = Math.min(slot.to,   seg.to);
+      if(end_ > start) value += (end_ - start) * seg.weight;
+    }
+  }
+  return value;
+}
+
+// Vérifie si un worker couvre suffisamment les heures de pointe
+// Seuil : il doit couvrir au moins 40% de la VALEUR totale du créneau
+// (pas 40% du temps — 40% de la valeur pondérée pic inclus)
+function coversEnoughRushHours(e, dow, debut, fin, dateStr){
+  const maxVal   = calcCreneauMaxValue(debut, fin, dateStr);
+  if(maxVal === 0) return true;
+  const workerVal = calcWorkerCreneauValue(e, dow, debut, fin, dateStr);
+  return (workerVal / maxVal) >= 0.40; // 40% de valeur pondérée minimum
 }
 
 // Besoins fixes par magasin (créneaux hebdomadaires normaux)
@@ -1921,43 +2054,52 @@ function timeToMin(t){
 // Vérifier si un travailleur est ÉLIGIBLE (pas bloqué) pour un créneau
 function isWorkerAvailable(e, dateStr, debut, fin){
   const d   = new Date(dateStr+'T12:00');
-  const dow = d.getDay(); // 0=Dim, 1=Lun, …, 6=Sam
+  const dow = d.getDay();
   const avail = getWorkerAvailability(e);
   const debH  = timeToMin(debut);
   const finH  = timeToMin(fin);
+  const totalH = finH - debH;
 
-  // ── RÈGLE ABSOLUE : Sam, Dim et jours fériés = TOUJOURS disponible ──
-  // Ces jours ne peuvent jamais être bloqués par fixedOff ou restDays
-  const isSatOrSun = (dow === 0 || dow === 6);
-  const {isFerie}  = isPeriodForte(dateStr);
-  if(isSatOrSun || isFerie){
-    // Seules les indisponibilités explicitement marquées peuvent bloquer
-    for(const u of (avail.unavail||[])){
-      if(!u.recurrent) continue;
-      if(u.day !== dow) continue;
-      const uDeb = timeToMin(u.debut||'00:00');
-      const uFin = timeToMin(u.fin||'23:59');
-      if(debH < uFin && finH > uDeb) return false;
-    }
-    return true; // Sam/Dim/Féries : disponible par défaut
+  // ── RÈGLE ABSOLUE : Sam, Dim et jours fériés ─────────────────
+  const isSatOrSun = (dow===0||dow===6);
+  const {isFerie, isVacances}  = isPeriodForte(dateStr);
+
+  if(isSatOrSun || isFerie || isVacances){
+    // Critère : couvrir au moins 40% de la VALEUR pondérée (pic inclus)
+    // Quelqu'un absent pendant tout le pic (14h-17h/18h) sera exclu
+    return coversEnoughRushHours(e, dow, debut, fin, dateStr);
   }
 
-  // ── RÈGLE 2a : jours de congé fixes (Lun→Ven uniquement) ──
+  // ── Jours normaux Lun→Ven ─────────────────────────────────────
+  // Tolérance : on exclut seulement si l'indispo couvre > 60% du créneau
+  // ou si elle tombe entièrement dans le pic (14h-17h/18h)
   const fixedOff = e.fixedOff||e.prefOff||[];
-  // fixedOff : 0=Lun…6=Dim (notre système interne)
-  const dowIdx = (dow===0) ? 6 : (dow-1);
+  const dowIdx = (dow===0)?6:(dow-1);
   if(fixedOff.includes(dowIdx)) return false;
 
-  // ── RÈGLE 2b : indisponibilités récurrentes ─────────────────
+  // Vérifier via la valeur pondérée également pour les jours normaux
+  return coversEnoughRushHours(e, dow, debut, fin, dateStr);
+}
+
+// ── Calcule l'heure de début effective pour un responsable
+//    en tenant compte de ses indisponibilités partielles ────────
+function getEffectiveStart(e, dow, debut){
+  const avail = getWorkerAvailability(e);
+  let effStart = timeToMin(debut);
   for(const u of (avail.unavail||[])){
-    if(!u.recurrent) continue;
-    if(u.day !== dow) continue;
+    if(!u.recurrent || u.day !== dow) continue;
     const uDeb = timeToMin(u.debut||'00:00');
     const uFin = timeToMin(u.fin||'23:59');
-    if(debH < uFin && finH > uDeb) return false;
+    // Si l'indispo couvre le début du créneau → décaler le début
+    if(uDeb <= effStart && uFin > effStart){
+      effStart = uFin; // commencer après la fin de l'indispo
+    }
   }
+  return effStart; // en minutes depuis minuit
+}
 
-  return true;
+function minToTime(min){
+  return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0');
 }
 
 // Calculer le score de préférence d'un travailleur pour un créneau
@@ -2034,13 +2176,22 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     else if(inSiteList)   score += 6;
     else if(hasNoSite)    score += 3;
 
-    // Préférences horaires
+    // ── Préférences horaires (anciennes)
     score += workerPrefScore(e, dateStr, creneau.debut, creneau.fin);
+
+    // ── VALEUR DE PRÉSENCE PONDÉRÉE (heures de pointe) ──────────
+    // Un travailleur disponible pendant le pic (14h-17h/18h) vaut plus
+    // Un travailleur indispo pendant le pic est pénalisé
+    const dow_ = new Date(dateStr+'T12:00').getDay();
+    const maxVal_    = calcCreneauMaxValue(creneau.debut, creneau.fin, dateStr);
+    const workerVal_ = calcWorkerCreneauValue(e, dow_, creneau.debut, creneau.fin, dateStr);
+    const coverRatio = maxVal_ > 0 ? workerVal_ / maxVal_ : 1;
+    // Bonus max +8 si présent 100% du temps dont tout le pic
+    // Malus si absent du pic
+    score += Math.round(coverRatio * 8);
 
     // Polyvalence
     if((e.sites||[]).length > 1) score += 1;
-
-    // Pénalité charge semaine (sauf pour responsable/senior qui font 6j/7)
     const loadH = ((workerLoad||{})[e.id]||0) / 60;
     // Utiliser le grade EFFECTIF (promotion auto incluse) pour déterminer la limite
     const gradeEffIs6 = getGradeEffectif(e);
@@ -2733,10 +2884,13 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
         if(mgrDispo && manquants > 0){
           if(!workerDays[mgrId]) workerDays[mgrId] = new Set();
-          assigned.push(mgrEmp);
+          // Calculer l'heure de début effective (après indisponibilité partielle)
+          const effStartMin = getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut);
+          const effStart = effStartMin > timeToMin(creneau.debut) ? minToTime(effStartMin) : creneau.debut;
+          assigned.push({...mgrEmp, _effectiveStart: effStart}); // noter l'heure réelle
           workerDays[mgrId].add(dateStr);
           workerLoad[mgrId] = (workerLoad[mgrId]||0)
-            + (timeToMin(creneau.fin) - timeToMin(creneau.debut));
+            + (timeToMin(creneau.fin) - effStartMin);
           manquants--;
           candidats = candidats.filter(c => c.emp.id !== mgrId);
 
