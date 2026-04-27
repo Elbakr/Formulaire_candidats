@@ -2155,14 +2155,12 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     // ── RÈGLE 2 : disponibilité ─────────────────────────────
     if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
-    // ── RÈGLE 2c : 1 site par jour ──────────────────────────────
-    // Vérifier si le worker a un créneau RÉEL ou un SENTINEL ce jour
-    // (le SENTINEL est posé par runMultiSiteAutoplan après chaque site)
-    {
-      const _wOff = dateToWeekOffset(dateStr);
-      const _di   = dateToDayIdx(dateStr);
-      const _ex   = e.weeks?.[_wOff]?.[_di];
-      if(_ex && _ex.start) continue; // déjà planifié ou verrouillé
+    // ── RÈGLE 2c : 1 site par jour (multi-sites uniquement) ─────
+    // _msBlocked = Map{dateStr → Set{empId}} passé via e._msBlocked
+    // N'agit QUE pendant l'autoplan multi-sites (sinon undefined)
+    if(e._msBlocked){
+      const blocked = e._msBlocked.get(dateStr);
+      if(blocked && blocked.has(e.id)) continue;
     }
 
     // ── SCORING ─────────────────────────────────────────────
@@ -2750,65 +2748,49 @@ async function runMultiSiteAutoplan(){
   const allResults = {}; // {siteId: [{weekStart, proposals}]}
   const today2 = new Date().toISOString().slice(0,10);
 
-  // ── Approche SENTINEL ────────────────────────────────────────
-  // Après chaque site, on pose un sentinel dans e.weeks[wOff][di]
-  // pour bloquer ce worker pour les sites suivants.
-  // La règle 2c dans matchWorkersToCreneau lit e.weeks et bloque si start défini.
-  // On sauvegarde les weeks originaux pour restaurer après.
-  const weeksBackup = {}; // {empId: {wOff: {di: originalDay}}}
+  // ── RÈGLE D'OR : 1 travailleur = 1 site par jour ────────────
+  // blockedOnDate = Map{ dateStr → Set{empId} }
+  // Alimenté APRÈS chaque site, utilisé AVANT le site suivant.
+  // N'affecte pas le même site ni les semaines différentes.
+  const blockedOnDate = new Map();
 
   for(const siteId of orderedSites){
     allResults[siteId] = [];
+
+    // Marquer temporairement les workers bloqués dans e._msBlocked
+    // pour que matchWorkersToCreneau puisse les exclure
+    employees.forEach(e=>{
+      e._msBlocked = blockedOnDate; // référence partagée
+    });
+
     for(const weekStart of weeks){
       try {
         const props = genPlanningProposals(siteId, weekStart, nbProps);
         allResults[siteId].push({weekStart, proposals:props});
 
-        // Poser les SENTINELS pour les workers assignés (meilleure proposition)
-        // Cela bloque ces workers pour les sites suivants ce même jour
-        if(props[0]){
-          props[0].plan.forEach(slot=>{
+        // Enregistrer tous les workers de toutes les propositions
+        // comme bloqués pour les AUTRES sites (pas pour le même site)
+        props.forEach(prop=>{
+          prop.plan.forEach(slot=>{
             slot.assigned.forEach(empRef=>{
-              const e = employees.find(x=>x.id===empRef.id);
-              if(!e) return;
-              const wOff = dateToWeekOffset(slot.dateStr);
-              const di   = dateToDayIdx(slot.dateStr);
-              if(!e.weeks) e.weeks={};
-              if(!e.weeks[wOff]) e.weeks[wOff]={};
-              // Sauvegarder l'état original avant de poser le sentinel
-              if(!weeksBackup[e.id]) weeksBackup[e.id]={};
-              if(!weeksBackup[e.id][wOff]) weeksBackup[e.id][wOff]={};
-              if(!(di in weeksBackup[e.id][wOff])){
-                weeksBackup[e.id][wOff][di] = e.weeks[wOff][di]; // peut être undefined
-              }
-              // Poser le sentinel uniquement si pas déjà planifié
-              if(!e.weeks[wOff][di]?.start){
-                e.weeks[wOff][di] = {status:'work', start:'00:00', end:'23:59', _multisite_lock:true};
-              }
+              if(!blockedOnDate.has(slot.dateStr))
+                blockedOnDate.set(slot.dateStr, new Set());
+              blockedOnDate.get(slot.dateStr).add(empRef.id);
             });
           });
-        }
+        });
       } catch(err){
         console.error(`[Autoplan] ${siteId} sem ${weekStart}:`, err);
       }
     }
+
+    // IMPORTANT : vider le blocage pour le site suivant
+    // (les workers bloqués sur ce site ne sont bloqués que pour les autres sites)
+    // On garde blockedOnDate pour les sites suivants mais on ne le vide pas.
   }
 
-  // ── Restaurer les weeks originaux (supprimer les sentinels) ──
-  Object.entries(weeksBackup).forEach(([empId, wOffs])=>{
-    const e = employees.find(x=>x.id===parseInt(empId));
-    if(!e) return;
-    Object.entries(wOffs).forEach(([wOff, days])=>{
-      Object.entries(days).forEach(([di, originalDay])=>{
-        if(originalDay === undefined){
-          delete e.weeks[parseInt(wOff)]?.[parseInt(di)];
-        } else {
-          if(!e.weeks[parseInt(wOff)]) e.weeks[parseInt(wOff)]={};
-          e.weeks[parseInt(wOff)][parseInt(di)] = originalDay;
-        }
-      });
-    });
-  });
+  // Nettoyer la référence temporaire
+  employees.forEach(e=>{ delete e._msBlocked; });
 
   // Stocker pour les boutons d'action
   _msResults = allResults;
@@ -3307,13 +3289,12 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // Cette assignation est INCONDITIONNELLE — avant la boucle de scoring.
         const mgrEmp  = mgrId ? active.find(x=>x.id===mgrId) : null;
         const mgrAlreadyThisDay = mgrId && workerDays[mgrId]?.has(dateStr);
-        // Vérifier aussi le sentinel multi-sites pour le manager
+        // Vérifier le blocage multi-sites pour le manager
         const mgrSentinel = (()=>{
-          if(!mgrId) return false;
-          const _w = dateToWeekOffset(dateStr);
-          const _d = dateToDayIdx(dateStr);
-          const _ex = mgrEmp?.weeks?.[_w]?.[_d];
-          return _ex && _ex.start ? true : false;
+          if(!mgrId || !mgrEmp) return false;
+          if(!mgrEmp._msBlocked) return false;
+          const blocked = mgrEmp._msBlocked.get(dateStr);
+          return !!(blocked && blocked.has(mgrId));
         })();
         // Vérifier si le créneau actuel correspond bien à l'heure disponible du responsable
         const mgrEffStart = mgrEmp ? getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut) : 0;
