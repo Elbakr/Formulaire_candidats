@@ -3503,17 +3503,20 @@ function genPlanningProposals(siteId, weekStart, n=3){
           manquants--;
         }
 
-        // ── 2e passage si manquants : pool élargi (couverture minimale) ──
+        // ── 2e passage si manquants : pool élargi MAIS site respecté ──
         if(manquants > 0){
-          // Accepter TOUS les workers actifs disponibles, pas seulement ceux du site
           const fallbackCandidats = active.filter(emp2=>{
             if(assigned.some(a=>a.id===emp2.id)) return false;
             if(workerDays[emp2.id]?.has(dateStr)) return false;
             if(emp2._msBlocked?.get(dateStr)?.has(emp2.id)) return false;
             if(!isWorkerAvailable(emp2, dateStr, creneau.debut, creneau.fin)) return false;
-            return true;
+            // RESPECTER LA RÈGLE SITE : ne prendre que des workers éligibles
+            const av2 = getWorkerAvailability(emp2);
+            const inList2 = (emp2.sites||[]).includes(siteId);
+            const isDef2  = av2.defaultSite === siteId;
+            const noSite2 = !av2.defaultSite && !(emp2.sites||[]).length;
+            return inList2 || isDef2 || noSite2;
           }).sort((a,b)=>{
-            // Prioriser par grade effectif puis ancienneté
             const ga = ['directeur','manager','senior'].includes(getGradeEffectif(a))?2:1;
             const gb = ['directeur','manager','senior'].includes(getGradeEffectif(b))?2:1;
             if(ga!==gb) return gb-ga;
