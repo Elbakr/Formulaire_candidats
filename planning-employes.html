@@ -2061,18 +2061,14 @@ function isWorkerAvailable(e, dateStr, debut, fin){
   const finH  = timeToMin(fin);
   const totalH = finH - debH;
 
-  // ── PRIORITÉ 0 : Vérifier e.weeks — congés et plannings réels ──
-  // Si le travailleur a un congé (status:'leave') ce jour dans son planning
-  // → BLOQUÉ sans exception, même Sam/Dim/Fériés
+  // ── PRIORITÉ 0 : Vérifier e.weeks — congés enregistrés ────────
+  // UNIQUEMENT les congés (status:'leave') bloquent l'autoplan.
+  // Un shift existant (status:'work') n'empêche PAS la regénération —
+  // applyProposal vérifie lui-même s'il doit écraser ou non.
   const wOff_ = dateToWeekOffset(dateStr);
   const di_   = dateToDayIdx(dateStr);
   const dayEntry = e.weeks?.[wOff_]?.[di_];
-  if(dayEntry){
-    // Congé explicite → toujours bloqué
-    if(dayEntry.status === 'leave') return false;
-    // Shift existant (non-sentinel) → bloqué pour ne pas doubler
-    if(dayEntry.status === 'work' && dayEntry.start && !dayEntry._multisite_lock) return false;
-  }
+  if(dayEntry && dayEntry.status === 'leave') return false;
 
   // ── Vérifier les indisponibilités NON récurrentes (congés ponctuels) ──
   // Ces congés sont stockés dans availability.unavail avec recurrent=false
