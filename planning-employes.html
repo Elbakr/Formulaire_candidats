@@ -2061,24 +2061,55 @@ function isWorkerAvailable(e, dateStr, debut, fin){
   const finH  = timeToMin(fin);
   const totalH = finH - debH;
 
+  // ── PRIORITÉ 0 : Vérifier e.weeks — congés et plannings réels ──
+  // Si le travailleur a un congé (status:'leave') ce jour dans son planning
+  // → BLOQUÉ sans exception, même Sam/Dim/Fériés
+  const wOff_ = dateToWeekOffset(dateStr);
+  const di_   = dateToDayIdx(dateStr);
+  const dayEntry = e.weeks?.[wOff_]?.[di_];
+  if(dayEntry){
+    // Congé explicite → toujours bloqué
+    if(dayEntry.status === 'leave') return false;
+    // Shift existant (non-sentinel) → bloqué pour ne pas doubler
+    if(dayEntry.status === 'work' && dayEntry.start && !dayEntry._multisite_lock) return false;
+  }
+
+  // ── Vérifier les indisponibilités NON récurrentes (congés ponctuels) ──
+  // Ces congés sont stockés dans availability.unavail avec recurrent=false
+  // et correspondent à des dates spécifiques
+  const dateDs = new Date(dateStr+'T12:00');
+  for(const u of (avail.unavail||[])){
+    if(u.recurrent) continue; // les récurrentes sont gérées plus bas
+    // Congé ponctuel : vérifier si la date correspond
+    if(u.dateStr && u.dateStr === dateStr){ return false; }
+    // Ou si le jour de la semaine ET la date sont dans une plage
+    if(u.dateFrom && u.dateTo){
+      if(dateStr >= u.dateFrom && dateStr <= u.dateTo) return false;
+    }
+  }
+
   // ── RÈGLE ABSOLUE : Sam, Dim et jours fériés ─────────────────
   const isSatOrSun = (dow===0||dow===6);
   const {isFerie, isVacances}  = isPeriodForte(dateStr);
 
   if(isSatOrSun || isFerie || isVacances){
-    // Critère : couvrir au moins 40% de la VALEUR pondérée (pic inclus)
-    // Quelqu'un absent pendant tout le pic (14h-17h/18h) sera exclu
     return coversEnoughRushHours(e, dow, debut, fin, dateStr);
   }
 
   // ── Jours normaux Lun→Ven ─────────────────────────────────────
-  // Tolérance : on exclut seulement si l'indispo couvre > 60% du créneau
-  // ou si elle tombe entièrement dans le pic (14h-17h/18h)
   const fixedOff = e.fixedOff||e.prefOff||[];
   const dowIdx = (dow===0)?6:(dow-1);
   if(fixedOff.includes(dowIdx)) return false;
 
-  // Vérifier via la valeur pondérée également pour les jours normaux
+  // Indisponibilités récurrentes
+  for(const u of (avail.unavail||[])){
+    if(!u.recurrent) continue;
+    if(u.day !== dow) continue;
+    const uDeb = timeToMin(u.debut||'00:00');
+    const uFin = timeToMin(u.fin||'23:59');
+    if(debH < uFin && finH > uDeb) return false;
+  }
+
   return coversEnoughRushHours(e, dow, debut, fin, dateStr);
 }
 
@@ -2264,6 +2295,12 @@ const AUTOPLAN_RULES = {
     active: true,
     label: '🔄 Répartir les jours de repos (pas 2 collègues off le même jour)',
     description: 'Distribue les jours de repos de façon tournante entre collègues du même site'
+  },
+  // Règle 8 : Continuité vendredi — équipe du matin prioritaire l'après-midi
+  fridayContinuity: {
+    active: true,
+    label: '🕌 Vendredi : équipe du matin prioritaire l\'après-midi (après fermeture)',
+    description: 'Après la pause de fermeture du vendredi, les travailleurs du matin sont assignés en priorité pour l\'après-midi'
   },
 };
 
@@ -3321,7 +3358,8 @@ function genPlanningProposals(siteId, weekStart, n=3){
         );
 
         // ── VENDREDI après-midi : équipe du matin en tête de liste ───────
-        if(isFridayAfternoon && morningTeamFriday.size > 0){
+        if(isFridayAfternoon && morningTeamFriday.size > 0
+           && AUTOPLAN_RULES.fridayContinuity?.active !== false){
           const morningCandidats = candidats.filter(c => morningTeamFriday.has(c.emp.id));
           const otherCandidats   = candidats.filter(c => !morningTeamFriday.has(c.emp.id));
           morningCandidats.sort((a,b)=>b.score-a.score);
@@ -3463,6 +3501,32 @@ function genPlanningProposals(siteId, weekStart, n=3){
           workerDays[emp.id].add(dateStr);
           workerLoad[emp.id]=(workerLoad[emp.id]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
           manquants--;
+        }
+
+        // ── 2e passage si manquants : pool élargi (couverture minimale) ──
+        if(manquants > 0){
+          // Accepter TOUS les workers actifs disponibles, pas seulement ceux du site
+          const fallbackCandidats = active.filter(emp2=>{
+            if(assigned.some(a=>a.id===emp2.id)) return false;
+            if(workerDays[emp2.id]?.has(dateStr)) return false;
+            if(emp2._msBlocked?.get(dateStr)?.has(emp2.id)) return false;
+            if(!isWorkerAvailable(emp2, dateStr, creneau.debut, creneau.fin)) return false;
+            return true;
+          }).sort((a,b)=>{
+            // Prioriser par grade effectif puis ancienneté
+            const ga = ['directeur','manager','senior'].includes(getGradeEffectif(a))?2:1;
+            const gb = ['directeur','manager','senior'].includes(getGradeEffectif(b))?2:1;
+            if(ga!==gb) return gb-ga;
+            return getAnciennete(b)-getAnciennete(a);
+          });
+          for(const emp2 of fallbackCandidats){
+            if(manquants <= 0) break;
+            if(!workerDays[emp2.id]) workerDays[emp2.id]=new Set();
+            assigned.push(emp2);
+            workerDays[emp2.id].add(dateStr);
+            workerLoad[emp2.id]=(workerLoad[emp2.id]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
+            manquants--;
+          }
         }
 
         planMap[dateStr].push({
@@ -5242,6 +5306,46 @@ function loadSlotsFromEmp(e){
 
 // Variable globale pour stocker les propositions courantes (accessible depuis le HTML)
 let _currentProposals = [];
+let _recapContext = null; // {siteId, weekStart, prop} pour le bouton Appliquer du récap
+
+function applyRecapProposal(){
+  if(!_recapContext){ showToast('Aucune proposition à appliquer'); return; }
+  const {siteId, weekStart, prop} = _recapContext;
+
+  histPush();
+  let applied = 0;
+
+  prop.plan.forEach(slot=>{
+    slot.assigned.forEach(empRef=>{
+      const e = employees.find(x=>x.id===empRef.id); if(!e) return;
+      const wOff   = dateToWeekOffset(slot.dateStr);
+      const dayIdx = dateToDayIdx(slot.dateStr);
+      if(!e.weeks) e.weeks={};
+      if(!e.weeks[wOff]) e.weeks[wOff]={};
+      if(!e.weeks[wOff][dayIdx]?.start){
+        const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
+        e.weeks[wOff][dayIdx]={
+          status:'work', start:effectiveStart, end:slot.creneau.fin,
+          pause:e.pause||0, endManual:true, site:siteId, note:'🤖 Auto'
+        };
+        applied++;
+      }
+    });
+  });
+
+  autoSave();
+  renderSidebar();
+  if(emp()) loadPanel();
+
+  // Naviguer vers la semaine appliquée dans la vue principale
+  curWeek = dateToWeekOffset(weekStart);
+  if(_viewMode==='month') toggleViewMode();
+  else renderWeek();
+  updateMonthBox();
+
+  document.getElementById('site-recap-modal')?.remove();
+  showToast(`✅ ${applied} créneaux appliqués — Vue planning mise à jour`);
+}
 
 function runPlanningEngine(){
   const siteId   = document.getElementById('pe-site')?.value;
@@ -5477,6 +5581,8 @@ function applyProposal(siteId, weekStart, propIdx){
 
 // ── Vue récap imprimable du planning de site après autoplan ──
 function openSiteWeekRecap(siteId, weekStart, prop){
+  // Stocker le contexte pour le bouton Appliquer
+  _recapContext = {siteId, weekStart, prop};
   const site = SITES[siteId]||{};
   const DAYS_FR = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
   const DAYS_FULL = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
@@ -5494,19 +5600,32 @@ function openSiteWeekRecap(siteId, weekStart, prop){
     byDay[slot.dateStr].push(slot);
   });
 
-  // Calculer total heures NETTES par travailleur via calcNetHours
+  // Calculer total heures NETTES par travailleur
+  // Regrouper par jour d'abord pour éviter de déduire la pause 2x (vendredi)
   const workerHours = {};
-  const workerDaysSeen = new Set();
+  const workerDayMinutes = {}; // {empId: {dateStr: {startMin, endMin}}}
 
   prop.plan.forEach(slot=>{
     slot.assigned.forEach(e=>{
-      const dayKey = e.id + '_' + slot.dateStr;
-      if(workerDaysSeen.has(dayKey)) return;
-      workerDaysSeen.add(dayKey);
-      // Utiliser l'heure effective du worker si disponible
-      const startT = e._effectiveStart || slot.creneau.debut;
-      const h = calcNetHours(e, slot.dateStr, startT, slot.creneau.fin);
-      workerHours[e.id] = (workerHours[e.id]||{emp:e, hours:0});
+      if(!workerDayMinutes[e.id]) workerDayMinutes[e.id]={};
+      const ds = slot.dateStr;
+      const startMin = timeToMin(e._effectiveStart || slot.creneau.debut);
+      const endMin   = timeToMin(slot.creneau.fin);
+      if(!workerDayMinutes[e.id][ds]){
+        workerDayMinutes[e.id][ds] = {e, startMin, endMin};
+      } else {
+        // Étendre la plage si 2 créneaux le même jour (vendredi matin+aprem)
+        workerDayMinutes[e.id][ds].startMin = Math.min(workerDayMinutes[e.id][ds].startMin, startMin);
+        workerDayMinutes[e.id][ds].endMin   = Math.max(workerDayMinutes[e.id][ds].endMin,   endMin);
+      }
+    });
+  });
+
+  // Calculer les heures nettes par jour (pause + fermeture vendredi déduits une seule fois)
+  Object.entries(workerDayMinutes).forEach(([empId, days])=>{
+    Object.entries(days).forEach(([ds, {e, startMin, endMin}])=>{
+      const h = calcNetHours(e, ds, minToTime(startMin), minToTime(endMin));
+      if(!workerHours[e.id]) workerHours[e.id]={emp:e, hours:0};
       workerHours[e.id].hours += h;
     });
   });
@@ -5528,6 +5647,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
         </div>
       </div>
       <div style="display:flex;gap:8px">
+        <button onclick="applyRecapProposal()" style="padding:7px 14px;border-radius:8px;border:none;background:#059669;color:white;font-size:.78rem;font-weight:700;cursor:pointer">✓ Appliquer au planning</button>
         <button onclick="printSiteRecap()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.78rem;font-weight:700;cursor:pointer">🖨️ Imprimer</button>
         <button onclick="document.getElementById('site-recap-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer">✕</button>
       </div>
