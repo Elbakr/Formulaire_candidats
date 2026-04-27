@@ -366,6 +366,8 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     <button onclick="openStoreManagerConfig()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">🏪 Responsables</button>
     <button onclick="openRestDaysManager()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--purple);background:var(--plight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--purple)">🔄 Jours repos</button>
     <button onclick="openStoreNeedsEditor()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#0891b2">📋 Besoins magasins</button>
+    <button onclick="openAuditPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #6366f1;background:#ede9fe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#6366f1">📋 Traçabilité</button>
+    <button onclick="openResetPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #dc2626;background:#fee2e2;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#dc2626">🔄 Reset</button>
     <button onclick="openValidationCenter()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--orange);background:var(--olight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--orange)">⏳ Validations</button>
     <button onclick="openCandidatesModal()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">👥 Candidats</button>
     <!-- Notifications manager -->
@@ -2123,7 +2125,9 @@ function isWorkerAvailable(e, dateStr, debut, fin){
   }
 
   // ── Jours normaux Lun→Ven ─────────────────────────────────────
-  const fixedOff = e.fixedOff||e.prefOff||[];
+  // fixedOff = congés fixes absolus (bloquants)
+  // restDays = jour de repos calculé (préférence, pas bloquant pour l'autoplan)
+  const fixedOff = (e.fixedOff||e.prefOff||[]).filter(d=>!(e.restDays||[]).includes(d));
   const dowIdx = (dow===0)?6:(dow-1);
   if(fixedOff.includes(dowIdx)) return false;
 
@@ -2266,8 +2270,21 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     const is6Days = ['directeur','manager'].includes(gradeEffIs6)
                  || (gradeEffIs6==='senior' && anc>=3)
                  || (['CDI','CDD'].includes(e.status) && anc>=12); // CDI/CDD 12 mois = 6j/7
-    // Le responsable effectif du site ne reçoit JAMAIS de pénalité de charge
-    if(!isMgr && loadH > (is6Days ? 42 : 35)) score -= 2;
+    // Pénalité de charge légère — ne bloque JAMAIS, pénalise seulement
+    // Un worker chargé reste disponible pour les sites qui en ont besoin
+    if(!isMgr){
+      const limit = is6Days ? 42 : 35;
+      if(loadH > limit) score -= 1;       // légèrement surchargé
+      if(loadH > limit * 1.2) score -= 2; // très surchargé
+    }
+
+    // ── Pénalité jour de repos préféré (restDays) ──────────────
+    // Si c'est un jour de repos préféré du worker → -3 de score
+    // Il reste disponible mais sera moins prioritaire
+    if(AUTOPLAN_RULES.balanceRestDays?.active && e.restDays?.length){
+      const dowIdx_ = (dow_===0)?6:(dow_-1);
+      if(e.restDays.includes(dowIdx_)) score -= 3;
+    }
 
     candidates.push({emp: e, score, isDefaultSite, inSiteList, isMgr});
   }
@@ -2948,7 +2965,7 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
 
   // ── Onglets par site ──────────────────────────────────────────
   const siteTabBtns = orderedSites.map((s,i)=>`
-    <button onclick="switchMsTab('${s}')" id="ms-tab-btn-${s}"
+    <button onclick="event.stopPropagation();switchMsTab('${s}')" id="ms-tab-btn-${s}"
       style="padding:8px 14px;border-radius:8px 8px 0 0;border:1.5px solid #e2e0d8;border-bottom:none;
              background:${i===0?'white':'#f5f4f0'};font-size:.76rem;font-weight:700;cursor:pointer;
              color:${i===0?SITES[s]?.color||'#2d5be3':'#9898b8'}">
@@ -2970,11 +2987,11 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="applyAllMultiSite()" style="padding:7px 16px;border-radius:8px;border:none;
+        <button onclick="event.stopPropagation();applyAllMultiSite()" style="padding:7px 16px;border-radius:8px;border:none;
           background:#059669;color:white;font-size:.8rem;font-weight:800;cursor:pointer">
           ✓ Tout appliquer (meilleure proposition)
         </button>
-        <button onclick="document.getElementById('ms-results-modal').remove()"
+        <button onclick="event.stopPropagation();document.getElementById('ms-results-modal').remove()"
           style="background:rgba(255,255,255,.15);border:none;color:white;width:30px;height:30px;border-radius:7px;cursor:pointer">✕</button>
       </div>
     </div>
@@ -3051,7 +3068,7 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
     </div>
   </div>`;
 
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
   if(orderedSites.length) switchMsTab(orderedSites[0]);
 }
@@ -3085,7 +3102,7 @@ function switchMsTab(siteId){
             </div>
           </div>
           <button data-apply-site="${siteId}" data-apply-week="${weekStart}" data-apply-idx="${pi}"
-            onclick="applyMsSiteWeek(this.dataset.applySite, this.dataset.applyWeek, parseInt(this.dataset.applyIdx))"
+            onclick="event.stopPropagation();applyMsSiteWeek(this.dataset.applySite, this.dataset.applyWeek, parseInt(this.dataset.applyIdx))"
             style="padding:4px 12px;border-radius:6px;border:none;
                    background:${pi===0?site.color||'#2d5be3':'#6b7280'};
                    color:white;font-size:.72rem;font-weight:700;cursor:pointer">
@@ -3160,8 +3177,11 @@ function applyMsSiteWeek(siteId, weekStart, propIdx){
       if(!e.weeks[wOff]) e.weeks[wOff]={};
       const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
       if(!e.weeks[wOff][di]?.start){
-        e.weeks[wOff][di]={status:'work',start:effectiveStart,end:slot.creneau.fin,
-          pause:e.pause||0,endManual:true,site:siteId,note:'🤖 Auto'};
+        const msDay = {status:'work',start:effectiveStart,end:slot.creneau.fin,
+          pause:e.pause||0,endManual:true,site:siteId,note:'🤖 Auto',
+          _source:'auto',_ts:new Date().toISOString()};
+        auditLog('apply_auto',e.id,e.firstname+' '+e.lastname,slot.dateStr,null,msDay,'auto');
+        e.weeks[wOff][di]=msDay;
         applied++;
       }
     });
@@ -3172,6 +3192,14 @@ function applyMsSiteWeek(siteId, weekStart, propIdx){
 
 function applyAllMultiSite(){
   if(!confirm('Appliquer la meilleure proposition pour tous les sites et toutes les semaines ?')) return;
+  // Snapshot pour restauration
+  const allDates_ = [];
+  _msOrderedSites.forEach(sid=>{(_msResults[sid]||[]).forEach(({weekStart})=>allDates_.push(weekStart));});
+  if(allDates_.length){
+    const ws_=allDates_.reduce((a,b)=>a<b?a:b);
+    const we_=allDates_.reduce((a,b)=>a>b?a:b);
+    autoPlanHistorySave(_msOrderedSites, ws_, we_);
+  }
   histPush();
   let total = 0;
   _msOrderedSites.forEach(siteId=>{
@@ -3368,13 +3396,14 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
   // ── Sync jours de repos → fixedOff si règle active ──────────
   const fixedOffBackup = {};
+  // restDays = préférence de repos → pénalité de score UNIQUEMENT, jamais bloquant
+  // On ne merge plus restDays dans fixedOff pendant l'autoplan
   if(AUTOPLAN_RULES.balanceRestDays?.active){
     const needsInit = active.every(e=>!e.restDays?.length);
     if(needsInit) applyRestDaysDistribution();
+    // Sauvegarder mais NE PAS merger dans fixedOff
     active.forEach(e=>{
       fixedOffBackup[e.id] = [...(e.fixedOff||[])];
-      if(e.restDays?.length)
-        e.fixedOff = [...new Set([...(e.fixedOff||[]),...e.restDays])];
     });
   }
 
@@ -3531,11 +3560,13 @@ function genPlanningProposals(siteId, weekStart, n=3){
           if(!workerDays[emp.id]) workerDays[emp.id]=new Set();
           if(workerDays[emp.id].has(dateStr)) continue;
 
-          // ── RÈGLE 6 : heures max mois ──
+          // ── RÈGLE 6 : heures max semaine (converti depuis quota mensuel) ──
           if(AUTOPLAN_RULES.respectMonthlyMax.active && emp.hoursMaxMonth && !emp.allowOvertime){
             const loadH=(workerLoad[emp.id]||0)/60;
             const crenH=(timeToMin(creneau.fin)-timeToMin(creneau.debut))/60;
-            if(loadH+crenH>emp.hoursMaxMonth) continue;
+            // Convertir quota mensuel en hebdomadaire (÷4.33 semaines/mois)
+            const weeklyMax = emp.hoursMaxMonth / 4.33;
+            if(loadH+crenH > weeklyMax) continue;
           }
 
           // ── RÈGLE 2+3 : mix profils (senior obligatoire si 2+ juniors) ──
@@ -4026,6 +4057,8 @@ function renderMonthView(){
       </div>
       ${isWork?`<div style="font-size:.58rem;font-weight:700;color:${textColor};line-height:1.2">${day.start}<br>→${day.end}</div>`:''}
       ${dayH>0?`<div style="font-size:.58rem;color:${textColor};opacity:.7;margin-top:1px">${toHM(dayH)}</div>`:''}
+      ${isWork&&day._source==='auto'?`<div style="font-size:.52rem;color:#7c3aed;font-weight:700;margin-top:1px">🤖</div>`:''}
+      ${isWork&&day._source!=='auto'&&day.start?`<div style="font-size:.52rem;color:var(--green);font-weight:700;margin-top:1px">✏️</div>`:''}
       ${isUnavail&&isLeave?`<div style="font-size:.56rem;color:var(--red)">🚫</div>`:''}
       ${isPref&&isLeave&&!isUnavail?`<div style="font-size:.56rem;color:var(--green)">⭐</div>`:''}
     </div>`;
@@ -5635,7 +5668,7 @@ function applyProposal(siteId, weekStart, propIdx){
       if(!e.weeks[wOff][dayIdx] || !e.weeks[wOff][dayIdx].start){
         // Utiliser _effectiveStart si défini (ex: responsable avec indispo partielle)
         const effectiveStart = empRef._effectiveStart || slot.creneau.debut;
-        e.weeks[wOff][dayIdx]={
+        const newDay = {
           status:'work',
           start: effectiveStart,
           end:   slot.creneau.fin,
@@ -5643,8 +5676,13 @@ function applyProposal(siteId, weekStart, propIdx){
           pause2:0,
           endManual:true,
           site:  siteId,
-          note:  '🤖 Auto-planifié'
+          note:  '🤖 Auto',
+          _source:'auto',
+          _ts: new Date().toISOString()
         };
+        auditLog('apply_auto', e.id, e.firstname+' '+e.lastname,
+          slot.dateStr, e.weeks[wOff][dayIdx]||null, newDay, 'auto');
+        e.weeks[wOff][dayIdx] = newDay;
         applied++;
       }
     });
@@ -6288,6 +6326,223 @@ function fmtDate(d){return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-
 function fmtDateFull(s){if(!s)return '-';const d=new Date(s);return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});}
 
 // Convertit heures décimales → "Xh Ymin" (ex: 6.93 → "6h 56min")
+
+// ══════════════════════════════════════════════════════════════
+// TRAÇABILITÉ — Log d'audit et historique autoplans
+// ══════════════════════════════════════════════════════════════
+
+const AUDIT_MAX = 500;
+const AUTOPLAN_HISTORY_MAX = 5;
+
+function auditLog(action, empId, empName, dateStr, before, after, source){
+  const entries = JSON.parse(localStorage.getItem('gp_audit')||'[]');
+  entries.unshift({
+    ts: new Date().toISOString(),
+    action,           // 'assign' | 'remove' | 'modify' | 'apply_auto' | 'reset' | 'leave'
+    empId, empName, dateStr,
+    before: before ? JSON.stringify(before) : null,
+    after:  after  ? JSON.stringify(after)  : null,
+    source            // 'auto' | 'manual' | 'worker' | 'reset'
+  });
+  if(entries.length > AUDIT_MAX) entries.splice(AUDIT_MAX);
+  localStorage.setItem('gp_audit', JSON.stringify(entries));
+}
+
+function auditGetAll(){ return JSON.parse(localStorage.getItem('gp_audit')||'[]'); }
+function auditClear(){ localStorage.removeItem('gp_audit'); showToast("🗑 Log d'audit effacé"); }
+
+// Sauvegarder un snapshot avant autoplan (pour restauration)
+function autoPlanHistorySave(sites, weekStart, weekEnd){
+  const history = JSON.parse(localStorage.getItem('gp_autoplan_history')||'[]');
+  // Snapshot des weeks de tous les workers concernés
+  const snapshot = {};
+  employees.filter(e=>!e.archived).forEach(e=>{
+    if(Object.keys(e.weeks||{}).length > 0){
+      snapshot[e.id] = JSON.parse(JSON.stringify(e.weeks));
+    }
+  });
+  history.unshift({
+    ts: new Date().toISOString(),
+    sites, weekStart, weekEnd,
+    snapshot,
+    label: 'Autoplan ' + sites.join('+') + ' — ' + new Date(weekStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})
+           + ' → ' + new Date(weekEnd+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'})
+  });
+  if(history.length > AUTOPLAN_HISTORY_MAX) history.splice(AUTOPLAN_HISTORY_MAX);
+  localStorage.setItem('gp_autoplan_history', JSON.stringify(history));
+}
+
+// Restaurer un snapshot (annulation autoplan)
+function autoPlanHistoryRestore(idx){
+  const history = JSON.parse(localStorage.getItem('gp_autoplan_history')||'[]');
+  const entry = history[idx];
+  if(!entry){ showToast('Snapshot introuvable'); return; }
+  if(!confirm('Restaurer le planning avant "'+entry.label+'" ?\nToutes les modifications depuis seront perdues.')) return;
+  histPush();
+  employees.forEach(e=>{
+    if(entry.snapshot[e.id]){
+      // Restaurer les weeks depuis le snapshot
+      const snap = entry.snapshot[e.id];
+      Object.entries(snap).forEach(([wOff, days])=>{
+        if(!e.weeks) e.weeks={};
+        e.weeks[parseInt(wOff)] = JSON.parse(JSON.stringify(days));
+      });
+    }
+  });
+  autoSave(); renderSidebar(); if(emp()) loadPanel();
+  showToast('✅ Planning restauré — état avant "'+entry.label+'"');
+  document.getElementById('audit-modal')?.remove();
+}
+
+// Ouvrir le panneau traçabilité
+function openAuditPanel(){
+  document.getElementById('audit-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'audit-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  // Historique autoplans
+  const history = JSON.parse(localStorage.getItem('gp_autoplan_history')||'[]');
+  const histHTML = history.length === 0
+    ? '<div style="color:var(--ink3);font-size:.78rem;padding:8px">Aucun autoplan dans l&#39;historique</div>'
+    : history.map((h,i)=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px">
+        <div>
+          <div style="font-size:.78rem;font-weight:700">${h.label}</div>
+          <div style="font-size:.66rem;color:var(--ink3)">${new Date(h.ts).toLocaleString('fr-BE')}</div>
+        </div>
+        <button onclick="event.stopPropagation();autoPlanHistoryRestore(${i})"
+          style="padding:4px 10px;border-radius:6px;border:1.5px solid #dc2626;background:#fee2e2;color:#dc2626;font-size:.72rem;font-weight:700;cursor:pointer">
+          ↩ Restaurer
+        </button>
+      </div>`).join('');
+
+  // Log d'audit (50 dernières entrées)
+  const entries = auditGetAll().slice(0, 50);
+  const ICONS = {auto:'🤖', manual:'✏️', worker:'👤', reset:'🔄'};
+  const ACTION_FR = {assign:'Planifié', remove:'Retiré', modify:'Modifié', apply_auto:'Auto appliqué', reset:'Réinitialisé', leave:'Congé'};
+  const logHTML = entries.length === 0
+    ? '<div style="color:var(--ink3);font-size:.78rem;padding:8px">Aucune entrée</div>'
+    : entries.map(e=>`
+      <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #f5f4f0;font-size:.7rem">
+        <div style="flex-shrink:0;width:100px;color:var(--ink3)">${new Date(e.ts).toLocaleString('fr-BE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+        <div style="flex-shrink:0;width:16px">${ICONS[e.source]||'•'}</div>
+        <div style="flex:1">
+          <span style="font-weight:700">${e.empName||'?'}</span>
+          <span style="color:var(--ink3)"> · ${new Date(e.dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'})}</span>
+          <span style="color:var(--accent);margin-left:4px">${ACTION_FR[e.action]||e.action}</span>
+          ${e.after ? '<span style="color:var(--ink3);margin-left:4px">→ '+JSON.parse(e.after).start+'→'+JSON.parse(e.after).end+'</span>' : ''}
+        </div>
+      </div>`).join('');
+
+  modal.innerHTML = `
+  <div style="background:white;border-radius:16px;width:100%;max-width:720px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+    <div style="background:linear-gradient(135deg,#1a1a2e,#6366f1);padding:14px 20px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:.95rem;font-weight:800;color:white">📋 Traçabilité & Historique</div>
+        <div style="font-size:.68rem;color:rgba(255,255,255,.55)">🤖 Auto · ✏️ Manuel · 👤 Worker</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="event.stopPropagation();if(confirm('Effacer tout le log d\'audit ?'))auditClear()" style="padding:5px 10px;border-radius:6px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.72rem;cursor:pointer">🗑 Effacer log</button>
+        <button onclick="event.stopPropagation();modal.remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+      </div>
+    </div>
+    <div style="padding:14px 18px;overflow-y:auto;max-height:80vh">
+      <!-- HISTORIQUE AUTOPLANS -->
+      <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;color:#9898b8;margin-bottom:8px;letter-spacing:.06em">↩ Historique autoplans (restauration possible)</div>
+      <div style="margin-bottom:16px">${histHTML}</div>
+      <!-- LOG D'AUDIT -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;color:#9898b8;letter-spacing:.06em">📋 Log d'audit (50 dernières actions)</div>
+        <div style="font-size:.64rem;color:var(--ink3)">${entries.length} entrée(s)</div>
+      </div>
+      <div style="background:#f8f7f5;border-radius:8px;padding:8px 10px;max-height:300px;overflow-y:auto">${logHTML}</div>
+    </div>
+  </div>`;
+
+  document.body.appendChild(modal);
+}
+
+// Reset d'une semaine ou d'une période
+function openResetPanel(){
+  document.getElementById('reset-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'reset-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1001;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  const today = new Date().toISOString().slice(0,10);
+  modal.innerHTML = `
+  <div style="background:white;border-radius:14px;padding:20px;max-width:460px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
+    <div style="font-size:.95rem;font-weight:800;margin-bottom:14px">🔄 Réinitialiser le planning</div>
+    <div style="font-size:.78rem;color:var(--ink3);margin-bottom:14px">Efface les créneaux planifiés sur la période choisie. Les congés enregistrés ne sont pas touchés.</div>
+
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1"><div style="font-size:.64rem;color:#9898b8;margin-bottom:3px">Du</div>
+        <input type="date" id="rst-start" value="${today}" style="width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.82rem"></div>
+      <div style="flex:1"><div style="font-size:.64px;color:#9898b8;margin-bottom:3px">Au</div>
+        <input type="date" id="rst-end" value="${today}" style="width:100%;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.82rem"></div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:.64rem;color:#9898b8;margin-bottom:5px">Sites concernés</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${Object.values(SITES).map(s=>`
+          <label style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;border:1.5px solid var(--line);font-size:.72rem;cursor:pointer">
+            <input type="checkbox" class="rst-site" value="${s.id}" checked style="accent-color:${s.color||'#2d5be3'}"> ${s.id} ${s.name}
+          </label>`).join('')}
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:.64rem;color:#9898b8;margin-bottom:5px">Que réinitialiser ?</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;cursor:pointer"><input type="radio" name="rst-type" value="auto" checked> 🤖 Auto seulement</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;cursor:pointer"><input type="radio" name="rst-type" value="all"> Tout (auto + manuel)</label>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="event.stopPropagation();document.getElementById('reset-modal').remove()" style="padding:7px 14px;border-radius:7px;border:1.5px solid var(--line);background:transparent;font-size:.8rem;cursor:pointer">Annuler</button>
+      <button onclick="event.stopPropagation();executeReset()" style="padding:7px 16px;border-radius:7px;border:none;background:#dc2626;color:white;font-size:.82rem;font-weight:700;cursor:pointer">🔄 Réinitialiser</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function executeReset(){
+  const start = document.getElementById('rst-start')?.value;
+  const end   = document.getElementById('rst-end')?.value;
+  if(!start||!end){ showToast('Sélectionnez une plage de dates'); return; }
+  const sites = [...document.querySelectorAll('.rst-site:checked')].map(x=>x.value);
+  const type  = document.querySelector('input[name="rst-type"]:checked')?.value||'auto';
+  if(!confirm('Réinitialiser les créneaux '+type+' du '+start+' au '+end+' pour '+sites.join(',')+' ?')) return;
+
+  histPush();
+  let count = 0;
+  const cur = new Date(start+'T12:00');
+  const endD = new Date(end+'T12:00');
+  while(cur <= endD){
+    const ds = cur.toISOString().slice(0,10);
+    const wOff = dateToWeekOffset(ds);
+    const di   = dateToDayIdx(ds);
+    employees.filter(e=>!e.archived).forEach(e=>{
+      const day = e.weeks?.[wOff]?.[di];
+      if(!day || day.status !== 'work') return;
+      // Vérifier le site
+      if(sites.length && day.site && !sites.includes(day.site)) return;
+      // Vérifier le type
+      if(type === 'auto' && day._source !== 'auto' && day.note !== '🤖 Auto') return;
+      // Logger
+      auditLog('reset', e.id, e.firstname+' '+e.lastname, ds, day, null, 'reset');
+      delete e.weeks[wOff][di];
+      count++;
+    });
+    cur.setDate(cur.getDate()+1);
+  }
+  autoSave(); renderSidebar(); if(emp()) loadPanel();
+  document.getElementById('reset-modal')?.remove();
+  showToast('🔄 '+count+' créneau(x) réinitialisé(s)');
+}
+
 function toHM(decH){
   if(!decH||decH<=0)return '--';
   const totalMin=Math.round(decH*60);
