@@ -2134,12 +2134,12 @@ function workerPrefScore(e, dateStr, debut, fin){
 
 // Matcher les travailleurs à un créneau avec scoring complet
 function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat){
-  // allowDayRepeat: Set d'empId autorisés à travailler un 2e créneau ce jour (vendredi équipe matin)
+  // allowDayRepeat: Set d'empId autorisés à travailler un 2e créneau ce jour (vendredi)
+  // excludedForDay: Set d'empId déjà planifiés ce jour sur un autre site (multi-sites)
   const candidates = [];
 
   for(const e of activeEmployees){
-    // Anti-doublon jour : un seul créneau par travailleur par jour
-    // Exception : vendredi après-midi → l'équipe du matin peut travailler les 2
+    // Anti-doublon jour
     const isExempt = allowDayRepeat && allowDayRepeat.has(e.id);
     if(!isExempt && workerDaysUsed && workerDaysUsed[e.id]?.has(dateStr)) continue;
     const avail = getWorkerAvailability(e);
@@ -2155,11 +2155,15 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     // ── RÈGLE 2 : disponibilité ─────────────────────────────
     if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
-    // ── RÈGLE 2c : 1 site par jour par travailleur ──────────────
-    // Utilisé uniquement en mode multi-sites : _blockedDates est
-    // alimenté par runMultiSiteAutoplan après chaque site généré.
-    // En mode single-site, _blockedDates est undefined → pas d'effet.
-    if(e._blockedDates?.has(dateStr)) continue;
+    // ── RÈGLE 2c : 1 site par jour ──────────────────────────────
+    // Vérifier si le worker a un créneau RÉEL ou un SENTINEL ce jour
+    // (le SENTINEL est posé par runMultiSiteAutoplan après chaque site)
+    {
+      const _wOff = dateToWeekOffset(dateStr);
+      const _di   = dateToDayIdx(dateStr);
+      const _ex   = e.weeks?.[_wOff]?.[_di];
+      if(_ex && _ex.start) continue; // déjà planifié ou verrouillé
+    }
 
     // ── SCORING ─────────────────────────────────────────────
     let score = 0;
@@ -2746,8 +2750,12 @@ async function runMultiSiteAutoplan(){
   const allResults = {}; // {siteId: [{weekStart, proposals}]}
   const today2 = new Date().toISOString().slice(0,10);
 
-  // Nettoyer les _blockedDates avant de commencer
-  employees.forEach(e=>{ delete e._blockedDates; });
+  // ── Approche SENTINEL ────────────────────────────────────────
+  // Après chaque site, on pose un sentinel dans e.weeks[wOff][di]
+  // pour bloquer ce worker pour les sites suivants.
+  // La règle 2c dans matchWorkersToCreneau lit e.weeks et bloque si start défini.
+  // On sauvegarde les weeks originaux pour restaurer après.
+  const weeksBackup = {}; // {empId: {wOff: {di: originalDay}}}
 
   for(const siteId of orderedSites){
     allResults[siteId] = [];
@@ -2756,16 +2764,27 @@ async function runMultiSiteAutoplan(){
         const props = genPlanningProposals(siteId, weekStart, nbProps);
         allResults[siteId].push({weekStart, proposals:props});
 
-        // Après génération : marquer TOUS les workers assignés sur
-        // ce site/semaine comme bloqués pour les sites suivants
-        // (1 travailleur = 1 site par jour, sans exception)
+        // Poser les SENTINELS pour les workers assignés (meilleure proposition)
+        // Cela bloque ces workers pour les sites suivants ce même jour
         if(props[0]){
           props[0].plan.forEach(slot=>{
-            slot.assigned.forEach(emp=>{
-              const e = employees.find(x=>x.id===emp.id);
+            slot.assigned.forEach(empRef=>{
+              const e = employees.find(x=>x.id===empRef.id);
               if(!e) return;
-              if(!e._blockedDates) e._blockedDates = new Set();
-              e._blockedDates.add(slot.dateStr);
+              const wOff = dateToWeekOffset(slot.dateStr);
+              const di   = dateToDayIdx(slot.dateStr);
+              if(!e.weeks) e.weeks={};
+              if(!e.weeks[wOff]) e.weeks[wOff]={};
+              // Sauvegarder l'état original avant de poser le sentinel
+              if(!weeksBackup[e.id]) weeksBackup[e.id]={};
+              if(!weeksBackup[e.id][wOff]) weeksBackup[e.id][wOff]={};
+              if(!(di in weeksBackup[e.id][wOff])){
+                weeksBackup[e.id][wOff][di] = e.weeks[wOff][di]; // peut être undefined
+              }
+              // Poser le sentinel uniquement si pas déjà planifié
+              if(!e.weeks[wOff][di]?.start){
+                e.weeks[wOff][di] = {status:'work', start:'00:00', end:'23:59', _multisite_lock:true};
+              }
             });
           });
         }
@@ -2775,8 +2794,21 @@ async function runMultiSiteAutoplan(){
     }
   }
 
-  // Nettoyer après génération
-  employees.forEach(e=>{ delete e._blockedDates; });
+  // ── Restaurer les weeks originaux (supprimer les sentinels) ──
+  Object.entries(weeksBackup).forEach(([empId, wOffs])=>{
+    const e = employees.find(x=>x.id===parseInt(empId));
+    if(!e) return;
+    Object.entries(wOffs).forEach(([wOff, days])=>{
+      Object.entries(days).forEach(([di, originalDay])=>{
+        if(originalDay === undefined){
+          delete e.weeks[parseInt(wOff)]?.[parseInt(di)];
+        } else {
+          if(!e.weeks[parseInt(wOff)]) e.weeks[parseInt(wOff)]={};
+          e.weeks[parseInt(wOff)][parseInt(di)] = originalDay;
+        }
+      });
+    });
+  });
 
   // Stocker pour les boutons d'action
   _msResults = allResults;
@@ -3275,6 +3307,14 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // Cette assignation est INCONDITIONNELLE — avant la boucle de scoring.
         const mgrEmp  = mgrId ? active.find(x=>x.id===mgrId) : null;
         const mgrAlreadyThisDay = mgrId && workerDays[mgrId]?.has(dateStr);
+        // Vérifier aussi le sentinel multi-sites pour le manager
+        const mgrSentinel = (()=>{
+          if(!mgrId) return false;
+          const _w = dateToWeekOffset(dateStr);
+          const _d = dateToDayIdx(dateStr);
+          const _ex = mgrEmp?.weeks?.[_w]?.[_d];
+          return _ex && _ex.start ? true : false;
+        })();
         // Vérifier si le créneau actuel correspond bien à l'heure disponible du responsable
         const mgrEffStart = mgrEmp ? getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut) : 0;
         const mgrCreneauMatch = mgrEmp && (
@@ -3285,6 +3325,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
         );
         const mgrDispo = mgrEmp
           && (!mgrAlreadyThisDay || mgrCreneauMatch) // autoriser si créneau correspondant
+          && !mgrSentinel // bloquer si sentinel multi-sites posé
           && isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin);
 
         if(mgrDispo && manquants > 0){
@@ -5927,25 +5968,25 @@ function empColor(e){return STATUS_COLORS[e.status]||{bg:'#e2e8f0',fg:'#475569'}
 // wdMode = nombre de jours de travail (omis = calculé automatiquement)
 let employees = [
   // ── Étudiantes ──
-  mkEmp({firstname:'Ibtissem', lastname:'Benoukhita',  status:'Etudiant', hours:30,  regime:'month', startTime:'10:00', wdMode:'3',   pause:15, startDate:'2024-09-01', fixedOff:[], weekCycle:2, weekPhase:0, note:'30h par mois - 1 semaine sur 2'}),
-  mkEmp({firstname:'Aya',      lastname:'Baroudi',     status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[]}),
-  mkEmp({firstname:'Hafsa',    lastname:'Imachaal',    status:'Etudiant', hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[]}),
-  mkEmp({firstname:'Yasmine',  lastname:'Benazzouz',   status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[]}),
-  mkEmp({firstname:'Salima',   lastname:'Alaoui',      status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[]}),
-  mkEmp({firstname:'Souad',    lastname:'El Aissaouy', status:'Etudiant', hours:24,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[]}),
+  mkEmp({firstname:'Ibtissem', lastname:'Benoukhita',  status:'Etudiant', hours:30,  regime:'month', startTime:'10:00', wdMode:'3',   pause:15, startDate:'2024-09-01', fixedOff:[], weekCycle:2, weekPhase:0, note:'30h par mois - 1 semaine sur 2', availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
+  mkEmp({firstname:'Aya',      lastname:'Baroudi',     status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
+  mkEmp({firstname:'Hafsa',    lastname:'Imachaal',    status:'Etudiant', hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
+  mkEmp({firstname:'Yasmine',  lastname:'Benazzouz',   status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[], availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','A'],}),
+  mkEmp({firstname:'Salima',   lastname:'Alaoui',      status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[], availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','A'],}),
+  mkEmp({firstname:'Souad',    lastname:'El Aissaouy', status:'Etudiant', hours:24,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2024-09-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
   // ── Nouveaux étudiants ──
-  mkEmp({firstname:'Ali',      lastname:'El Habil Addas', status:'Etudiant', hours:16, regime:'week', startTime:'10:00', wdMode:'4',   pause:15, startDate:'2025-01-01', fixedOff:[], hoursYearBudget:650}),
-  mkEmp({firstname:'Chaimae',  lastname:'Rais',         status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[]}),
-  mkEmp({firstname:'Hidaya',   lastname:'Elbazi',       status:'Etudiant', hours:24,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[]}),
-  mkEmp({firstname:'Salmane',  lastname:'Elbazi',       status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[]}),
+  mkEmp({firstname:'Ali',      lastname:'El Habil Addas', status:'Etudiant', hours:16, regime:'week', startTime:'10:00', wdMode:'4',   pause:15, startDate:'2025-01-01', fixedOff:[], hoursYearBudget:650, availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','D'],}),
+  mkEmp({firstname:'Chaimae',  lastname:'Rais',         status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
+  mkEmp({firstname:'Hidaya',   lastname:'Elbazi',       status:'Etudiant', hours:24,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','A'],}),
+  mkEmp({firstname:'Salmane',  lastname:'Elbazi',       status:'Etudiant', hours:20,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:15, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
   // ── Employés CDI ──
   // Ramdane Malha : congé fixe vendredi (4), commence mercredi à 12h
-  mkEmp({firstname:'Ramdane',  lastname:'Malha',        status:'CDI',      hours:24,  regime:'week',  startTime:'12:00', wdMode:'4',   pause:30, startDate:'2025-01-01', fixedOff:[], note:'Commence le mercredi a 12h - conge vendredi'}),
+  mkEmp({firstname:'Ramdane',  lastname:'Malha',        status:'CDI',      hours:24,  regime:'week',  startTime:'12:00', wdMode:'4',   pause:30, startDate:'2025-01-01', fixedOff:[], note:'Commence le mercredi a 12h - conge vendredi', availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','D'],}),
   // Ouahi Omaima : congé fixe lundi (0), commence dimanche à 12h
-  mkEmp({firstname:'Omaima',   lastname:'Ouahi',        status:'CDI',      hours:40,  regime:'week',  startTime:'12:00', wdMode:'6',   pause:30, startDate:'2025-01-01', fixedOff:[], note:'Commence le dimanche a 12h - conge lundi'}),
-  mkEmp({firstname:'Ilham',    lastname:'Serghini',     status:'CDI',      hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:30, startDate:'2025-01-01', fixedOff:[]}),
-  mkEmp({firstname:'Keltoum',  lastname:'El Mrabet',    status:'CDI',      hours:14,  regime:'week',  startTime:'10:00', wdMode:'2',   pause:30, startDate:'2025-01-01', fixedOff:[]}),
-  mkEmp({firstname:'Kaouthar', lastname:'Sebab',        status:'CDI',      hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:30, startDate:'2025-01-01', fixedOff:[]}),
+  mkEmp({firstname:'Omaima',   lastname:'Ouahi',        status:'CDI',      hours:40,  regime:'week',  startTime:'12:00', wdMode:'6',   pause:30, startDate:'2025-01-01', fixedOff:[], note:'Commence le dimanche a 12h - conge lundi', availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A'],}),
+  mkEmp({firstname:'Ilham',    lastname:'Serghini',     status:'CDI',      hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:30, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
+  mkEmp({firstname:'Keltoum',  lastname:'El Mrabet',    status:'CDI',      hours:14,  regime:'week',  startTime:'10:00', wdMode:'2',   pause:30, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'B',preferred:[],unavail:[]},sites:['B','A'],}),
+  mkEmp({firstname:'Kaouthar', lastname:'Sebab',        status:'CDI',      hours:18,  regime:'week',  startTime:'10:00', wdMode:'auto', pause:30, startDate:'2025-01-01', fixedOff:[], availability:{defaultSite:'A',preferred:[],unavail:[]},sites:['A','B'],}),
 ];
 
 let selId=null, curWeek=0;
