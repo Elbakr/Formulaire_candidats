@@ -2545,136 +2545,145 @@ function canWorkerDoMultiSite(emp, site1, site2, dateStr, endTime1){
 }
 
 function openMultiSiteAutoplan(){
+  const saved = JSON.parse(localStorage.getItem('gp_ms_params')||'{}');
   let modal = document.getElementById('multisite-modal');
   if(modal) modal.remove();
   modal = document.createElement('div');
   modal.id = 'multisite-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
 
-  // ── Dates par défaut ──────────────────────────────────────────
   const today = new Date();
-  const dow = today.getDay()||7;
-  const nextMon = new Date(today);
-  nextMon.setDate(today.getDate() + (dow===1?7:(8-dow)));
-  const nextMon2 = new Date(nextMon); nextMon2.setDate(nextMon.getDate()+7);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth()+1, 0);
-  const startNextMonth = new Date(today.getFullYear(), today.getMonth()+1, 1);
-  const endNextMonth = new Date(today.getFullYear(), today.getMonth()+2, 0);
+  const dow0 = today.getDay()||7;
+  const nextMon = new Date(today); nextMon.setDate(today.getDate()+(dow0===1?7:8-dow0));
+  const fmt = d=>d.toISOString().slice(0,10);
+  const endNW  = new Date(nextMon); endNW.setDate(nextMon.getDate()+6);
+  const end2W  = new Date(nextMon); end2W.setDate(nextMon.getDate()+13);
+  const endEM  = new Date(today.getFullYear(),today.getMonth()+1,0);
+  const startNM= new Date(today.getFullYear(),today.getMonth()+1,1);
+  const endNM  = new Date(today.getFullYear(),today.getMonth()+2,0);
 
-  const fmt = d => d.toISOString().slice(0,10);
-  const defaultStart = fmt(nextMon);
-  const defaultEnd   = fmt(new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate()+6));
+  const dStart = saved.dateStart || fmt(nextMon);
+  const dEnd   = saved.dateEnd   || fmt(endNW);
+  const nbP    = saved.nbProps   || '3';
+  const sSites = saved.sites     || Object.keys(SITES);
 
-  const sitesHTML = Object.values(SITES).map((s,i)=>`
-    <div class="ms-site-row" data-site="${s.id}"
-      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--line);
-             border-radius:8px;margin-bottom:6px;cursor:grab;background:white;user-select:none">
-      <input type="checkbox" class="ms-check" data-site="${s.id}" checked
-        style="width:16px;height:16px;accent-color:${s.color||'#2d5be3'};flex-shrink:0">
-      <div style="width:30px;height:30px;border-radius:8px;background:${s.color||'#2d5be3'};color:white;
-                  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem;flex-shrink:0">${s.id}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:.82rem;white-space:nowrap">${s.name}</div>
-        <div style="font-size:.62rem;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.address||''}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        ${(COMPATIBLE_SITES[s.id]||[]).length
-          ? `<span style="font-size:.6rem;background:#cffafe;color:#0891b2;padding:1px 6px;border-radius:10px;font-weight:600">↔ ${(COMPATIBLE_SITES[s.id]||[]).join(',')}</span>`
-          : `<span style="font-size:.6rem;background:#f5f4f0;color:#9898b8;padding:1px 6px;border-radius:10px">autonome</span>`}
-        <div class="ms-order" style="font-size:.7rem;font-weight:800;color:var(--ink3);min-width:18px;text-align:center;
-             background:var(--bg);border-radius:4px;padding:2px 5px">${i+1}</div>
-        <span style="cursor:grab;color:var(--ink3);font-size:1.1rem;line-height:1">⠿</span>
-      </div>
-    </div>`).join('');
+  // Construire les règles (DOM API, pas innerHTML)
+  const rulesDiv = document.createElement('div');
+  rulesDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px';
+  Object.entries(AUTOPLAN_RULES).forEach(([key,rule])=>{
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:.68rem;font-weight:600;border:1.5px solid '+(rule.active?'#2d5be3':'#e2e0d8')+';background:'+(rule.active?'#eef1fd':'#f8f7f5')+';color:'+(rule.active?'#2d5be3':'#9898b8');
+    lbl.title = rule.description||'';
+    const cb = document.createElement('input');
+    cb.type='checkbox'; cb.checked=!!rule.active;
+    cb.style.cssText='accent-color:#2d5be3;width:12px;height:12px;flex-shrink:0';
+    cb.addEventListener('change',function(){
+      toggleAutoPlanRule(key,this.checked);
+      lbl.style.background=this.checked?'#eef1fd':'#f8f7f5';
+      lbl.style.borderColor=this.checked?'#2d5be3':'#e2e0d8';
+      lbl.style.color=this.checked?'#2d5be3':'#9898b8';
+    });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' '+rule.label));
+    rulesDiv.appendChild(lbl);
+  });
 
-  modal.innerHTML = `
-  <div style="background:white;border-radius:16px;width:100%;max-width:680px;overflow:hidden;
-              box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">
+  // Construire les sites (DOM API)
+  const sitesListDiv = document.createElement('div');
+  sitesListDiv.id = 'ms-sites-list';
+  Object.values(SITES).forEach((s,i)=>{
+    const row = document.createElement('div');
+    row.className = 'ms-site-row';
+    row.dataset.site = s.id;
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;margin-bottom:5px;cursor:grab;background:white;user-select:none';
+    const comp = (COMPATIBLE_SITES[s.id]||[]);
+    const badgeTxt = comp.length ? '↔'+comp.join(',') : 'solo';
+    const badgeBg  = comp.length ? '#cffafe' : '#f5f4f0';
+    const badgeCol = comp.length ? '#0891b2' : '#9898b8';
+    row.innerHTML =
+      '<input type="checkbox" class="ms-check" '+(sSites.includes(s.id)?'checked':'')+' style="width:15px;height:15px;accent-color:'+(s.color||'#2d5be3')+';flex-shrink:0">'+
+      '<div style="width:26px;height:26px;border-radius:6px;background:'+(s.color||'#2d5be3')+';color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.78rem;flex-shrink:0">'+s.id+'</div>'+
+      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:.78rem">'+s.name+'</div><div style="font-size:.6rem;color:var(--ink3)">'+(s.address||'')+'</div></div>'+
+      '<div style="display:flex;align-items:center;gap:4px">'+
+        '<span style="font-size:.58rem;background:'+badgeBg+';color:'+badgeCol+';padding:1px 5px;border-radius:8px">'+badgeTxt+'</span>'+
+        '<span class="ms-order" style="font-size:.68rem;font-weight:800;color:var(--ink3);background:var(--bg);border-radius:4px;padding:1px 5px">'+(i+1)+'</span>'+
+        '<span style="cursor:grab;color:var(--ink3);font-size:1rem">⠿</span>'+
+      '</div>';
+    sitesListDiv.appendChild(row);
+  });
 
-    <!-- EN-TÊTE -->
-    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:16px 22px;
-                display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-size:1rem;font-weight:800;color:white">🤖 Autoplan Multi-Magasins</div>
-        <div style="font-size:.7rem;color:rgba(255,255,255,.6);margin-top:2px">
-          Planification simultanée de plusieurs sites — les travailleurs polyvalents couvrent plusieurs sites
-        </div>
-      </div>
-      <button onclick="document.getElementById('multisite-modal').remove()"
-        style="background:rgba(255,255,255,.15);border:none;color:white;width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:1rem">✕</button>
-    </div>
+  // Raccourcis dates
+  const shortcuts = [
+    ['Sem. prochaine', fmt(nextMon), fmt(endNW)],
+    ['2 semaines',     fmt(nextMon), fmt(end2W)],
+    ['Ce mois',        fmt(nextMon), fmt(endEM)],
+    ['Mois prochain',  fmt(startNM), fmt(endNM)],
+  ];
 
-    <!-- PLAGE DE DATES -->
-    <div style="padding:14px 20px;border-bottom:1px solid var(--line);background:#f8f7f5">
-      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9898b8;margin-bottom:8px">
-        📅 Période à planifier
-      </div>
-      <!-- Raccourcis -->
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-        ${[
-          {label:'Sem. prochaine', start:fmt(nextMon), end:fmt(new Date(nextMon.getFullYear(),nextMon.getMonth(),nextMon.getDate()+6))},
-          {label:'2 semaines',     start:fmt(nextMon), end:fmt(new Date(nextMon.getFullYear(),nextMon.getMonth(),nextMon.getDate()+13))},
-          {label:'Ce mois',        start:fmt(nextMon), end:fmt(endOfMonth)},
-          {label:'Mois prochain',  start:fmt(startNextMonth), end:fmt(endNextMonth)},
-        ].map(r=>`<button onclick="setMsDateRange('${r.start}','${r.end}')"
-          style="padding:4px 10px;border-radius:20px;border:1.5px solid var(--accent);background:var(--alight);
-                 color:var(--accent);font-size:.7rem;font-weight:700;cursor:pointer">${r.label}</button>`).join('')}
-      </div>
-      <!-- Saisie manuelle -->
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <div>
-          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Du (lundi)</div>
-          <input type="date" id="ms-date-start" value="${defaultStart}"
-            style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
-        </div>
-        <div style="font-size:.84rem;color:var(--ink3);margin-top:14px">→</div>
-        <div>
-          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Au (dimanche)</div>
-          <input type="date" id="ms-date-end" value="${defaultEnd}"
-            style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
-        </div>
-        <div style="margin-top:14px">
-          <div style="font-size:.62rem;font-weight:700;color:#9898b8;margin-bottom:3px">Propositions / site</div>
-          <select id="ms-nb-props" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.84rem">
-            <option value="1">1 — Optimal uniquement</option>
-            <option value="2">2 — Optimal + Équilibré</option>
-            <option value="3" selected>3 — Optimal + Équilibré + Alternatif</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <!-- LISTE DES SITES -->
-    <div style="padding:14px 20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9898b8">
-          🏪 Magasins (cochez + glissez pour réordonner)
-        </div>
-        <div style="font-size:.64rem;color:#9898b8">↔ = sites compatibles pour multi-affectation même jour</div>
-      </div>
-      <div id="ms-sites-list">${sitesHTML}</div>
-    </div>
-
-    <!-- FOOTER -->
-    <div style="padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:.68rem;color:var(--ink3)">
-        Les sites sont remplis dans l'ordre — les travailleurs polyvalents couvrent plusieurs sites si compatible
-      </div>
-      <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('multisite-modal').remove()"
-          style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--line);background:transparent;font-size:.82rem;cursor:pointer">
-          Annuler
-        </button>
-        <button onclick="runMultiSiteAutoplan()"
-          style="padding:8px 22px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.86rem;font-weight:800;cursor:pointer">
-          ⚡ Générer
-        </button>
-      </div>
-    </div>
-  </div>`;
+  modal.innerHTML =
+    '<div style="background:white;border-radius:16px;width:100%;max-width:720px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)" onclick="event.stopPropagation()">'+
+    '<div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 20px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div><div style="font-size:.95rem;font-weight:800;color:white">🤖 Autoplan Multi-Magasins</div>'+
+      '<div style="font-size:.68rem;color:rgba(255,255,255,.55);margin-top:1px">1 travailleur = 1 site par jour · paramètres mémorisés</div></div>'+
+      '<button id="ms-close-btn" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>'+
+    '</div>'+
+    '<div style="padding:12px 18px;border-bottom:1px solid var(--line);background:#f8f7f5">'+
+      '<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:7px">📅 Période</div>'+
+      '<div id="ms-shortcuts" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px"></div>'+
+      '<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'+
+        '<div><div style="font-size:.6rem;color:#9898b8;margin-bottom:2px">Du (lundi)</div>'+
+          '<input type="date" id="ms-date-start" value="'+dStart+'" style="padding:6px 10px;border:1.5px solid var(--line);border-radius:7px;font-size:.82rem"></div>'+
+        '<div style="color:var(--ink3);padding-bottom:8px">→</div>'+
+        '<div><div style="font-size:.6rem;color:#9898b8;margin-bottom:2px">Au</div>'+
+          '<input type="date" id="ms-date-end" value="'+dEnd+'" style="padding:6px 10px;border:1.5px solid var(--line);border-radius:7px;font-size:.82rem"></div>'+
+        '<div><div style="font-size:.6rem;color:#9898b8;margin-bottom:2px">Propositions/site</div>'+
+          '<select id="ms-nb-props" style="padding:6px 10px;border:1.5px solid var(--line);border-radius:7px;font-size:.82rem">'+
+            '<option value="1"'+(nbP==='1'?' selected':'')+'>1 — Optimal</option>'+
+            '<option value="2"'+(nbP==='2'?' selected':'')+'>2 — Optimal + Équilibré</option>'+
+            '<option value="3"'+(nbP==='3'?' selected':'')+'>3 — 3 propositions</option>'+
+          '</select></div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="padding:10px 18px;border-bottom:1px solid var(--line)">'+
+      '<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:#9898b8;margin-bottom:6px">⚙️ Règles actives</div>'+
+      '<div id="ms-rules-div"></div>'+
+    '</div>'+
+    '<div style="padding:12px 18px;border-bottom:1px solid var(--line)">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
+        '<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:#9898b8">🏪 Magasins</div>'+
+        '<div style="font-size:.62rem;color:#9898b8">Cochez + glissez pour réordonner</div>'+
+      '</div>'+
+      '<div id="ms-sites-container"></div>'+
+    '</div>'+
+    '<div style="padding:10px 18px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div style="font-size:.65rem;color:var(--ink3)">Paramètres mémorisés pour la prochaine fois</div>'+
+      '<div style="display:flex;gap:8px">'+
+        '<button id="ms-cancel-btn" style="padding:7px 14px;border-radius:7px;border:1.5px solid var(--line);background:transparent;font-size:.8rem;cursor:pointer">Annuler</button>'+
+        '<button id="ms-generate-btn" style="padding:7px 20px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:800;cursor:pointer">⚡ Générer</button>'+
+      '</div>'+
+    '</div>'+
+    '</div>';
 
   modal.onclick = ()=>modal.remove();
   document.body.appendChild(modal);
+
+  // Attacher les éléments construits par DOM
+  document.getElementById('ms-rules-div').appendChild(rulesDiv);
+  document.getElementById('ms-sites-container').appendChild(sitesListDiv);
+  document.getElementById('ms-close-btn').onclick  = ()=>modal.remove();
+  document.getElementById('ms-cancel-btn').onclick = ()=>modal.remove();
+  document.getElementById('ms-generate-btn').onclick = runMultiSiteAutoplan;
+
+  // Raccourcis
+  const scDiv = document.getElementById('ms-shortcuts');
+  shortcuts.forEach(([l,s,e])=>{
+    const btn = document.createElement('button');
+    btn.textContent = l;
+    btn.style.cssText = 'padding:3px 9px;border-radius:15px;border:1.5px solid var(--accent);background:var(--alight);color:var(--accent);font-size:.68rem;font-weight:700;cursor:pointer';
+    btn.addEventListener('click',()=>setMsDateRange(s,e));
+    scDiv.appendChild(btn);
+  });
+
   initMultiSiteDragSort();
 }
 
@@ -2729,6 +2738,11 @@ async function runMultiSiteAutoplan(){
     .map(row=>row.dataset.site);
 
   if(!orderedSites.length){ showToast('Sélectionnez au moins un magasin'); return; }
+
+  // ── Mémoriser les paramètres ──────────────────────────────────
+  localStorage.setItem('gp_ms_params', JSON.stringify({
+    dateStart, dateEnd, nbProps: String(nbProps), sites: orderedSites
+  }));
 
   document.getElementById('multisite-modal').remove();
 
@@ -2868,6 +2882,36 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
       <!-- VUE GLOBALE -->
       <div style="margin-bottom:20px">
         <div style="font-size:.78rem;font-weight:800;color:var(--ink);margin-bottom:10px">Vue globale — Couverture par site et semaine</div>
+        <!-- Totaux heures par worker -->
+        <div style="margin-bottom:10px;padding:10px 12px;background:#f5f4f0;border-radius:8px">
+          <div style="font-size:.68rem;font-weight:700;color:#9898b8;margin-bottom:6px">⏱ Heures planifiées par travailleur (toutes propositions optimales)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px" id="ms-worker-totals">
+          ${(()=>{
+            const totals = {};
+            orderedSites.forEach(siteId=>{
+              (allResults[siteId]||[]).forEach(({proposals})=>{
+                const prop = proposals[0]; if(!prop) return;
+                prop.plan.forEach(slot=>{
+                  slot.assigned.forEach(emp=>{
+                    if(!totals[emp.id]) totals[emp.id]={emp, mins:0};
+                    // Heures nettes (sans pause)
+                    const mins = timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut);
+                    const pause = emp.pause||0;
+                    totals[emp.id].mins += Math.max(0, mins-pause);
+                  });
+                });
+              });
+            });
+            return Object.values(totals)
+              .sort((a,b)=>b.mins-a.mins)
+              .map(({emp,mins})=>{
+                const col=empColor(emp);
+                const h=Math.floor(mins/60), m=mins%60;
+                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer">'+emp.firstname+' '+h+'h'+(m>0?m+'min':'')+'</span>';
+              }).join('');
+          })()}
+          </div>
+        </div>
         <div style="overflow-x:auto">
           <table style="border-collapse:collapse;font-size:.76rem;min-width:400px">
             <thead>
@@ -2956,7 +3000,13 @@ function switchMsTab(siteId){
                 const crStr=[...new Set(d2.creneaux)].join(' · ');
                 const wStr=[...d2.workers.values()].map(e=>{
                   const col=empColor(e);
-                  return `<span style="padding:1px 7px;border-radius:10px;font-size:.65rem;font-weight:700;background:${col.bg};color:${col.fg}">${e.firstname}</span>`;
+                  // Trouver le créneau exact de ce worker pour ce jour
+                  const mySlot = p.plan.find(sl=>sl.dateStr===d2.dateStr && sl.assigned.some(a=>a.id===e.id));
+                  const myEmpRef = mySlot?.assigned.find(a=>a.id===e.id);
+                  const startShow = myEmpRef?._effectiveStart || mySlot?.creneau?.debut || '';
+                  const endShow   = mySlot?.creneau?.fin || '';
+                  const timeTag   = startShow ? `<span style="font-family:monospace;font-size:.58rem;opacity:.7;margin-left:2px">${startShow}→${endShow}</span>` : '';
+                  return `<span onclick="openWorkerQuickView(${e.id},event)" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:${col.bg};color:${col.fg};cursor:pointer;display:inline-flex;align-items:center;gap:2px">${e.firstname}${timeTag}</span>`;
                 }).join(' ');
                 return `<tr style="border-bottom:1px solid #f5f4f0">
                   <td style="padding:5px 6px;font-weight:700;white-space:nowrap;font-size:.72rem">${diffIcon}${DAYS2[dow2]} ${di2}</td>
