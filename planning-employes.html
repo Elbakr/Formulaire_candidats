@@ -2183,9 +2183,10 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
     // ── RÈGLE 2c : 1 site par jour (multi-sites uniquement) ─────
-    // _msBlocked = Map{dateStr → Set{empId}} passé via e._msBlocked
-    // N'agit QUE pendant l'autoplan multi-sites (sinon undefined)
-    if(e._msBlocked){
+    // Exception : si le worker est dans l'équipe du matin vendredi (allowDayRepeat)
+    // il peut travailler l'après-midi du même site → ne pas bloquer
+    const isExemptFromMsBlock = allowDayRepeat && allowDayRepeat.has(e.id);
+    if(!isExemptFromMsBlock && e._msBlocked){
       const blocked = e._msBlocked.get(dateStr);
       if(blocked && blocked.has(e.id)) continue;
     }
@@ -2920,27 +2921,40 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
           <div style="font-size:.68rem;font-weight:700;color:#9898b8;margin-bottom:6px">⏱ Heures planifiées par travailleur (toutes propositions optimales)</div>
           <div style="display:flex;flex-wrap:wrap;gap:5px" id="ms-worker-totals">
           ${(()=>{
-            const totals = {};
+            // Calculer heures NETTES par worker par jour (fusion créneaux + déduction pauses/vendredi)
+            const dayMins = {}; // {empId: {dateStr: {emp, startMin, endMin}}}
             orderedSites.forEach(siteId=>{
               (allResults[siteId]||[]).forEach(({proposals})=>{
                 const prop = proposals[0]; if(!prop) return;
                 prop.plan.forEach(slot=>{
-                  slot.assigned.forEach(emp=>{
-                    if(!totals[emp.id]) totals[emp.id]={emp, mins:0};
-                    // Heures nettes (sans pause)
-                    const mins = timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut);
-                    const pause = emp.pause||0;
-                    totals[emp.id].mins += Math.max(0, mins-pause);
+                  slot.assigned.forEach(empRef=>{
+                    const e = employees.find(x=>x.id===empRef.id); if(!e) return;
+                    const ds = slot.dateStr;
+                    const sMin = timeToMin(empRef._effectiveStart||slot.creneau.debut);
+                    const eMin = timeToMin(slot.creneau.fin);
+                    if(!dayMins[e.id]) dayMins[e.id]={};
+                    if(!dayMins[e.id][ds]) dayMins[e.id][ds]={e, sMin, eMin};
+                    else {
+                      dayMins[e.id][ds].sMin = Math.min(dayMins[e.id][ds].sMin, sMin);
+                      dayMins[e.id][ds].eMin = Math.max(dayMins[e.id][ds].eMin, eMin);
+                    }
                   });
                 });
               });
             });
+            const totals = {};
+            Object.entries(dayMins).forEach(([empId, days])=>{
+              Object.entries(days).forEach(([ds,{e,sMin,eMin}])=>{
+                const h = calcNetHours(e, ds, minToTime(sMin), minToTime(eMin));
+                if(!totals[e.id]) totals[e.id]={emp:e, hours:0};
+                totals[e.id].hours += h;
+              });
+            });
             return Object.values(totals)
-              .sort((a,b)=>b.mins-a.mins)
-              .map(({emp,mins})=>{
+              .sort((a,b)=>b.hours-a.hours)
+              .map(({emp,hours})=>{
                 const col=empColor(emp);
-                const h=Math.floor(mins/60), m=mins%60;
-                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer">'+emp.firstname+' '+h+'h'+(m>0?m+'min':'')+'</span>';
+                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer">'+emp.firstname+' '+toHM(hours)+'</span>';
               }).join('');
           })()}
           </div>
@@ -3033,13 +3047,12 @@ function switchMsTab(siteId){
                 const crStr=[...new Set(d2.creneaux)].join(' · ');
                 const wStr=[...d2.workers.values()].map(e=>{
                   const col=empColor(e);
-                  // Trouver le créneau exact de ce worker pour ce jour
                   const mySlot = p.plan.find(sl=>sl.dateStr===d2.dateStr && sl.assigned.some(a=>a.id===e.id));
                   const myEmpRef = mySlot?.assigned.find(a=>a.id===e.id);
                   const startShow = myEmpRef?._effectiveStart || mySlot?.creneau?.debut || '';
                   const endShow   = mySlot?.creneau?.fin || '';
-                  const timeTag   = startShow ? `<span style="font-family:monospace;font-size:.58rem;opacity:.7;margin-left:2px">${startShow}→${endShow}</span>` : '';
-                  return `<span onclick="openWorkerQuickView(${e.id},event)" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:${col.bg};color:${col.fg};cursor:pointer;display:inline-flex;align-items:center;gap:2px">${e.firstname}${timeTag}</span>`;
+                  const timeTag   = startShow ? '<span style="font-family:monospace;font-size:.58rem;opacity:.7;margin-left:2px">'+startShow+'→'+endShow+'</span>' : '';
+                  return '<span onclick="openWorkerQuickView('+e.id+',event)" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;display:inline-flex;align-items:center;gap:2px">'+e.firstname+timeTag+'</span>';
                 }).join(' ');
                 return `<tr style="border-bottom:1px solid #f5f4f0">
                   <td style="padding:5px 6px;font-weight:700;white-space:nowrap;font-size:.72rem">${diffIcon}${DAYS2[dow2]} ${di2}</td>
