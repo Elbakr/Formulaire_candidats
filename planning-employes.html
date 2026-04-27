@@ -4226,21 +4226,7 @@ function openGlobalWorkerView(){
 
       let h = 0;
       if(isWork){
-        const s=day.start.split(':').map(Number), en=day.end.split(':').map(Number);
-        let minutes = Math.max(0,(en[0]*60+en[1]-s[0]*60-s[1]));
-        // Déduire pause journalière
-        minutes -= (e.pause||0);
-        // Déduire fermeture vendredi (50 min en moyenne, calculée précisément)
-        if(dow === 5){
-          const vp = getVendrediPause(ds);
-          const vpDeb=timeToMin(vp.deb), vpFin=timeToMin(vp.fin);
-          const cDeb=s[0]*60+s[1], cFin=en[0]*60+en[1];
-          const ov = Math.max(0, Math.min(cFin,vpFin) - Math.max(cDeb,vpDeb));
-          minutes -= ov;
-        }
-        // Déduire lunchBreak si défini
-        if(day.lunchBreak && day.lunchDuration) minutes -= day.lunchDuration;
-        h = Math.max(0, minutes/60);
+        h = calcNetHours(e, ds, day.start, day.end);
         monthHours += h;
       }
 
@@ -4248,7 +4234,9 @@ function openGlobalWorkerView(){
       const col = isWork ? 'white' : isPast ? 'var(--ink3)' : 'var(--ink)';
       const border = isToday_ ? '2px solid var(--accent)' : '1px solid transparent';
 
-      cells.push(`<div onclick="jumpToDay('${ds}')" style="text-align:center;font-size:.6rem;padding:2px 0;border-radius:4px;background:${bg};color:${col};border:${border};cursor:${isWork?'pointer':'default'};line-height:1.3;transition:opacity .1s" title="${isWork?day.start+'→'+day.end+' ('+toHM(h)+') — Clic pour modifier':''}">
+      // Clic : bascule travail/repos directement dans le planning
+      const clickHandler = `toggleDayFromCalendar('${ds}')`;
+      cells.push(`<div onclick="${clickHandler}" style="text-align:center;font-size:.6rem;padding:2px 0;border-radius:4px;background:${bg};color:${col};border:${border};cursor:pointer;line-height:1.3;transition:all .15s" title="${isWork?day.start+'→'+day.end+' ('+toHM(h)+')  — Clic pour basculer':'Clic pour planifier'}">
         <div style="font-weight:${isToday_?800:isWork?700:400}">${d}</div>
         ${isWork&&h>0?`<div style="font-size:.48rem;opacity:.85">${toHM(h)}</div>`:''}
       </div>`);
@@ -4410,6 +4398,96 @@ function jumpToDay(dateStr){
   if(_viewMode === 'month') renderMonthView();
   else { renderWeek(); updateMonthBox(); }
   setTimeout(()=> openDayEdit(dateStr, dow), 250);
+}
+
+// Clic sur un jour dans la vue annuelle/globale :
+// - Si le jour est planifié → afficher un mini-éditeur d'heures inline
+// - Si le jour est vide → le planifier avec les horaires par défaut
+function toggleDayFromCalendar(dateStr){
+  const e = emp(); if(!e) return;
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  const dow  = new Date(dateStr+'T12:00').getDay();
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+  const existing = e.weeks[wOff][di];
+  const isWork   = existing?.status==='work' && existing?.start;
+
+  if(isWork){
+    // Déjà planifié → mini-éditeur d'heures
+    openDayQuickEdit(e, dateStr, wOff, di, existing);
+  } else {
+    // Vide → planifier avec horaires du site ou contrat
+    const avail  = getWorkerAvailability(e);
+    const siteId = avail.defaultSite || (e.sites||[])[0] || '';
+    const isFri  = (di===4);
+    let startH   = e.startTime||'10:00';
+    let endH     = e.endTime||(siteId&&STORE_NEEDS[siteId]?STORE_NEEDS[siteId][dow]?.[0]?.fin:'20:00');
+    if(!endH) endH = '20:00';
+    histPush();
+    e.weeks[wOff][di] = {
+      status:'work', start:startH, end:endH,
+      pause:e.pause||0, endManual:true, site:siteId||undefined,
+      fridayLocked:isFri, _autoFilled:false
+    };
+    autoSave();
+    openGlobalWorkerView(); // Rafraîchir
+  }
+}
+
+// Mini-éditeur rapide d'un jour (sans ouvrir de nouvelle fenêtre)
+function openDayQuickEdit(e, dateStr, wOff, di, day){
+  // Supprimer un éventuel éditeur existant
+  document.getElementById('day-quick-edit')?.remove();
+
+  const DAYS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  const dow = new Date(dateStr+'T12:00').getDay();
+  const dayLabel = DAYS_FR[dow]+' '+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+  const netH = calcNetHours(e, dateStr, day.start, day.end);
+
+  const panel = document.createElement('div');
+  panel.id = 'day-quick-edit';
+  panel.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);'+
+    'background:white;border-radius:12px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,.25);'+
+    'z-index:2000;min-width:280px;border:1.5px solid var(--accent)';
+  panel.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+      '<div style="font-size:.82rem;font-weight:800;color:var(--accent)">✏️ '+dayLabel+'</div>'+
+      '<button id="dqe-close" style="border:none;background:none;font-size:1.1rem;cursor:pointer;color:var(--ink3)">✕</button>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">'+
+      '<div><div style="font-size:.62rem;color:#9898b8;margin-bottom:2px">Début</div>'+
+        '<input type="time" id="dqe-start" value="'+day.start+'" style="padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.84rem"></div>'+
+      '<div style="color:var(--ink3);padding-top:14px">→</div>'+
+      '<div><div style="font-size:.62rem;color:#9898b8;margin-bottom:2px">Fin</div>'+
+        '<input type="time" id="dqe-end" value="'+day.end+'" style="padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.84rem"></div>'+
+      '<div style="padding-top:14px;font-size:.72rem;color:var(--accent);font-weight:700">'+toHM(netH)+' nets</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;justify-content:space-between">'+
+      '<button id="dqe-del" style="padding:5px 12px;border-radius:7px;border:1.5px solid #dc2626;background:#fee2e2;color:#dc2626;font-size:.76rem;font-weight:700;cursor:pointer">🗑 Retirer</button>'+
+      '<button id="dqe-save" style="padding:5px 16px;border-radius:7px;border:none;background:var(--accent);color:white;font-size:.76rem;font-weight:700;cursor:pointer">✓ Enregistrer</button>'+
+    '</div>';
+
+  document.body.appendChild(panel);
+
+  document.getElementById('dqe-close').onclick = ()=>panel.remove();
+  document.getElementById('dqe-del').onclick = ()=>{
+    histPush();
+    delete e.weeks[wOff][di];
+    autoSave(); panel.remove(); openGlobalWorkerView();
+  };
+  document.getElementById('dqe-save').onclick = ()=>{
+    const ns = document.getElementById('dqe-start').value;
+    const ne = document.getElementById('dqe-end').value;
+    if(!ns||!ne){ showToast('Indiquez début et fin'); return; }
+    histPush();
+    e.weeks[wOff][di] = {...day, start:ns, end:ne, endManual:true, _autoFilled:false};
+    autoSave(); panel.remove(); openGlobalWorkerView();
+  };
+  // Fermer si clic extérieur
+  setTimeout(()=>{ document.addEventListener('click', function outside(ev){
+    if(!panel.contains(ev.target)){ panel.remove(); document.removeEventListener('click',outside); }
+  }); }, 100);
 }
 
 function printGlobalView(){
@@ -5416,8 +5494,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
     byDay[slot.dateStr].push(slot);
   });
 
-  // Calculer total heures EFFECTIVES par travailleur
-  // = heures brutes − pauses (journalière + fermeture vendredi + lunchBreak)
+  // Calculer total heures NETTES par travailleur via calcNetHours
   const workerHours = {};
   const workerDaysSeen = new Set();
 
@@ -5426,44 +5503,9 @@ function openSiteWeekRecap(siteId, weekStart, prop){
       const dayKey = e.id + '_' + slot.dateStr;
       if(workerDaysSeen.has(dayKey)) return;
       workerDaysSeen.add(dayKey);
-
-      const wOff = dateToWeekOffset(slot.dateStr);
-      const di   = dateToDayIdx(slot.dateStr);
-      const day  = e.weeks?.[wOff]?.[di];
-      const dow  = new Date(slot.dateStr+'T12:00').getDay();
-
-      // Heures brutes : de start à end (ou créneau si pas encore appliqué)
-      let startT, endT;
-      if(day && day.start && day.end){
-        startT = day.start; endT = day.end;
-      } else {
-        startT = slot.creneau.debut; endT = slot.creneau.fin;
-      }
-      let minutes = Math.max(0, timeToMin(endT) - timeToMin(startT));
-
-      // ── Déduire pause journalière (e.pause en minutes) ──
-      const pauseMin = e.pause||0;
-      minutes -= pauseMin;
-
-      // ── Déduire fermeture vendredi (si le créneau couvre la pause) ──
-      if(dow === 5){
-        const vp = getVendrediPause(slot.dateStr);
-        const vpDeb = timeToMin(vp.deb);
-        const vpFin = timeToMin(vp.fin);
-        const cDeb  = timeToMin(startT);
-        const cFin  = timeToMin(endT);
-        // Chevauchement entre le créneau et la pause vendredi
-        const overlapStart = Math.max(cDeb, vpDeb);
-        const overlapEnd   = Math.min(cFin, vpFin);
-        if(overlapEnd > overlapStart) minutes -= (overlapEnd - overlapStart);
-      }
-
-      // ── Déduire lunchBreak si défini ──
-      if(day?.lunchBreak && day?.lunchDuration){
-        minutes -= day.lunchDuration;
-      }
-
-      const h = Math.max(0, minutes / 60);
+      // Utiliser l'heure effective du worker si disponible
+      const startT = e._effectiveStart || slot.creneau.debut;
+      const h = calcNetHours(e, slot.dateStr, startT, slot.creneau.fin);
       workerHours[e.id] = (workerHours[e.id]||{emp:e, hours:0});
       workerHours[e.id].hours += h;
     });
@@ -6054,6 +6096,27 @@ function toHM(decH){
   if(h>0&&m>0)return h+'h '+pad(m)+'min';
   if(h>0)return h+'h';
   return m+'min';
+}
+
+// ── Heures NETTES pour un jour (pause + vendredi + lunchBreak déduits) ──
+function calcNetHours(e, dateStr, startOverride, endOverride){
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  const day  = e?.weeks?.[wOff]?.[di];
+  const startT = startOverride || day?.start;
+  const endT   = endOverride   || day?.end;
+  if(!startT||!endT) return 0;
+  let mins = Math.max(0, timeToMin(endT) - timeToMin(startT));
+  mins -= (e?.pause||0);
+  const dow = new Date(dateStr+'T12:00').getDay();
+  if(dow===5){
+    const vp=getVendrediPause(dateStr);
+    const vpD=timeToMin(vp.deb), vpF=timeToMin(vp.fin);
+    const cD=timeToMin(startT), cF=timeToMin(endT);
+    mins -= Math.max(0, Math.min(cF,vpF)-Math.max(cD,vpD));
+  }
+  if(day?.lunchBreak&&day?.lunchDuration) mins-=day.lunchDuration;
+  return Math.max(0, mins/60);
 }
 
 // calcDuration : durée effective = (fin - début) - pause
