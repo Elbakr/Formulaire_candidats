@@ -3397,9 +3397,11 @@ function applyAlertAlternative(siteId, dateStr, empId){
   if(!e.weeks) e.weeks={};
   if(!e.weeks[wOff]) e.weeks[wOff]={};
 
-  // Vérifier si déjà planifié
-  if(e.weeks[wOff][di]?.start){
-    if(!confirm(e.firstname+" est déjà planifié ce jour. Écraser?")) return;
+  const existing_ = e.weeks[wOff]?.[di];
+  const hasRealConflict = existing_ && existing_.status==='work' && existing_.start && !existing_._multisite_lock && existing_.start !== '00:00';
+  if(hasRealConflict){
+    const when_=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
+    if(!confirm(e.firstname+' est déjà planifié le '+when_+' ('+existing_.start+'-'+existing_.end+'). Remplacer?')) return;
   }
 
   histPush();
@@ -3419,8 +3421,11 @@ function applyAlertAlternative(siteId, dateStr, empId){
 
   autoSave();
   try { renderSidebar(); } catch(err){}
-  showToast("✅ "+e.firstname+" assigné(e) sur "+siteId+" le "+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'})+
-    " — Notification créée (validation travailleur requise)");
+  curWeek=dateToWeekOffset(dateStr); selId=e.id;
+  try{renderSidebar();selectEmp(e.id);}catch(err){}
+  try{if(_viewMode==='month')renderMonthView();else renderWeek();updateMonthBox();}catch(err){}
+  const when2_=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
+  showToast("✅ "+e.firstname+" assigné(e) sur "+siteId+" le "+when2_+" — Planning mis à jour");
 }
 
 function createWorkerNotification(e, dateStr, siteId, cren, type){
@@ -4469,6 +4474,8 @@ function renderMonthView(){
       ${overBudget&&allowOver?'<span style="color:var(--orange);font-size:.72rem;margin-left:6px">✓ Dépassement autorisé</span>':''}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button onclick="saveMonthTemplate()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.7rem;font-weight:700;cursor:pointer" title="Sauvegarder ce planning mensuel comme template">💾 Template</button>
+      <button onclick="showMonthTemplates()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--accent);background:var(--alight);color:var(--accent);font-size:.7rem;font-weight:700;cursor:pointer" title="Voir et appliquer les templates mensuels">📋 Mes templates</button>
       <button onclick="preFillAndRefresh(false)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.7rem;font-weight:700;cursor:pointer" title="Remplir uniquement les jours vides">⭐ Pré-remplir</button>
       <button onclick="preFillAndRefresh(true)" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--orange);background:var(--olight);color:var(--orange);font-size:.7rem;font-weight:700;cursor:pointer" title="Remplir TOUT le mois (écrase les planifications existantes)">🔄 Tout remplir</button>
       <button onclick="clearMonthPlan()" style="padding:4px 10px;border-radius:7px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink3);font-size:.7rem;font-weight:600;cursor:pointer">🗑 Effacer mois</button>
@@ -5310,37 +5317,95 @@ function bulkDelete(){
   showToast('Travailleurs supprimés');
 }
 
+function toggleBulkRow(key){
+  const cb=document.getElementById('bc-'+key);
+  const row=document.getElementById('brow-'+key);
+  const val=document.getElementById('bval-'+key);
+  if(!cb||!row||!val) return;
+  row.style.borderColor=cb.checked?'#2d5be3':'#e2e0d8';
+  row.style.background=cb.checked?'#eef1fd':'white';
+  val.style.opacity=cb.checked?'1':'.35';
+  val.style.pointerEvents=cb.checked?'auto':'none';
+}
+
 function openBulkEdit(){
   const fields = [
-    {key:'status', label:'Statut', type:'select', opts:['Etudiant','CDI','CDD','Interim','Stage','Independant','Flexi','Volontaire']},
-    {key:'grade',  label:'Grade',  type:'select', opts:['directeur','manager','senior','vendeur','junior','stagiaire']},
+    {key:'status',   label:'Statut',              type:'select', opts:['Etudiant','CDI','CDD','Interim','Stage','Independant','Flexi','Volontaire']},
+    {key:'grade',    label:'Grade',               type:'select', opts:['directeur','manager','senior','vendeur','junior','stagiaire']},
+    {key:'hours',    label:'Heures/semaine',       type:'number'},
+    {key:'pause',    label:'Pause (min)',          type:'number'},
+    {key:'hoursMaxMonth', label:'Heures max/mois',type:'number'},
+    {key:'allowOvertime', label:'Dépassement autorisé', type:'bool'},
     {key:'profilIntegration', label:'Profil intégration', type:'select', opts:['natif','arrivant','nouvel_arrivant']},
     {key:'availability.defaultSite', label:'Site par défaut', type:'select', opts:Object.keys(SITES)},
-    {key:'hoursMaxMonth', label:'Heures max/mois', type:'number'},
-    {key:'allowOvertime', label:'Dépassement autorisé', type:'bool'},
+    {key:'startTime', label:'Heure début contractuelle', type:'time'},
+    {key:'wdMode',   label:'Jours/sem mode',       type:'select', opts:['auto','3','4','5','6']},
   ];
 
-  let modal = document.createElement('div');
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px';
-  modal.innerHTML=`
-  <div style="background:white;border-radius:14px;width:100%;max-width:420px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
-    <div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:.9rem;font-weight:700;color:white">✏️ Modifier ${_bulkSelected.size} travailleur${_bulkSelected.size>1?'s':''}</div>
-      <button onclick="this.closest('[style]').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
-    </div>
-    <div style="padding:16px">
-      <div style="margin-bottom:12px">
-        <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;color:#9898b8;display:block;margin-bottom:4px">Champ à modifier</label>
-        <select id="bulk-field" onchange="updateBulkValueInput()" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.84rem">
-          ${fields.map(f=>`<option value="${f.key}" data-type="${f.type}" data-opts="${(f.opts||[]).join(',')}">${f.label}</option>`).join('')}
-        </select>
-      </div>
-      <div id="bulk-value-wrap" style="margin-bottom:14px"></div>
-      <button onclick="applyBulkEdit()" style="width:100%;padding:10px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.88rem;font-weight:700;cursor:pointer">✓ Appliquer à tous</button>
-    </div>
-  </div>`;
+  const modal=document.createElement('div');
+  modal.id='bulk-edit-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  modal.addEventListener('click',ev=>{if(ev.target===modal)modal.remove();});
+
+  const inner=document.createElement('div');
+  inner.style.cssText='background:white;border-radius:14px;width:100%;max-width:520px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)';
+  inner.addEventListener('click',ev=>ev.stopPropagation());
+
+  const header=document.createElement('div');
+  header.style.cssText='background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:14px 18px;display:flex;justify-content:space-between;align-items:center';
+  const htitle=document.createElement('div');
+  htitle.style.cssText='font-size:.9rem;font-weight:700;color:white';
+  htitle.textContent='✏️ Modifier '+_bulkSelected.size+' travailleur'+(_bulkSelected.size>1?'s':'')+' — Cochez les champs';
+  const hclose=document.createElement('button');
+  hclose.textContent='✕';
+  hclose.style.cssText='background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer';
+  hclose.onclick=()=>modal.remove();
+  header.appendChild(htitle); header.appendChild(hclose);
+
+  const body=document.createElement('div');
+  body.style.cssText='padding:14px 16px;max-height:75vh;overflow-y:auto';
+  const hint=document.createElement('div');
+  hint.style.cssText='font-size:.7rem;color:#9898b8;margin-bottom:10px';
+  hint.textContent='Cochez un ou plusieurs champs → saisissez la valeur → Appliquer';
+  body.appendChild(hint);
+
+  fields.forEach(f=>{
+    const row=document.createElement('label');
+    row.id='brow-'+f.key;
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;border:1.5px solid #e2e0d8;margin-bottom:5px;cursor:pointer;background:white';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.id='bc-'+f.key;
+    cb.style.cssText='width:15px;height:15px;accent-color:#2d5be3;flex-shrink:0';
+    cb.addEventListener('change',()=>toggleBulkRow(f.key));
+    const lspan=document.createElement('span');
+    lspan.style.cssText='font-size:.75rem;font-weight:600;min-width:160px;color:#4b5563';
+    lspan.textContent=f.label;
+    const vwrap=document.createElement('div'); vwrap.id='bval-'+f.key;
+    vwrap.style.cssText='flex:1;opacity:.35;pointer-events:none;display:flex';
+    let inp;
+    if(f.type==='select'||f.type==='bool'){
+      inp=document.createElement('select'); inp.id='bv-'+f.key;
+      inp.style.cssText='flex:1;padding:5px 8px;border:1.5px solid #e2e0d8;border-radius:6px;font-size:.78rem';
+      const opts=f.type==='bool'?[['true','Oui'],['false','Non']]:(f.opts||[]).map(o=>[o,o]);
+      opts.forEach(([v,l])=>{const o=document.createElement('option');o.value=v;o.textContent=l;inp.appendChild(o);});
+    } else {
+      inp=document.createElement('input'); inp.id='bv-'+f.key;
+      inp.type=f.type==='time'?'time':'number';
+      inp.value=f.type==='time'?'10:00':'0'; if(f.type!=='time')inp.min='0';
+      inp.style.cssText='flex:1;padding:5px 8px;border:1.5px solid #e2e0d8;border-radius:6px;font-size:.78rem';
+    }
+    vwrap.appendChild(inp); row.appendChild(cb); row.appendChild(lspan); row.appendChild(vwrap);
+    body.appendChild(row);
+  });
+
+  const applyBtn=document.createElement('button');
+  applyBtn.textContent='✓ Appliquer les champs cochés à tous';
+  applyBtn.style.cssText='width:100%;padding:10px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.88rem;font-weight:700;cursor:pointer;margin-top:10px';
+  applyBtn.onclick=applyBulkEdit;
+  body.appendChild(applyBtn);
+
+  inner.appendChild(header); inner.appendChild(body);
+  modal.appendChild(inner);
   document.body.appendChild(modal);
-  updateBulkValueInput();
 }
 
 function updateBulkValueInput(){
@@ -5360,29 +5425,32 @@ function updateBulkValueInput(){
 }
 
 function applyBulkEdit(){
-  const field = document.getElementById('bulk-field')?.value;
-  const valEl = document.getElementById('bulk-value');
-  if(!field||!valEl) return;
-  const val = valEl.type==='checkbox' ? valEl.checked : valEl.value;
-  histPush();
-  _bulkSelected.forEach(id=>{
-    const e = employees.find(x=>x.id===id); if(!e) return;
-    if(field.includes('.')){
-      const [obj,key] = field.split('.');
-      if(!e[obj]) e[obj]={};
-      e[obj][key] = val;
-    } else {
-      e[field] = val;
-    }
+  const toApply=[];
+  document.querySelectorAll('[id^="bc-"]').forEach(cb=>{
+    if(!cb.checked) return;
+    const key=cb.id.replace('bc-','');
+    const inp=document.getElementById('bv-'+key);
+    if(!inp) return;
+    let val=inp.value;
+    if(inp.type==='number') val=parseFloat(val)||0;
+    toApply.push({key,val});
   });
-  // Invalider les caches semaines
+  if(!toApply.length){showToast('Cochez au moins un champ');return;}
+  histPush();
+  let count=0;
   _bulkSelected.forEach(id=>{
-    const e=employees.find(x=>x.id===id);
-    if(e) e.weeks={};
+    const e=employees.find(x=>x.id===id); if(!e) return;
+    toApply.forEach(({key,val})=>{
+      let v=val;
+      if(v==='true')v=true; if(v==='false')v=false;
+      if(key.includes('.')){const[a,b]=key.split('.');if(!e[a])e[a]={};e[a][b]=v;}
+      else e[key]=v;
+    });
+    count++;
   });
   autoSave(); renderSidebar();
-  document.querySelector('[style*="z-index:600"]')?.remove();
-  showToast(`✅ ${_bulkSelected.size} travailleur(s) mis à jour`);
+  document.getElementById('bulk-edit-modal')?.remove();
+  showToast('✅ '+count+' travailleur(s) — '+toApply.map(x=>x.key).join(' + '));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -9558,6 +9626,115 @@ function autoSave(){
 function histSave(){ histPush(); }
 
 // ── Template shortcuts ────────────────────────────────────────
+// ── Templates mensuels ──────────────────────────────────────────
+const LS_MONTH_TMPL = 'gp_month_templates';
+
+function saveMonthTemplate(){
+  const e = emp(); if(!e) return;
+  const baseDate = getWeekDates(curWeek)[0];
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const monthName = baseDate.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  const label = prompt('Nom du template mensuel ?', monthName.charAt(0).toUpperCase()+monthName.slice(1));
+  if(label===null) return;
+
+  // Sauvegarder toutes les semaines qui couvrent ce mois
+  const templates = JSON.parse(localStorage.getItem(LS_MONTH_TMPL)||'[]');
+  const entry = {
+    id: Date.now(),
+    empId: e.id,
+    empName: empName(e),
+    label: label || monthName,
+    year, month,
+    weeks: JSON.parse(JSON.stringify(e.weeks)),
+    savedAt: new Date().toISOString()
+  };
+  // Garder max 3 templates mensuels par worker
+  const others = templates.filter(t=>t.empId!==e.id);
+  const mine   = templates.filter(t=>t.empId===e.id).slice(0,2);
+  const updated = [entry, ...mine, ...others].slice(0,30);
+  localStorage.setItem(LS_MONTH_TMPL, JSON.stringify(updated));
+  showToast('💾 Template mensuel sauvegardé : '+label);
+}
+
+function showMonthTemplates(){
+  const e = emp(); if(!e) return;
+  const templates = JSON.parse(localStorage.getItem(LS_MONTH_TMPL)||'[]')
+    .filter(t=>t.empId===e.id);
+
+  document.getElementById('month-tmpl-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'month-tmpl-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  const rows = templates.length === 0
+    ? '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:.78rem">Aucun template mensuel — sauvegardez d\'abord via 💾 Template</div>'
+    : templates.map(t=>{
+        const d = new Date(t.savedAt).toLocaleDateString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+        const mLabel = new Date(t.year, t.month, 1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+        return `<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--line);border-radius:9px;margin-bottom:6px;background:var(--white)">
+          <div style="flex:1">
+            <div style="font-size:.78rem;font-weight:700">📋 ${t.label}</div>
+            <div style="font-size:.64rem;color:var(--ink3)">Basé sur ${mLabel} · Sauvegardé le ${d}</div>
+          </div>
+          <button onclick="event.stopPropagation();applyMonthTemplate(${t.id})" style="padding:4px 12px;border-radius:6px;border:1.5px solid var(--accent);background:var(--alight);color:var(--accent);font-size:.7rem;font-weight:700;cursor:pointer">↩ Appliquer</button>
+          <button onclick="event.stopPropagation();deleteMonthTemplate(${t.id})" style="padding:4px 8px;border-radius:6px;border:1.5px solid var(--line);background:var(--white);color:var(--ink3);font-size:.7rem;cursor:pointer">✕</button>
+        </div>`;
+      }).join('');
+
+  modal.innerHTML = `<div style="background:white;border-radius:14px;width:100%;max-width:520px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
+    <div style="background:linear-gradient(135deg,var(--accent),#7c3aed);padding:13px 18px;display:flex;justify-content:space-between;align-items:center">
+      <div style="color:white;font-size:.9rem;font-weight:800">📋 Templates mensuels — ${empName(e)}</div>
+      <button onclick="event.stopPropagation();document.getElementById('month-tmpl-modal').remove()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:14px 16px;max-height:70vh;overflow-y:auto">
+      <div style="font-size:.7rem;color:var(--ink3);margin-bottom:10px">Appliquer un template écrase le planning du mois en cours pour ce travailleur.</div>
+      ${rows}
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);text-align:right">
+        <button onclick="event.stopPropagation();saveMonthTemplate();document.getElementById('month-tmpl-modal').remove()" style="padding:6px 14px;border-radius:7px;border:1.5px solid var(--green);background:var(--glight);color:var(--green);font-size:.74rem;font-weight:700;cursor:pointer">💾 Sauvegarder le mois actuel</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function applyMonthTemplate(id){
+  const e = emp(); if(!e) return;
+  const templates = JSON.parse(localStorage.getItem(LS_MONTH_TMPL)||'[]');
+  const t = templates.find(x=>x.id===id);
+  if(!t){ showToast('Template introuvable'); return; }
+  if(!confirm('Appliquer le template "'+t.label+'" au mois en cours ?\nCela écrase les données du mois actuel pour '+empName(e)+'.')) return;
+  histPush();
+  // Fusionner les weeks du template dans e.weeks
+  Object.entries(t.weeks).forEach(([wOff, days])=>{
+    if(!e.weeks) e.weeks={};
+    // Appliquer seulement les semaines qui correspondent au mois affiché
+    const wOffN = parseInt(wOff);
+    const wDates = getWeekDates(wOffN);
+    const baseDate = getWeekDates(curWeek)[0];
+    const curYear = baseDate.getFullYear();
+    const curMonth = baseDate.getMonth();
+    // Vérifier si cette semaine touche le mois courant
+    const inMonth = wDates.some(d=>d.getFullYear()===curYear && d.getMonth()===curMonth);
+    if(inMonth){
+      e.weeks[wOffN] = JSON.parse(JSON.stringify(days));
+    }
+  });
+  autoSave();
+  renderSidebar();
+  renderMonthView();
+  document.getElementById('month-tmpl-modal')?.remove();
+  showToast('✅ Template "'+t.label+'" appliqué au mois en cours');
+}
+
+function deleteMonthTemplate(id){
+  const templates = JSON.parse(localStorage.getItem(LS_MONTH_TMPL)||'[]').filter(t=>t.id!==id);
+  localStorage.setItem(LS_MONTH_TMPL, JSON.stringify(templates));
+  showMonthTemplates();
+  showToast('🗑 Template supprimé');
+}
+
 function saveCurrentTemplate(){
   const e=emp(); if(!e) return;
   const label=prompt('Nom du template ?', fmtWeekLabel(curWeek));
