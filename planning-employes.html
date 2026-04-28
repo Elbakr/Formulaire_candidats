@@ -2216,7 +2216,10 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(hasSitesDefined && !inSiteList && !isDefaultSite) continue;
 
     // ── RÈGLE 2 : disponibilité ─────────────────────────────
-    if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
+    // Exception vendredi : l'équipe du matin est TOUJOURS disponible l'après-midi
+    // (même site, séparés par la pause — on ne vérifie pas isWorkerAvailable pour eux)
+    const isMorningTeamFri = allowDayRepeat && allowDayRepeat.has(e.id);
+    if(!isMorningTeamFri && !isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
     // ── RÈGLE 2c : 1 site par jour (multi-sites uniquement) ─────
     // Exception : si le worker est dans l'équipe du matin vendredi (allowDayRepeat)
@@ -2704,7 +2707,14 @@ function openMultiSiteAutoplan(){
   // Construire les sites (DOM API)
   const sitesListDiv = document.createElement('div');
   sitesListDiv.id = 'ms-sites-list';
-  Object.values(SITES).forEach((s,i)=>{
+  // Trier les sites selon l'ordre mémorisé
+  const sitesSorted = [...Object.values(SITES)].sort((a,b)=>{
+    const ia=savedSitesOrder.indexOf(a.id), ib=savedSitesOrder.indexOf(b.id);
+    if(ia===-1&&ib===-1) return 0;
+    if(ia===-1) return 1; if(ib===-1) return -1;
+    return ia-ib;
+  });
+  sitesSorted.forEach((s,i)=>{
     const row = document.createElement('div');
     row.className = 'ms-site-row';
     row.dataset.site = s.id;
@@ -2854,7 +2864,8 @@ async function runMultiSiteAutoplan(){
 
   // ── Mémoriser les paramètres ──────────────────────────────────
   localStorage.setItem('gp_ms_params', JSON.stringify({
-    dateStart, dateEnd, nbProps: String(nbProps), sites: orderedSites
+    dateStart, dateEnd, nbProps: String(nbProps), sites: orderedSites,
+    sitesOrder: orderedSites // mémoriser l'ordre exact
   }));
 
   document.getElementById('multisite-modal').remove();
@@ -2969,6 +2980,29 @@ async function runMultiSiteAutoplan(){
 let _msResults = {};
 let _msOrderedSites = [];
 
+
+function regenerateAlternative(){
+  // Regénérer en restant dans le même écran
+  // Incrémente le propIdx effectif pour afficher la proposition suivante
+  if(!_msResults || !_msOrderedSites.length){ showToast("Aucun résultat à regénérer"); return; }
+  // Rotation des propositions affichées (montrer la prop suivante)
+  _msCurrentPropOffset = ((_msCurrentPropOffset||0) + 1) % 3;
+  // Réafficher les résultats avec la nouvelle proposition en tête
+  const reordered = {};
+  _msOrderedSites.forEach(siteId=>{
+    reordered[siteId] = (_msResults[siteId]||[]).map(({weekStart, proposals})=>{
+      const offset = _msCurrentPropOffset;
+      const reorderedProps = [...proposals.slice(offset), ...proposals.slice(0,offset)];
+      return {weekStart, proposals: reorderedProps};
+    });
+  });
+  _msResults = reordered;
+  // Rafraîchir l'affichage
+  if(_msOrderedSites.length) switchMsTab(_msOrderedSites[0]);
+  showToast('🔄 Alternative affichée — proposition '+((_msCurrentPropOffset)+1));
+}
+let _msCurrentPropOffset = 0;
+
 function openMultiSiteResults(allResults, orderedSites, weeks){
   let modal = document.getElementById('ms-results-modal');
   if(modal) modal.remove();
@@ -3019,6 +3053,14 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
         </div>
       </div>
       <div style="display:flex;gap:8px">
+        <button onclick="event.stopPropagation();openAllSitesOverview()" style="padding:7px 14px;border-radius:8px;border:none;
+          background:rgba(255,255,255,.15);color:white;font-size:.78rem;font-weight:700;cursor:pointer">
+          🗓 Vue semaine globale
+        </button>
+        <button onclick="event.stopPropagation();regenerateAlternative()" style="padding:7px 14px;border-radius:8px;border:none;
+          background:rgba(255,255,255,.15);color:white;font-size:.78rem;font-weight:700;cursor:pointer">
+          🔄 Regénérer alternative
+        </button>
         <button onclick="event.stopPropagation();applyAllMultiSite()" style="padding:7px 16px;border-radius:8px;border:none;
           background:#059669;color:white;font-size:.8rem;font-weight:800;cursor:pointer">
           ✓ Tout appliquer (meilleure proposition)
@@ -3155,6 +3197,116 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
   modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
   if(orderedSites.length) switchMsTab(orderedSites[0]);
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// VUE D'ENSEMBLE TOUS MAGASINS — semaine avec navigation avant/arrière
+// ══════════════════════════════════════════════════════════════
+let _overviewWeekStart = null;
+
+function openAllSitesOverview(weekStart){
+  _overviewWeekStart = weekStart || (_msResults && _msOrderedSites.length
+    ? (_msResults[_msOrderedSites[0]]||[])[0]?.weekStart
+    : new Date().toISOString().slice(0,10));
+  if(!_overviewWeekStart) _overviewWeekStart = new Date().toISOString().slice(0,10);
+  renderAllSitesOverview();
+}
+
+function renderAllSitesOverview(){
+  document.getElementById('all-sites-overview')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'all-sites-overview';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  const wStart = _overviewWeekStart;
+  const dates = [];
+  for(let i=0;i<7;i++){
+    const d=new Date(wStart+'T12:00'); d.setDate(d.getDate()+i);
+    dates.push(d);
+  }
+  const DAYS=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  const wLabel = new Date(wStart+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'long',year:'numeric'});
+
+  // Construire le tableau sites × jours
+  const sites = _msOrderedSites.length ? _msOrderedSites : Object.keys(SITES);
+  let rows = '';
+  sites.forEach(siteId=>{
+    const site = SITES[siteId]||{};
+    const siteData = (_msResults||{})[siteId]||[];
+    const weekData = siteData.find(r=>r.weekStart===wStart);
+    const prop = weekData?.proposals[0];
+
+    let cells = '';
+    dates.forEach((d,di)=>{
+      const ds = d.toISOString().slice(0,10);
+      const slots = prop?.plan.filter(s=>s.dateStr===ds)||[];
+      const workers = new Map();
+      slots.forEach(s=>s.assigned.forEach(e=>workers.set(e.id,e)));
+      const wList = [...workers.values()];
+      const isWE = di>=5;
+      const cellBg = wList.length===0 ? '#fee2e2' : isWE ? '#fef3c7' : 'white';
+
+      cells += '<td style="padding:5px 6px;border:1px solid #e2e0d8;vertical-align:top;background:'+cellBg+';min-width:90px;font-size:.68rem">';
+      if(wList.length===0){
+        cells += '<span style="color:#dc2626;font-size:.62rem">⚠️ vide</span>';
+      } else {
+        wList.forEach(e=>{
+          const col=empColor(e);
+          cells += '<span onclick="event.stopPropagation();openWorkerQuickView('+e.id+',event)" style="display:inline-block;padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;margin:1px">'+e.firstname+'</span>';
+        });
+      }
+      cells += '</td>';
+    });
+
+    const totalWorkers = new Set();
+    dates.forEach(d=>{
+      const ds=d.toISOString().slice(0,10);
+      (prop?.plan.filter(s=>s.dateStr===ds)||[]).forEach(s=>s.assigned.forEach(e=>totalWorkers.add(e.id)));
+    });
+
+    rows += '<tr>'+
+      '<td style="padding:6px 10px;border:1px solid #e2e0d8;font-weight:800;white-space:nowrap;background:'+(site.color||'#2d5be3')+'18;color:'+(site.color||'#2d5be3')+'">'+
+        '<div style="font-size:.78rem">'+siteId+' — '+(site.name||siteId)+'</div>'+
+        '<div style="font-size:.62rem;opacity:.7;font-weight:400">'+(site.address||'')+'</div>'+
+        '<div style="font-size:.62rem;margin-top:2px;color:#059669">'+totalWorkers.size+' worker(s)</div>'+
+      '</td>'+cells+'</tr>';
+  });
+
+  modal.innerHTML = '<div style="background:white;border-radius:14px;width:100%;max-width:1200px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'+
+    '<div style="background:linear-gradient(135deg,#1a1a2e,#2d5be3);padding:12px 18px;display:flex;justify-content:space-between;align-items:center">'+
+      "<div style=\"color:white;font-size:.9rem;font-weight:800\">🗓 Vue ensemble — Semaine du "+wLabel+"</div>"+
+      '<div style="display:flex;gap:6px;align-items:center">'+
+        '<button onclick="event.stopPropagation();overviewNav(-1)" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:1rem">◀</button>'+
+        '<button onclick="event.stopPropagation();overviewNav(1)" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:1rem">▶</button>'+
+        '<button onclick="event.stopPropagation();document.getElementById("all-sites-overview").remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>'+
+      '</div>'+
+    '</div>'+
+    '<div style="overflow-x:auto;padding:12px">'+
+      '<table style="border-collapse:collapse;width:100%">'+
+        '<thead><tr>'+
+          '<th style="padding:6px 10px;border:1px solid #e2e0d8;background:#f5f4f0;font-size:.72rem;text-align:left">Site</th>'+
+          dates.map((d,i)=>{
+            const ds=d.toISOString().slice(0,10);
+            const isWE=i>=5;
+            return '<th style="padding:6px 8px;border:1px solid #e2e0d8;background:'+(isWE?'#fef3c7':'#f5f4f0')+';font-size:.7rem;text-align:center;white-space:nowrap">'+
+              DAYS[i]+'<br><span style="font-size:.62rem;opacity:.7">'+d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</span></th>';
+          }).join('')+
+        '</tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table>'+
+    '</div>'+
+  '</div>';
+
+  document.body.appendChild(modal);
+}
+
+function overviewNav(dir){
+  const d = new Date(_overviewWeekStart+'T12:00');
+  d.setDate(d.getDate() + dir*7);
+  _overviewWeekStart = d.toISOString().slice(0,10);
+  renderAllSitesOverview();
 }
 
 function switchMsTab(siteId){
@@ -4449,7 +4601,7 @@ function validateDay(empIdx, wOff, di, approved){
 // VUE GLOBALE TRAVAILLEUR — Du début contrat à la fin
 // ══════════════════════════════════════════════════════════════
 
-function openGlobalWorkerView(){
+function openGlobalWorkerView(defaultTab){
   const e = emp();
   if(!e){ showToast('Sélectionnez un travailleur'); return; }
 
@@ -4585,7 +4737,7 @@ function openGlobalWorkerView(){
 
     <!-- TABS : Mensuel / Hebdo -->
     <div style="display:flex;border-bottom:2px solid var(--line);background:#fafaf8">
-      <button onclick="setGlobalTab('month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
+      <button onclick="setGlobalTab(defaultTab||'month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
       <button onclick="setGlobalTab('week')" id="gtab-week" style="padding:10px 20px;border:none;background:transparent;color:var(--ink3);font-size:.78rem;font-weight:700;cursor:pointer">📋 Vue hebdomadaire</button>
     </div>
 
@@ -5370,12 +5522,9 @@ function openWorkerQuickView(empId, event){
   if(event) event.stopPropagation();
   const e = employees.find(x=>x.id===empId);
   if(!e) return;
-
-  // Sélectionner ce travailleur dans la sidebar
   selId = empId;
-
-  // Ouvrir la vue globale directement
-  openGlobalWorkerView();
+  // Ouvrir la vue globale en mode hebdomadaire par défaut
+  openGlobalWorkerView('week');
 }
 
 function openStoreManagerConfig(){
