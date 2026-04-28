@@ -2558,7 +2558,7 @@ function openRestDaysManager(){
     </div>
   </div>`;
 
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
 }
 
@@ -2788,7 +2788,7 @@ function openMultiSiteAutoplan(){
     '</div>'+
     '</div>';
 
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
 
   // Attacher les éléments construits par DOM
@@ -3423,8 +3423,28 @@ function applyMsSiteWeek(siteId, weekStart, propIdx){
       }
     });
   });
-  autoSave(); renderSidebar();
-  showToast(`✅ ${siteId} sem. ${weekStart}: ${applied} créneaux appliqués`);
+  autoSave();
+  try { renderSidebar(); } catch(e){}
+  if(emp()) try { loadPanel(); } catch(e){}
+
+  // Navigation vers la semaine appliquée
+  curWeek = dateToWeekOffset(weekStart);
+  try {
+    if(_viewMode==='month') renderMonthView(); else renderWeek();
+    updateMonthBox();
+  } catch(e){}
+
+  // Confirmation visuelle dans le bouton
+  const btn = event?.target?.closest?.('button');
+  if(btn){
+    const orig = btn.innerHTML;
+    btn.innerHTML = '✅ Appliqué!';
+    btn.style.background = '#059669';
+    btn.disabled = true;
+    setTimeout(()=>{ btn.innerHTML=orig; btn.style.background=''; btn.disabled=false; }, 3000);
+  }
+
+  showToast('✅ '+siteId+' — '+weekStart+': '+applied+' créneaux appliqués et visibles dans le planning');
 }
 
 function applyAllMultiSite(){
@@ -3558,6 +3578,14 @@ function isJuniorProfile(e){
 }
 
 // Vérifier si une équipe assignée respecte toutes les règles de mix
+
+function getMixViolationReason(assigned){
+  const hasJunior = assigned.some(isJuniorProfile);
+  const hasSenior = assigned.some(isSeniorProfile);
+  if(hasJunior && !hasSenior && assigned.length>=2) return 'junior sans senior';
+  if(assigned.length===1) return 'équipe seule';
+  return 'mixité insuffisante';
+}
 function teamRespectsMixRule(assigned){
   if(assigned.length < 2) return true;
 
@@ -3720,9 +3748,12 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // Cette assignation est INCONDITIONNELLE — avant la boucle de scoring.
         const mgrEmp  = mgrId ? active.find(x=>x.id===mgrId) : null;
         const mgrAlreadyThisDay = mgrId && workerDays[mgrId]?.has(dateStr);
+        // Exception vendredi aprem: le responsable peut travailler les 2 créneaux
+        const mgrFriExempt = isFridayAfternoon && morningTeamFriday?.has(mgrId);
         // Vérifier le blocage multi-sites pour le manager
         const mgrSentinel = (()=>{
           if(!mgrId || !mgrEmp) return false;
+          if(mgrFriExempt) return false; // exempt vendredi aprem
           if(!mgrEmp._msBlocked) return false;
           const blocked = mgrEmp._msBlocked.get(dateStr);
           return !!(blocked && blocked.has(mgrId));
@@ -3736,9 +3767,9 @@ function genPlanningProposals(siteId, weekStart, n=3){
           Math.abs(mgrEffStart - timeToMin(creneau.debut)) <= 30
         );
         const mgrDispo = mgrEmp
-          && (!mgrAlreadyThisDay || mgrCreneauMatch) // autoriser si créneau correspondant
-          && !mgrSentinel // bloquer si sentinel multi-sites posé
-          && isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin);
+          && (!mgrAlreadyThisDay || mgrCreneauMatch || mgrFriExempt)
+          && !mgrSentinel
+          && (mgrFriExempt || isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin));
 
         if(mgrDispo && manquants > 0){
           if(!workerDays[mgrId]) workerDays[mgrId] = new Set();
@@ -3779,14 +3810,15 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // ── Règle 9 : Séparation responsable/senior ─────────────────
         // Si responsable déjà assigné, pousser les seniors en fin de liste
         // pour qu'ils soient utilisés sur d'autres sites en priorité
-        if(AUTOPLAN_RULES.separateLeaders?.active && assigned.some(a=>a.id===mgrId)){
+        if(AUTOPLAN_RULES.separateLeaders?.active && assigned.some(a=>a.id===mgrId)
+           && !isFridayAfternoon){ // Ne jamais séparer l'équipe vendredi aprem
           const seniors = candidats.filter(c=>{
+            if(morningTeamFriday?.has(c.emp.id)) return false; // toujours garder l'équipe matin
             const anc_=getAnciennete(c.emp);
             const g_=getGradeEffectif(c.emp);
             return (g_==='senior'&&anc_>=3)||['manager','directeur'].includes(g_)||anc_>=3;
           });
           const nonSeniors = candidats.filter(c=>!seniors.includes(c));
-          // Seniors avec bonus légèrement réduit pour favoriser leur dispatch sur d'autres sites
           seniors.forEach(c=>{ c.score -= 5; });
           candidats = [...nonSeniors, ...seniors].sort((a,b)=>b.score-a.score);
         }
@@ -3897,7 +3929,8 @@ function genPlanningProposals(siteId, weekStart, n=3){
           manquants:Math.max(0,manquants),
           periode:creneau.periode,
           difficulty,
-          mixOk:teamRespectsMixRule(assigned)
+          mixOk:teamRespectsMixRule(assigned),
+          mixDetail:!teamRespectsMixRule(assigned)?{dateStr,reason:getMixViolationReason(assigned)}:null
         });
 
         // ── VENDREDI : mémoriser l'équipe du matin ──────────────────────
@@ -4471,7 +4504,7 @@ function openDayEdit(dateStr, dow){
       </div>
     </div>
   </div>`;
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   modal.style.display='flex';
 }
 
@@ -4798,7 +4831,7 @@ function openGlobalWorkerView(defaultTab){
     </div>
   </div>`;
 
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
 }
 
@@ -5369,7 +5402,7 @@ function openStoreNeedsEditor(){
     </div>
   </div>`;
 
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
   switchToSiteTab('A');
 }
@@ -6081,7 +6114,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
   </div>`;
 
   modal.innerHTML = html;
-  modal.onclick = ()=>modal.remove();
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
   document.body.appendChild(modal);
 }
 
