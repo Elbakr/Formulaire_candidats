@@ -2890,6 +2890,21 @@ async function runMultiSiteAutoplan(){
     cur.setDate(cur.getDate()+7);
   }
 
+  // Vérifier que les semaines ne sont pas toutes dans le passé
+  const todayCheck = new Date().toISOString().slice(0,10);
+  const futureWeeks = weeks.filter(w=>{
+    const endW = new Date(w+'T12:00'); endW.setDate(endW.getDate()+6);
+    return endW.toISOString().slice(0,10) >= todayCheck;
+  });
+  if(futureWeeks.length === 0){
+    showToast('⚠️ Toutes les dates sélectionnées sont dans le passé — sélectionnez une période future');
+    return;
+  }
+  if(futureWeeks.length < weeks.length){
+    weeks.splice(0, weeks.length, ...futureWeeks);
+    showToast('ℹ️ Semaines passées ignorées — génération sur '+futureWeeks.length+' semaine(s)');
+  }
+
   // ── Générer les propositions pour toutes les semaines et tous les sites ──
   const allResults = {}; // {siteId: [{weekStart, proposals}]}
   const today2 = new Date().toISOString().slice(0,10);
@@ -3909,6 +3924,8 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
     for(const {dateStr, dow, difficulty} of processingOrder){
       // Ne pas planifier dans le passé
+      // Ne pas planifier dans le strict passé (avant aujourd'hui)
+      // Autoriser aujourd'hui et les jours futurs
       if(dateStr < todayStr){ planMap[dateStr]=[]; continue; }
       const besoins = getBesoinsDate(siteId, dateStr);
       planMap[dateStr] = [];
@@ -3956,34 +3973,29 @@ function genPlanningProposals(siteId, weekStart, n=3){
           siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat
         );
 
+        // ── Déclarer assigned et manquants ───────────────────────────
+        const assigned = [];
+        let manquants  = creneau.vendeurs;
+
         // ── VENDREDI après-midi : PRÉ-ASSIGNER l'équipe du matin ──────
         // L'équipe du matin DOIT travailler l'après-midi (même endroit)
-        // On les assigne directement AVANT la boucle normale
+        // On les assigne directement avant la pré-assignation du responsable
         if(isFridayAfternoon && morningTeamFriday.size > 0
            && AUTOPLAN_RULES.fridayContinuity?.active !== false){
           morningTeamFriday.forEach(empId=>{
             const mEmp = active.find(e=>e.id===empId);
             if(!mEmp) return;
-            // Déjà dans assigned? (via pré-assignation responsable)
             if(assigned.some(a=>a.id===empId)) return;
-            // Vérifier anti-doublon (mais pas pour l'équipe matin vendredi)
-            // et vérifier les blocages multi-sites
             if(mEmp._msBlocked?.get(dateStr)?.has(empId)) return;
-            // Pré-assigner
             assigned.push(mEmp);
             if(!workerDays[empId]) workerDays[empId]=new Set();
             workerDays[empId].add(dateStr);
             workerLoad[empId]=(workerLoad[empId]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
             manquants--;
           });
-          // Ensuite trier les candidats restants (ceux non encore assignés)
           candidats = candidats.filter(c=>!assigned.some(a=>a.id===c.emp.id));
           candidats.sort((a,b)=>b.score-a.score);
         }
-
-        // ── Déclarer assigned et manquants avant la pré-assignation ──
-        const assigned = [];
-        let manquants  = creneau.vendeurs;
 
         // ── PRÉ-ASSIGNATION OBLIGATOIRE DU RESPONSABLE ───────────────
         // Le responsable DOIT être présent sur tous les créneaux d'ouverture
