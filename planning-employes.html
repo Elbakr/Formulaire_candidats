@@ -1811,13 +1811,13 @@ function getRushProfile(dateStr){
   const picEnd = (ete || isSpecial) ? 18*60 : 17*60;
 
   // ── Multiplicateur global pour jours spéciaux ────────────────
-  // Samedi = ×1.4, Fériés/Dim = ×1.3, 28→8 du mois = ×1.2
-  // Ces multiplicateurs s'appliquent sur TOUT le profil
   let globalMult = 1.0;
   if(isSam)             globalMult = 1.4;
   else if(isFerie)      globalMult = 1.3;
   else if(isSpecial)    globalMult = 1.2;
   else if(isForte)      globalMult = 1.15;
+  // Coefficient par date spécifique (potentiomètre)
+  if(DATE_COEFFS && DATE_COEFFS[dateStr]) globalMult = Math.max(globalMult, DATE_COEFFS[dateStr]);
 
   // ── Profil horaire pondéré ────────────────────────────────────
   // Zone critique : 13h-18h (demande forte confirmée par l'opérationnel)
@@ -1903,10 +1903,15 @@ function calcWorkerCreneauValue(e, dow, debut, fin, dateStr){
 // Seuil : il doit couvrir au moins 40% de la VALEUR totale du créneau
 // (pas 40% du temps — 40% de la valeur pondérée pic inclus)
 function coversEnoughRushHours(e, dow, debut, fin, dateStr){
+  // Si toutes les règles sont désactivées → accepter tout worker disponible
+  const allRulesOff = Object.entries(AUTOPLAN_RULES)
+    .filter(([k])=>k!=='periodeForteCoeff')
+    .every(([,r])=>r.active===false);
+  if(allRulesOff) return true;
   const maxVal   = calcCreneauMaxValue(debut, fin, dateStr);
   if(maxVal === 0) return true;
   const workerVal = calcWorkerCreneauValue(e, dow, debut, fin, dateStr);
-  return (workerVal / maxVal) >= 0.40; // 40% de valeur pondérée minimum
+  return (workerVal / maxVal) >= 0.20; // 20% de valeur pondérée minimum
 }
 
 // Besoins fixes par magasin (créneaux hebdomadaires normaux)
@@ -2378,6 +2383,10 @@ const AUTOPLAN_RULES = {
     description: 'Multiplicateur appliqué sur le score des jours de forte affluence (fin/début de mois). Défaut: ×1.3'
   },
 };
+// Coefficients de besoin par date spécifique {dateStr: coefficient}
+// Ex: {'2026-06-15': 1.8} → ce jour compte x1.8 dans le scoring
+let DATE_COEFFS = JSON.parse(localStorage.getItem('gp_date_coeffs')||'{}');
+function saveDateCoeffs(){ localStorage.setItem('gp_date_coeffs', JSON.stringify(DATE_COEFFS)); }
 
 // ══════════════════════════════════════════════════════════════
 // RÉPARTITION DES JOURS DE REPOS — Algorithme équilibré
@@ -2683,6 +2692,19 @@ function openMultiSiteAutoplan(){
   // Construire les règles (DOM API, pas innerHTML)
   const rulesDiv = document.createElement('div');
   rulesDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px';
+  // Boutons activer/désactiver toutes les règles
+  const rulesBtns = document.createElement('div');
+  rulesBtns.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;width:100%';
+  const btnAllOn = document.createElement('button');
+  btnAllOn.textContent = '✅ Tout activer';
+  btnAllOn.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid #2d5be3;background:#eef1fd;color:#2d5be3;font-size:.68rem;font-weight:700;cursor:pointer;flex:1';
+  btnAllOn.onclick = ()=>toggleAllRules(true);
+  const btnAllOff = document.createElement('button');
+  btnAllOff.textContent = '⬜ Tout désactiver';
+  btnAllOff.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid #e2e0d8;background:#f8f7f5;color:#9898b8;font-size:.68rem;font-weight:700;cursor:pointer;flex:1';
+  btnAllOff.onclick = ()=>toggleAllRules(false);
+  rulesBtns.appendChild(btnAllOn); rulesBtns.appendChild(btnAllOff);
+  rulesDiv.appendChild(rulesBtns);
   Object.entries(AUTOPLAN_RULES).forEach(([key,rule])=>{
     const lbl = document.createElement('label');
     lbl.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:.68rem;font-weight:600;border:1.5px solid '+(rule.active?'#2d5be3':'#e2e0d8')+';background:'+(rule.active?'#eef1fd':'#f8f7f5')+';color:'+(rule.active?'#2d5be3':'#9898b8');
@@ -2696,6 +2718,7 @@ function openMultiSiteAutoplan(){
       lbl.style.borderColor=this.checked?'#2d5be3':'#e2e0d8';
       lbl.style.color=this.checked?'#2d5be3':'#9898b8';
     });
+    lbl.id = 'rule-lbl-'+key;
     lbl.appendChild(cb);
     lbl.appendChild(document.createTextNode(' '+rule.label));
     // Pour periodeForteCoeff: ajouter un input numérique
@@ -2790,7 +2813,8 @@ function openMultiSiteAutoplan(){
       '<div style="font-size:.65rem;color:var(--ink3)">Paramètres mémorisés pour la prochaine fois</div>'+
       '<div style="display:flex;gap:8px">'+
         '<button id="ms-cancel-btn" style="padding:7px 14px;border-radius:7px;border:1.5px solid var(--line);background:transparent;font-size:.8rem;cursor:pointer">Annuler</button>'+
-        '<button id="ms-generate-btn" style="padding:7px 20px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:800;cursor:pointer">⚡ Générer</button>'+
+        '<button id="ms-generate-btn" style="padding:7px 20px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:800;cursor:pointer">🎛️ Coefficients dates</button>'+
+      '<button onclick="runMultiSiteAutoplan()" style="padding:9px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#2d5be3,#7c3aed);color:white;font-size:.84rem;font-weight:800;cursor:pointer">⚡ Générer</button>'+
       '</div>'+
     '</div>'+
     '</div>';
@@ -2994,6 +3018,8 @@ async function runMultiSiteAutoplan(){
   // Stocker pour les boutons d'action
   _msResults = allResults;
   _msOrderedSites = orderedSites;
+  _msPeriodStart = dateStart;
+  _msPeriodEnd   = dateEnd;
 
   // Afficher les résultats
   openMultiSiteResults(allResults, orderedSites, weeks);
@@ -3025,6 +3051,68 @@ function regenerateAlternative(){
   showToast('🔄 Alternative affichée — proposition '+((_msCurrentPropOffset)+1));
 }
 let _msCurrentPropOffset = 0;
+let _msPeriodStart = null;
+let _msPeriodEnd = null;
+
+
+function openDateCoeffManager(){
+  document.getElementById('date-coeff-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='date-coeff-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1001;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.addEventListener('click',ev=>{if(ev.target===modal)modal.remove();});
+  const inner=document.createElement('div');
+  inner.style.cssText='background:white;border-radius:14px;width:100%;max-width:520px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.25)';
+  inner.addEventListener('click',ev=>ev.stopPropagation());
+  // Header
+  const hdr=document.createElement('div'); hdr.style.cssText='background:linear-gradient(135deg,#1a1a2e,#7c3aed);padding:13px 18px;display:flex;justify-content:space-between;align-items:center';
+  const ht=document.createElement('div'); ht.style.cssText='color:white;font-size:.9rem;font-weight:800'; ht.textContent='🎛️ Coefficients de besoin par date';
+  const hc=document.createElement('button'); hc.textContent='✕'; hc.style.cssText='background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer'; hc.onclick=()=>modal.remove();
+  hdr.appendChild(ht); hdr.appendChild(hc);
+  // Body
+  const body=document.createElement('div'); body.style.cssText='padding:16px';
+  const hint=document.createElement('p'); hint.style.cssText='font-size:.7rem;color:var(--ink3);margin:0 0 10px';
+  hint.textContent="Définissez un coefficient ×N pour prioriser certaines dates dans l'autoplan. Plus le coefficient est élevé, plus ce jour sera prioritaire.";
+  body.appendChild(hint);
+  // Formulaire ajout
+  const addRow=document.createElement('div'); addRow.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:2px solid var(--line)';
+  const di=document.createElement('input'); di.type='date'; di.style.cssText='flex:2;min-width:120px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.8rem';
+  const si=document.createElement('input'); si.type='range'; si.min='0.5'; si.max='3'; si.step='0.1'; si.value='1.5'; si.style.cssText='flex:2;accent-color:#7c3aed';
+  const sv=document.createElement('span'); sv.style.cssText='font-weight:800;color:#7c3aed;min-width:32px;font-size:.84rem'; sv.textContent='×1.5';
+  si.oninput=()=>{sv.textContent='×'+parseFloat(si.value).toFixed(1);};
+  const ab=document.createElement('button'); ab.textContent='+ Ajouter'; ab.style.cssText='padding:6px 12px;border-radius:7px;border:none;background:#7c3aed;color:white;font-size:.76rem;font-weight:700;cursor:pointer';
+  ab.onclick=()=>{
+    const d=di.value,c=parseFloat(si.value)||1.5;
+    if(!d){showToast('Sélectionnez une date');return;}
+    DATE_COEFFS[d]=c;saveDateCoeffs();renderDcmList();
+    showToast('✅ Coefficient ×'+c.toFixed(1)+' ajouté pour '+new Date(d+'T12:00').toLocaleDateString('fr-BE',{day:'numeric',month:'short'}));
+  };
+  addRow.appendChild(di);addRow.appendChild(si);addRow.appendChild(sv);addRow.appendChild(ab);
+  body.appendChild(addRow);
+  // Liste
+  const list=document.createElement('div'); list.id='dcm-list'; list.style.cssText='max-height:280px;overflow-y:auto';
+  body.appendChild(list);
+  function renderDcmList(){
+    list.innerHTML='';
+    const entries=Object.entries(DATE_COEFFS).sort((a,b)=>a[0].localeCompare(b[0]));
+    if(!entries.length){const e=document.createElement('div');e.style.cssText='color:var(--ink3);font-size:.78rem;padding:10px 0';e.textContent='Aucun coefficient défini';list.appendChild(e);return;}
+    entries.forEach(([ds,coeff])=>{
+      const lbl=new Date(ds+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'long'});
+      const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)';
+      const la=document.createElement('span'); la.style.cssText='flex:1;font-size:.76rem;font-weight:600'; la.textContent=lbl;
+      const s2=document.createElement('input'); s2.type='range'; s2.min='0.5'; s2.max='3'; s2.step='0.1'; s2.value=coeff; s2.style.cssText='width:80px;accent-color:#7c3aed';
+      const sv2=document.createElement('span'); sv2.style.cssText='min-width:36px;font-weight:700;color:#7c3aed;font-size:.78rem'; sv2.textContent='×'+Number(coeff).toFixed(1);
+      s2.oninput=()=>{DATE_COEFFS[ds]=parseFloat(s2.value);saveDateCoeffs();sv2.textContent='×'+parseFloat(s2.value).toFixed(1);};
+      const del=document.createElement('button'); del.textContent='✕'; del.style.cssText='padding:2px 7px;border-radius:4px;border:1px solid #fee2e2;background:#fee2e2;color:#dc2626;font-size:.66rem;cursor:pointer';
+      del.onclick=()=>{delete DATE_COEFFS[ds];saveDateCoeffs();renderDcmList();};
+      row.appendChild(la);row.appendChild(s2);row.appendChild(sv2);row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+  renderDcmList();
+  inner.appendChild(hdr);inner.appendChild(body);
+  modal.appendChild(inner);document.body.appendChild(modal);
+}
 
 function openMultiSiteResults(allResults, orderedSites, weeks){
   let modal = document.getElementById('ms-results-modal');
@@ -3151,20 +3239,22 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
             const av=getWorkerAvailability(e);
             const eligible=(e.sites||[]).includes(siteId)||av.defaultSite===siteId||(!av.defaultSite&&!(e.sites||[]).length);
             if(!eligible) return false;
+            // Exclure les workers déjà planifiés ce jour (vrai créneau, pas sentinel)
+            const wOff_=dateToWeekOffset(dateStr), di_=dateToDayIdx(dateStr);
+            const day_=e.weeks?.[wOff_]?.[di_];
+            if(day_&&day_.status==='work'&&day_.start&&!day_._multisite_lock&&day_.start!=='00:00') return false;
+            // Exclure les workers en congé
+            if(day_&&day_.status==='leave') return false;
             return true;
           }).map(e=>{
-            // Calculer le type d'alerte si on l'assigne
             const wOff=dateToWeekOffset(dateStr), di=dateToDayIdx(dateStr);
             const day=e.weeks?.[wOff]?.[di];
-            const isLeave=day?.status==='leave';
             const isRestDay=(e.restDays||[]).includes((dow===0)?6:(dow-1));
-            const isOvertime=(e.allowOvertime)?false:((e.hours||0)/4.33)*1.2 < (e.hours||0)/4.33;
             const alerts2=[];
-            if(isLeave) alerts2.push('🚫 En congé');
-            else if(isRestDay) alerts2.push('🔄 Jour de repos préféré');
-            if(!isLeave) return {e, alerts:alerts2, available:!isLeave};
-            return null;
-          }).filter(Boolean).filter(x=>!x.alerts.some(a=>a.includes('congé'))).slice(0,maxAlt||2);
+            if(isRestDay) alerts2.push('🔄 Jour de repos préféré');
+            if(!e.allowOvertime) alerts2.push('⏱ Vérifier heures');
+            return {e, alerts:alerts2};
+          }).slice(0,maxAlt||2);
         }
 
                 // Grouper les manquants par site
@@ -3223,10 +3313,15 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
           ${(()=>{
             // Calculer heures NETTES par worker par jour (fusion créneaux + déduction pauses/vendredi)
             const dayMins = {}; // {empId: {dateStr: {emp, startMin, endMin}}}
+            const periodStart_ = _msPeriodStart;
+            const periodEnd_   = _msPeriodEnd;
             orderedSites.forEach(siteId=>{
               (allResults[siteId]||[]).forEach(({proposals})=>{
                 const prop = proposals[0]; if(!prop) return;
                 prop.plan.forEach(slot=>{
+                  // Filtrer sur la période de génération seulement
+                  if(periodStart_ && slot.dateStr < periodStart_) return;
+                  if(periodEnd_   && slot.dateStr > periodEnd_)   return;
                   slot.assigned.forEach(empRef=>{
                     const e = employees.find(x=>x.id===empRef.id); if(!e) return;
                     const ds = slot.dateStr;
@@ -3420,7 +3515,8 @@ function applyAlertAlternative(siteId, dateStr, empId){
   const hasRealConflict = existing_ && existing_.status==='work' && existing_.start && !existing_._multisite_lock && existing_.start !== '00:00';
   if(hasRealConflict){
     const when_=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
-    if(!confirm(e.firstname+' est déjà planifié le '+when_+' ('+existing_.start+'-'+existing_.end+'). Remplacer?')) return;
+    const siteName_ = existing_.site ? (SITES[existing_.site]?.name||existing_.site) : 'site inconnu';
+    if(!confirm(e.firstname+' est déjà planifié le '+when_+' sur '+siteName_+' ('+existing_.start+'→'+existing_.end+'). Remplacer par '+siteId+'?')) return;
   }
 
   histPush();
@@ -3746,6 +3842,29 @@ function openPlanningEngine(){
 
 
 // Activer/désactiver une règle d'autoplan (réécrit proprement)
+
+function toggleAllRules(activate){
+  const skip = ['periodeForteCoeff']; // pas une règle on/off
+  Object.entries(AUTOPLAN_RULES).forEach(([k,r])=>{
+    if(skip.includes(k)) return;
+    if(r && typeof r.active !== 'undefined') r.active = activate;
+  });
+  // Mettre à jour les cases à cocher dans le panneau si ouvert
+  document.querySelectorAll('[id^="rule-cb-"]').forEach(cb=>{
+    const key = cb.id.replace('rule-cb-','');
+    if(!skip.includes(key)) cb.checked = activate;
+  });
+  // Mettre à jour les styles des labels
+  document.querySelectorAll('[id^="rule-lbl-"]').forEach(lbl=>{
+    const key = lbl.id.replace('rule-lbl-','');
+    if(skip.includes(key)) return;
+    lbl.style.background = activate ? '#eef1fd' : '#f8f7f5';
+    lbl.style.borderColor = activate ? '#2d5be3' : '#e2e0d8';
+    lbl.style.color = activate ? '#2d5be3' : '#9898b8';
+  });
+  showToast((activate?'✅ Toutes les règles activées':'⬜ Toutes les règles désactivées'));
+}
+
 function toggleAutoPlanRule(key, active){
   if(AUTOPLAN_RULES[key]) AUTOPLAN_RULES[key].active = active;
   // Mettre à jour le style du badge
@@ -7499,6 +7618,8 @@ function selectEmp(id){
 
 function loadPanel(){
   const e=emp();if(!e)return;
+  // Si on est en vue mensuelle, re-rendre la grille pour ce travailleur
+  if(_viewMode==='month') try{ renderMonthView(); }catch(err){}
   const c=empCol(e);
   const init=((e.firstname[0]||'')+(e.lastname[0]||'')).toUpperCase();
   document.getElementById('panel-name').innerHTML=
