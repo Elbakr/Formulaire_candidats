@@ -2363,6 +2363,12 @@ const AUTOPLAN_RULES = {
     label: '🏪 Minimum 1 personne par site par jour (sinon signalement)',
     description: 'Chaque site ouvert doit avoir au moins 1 worker assigné. Sinon liste les jours en déficit.'
   },
+  // Règle 11 : Planning existant comme base prioritaire
+  useExistingPlan: {
+    active: false,
+    label: '📌 Utiliser le planning existant comme base prioritaire (🟣 auto / 🔵 manuel / 🟢 existant)',
+    description: 'Les créneaux déjà planifiés manuellement dans la vue hebdomadaire sont conservés et pris en compte en priorité par l\'autoplan'
+  },
   // Coefficient forte affluence (modifiable)
   periodeForteCoeff: {
     active: true,
@@ -3338,8 +3344,9 @@ function switchMsTab(siteId){
               ${p.coverage}% couverture · ${p.mixViolations>0?'⚠️ '+p.mixViolations+' violation(s) mixité':'✅ Mixité ok'}
             </div>
           </div>
-          <button data-apply-site="${siteId}" data-apply-week="${weekStart}" data-apply-idx="${pi}"
-            onclick="event.stopPropagation();applyMsSiteWeek(this.dataset.applySite, this.dataset.applyWeek, parseInt(this.dataset.applyIdx))"
+          <button id="apply-btn-${siteId}-${pi}"
+            data-apply-site="${siteId}" data-apply-week="${weekStart}" data-apply-idx="${pi}"
+            onclick="event.stopPropagation();applyMsSiteWeekBtn(this)"
             style="padding:4px 12px;border-radius:6px;border:none;
                    background:${pi===0?site.color||'#2d5be3':'#6b7280'};
                    color:white;font-size:.72rem;font-weight:700;cursor:pointer">
@@ -3374,7 +3381,12 @@ function switchMsTab(siteId){
                   const startShow = myEmpRef?._effectiveStart || mySlot?.creneau?.debut || '';
                   const endShow   = mySlot?.creneau?.fin || '';
                   const timeTag   = startShow ? '<span style="font-family:monospace;font-size:.58rem;opacity:.7;margin-left:2px">'+startShow+'→'+endShow+'</span>' : '';
-                  return '<span onclick="openWorkerQuickView('+e.id+',event)" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;display:inline-flex;align-items:center;gap:2px">'+e.firstname+timeTag+'</span>';
+                  // Source: existing (existait déjà) / auto (généré) / manual
+                  const wOff_=dateToWeekOffset(d2.dateStr), di_=dateToDayIdx(d2.dateStr);
+                  const existing_=e.weeks?.[wOff_]?.[di_];
+                  const srcIcon = existing_&&existing_.status==='work'&&existing_._source!=='auto' ? '🟢' :
+                                  existing_&&existing_._source==='auto' ? '🟣' : '🔵';
+                  return '<span onclick="openWorkerQuickView('+e.id+',event)" title="'+srcIcon+' source: '+(existing_?._source||'autoplan')+'" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;display:inline-flex;align-items:center;gap:2px">'+srcIcon+' '+e.firstname+timeTag+'</span>';
                 }).join(' ');
                 return `<tr style="border-bottom:1px solid #f5f4f0">
                   <td style="padding:5px 6px;font-weight:700;white-space:nowrap;font-size:.72rem">${diffIcon}${DAYS2[dow2]} ${di2}</td>
@@ -3398,6 +3410,23 @@ function switchMsTab(siteId){
   content.innerHTML = html;
 }
 
+
+function applyMsSiteWeekBtn(btn){
+  const siteId   = btn.dataset.applySite;
+  const weekStart = btn.dataset.applyWeek;
+  const propIdx  = parseInt(btn.dataset.applyIdx);
+  // Feedback immédiat
+  const origBg  = btn.style.background;
+  const origTxt = btn.innerHTML;
+  btn.innerHTML = '⏳...';
+  btn.disabled  = true;
+  // Appliquer
+  const applied = applyMsSiteWeek(siteId, weekStart, propIdx);
+  // Feedback final
+  btn.innerHTML = '✅ Appliqué ('+applied+')';
+  btn.style.background = '#059669';
+  // Ne pas remettre à gris - rester vert pour indiquer que c'est fait
+}
 function applyMsSiteWeek(siteId, weekStart, propIdx){
   const siteData = _msResults[siteId]?.find(r=>r.weekStart===weekStart);
   if(!siteData) return;
@@ -3426,25 +3455,11 @@ function applyMsSiteWeek(siteId, weekStart, propIdx){
   autoSave();
   try { renderSidebar(); } catch(e){}
   if(emp()) try { loadPanel(); } catch(e){}
-
-  // Navigation vers la semaine appliquée
+  // Navigation vers la semaine
   curWeek = dateToWeekOffset(weekStart);
-  try {
-    if(_viewMode==='month') renderMonthView(); else renderWeek();
-    updateMonthBox();
-  } catch(e){}
-
-  // Confirmation visuelle dans le bouton
-  const btn = event?.target?.closest?.('button');
-  if(btn){
-    const orig = btn.innerHTML;
-    btn.innerHTML = '✅ Appliqué!';
-    btn.style.background = '#059669';
-    btn.disabled = true;
-    setTimeout(()=>{ btn.innerHTML=orig; btn.style.background=''; btn.disabled=false; }, 3000);
-  }
-
-  showToast('✅ '+siteId+' — '+weekStart+': '+applied+' créneaux appliqués et visibles dans le planning');
+  try { if(_viewMode==='month') renderMonthView(); else renderWeek(); updateMonthBox(); } catch(e){}
+  showToast('✅ '+siteId+' — sem. '+weekStart+': '+applied+' créneaux appliqués dans le planning');
+  return applied;
 }
 
 function applyAllMultiSite(){
@@ -3707,6 +3722,22 @@ function genPlanningProposals(siteId, weekStart, n=3){
       const besoins = getBesoinsDate(siteId, dateStr);
       planMap[dateStr] = [];
 
+      // ── Règle 11: pré-charger les workers déjà planifiés ────────
+      // Si useExistingPlan actif, les workers avec un créneau existant
+      // ce jour sont bloqués dans workerDays → l'autoplan ne les écrase pas
+      const existingWorkers = new Set();
+      if(AUTOPLAN_RULES.useExistingPlan?.active){
+        active.forEach(e=>{
+          const wOff_=dateToWeekOffset(dateStr), di_=dateToDayIdx(dateStr);
+          const day_=e.weeks?.[wOff_]?.[di_];
+          if(day_ && day_.status==='work' && day_.start && !day_._multisite_lock){
+            existingWorkers.add(e.id);
+            if(!workerDays[e.id]) workerDays[e.id]=new Set();
+            workerDays[e.id].add(dateStr);
+          }
+        });
+      }
+
       // ── VENDREDI : Suivre l'équipe du matin pour priorité l'après-midi ──
       // Après splitVendrediPause, les créneaux sont triés : matin d'abord, aprem ensuite
       // On identifie la pause vendredi pour ce jour
@@ -3717,8 +3748,10 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
       for(const creneau of besoins){
         // Déterminer si on est sur un créneau après-midi vendredi
+        // Un créneau est "après-midi" s'il commence APRÈS 12h
+        // (couvre la pause et/ou la plage post-fermeture)
         const isFridayAfternoon = isFriday && fridayPause
-          && timeToMin(creneau.debut) >= timeToMin(fridayPause.fin);
+          && timeToMin(creneau.debut) > 12*60;
 
         // Pour le vendredi après-midi : lever l'anti-doublon pour l'équipe du matin
         // (ils peuvent travailler matin ET après-midi, séparés par la pause)
