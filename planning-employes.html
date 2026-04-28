@@ -2044,7 +2044,8 @@ function getBesoinsDate(siteId, date){
     vendeurs: isFerie||isForte ? Math.ceil(b.vendeurs*multiplier) : b.vendeurs,
     periode: isFerie?'🎉 Férié':isForte?'💰 Période forte':'Normal'
   }));
-  // Vendredi → respecter la pause saisonnière (heure d'été/hiver)
+  // Vendredi → splitter automatiquement les créneaux qui chevauchent la pause
+  // 10:00→20:00 devient [10:00→13:55] + [14:45→20:00]
   if(jour === 5) result = result.flatMap(c => splitVendrediPause(c, date));
   return result;
 }
@@ -2202,7 +2203,7 @@ function workerPrefScore(e, dateStr, debut, fin){
 }
 
 // Matcher les travailleurs à un créneau avec scoring complet
-function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat){
+function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat, existingWorkers){
   // allowDayRepeat: Set d'empId autorisés à travailler un 2e créneau ce jour (vendredi)
   // excludedForDay: Set d'empId déjà planifiés ce jour sur un autre site (multi-sites)
   const candidates = [];
@@ -2258,6 +2259,16 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(isDefaultSite)     score += 10;
     else if(inSiteList)   score += 6;
     else if(hasNoSite)    score += 3;
+
+    // ── PRIORITÉ 3b : Planning existant (règle 11) ─────────────
+    if(AUTOPLAN_RULES.useExistingPlan?.active && existingWorkers?.has(e.id)){
+      const wOff__=dateToWeekOffset(dateStr), di__=dateToDayIdx(dateStr);
+      const exDay__=e.weeks?.[wOff__]?.[di__];
+      if(exDay__ && exDay__.status==='work' && (!exDay__.site || exDay__.site===siteId)){
+        score += 20; // confirmer le worker sur son site existant
+        e._effectiveStart = exDay__.start; // conserver l'horaire exact
+      }
+    }
 
     // ── Préférences horaires (anciennes)
     score += workerPrefScore(e, dateStr, creneau.debut, creneau.fin);
@@ -4051,12 +4062,15 @@ function genPlanningProposals(siteId, weekStart, n=3){
           const day_=e.weeks?.[wOff_]?.[di_];
           if(day_ && day_.status==='work' && day_.start && !day_._multisite_lock){
             existingWorkers.add(e.id);
-            // Ne bloquer QUE si le worker est déjà planifié sur un AUTRE site
-            // Sur le même site, l'autoplan peut confirmer ou réassigner
-            if(day_.site && day_.site !== siteId){
+            // Déterminer le site du créneau existant
+            // Si non renseigné → utiliser le defaultSite du worker
+            const daySite_ = day_.site || getWorkerAvailability(e).defaultSite || '';
+            // Bloquer SEULEMENT si le worker est planifié sur un AUTRE site
+            if(daySite_ && daySite_ !== siteId){
               if(!workerDays[e.id]) workerDays[e.id]=new Set();
               workerDays[e.id].add(dateStr);
             }
+            // Même site (ou site inconnu) → laisser disponible avec bonus de score
           }
         });
       }
@@ -4081,12 +4095,40 @@ function genPlanningProposals(siteId, weekStart, n=3){
         const allowDayRepeat = isFridayAfternoon ? morningTeamFriday : null;
 
         let candidats = matchWorkersToCreneau(
-          siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat
+          siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat,
+          existingWorkers
         );
 
         // ── Déclarer assigned et manquants ───────────────────────────
         const assigned = [];
         let manquants  = creneau.vendeurs;
+
+        // ── Règle 11 : PRÉ-ASSIGNER les workers déjà planifiés ce jour ──
+        // Si useExistingPlan actif, les workers avec un créneau existant sur ce site
+        // sont assignés directement AVANT la recherche de candidats
+        if(AUTOPLAN_RULES.useExistingPlan?.active && existingWorkers.size > 0){
+          existingWorkers.forEach(empId=>{
+            if(assigned.some(a=>a.id===empId)) return; // déjà pré-assigné
+            const eEx = active.find(e=>e.id===empId); if(!eEx) return;
+            const wEx=dateToWeekOffset(dateStr), dEx=dateToDayIdx(dateStr);
+            const dayEx=eEx.weeks?.[wEx]?.[dEx];
+            if(!dayEx || dayEx.status!=='work' || !dayEx.start) return;
+            // Vérifier que c'est bien pour ce site
+            const daySiteEx = dayEx.site || getWorkerAvailability(eEx).defaultSite || '';
+            if(daySiteEx && daySiteEx !== siteId) return;
+            // Pré-assigner avec l'horaire existant
+            const eExCopy = Object.assign({}, eEx);
+            eExCopy._effectiveStart = dayEx.start;
+            eExCopy._existingDay = true;
+            assigned.push(eExCopy);
+            if(!workerDays[empId]) workerDays[empId]=new Set();
+            workerDays[empId].add(dateStr);
+            workerLoad[empId]=(workerLoad[empId]||0)+(timeToMin(dayEx.end||creneau.fin)-timeToMin(dayEx.start));
+            manquants--;
+          });
+          // Retirer les pré-assignés des candidats
+          candidats = candidats.filter(c=>!assigned.some(a=>a.id===c.emp.id));
+        }
 
         // ── VENDREDI après-midi : PRÉ-ASSIGNER l'équipe du matin ──────
         // L'équipe du matin DOIT travailler l'après-midi (même endroit)
@@ -4904,16 +4946,21 @@ function saveDayPlan(dateStr, dow){
 
   if(!e.weeks) e.weeks={};
   if(!e.weeks[wOff]) e.weeks[wOff]={};
+  const empSite_ = getWorkerAvailability(e).defaultSite || (e.sites||[])[0] || '';
   e.weeks[wOff][di] = {
     status:'work', start, end,
     pause: isFriday ? fp.dur : e.pause||0,
     pause2: isFriday?15:0,
     fridayLocked: isFriday,
     endManual: true,
+    site: empSite_,        // ← site sauvegardé pour la règle 11
+    _source: 'manual',     // ← source traçabilité
+    _ts: new Date().toISOString(),
     _manualOverride: true,
     _needsValidation: needsValidation,
     _validationStatus: needsValidation ? 'pending' : 'approved'
   };
+  auditLog('assign', e.id, e.firstname+' '+e.lastname, dateStr, null, e.weeks[wOff][di], 'manual');
 
   histPush(); autoSave();
   document.getElementById('day-edit-modal')?.remove();
