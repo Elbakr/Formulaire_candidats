@@ -3239,7 +3239,11 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
               .sort((a,b)=>b.hours-a.hours)
               .map(({emp,hours})=>{
                 const col=empColor(emp);
-                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer">'+emp.firstname+' '+toHM(hours)+'</span>';
+                const monthlyMax = emp.hoursMaxMonth || Math.round((emp.hours||0)*4.33);
+                const maxStr = monthlyMax > 0 ? '/'+toHM(monthlyMax) : '';
+                const pct = monthlyMax > 0 ? Math.round(hours/monthlyMax*100) : 0;
+                const pctColor = pct>100?'#dc2626':pct>85?'#d97706':'#059669';
+                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+toHM(hours)+maxStr+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
               }).join('');
           })()}
           </div>
@@ -3919,8 +3923,12 @@ function genPlanningProposals(siteId, weekStart, n=3){
           const day_=e.weeks?.[wOff_]?.[di_];
           if(day_ && day_.status==='work' && day_.start && !day_._multisite_lock){
             existingWorkers.add(e.id);
-            if(!workerDays[e.id]) workerDays[e.id]=new Set();
-            workerDays[e.id].add(dateStr);
+            // Ne bloquer QUE si le worker est déjà planifié sur un AUTRE site
+            // Sur le même site, l'autoplan peut confirmer ou réassigner
+            if(day_.site && day_.site !== siteId){
+              if(!workerDays[e.id]) workerDays[e.id]=new Set();
+              workerDays[e.id].add(dateStr);
+            }
           }
         });
       }
