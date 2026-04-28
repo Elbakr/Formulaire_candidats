@@ -1930,7 +1930,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
     4: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'}],
-    5: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'14:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:00',fin:'13:55',vendeurs:2,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'20:00',vendeurs:3,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
   },
   // B — Molenbeek, Rue Ransfort 67
@@ -1941,7 +1941,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
     3: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
     4: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
-    5: [{debut:'10:30',fin:'19:30',vendeurs:2,role:'Vendeur(se)'}],
+    5: [{debut:'10:30',fin:'13:55',vendeurs:2,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'19:30',vendeurs:2,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:00',fin:'20:00',vendeurs:2,role:'Vendeur(se)'},{debut:'13:00',fin:'20:00',vendeurs:1,role:'Vendeur(se)'}],
   },
   // C — Anvers, Lange Kievitstraat 64 — 7j/7 : 10h00→19h00
@@ -1951,7 +1951,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
     3: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
     4: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
-    5: [{debut:'10:00',fin:'19:00',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:00',fin:'13:55',vendeurs:1,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'19:00',vendeurs:1,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:00',fin:'19:00',vendeurs:2,role:'Vendeur(se)'}],
   },
   // D — Entrepôt Bruxelles
@@ -1962,7 +1962,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
     3: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
     4: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
-    5: [{debut:'10:30',fin:'19:30',vendeurs:1,role:'Logistique'}],
+    5: [{debut:'10:30',fin:'13:55',vendeurs:1,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'19:30',vendeurs:1,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Logistique'}],
   },
   // E — Online/Télétravail
@@ -1973,7 +1973,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
     3: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
     4: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
-    5: [{debut:'10:00',fin:'19:30',vendeurs:1,role:'Online'}],
+    5: [{debut:'10:00',fin:'13:55',vendeurs:1,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'19:30',vendeurs:1,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:00',fin:'20:00',vendeurs:1,role:'Online'}],
   },
   // F — Anvers (2e site), Événements — 7j/7 : 10h30→18h45
@@ -1983,7 +1983,7 @@ const STORE_NEEDS = {
     2: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
     3: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
     4: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
-    5: [{debut:'10:30',fin:'18:45',vendeurs:1,role:'Vendeur(se)'}],
+    5: [{debut:'10:30',fin:'13:55',vendeurs:1,role:'Vendeur(se)',_venFreMatin:true},{debut:'14:45',fin:'18:45',vendeurs:1,role:'Vendeur(se)',_venFreAprem:true}],
     6: [{debut:'10:30',fin:'18:45',vendeurs:2,role:'Vendeur(se)'}],
   },
 };
@@ -2044,9 +2044,8 @@ function getBesoinsDate(siteId, date){
     vendeurs: isFerie||isForte ? Math.ceil(b.vendeurs*multiplier) : b.vendeurs,
     periode: isFerie?'🎉 Férié':isForte?'💰 Période forte':'Normal'
   }));
-  // Vendredi → splitter automatiquement les créneaux qui chevauchent la pause
-  // 10:00→20:00 devient [10:00→13:55] + [14:45→20:00]
-  if(jour === 5) result = result.flatMap(c => splitVendrediPause(c, date));
+  // Vendredi: les créneaux sont déjà définis avec matin/aprem séparés dans STORE_NEEDS
+  // splitVendrediPause n'est plus nécessaire ici (utilisé uniquement pour calcNetHours)
   return result;
 }
 
@@ -2229,10 +2228,10 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(!isMorningTeamFri && !isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
     // ── RÈGLE 2c : 1 site par jour (multi-sites uniquement) ─────
-    // Exception : si le worker est dans l'équipe du matin vendredi (allowDayRepeat)
-    // il peut travailler l'après-midi du même site → ne pas bloquer
-    const isExemptFromMsBlock = allowDayRepeat && allowDayRepeat.has(e.id);
-    if(!isExemptFromMsBlock && e._msBlocked){
+    // L'équipe matin vendredi N'EST PAS exemptée du blocage multi-sites
+    // Elle peut travailler matin+aprem sur le MÊME site, mais pas sur un autre
+    // Le blocage _msBlocked s'applique toujours
+    if(e._msBlocked){
       const blocked = e._msBlocked.get(dateStr);
       if(blocked && blocked.has(e.id)) continue;
     }
@@ -4087,8 +4086,10 @@ function genPlanningProposals(siteId, weekStart, n=3){
         // Déterminer si on est sur un créneau après-midi vendredi
         // Un créneau est "après-midi" s'il commence APRÈS 12h
         // (couvre la pause et/ou la plage post-fermeture)
+        // Un créneau est "après-midi vendredi" s'il a le flag _venFreAprem
+        // OU s'il commence après 14h (après la pause)
         const isFridayAfternoon = isFriday && fridayPause
-          && timeToMin(creneau.debut) > 12*60;
+          && (creneau._venFreAprem === true || timeToMin(creneau.debut) >= timeToMin(fridayPause.fin));
 
         // Pour le vendredi après-midi : lever l'anti-doublon pour l'équipe du matin
         // (ils peuvent travailler matin ET après-midi, séparés par la pause)
@@ -4179,7 +4180,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
           && !mgrSentinel
           && (mgrFriExempt || isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin));
 
-        if(mgrDispo && manquants > 0){
+        if(mgrDispo && manquants > 0 && !assigned.some(a=>a.id===mgrId)){
           if(!workerDays[mgrId]) workerDays[mgrId] = new Set();
           // Calculer l'heure de début effective (après indisponibilité partielle)
           const effStartMin = getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut);
@@ -4343,7 +4344,9 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
         // ── VENDREDI : mémoriser l'équipe du matin ──────────────────────
         if(isFriday && fridayPause){
-          const isBeforePause = timeToMin(creneau.fin) <= timeToMin(fridayPause.deb);
+          // Créneau matin = flag _venFreMatin OU fin <= début de la pause
+          const isBeforePause = creneau._venFreMatin === true
+            || timeToMin(creneau.fin) <= timeToMin(fridayPause.deb);
           if(isBeforePause){
             assigned.forEach(emp => morningTeamFriday.add(emp.id));
           }
