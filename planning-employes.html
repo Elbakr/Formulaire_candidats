@@ -1776,7 +1776,9 @@ function isPeriodForte(dateStr){
   const isWeekend = (dow===0||dow===6);
   // "Jour spécial" = Sam, Dim, Fériés, Vacances scolaires
   const isSpecial = isWeekend || isFerie || isVacances;
-  return { isForte, isFerie, isVacances, isSpecial, multiplier: isFerie ? 1.5 : isForte ? 1.3 : 1.0 };
+  const forteCoeff = (AUTOPLAN_RULES.periodeForteCoeff?.active && AUTOPLAN_RULES.periodeForteCoeff?.value)
+    ? AUTOPLAN_RULES.periodeForteCoeff.value : 1.3;
+  return { isForte, isFerie, isVacances, isSpecial, multiplier: isFerie ? 1.5 : isForte ? forteCoeff : 1.0 };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2346,6 +2348,25 @@ const AUTOPLAN_RULES = {
     label: '🕌 Vendredi : équipe du matin prioritaire l\'après-midi (après fermeture)',
     description: 'Après la pause de fermeture du vendredi, les travailleurs du matin sont assignés en priorité pour l\'après-midi'
   },
+  // Règle 9 : Séparation responsable / senior (répartition des compétences)
+  separateLeaders: {
+    active: true,
+    label: '⚖️ Séparer responsable et seniors (répartir les compétences entre sites)',
+    description: 'Si le responsable est assigné, les seniors et anciens (>3 mois) vont prioritairement sur d\'autres sites'
+  },
+  // Règle 10 : Garantir au moins 1 personne par site par jour
+  minOnePerSite: {
+    active: true,
+    label: '🏪 Minimum 1 personne par site par jour (sinon signalement)',
+    description: 'Chaque site ouvert doit avoir au moins 1 worker assigné. Sinon liste les jours en déficit.'
+  },
+  // Coefficient forte affluence (modifiable)
+  periodeForteCoeff: {
+    active: true,
+    value: 1.3,
+    label: '📈 Coefficient période forte affluence (28→8 du mois)',
+    description: 'Multiplicateur appliqué sur le score des jours de forte affluence (fin/début de mois). Défaut: ×1.3'
+  },
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -2666,6 +2687,17 @@ function openMultiSiteAutoplan(){
     });
     lbl.appendChild(cb);
     lbl.appendChild(document.createTextNode(' '+rule.label));
+    // Pour periodeForteCoeff: ajouter un input numérique
+    if(key==='periodeForteCoeff' && rule.value!==undefined){
+      const inp=document.createElement('input');
+      inp.type='number'; inp.min='1.0'; inp.max='3.0'; inp.step='0.1';
+      inp.value=rule.value; inp.style.cssText='width:52px;margin-left:6px;padding:1px 4px;border:1px solid #c7d2fe;border-radius:4px;font-size:.72rem;color:#2d5be3;text-align:center';
+      inp.title='Coefficient forte affluence (défaut: 1.3)';
+      inp.addEventListener('change',function(){
+        AUTOPLAN_RULES.periodeForteCoeff.value=parseFloat(this.value)||1.3;
+      });
+      lbl.appendChild(inp);
+    }
     rulesDiv.appendChild(lbl);
   });
 
@@ -2999,6 +3031,58 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
     <div style="padding:16px 20px;overflow-y:auto;max-height:85vh">
 
       <!-- VUE GLOBALE -->
+      <!-- ALERTES & DÉROGATIONS -->
+      ${(()=>{
+        const alerts = [];
+        // Vérifier minimum 1 personne par site par jour
+        orderedSites.forEach(siteId=>{
+          (allResults[siteId]||[]).forEach(({weekStart, proposals})=>{
+            const prop = proposals[0]; if(!prop) return;
+            // Grouper par jour
+            const byDay = {};
+            prop.plan.forEach(slot=>{
+              if(!byDay[slot.dateStr]) byDay[slot.dateStr]=[];
+              byDay[slot.dateStr].push(...slot.assigned);
+            });
+            // Vérifier chaque jour de la semaine
+            for(let i=0;i<7;i++){
+              const d=new Date(weekStart+'T12:00'); d.setDate(d.getDate()+i);
+              const ds=d.toISOString().slice(0,10);
+              const workers=byDay[ds]||[];
+              const unique=new Set(workers.map(w=>w.id));
+              if(unique.size===0){
+                const label=d.toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
+                alerts.push({type:'manquant',site:siteId,date:ds,label:'⚠️ '+siteId+' '+label+' — Aucun worker disponible'});
+              }
+            }
+            // Vérifier congés ignorés (workers en congé mais placés quand même)
+            prop.plan.forEach(slot=>{
+              slot.assigned.forEach(empRef=>{
+                const e=employees.find(x=>x.id===empRef.id); if(!e) return;
+                const wOff=dateToWeekOffset(slot.dateStr);
+                const di=dateToDayIdx(slot.dateStr);
+                const day=e.weeks?.[wOff]?.[di];
+                if(day&&day.status==='leave'){
+                  alerts.push({type:'conge',site:siteId,date:slot.dateStr,
+                    label:'📋 Dérogation nécessaire: '+e.firstname+' '+e.lastname+' est en congé le '+
+                    new Date(slot.dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'})});
+                }
+              });
+            });
+          });
+        });
+        if(!alerts.length) return '';
+        const manquants=alerts.filter(a=>a.type==='manquant');
+        const conges=alerts.filter(a=>a.type==='conge');
+        return '<div style="margin-bottom:14px;padding:10px 14px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px">' +
+          '<div style="font-size:.78rem;font-weight:800;color:#92400e;margin-bottom:6px">⚠️ '+alerts.length+' alerte(s) — Action requise</div>' +
+          (manquants.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-bottom:4px">Sites sans effectif ('+manquants.length+' jours):</div>'+
+            manquants.map(a=>'<div style="font-size:.7rem;color:#92400e;margin-left:8px">'+a.label+'</div>').join(''):'') +
+          (conges.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-top:6px;margin-bottom:4px">Dérogations congés requises ('+conges.length+'):</div>'+
+            conges.map(a=>'<div style="font-size:.7rem;color:#92400e;margin-left:8px">'+a.label+'</div>').join(''):'') +
+          '</div>';
+      })()}
+
       <div style="margin-bottom:20px">
         <div style="font-size:.78rem;font-weight:800;color:var(--ink);margin-bottom:10px">Vue globale — Couverture par site et semaine</div>
         <!-- Totaux heures par worker -->
@@ -3537,6 +3621,21 @@ function genPlanningProposals(siteId, weekStart, n=3){
           if(bsInList){
             candidats = [bsInList, ...candidats.filter(c => c.emp.id !== backupSenior.id)];
           }
+        }
+
+        // ── Règle 9 : Séparation responsable/senior ─────────────────
+        // Si responsable déjà assigné, pousser les seniors en fin de liste
+        // pour qu'ils soient utilisés sur d'autres sites en priorité
+        if(AUTOPLAN_RULES.separateLeaders?.active && assigned.some(a=>a.id===mgrId)){
+          const seniors = candidats.filter(c=>{
+            const anc_=getAnciennete(c.emp);
+            const g_=getGradeEffectif(c.emp);
+            return (g_==='senior'&&anc_>=3)||['manager','directeur'].includes(g_)||anc_>=3;
+          });
+          const nonSeniors = candidats.filter(c=>!seniors.includes(c));
+          // Seniors avec bonus légèrement réduit pour favoriser leur dispatch sur d'autres sites
+          seniors.forEach(c=>{ c.score -= 5; });
+          candidats = [...nonSeniors, ...seniors].sort((a,b)=>b.score-a.score);
         }
 
         // Tri interne selon la proposition (après la pré-assignation)
