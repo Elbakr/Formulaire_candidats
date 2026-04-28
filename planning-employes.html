@@ -2367,8 +2367,8 @@ const AUTOPLAN_RULES = {
   // Règle 11 : Planning existant comme base prioritaire
   useExistingPlan: {
     active: false,
-    label: '📌 Utiliser le planning existant comme base prioritaire (🟣 auto / 🔵 manuel / 🟢 existant)',
-    description: 'Les créneaux déjà planifiés manuellement dans la vue hebdomadaire sont conservés et pris en compte en priorité par l\'autoplan'
+    label: '📌 Utiliser le planning mensuel existant comme base prioritaire (🟣 auto / 🔵 manuel / 🟢 existant) — rempli selon disponibilités des travailleurs',
+    description: 'Les créneaux déjà planifiés manuellement dans la vue mensuelle sont conservés et pris en compte en priorité par l\'autoplan'
   },
   // Coefficient forte affluence (modifiable)
   periodeForteCoeff: {
@@ -3948,14 +3948,29 @@ function genPlanningProposals(siteId, weekStart, n=3){
           siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat
         );
 
-        // ── VENDREDI après-midi : équipe du matin en tête de liste ───────
+        // ── VENDREDI après-midi : PRÉ-ASSIGNER l'équipe du matin ──────
+        // L'équipe du matin DOIT travailler l'après-midi (même endroit)
+        // On les assigne directement AVANT la boucle normale
         if(isFridayAfternoon && morningTeamFriday.size > 0
            && AUTOPLAN_RULES.fridayContinuity?.active !== false){
-          const morningCandidats = candidats.filter(c => morningTeamFriday.has(c.emp.id));
-          const otherCandidats   = candidats.filter(c => !morningTeamFriday.has(c.emp.id));
-          morningCandidats.sort((a,b)=>b.score-a.score);
-          otherCandidats.sort((a,b)=>b.score-a.score);
-          candidats = [...morningCandidats, ...otherCandidats];
+          morningTeamFriday.forEach(empId=>{
+            const mEmp = active.find(e=>e.id===empId);
+            if(!mEmp) return;
+            // Déjà dans assigned? (via pré-assignation responsable)
+            if(assigned.some(a=>a.id===empId)) return;
+            // Vérifier anti-doublon (mais pas pour l'équipe matin vendredi)
+            // et vérifier les blocages multi-sites
+            if(mEmp._msBlocked?.get(dateStr)?.has(empId)) return;
+            // Pré-assigner
+            assigned.push(mEmp);
+            if(!workerDays[empId]) workerDays[empId]=new Set();
+            workerDays[empId].add(dateStr);
+            workerLoad[empId]=(workerLoad[empId]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
+            manquants--;
+          });
+          // Ensuite trier les candidats restants (ceux non encore assignés)
+          candidats = candidats.filter(c=>!assigned.some(a=>a.id===c.emp.id));
+          candidats.sort((a,b)=>b.score-a.score);
         }
 
         // ── Déclarer assigned et manquants avant la pré-assignation ──
@@ -5769,10 +5784,14 @@ function renderSlotsForDay(siteId, dow){
 function updateSlot(siteId, dow, idx, field, value){
   if(!STORE_NEEDS[siteId]) return;
   if(!STORE_NEEDS[siteId][dow]) STORE_NEEDS[siteId][dow] = [];
+  if(!STORE_NEEDS[siteId][dow][idx]) return;
   STORE_NEEDS[siteId][dow][idx][field] = value;
-  // Refresh juste ce day-slot
-  const container = document.getElementById(`slots-${siteId}-${dow}`);
-  if(container) container.innerHTML = renderSlotsForDay(siteId, dow);
+  // Sauvegarder immédiatement (pas besoin de cliquer Sauvegarder)
+  saveStoreNeedsOverrides();
+  // Feedback visuel discret
+  const btn = document.getElementById('btn-save-needs');
+  if(btn){ btn.textContent='✅ Sauvegardé'; btn.style.background='rgba(5,150,105,.6)';
+    setTimeout(()=>{ btn.textContent='💾 Sauvegarder'; btn.style.background='rgba(255,255,255,.2)'; },1500); }
 }
 
 function addSlot(siteId, dow){
