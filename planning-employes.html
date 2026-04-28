@@ -4175,8 +4175,11 @@ function genPlanningProposals(siteId, weekStart, n=3){
           // Soit le créneau commence exactement à son heure disponible (±30min)
           Math.abs(mgrEffStart - timeToMin(creneau.debut)) <= 30
         );
+        // Un worker déjà dans workerDays ce jour est physiquement occupé
+        // mgrCreneauMatch ne peut pas l'override (impossible d'être sur 2 créneaux simultanés)
+        // Exception: vendredi aprem (mgrFriExempt) = même worker matin + aprem
         const mgrDispo = mgrEmp
-          && (!mgrAlreadyThisDay || mgrCreneauMatch || mgrFriExempt)
+          && (!mgrAlreadyThisDay || mgrFriExempt)
           && !mgrSentinel
           && (mgrFriExempt || isWorkerAvailable(mgrEmp, dateStr, creneau.debut, creneau.fin));
 
