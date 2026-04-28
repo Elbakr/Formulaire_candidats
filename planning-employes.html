@@ -367,6 +367,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     <button onclick="openRestDaysManager()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--purple);background:var(--plight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--purple)">🔄 Jours repos</button>
     <button onclick="openStoreNeedsEditor()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#0891b2">📋 Besoins magasins</button>
     <button onclick="openAuditPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #6366f1;background:#ede9fe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#6366f1">📋 Traçabilité</button>
+    <button onclick="openWorkerNotifDashboard()" id="notif-dashboard-btn" style="padding:4px 11px;border-radius:20px;border:1.5px solid #7c3aed;background:#f3e8ff;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#7c3aed">🔔 Notifications <span id="notif-badge" style="display:none;background:#dc2626;color:white;border-radius:10px;padding:0 5px;font-size:.62rem;margin-left:2px">0</span></button>
     <button onclick="openResetPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #dc2626;background:#fee2e2;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#dc2626">🔄 Reset</button>
     <button onclick="openValidationCenter()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--orange);background:var(--olight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--orange)">⏳ Validations</button>
     <button onclick="openCandidatesModal()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">👥 Candidats</button>
@@ -3123,11 +3124,56 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
         if(!alerts.length) return '';
         const manquants=alerts.filter(a=>a.type==='manquant');
         const conges=alerts.filter(a=>a.type==='conge');
-        return '<div style="margin-bottom:14px;padding:10px 14px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px">' +
-          '<div style="font-size:.78rem;font-weight:800;color:#92400e;margin-bottom:6px">⚠️ '+alerts.length+' alerte(s) — Action requise</div>' +
-          (manquants.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-bottom:4px">Sites sans effectif ('+manquants.length+' jours):</div>'+
-            manquants.map(a=>'<div style="font-size:.7rem;color:#92400e;margin-left:8px">'+a.label+'</div>').join(''):'') +
-          (conges.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-top:6px;margin-bottom:4px">Dérogations congés requises ('+conges.length+'):</div>'+
+
+        // Pour chaque jour manquant: trouver 2 alternatives
+        function getAlternatives(siteId, dateStr, maxAlt){
+          const dow=new Date(dateStr+'T12:00').getDay();
+          const besoins=getBesoinsDate(siteId, dateStr);
+          if(!besoins.length) return [];
+          const cren=besoins[0];
+          return employees.filter(e=>{
+            if(e.archived) return false;
+            const av=getWorkerAvailability(e);
+            const eligible=(e.sites||[]).includes(siteId)||av.defaultSite===siteId||(!av.defaultSite&&!(e.sites||[]).length);
+            if(!eligible) return false;
+            return true;
+          }).map(e=>{
+            // Calculer le type d'alerte si on l'assigne
+            const wOff=dateToWeekOffset(dateStr), di=dateToDayIdx(dateStr);
+            const day=e.weeks?.[wOff]?.[di];
+            const isLeave=day?.status==='leave';
+            const isRestDay=(e.restDays||[]).includes((dow===0)?6:(dow-1));
+            const isOvertime=(e.allowOvertime)?false:((e.hours||0)/4.33)*1.2 < (e.hours||0)/4.33;
+            const alerts2=[];
+            if(isLeave) alerts2.push('🚫 En congé');
+            else if(isRestDay) alerts2.push('🔄 Jour de repos préféré');
+            if(!isLeave) return {e, alerts:alerts2, available:!isLeave};
+            return null;
+          }).filter(Boolean).filter(x=>!x.alerts.some(a=>a.includes('congé'))).slice(0,maxAlt||2);
+        }
+
+        const manquantsHTML = manquants.map((a,alertIdx)=>{
+          const alts=getAlternatives(a.site, a.date, 2);
+          const altsHTML=alts.map((alt,ai)=>{
+            const col=empColor(alt.e);
+            const alertIcons=alt.alerts.length?'<span style="color:#d97706;font-size:.62rem">'+alt.alerts.join(' · ')+'</span>':'<span style="color:#059669;font-size:.62rem">✅ Sans contrainte</span>';
+            return '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">'+
+              '<span style="padding:1px 8px;border-radius:8px;font-size:.68rem;font-weight:700;background:'+col.bg+';color:'+col.fg+'">'+alt.e.firstname+' '+alt.e.lastname+'</span>'+
+              alertIcons+
+              "<button onclick=\"event.stopPropagation();applyAlertAlternative('"+a.site+"','"+a.date+"',"+alt.e.id+")\" style=\"padding:2px 8px;border-radius:5px;border:none;background:#2d5be3;color:white;font-size:.62rem;font-weight:700;cursor:pointer\">✓ Appliquer</button>"+
+            '</div>';
+          }).join('');
+          return '<div style="border:1px solid #fcd34d;border-radius:7px;padding:7px 10px;margin-bottom:5px;background:#fffbeb">'+
+            '<div style="font-size:.72rem;font-weight:700;color:#92400e">⚠️ '+a.site+' — '+new Date(a.date+'T12:00').toLocaleDateString("fr-BE",{weekday:"short",day:"numeric",month:"short"})+' — Aucun worker</div>'+
+            (alts.length?'<div style="font-size:.65rem;color:#b45309;margin-top:3px">Alternatives proposées:</div>'+altsHTML:
+              '<div style="font-size:.65rem;color:#dc2626;margin-top:3px">Aucune alternative disponible — recrutement nécessaire</div>')+
+          '</div>';
+        }).join('');
+
+        return '<div style="margin-bottom:14px;padding:10px 14px;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px">'+
+          '<div style="font-size:.78rem;font-weight:800;color:#92400e;margin-bottom:8px">⚠️ '+alerts.length+' alerte(s) — Action requise</div>'+
+          (manquants.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-bottom:6px">'+manquants.length+' site(s) sans effectif:</div>'+manquantsHTML:'')+
+          (conges.length?'<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-top:6px;margin-bottom:4px">Dérogations congés ('+conges.length+'):</div>'+
             conges.map(a=>'<div style="font-size:.7rem;color:#92400e;margin-left:8px">'+a.label+'</div>').join(''):'') +
           '</div>';
       })()}
@@ -3314,6 +3360,121 @@ function overviewNav(dir){
   d.setDate(d.getDate() + dir*7);
   _overviewWeekStart = d.toISOString().slice(0,10);
   renderAllSitesOverview();
+}
+
+
+function applyAlertAlternativeBtn(btn){
+  const siteId=btn.dataset.site, dateStr=btn.dataset.date, empId=parseInt(btn.dataset.empid);
+  applyAlertAlternative(siteId, dateStr, empId);
+}
+function applyAlertAlternative(siteId, dateStr, empId){
+  const e = employees.find(x=>x.id===empId);
+  if(!e){ showToast("Worker introuvable"); return; }
+
+  const wOff = dateToWeekOffset(dateStr);
+  const di   = dateToDayIdx(dateStr);
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+
+  // Vérifier si déjà planifié
+  if(e.weeks[wOff][di]?.start){
+    if(!confirm(e.firstname+" est déjà planifié ce jour. Écraser?")) return;
+  }
+
+  histPush();
+  const besoins = getBesoinsDate(siteId, dateStr);
+  const cren = besoins[0] || {debut:'10:00', fin:'20:00'};
+  const newDay = {
+    status:'work', start:cren.debut, end:cren.fin,
+    pause:e.pause||0, endManual:true, site:siteId,
+    note:'🔄 Alerte résolue — alternative appliquée',
+    _source:'auto', _ts:new Date().toISOString()
+  };
+  e.weeks[wOff][di] = newDay;
+  auditLog('assign', e.id, e.firstname+' '+e.lastname, dateStr, null, newDay, 'auto');
+
+  // Créer une notification "à valider par le travailleur"
+  createWorkerNotification(e, dateStr, siteId, cren, 'alert_resolved');
+
+  autoSave();
+  try { renderSidebar(); } catch(err){}
+  showToast("✅ "+e.firstname+" assigné(e) sur "+siteId+" le "+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'})+
+    " — Notification créée (validation travailleur requise)");
+}
+
+function createWorkerNotification(e, dateStr, siteId, cren, type){
+  const notifs = JSON.parse(localStorage.getItem('gp_worker_notifs')||'[]');
+  notifs.unshift({
+    id: Date.now(),
+    ts: new Date().toISOString(),
+    empId: e.id,
+    empName: e.firstname+' '+e.lastname,
+    dateStr, siteId,
+    debut: cren.debut, fin: cren.fin,
+    type,
+    status: 'pending', // 'pending' | 'accepted' | 'refused'
+    message: type==='alert_resolved'
+      ? "Vous avez été assigné(e) sur le site "+siteId+" le "+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'})+" de "+cren.debut+" à "+cren.fin+". Merci de confirmer votre disponibilité."
+      : "Modification de planning"
+  });
+  localStorage.setItem('gp_worker_notifs', JSON.stringify(notifs));
+}
+
+function openWorkerNotifDashboard(){
+  const notifs = JSON.parse(localStorage.getItem('gp_worker_notifs')||'[]');
+  document.getElementById('worker-notif-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'worker-notif-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:12px;overflow-y:auto';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  const pending = notifs.filter(n=>n.status==='pending');
+  const done    = notifs.filter(n=>n.status!=='pending');
+
+  const nHTML = (list, title, color) => {
+    if(!list.length) return '';
+    return '<div style="margin-bottom:14px">'+
+      '<div style="font-size:.72rem;font-weight:800;text-transform:uppercase;color:'+color+';margin-bottom:6px;letter-spacing:.05em">'+title+'</div>'+
+      list.map(n=>`
+        <div style="border:1px solid #e2e0d8;border-radius:8px;padding:9px 12px;margin-bottom:6px;background:${n.status==='refused'?'#fee2e2':n.status==='accepted'?'#dcfce7':'white'}">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+            <div>
+              <div style="font-size:.78rem;font-weight:700">${n.empName}</div>
+              <div style="font-size:.68rem;color:#9898b8">${new Date(n.ts).toLocaleString('fr-BE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+            </div>
+            <div style="font-size:.7rem;color:${color};font-weight:700">${n.status==='pending'?'⏳ En attente':n.status==='accepted'?'✅ Accepté':'❌ Refusé'}</div>
+          </div>
+          <div style="font-size:.7rem;color:#4b5563;margin-top:5px">${n.message}</div>
+          ${n.status==='pending'?`
+          <div style="display:flex;gap:6px;margin-top:7px">
+            <button onclick="event.stopPropagation();updateWorkerNotif(${n.id},'accepted')" style="padding:3px 10px;border-radius:6px;border:none;background:#059669;color:white;font-size:.7rem;font-weight:700;cursor:pointer">✅ Marquer accepté</button>
+            <button onclick="event.stopPropagation();updateWorkerNotif(${n.id},'refused')" style="padding:3px 10px;border-radius:6px;border:none;background:#dc2626;color:white;font-size:.7rem;font-weight:700;cursor:pointer">❌ Marquer refusé</button>
+          </div>`:''}
+        </div>`).join('')+
+      '</div>';
+  };
+
+  modal.innerHTML = '<div style="background:white;border-radius:14px;width:100%;max-width:680px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">'+
+    '<div style="background:linear-gradient(135deg,#1a1a2e,#7c3aed);padding:14px 20px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div><div style="font-size:.95rem;font-weight:800;color:white">🔔 Notifications workers</div>'+
+      '<div style="font-size:.68rem;color:rgba(255,255,255,.55)">'+(pending.length)+' en attente de validation</div></div>'+
+      "<button onclick=\"event.stopPropagation();document.getElementById('worker-notif-modal').remove()\" style=\"background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer\">✕</button>"+
+    '</div>'+
+    '<div style="padding:14px 18px;overflow-y:auto;max-height:80vh">'+
+      (notifs.length===0?'<div style="text-align:center;padding:24px;color:#9898b8">Aucune notification</div>':
+        nHTML(pending,'⏳ En attente de validation','#d97706')+
+        nHTML(done,'✅ Traitées','#059669'))+
+    '</div>'+
+  '</div>';
+  document.body.appendChild(modal);
+}
+
+function updateWorkerNotif(id, status){
+  const notifs = JSON.parse(localStorage.getItem('gp_worker_notifs')||'[]');
+  const n = notifs.find(x=>x.id===id);
+  if(n){ n.status=status; localStorage.setItem('gp_worker_notifs',JSON.stringify(notifs)); }
+  openWorkerNotifDashboard();
+  showToast(status==='accepted'?'✅ Marqué comme accepté':'❌ Marqué comme refusé');
 }
 
 function switchMsTab(siteId){
@@ -4525,11 +4686,19 @@ function openDayEdit(dateStr, dow){
         🚫 Ce travailleur est habituellement indisponible ce jour. Confirmer quand même ?</div>`:''}
       <div style="margin-bottom:10px">
         <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure début</label>
-        <input type="time" id="de-start" value="${existing?.start||prefs[0]?.debut||'10:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+        <input type="time" id="de-start" value="${existing?.start||prefs[0]?.debut||e.startTime||'10:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
       </div>
       <div style="margin-bottom:14px">
         <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;display:block;margin-bottom:4px">Heure fin</label>
-        <input type="time" id="de-end" value="${existing?.end||prefs[0]?.fin||'20:00'}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
+        <input type="time" id="de-end" value="${(()=>{
+    if(existing?.end) return existing.end;
+    if(prefs[0]?.fin) return prefs[0].fin;
+    // Calculer depuis startTime + heures contractuelles
+    const siteId_ = avail.defaultSite || (e.sites||[])[0] || '';
+    const site_ = SITES[siteId_];
+    if(site_) return '20:00'; // heure fermeture site
+    return '20:00';
+  })()}" style="width:100%;padding:8px;border:1.5px solid #e2e0d8;border-radius:8px;font-size:.9rem">
       </div>
       <div style="display:flex;gap:8px">
         ${existing&&existing.start?`<button onclick="removeDayPlan('${dateStr}')" style="flex:1;padding:9px;border-radius:8px;border:1.5px solid #fee2e2;background:none;color:#dc2626;cursor:pointer;font-size:.8rem;font-weight:600">🗑 Supprimer</button>`:''}
