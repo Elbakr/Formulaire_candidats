@@ -2710,7 +2710,7 @@ function openMultiSiteAutoplan(){
     lbl.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:.68rem;font-weight:600;border:1.5px solid '+(rule.active?'#2d5be3':'#e2e0d8')+';background:'+(rule.active?'#eef1fd':'#f8f7f5')+';color:'+(rule.active?'#2d5be3':'#9898b8');
     lbl.title = rule.description||'';
     const cb = document.createElement('input');
-    cb.type='checkbox'; cb.checked=!!rule.active;
+    cb.type='checkbox'; cb.id='rule-cb-'+key; cb.checked=!!rule.active;
     cb.style.cssText='accent-color:#2d5be3;width:12px;height:12px;flex-shrink:0';
     cb.addEventListener('change',function(){
       toggleAutoPlanRule(key,this.checked);
@@ -3231,30 +3231,24 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
         // Pour chaque jour manquant: trouver 2 alternatives
         function getAlternatives(siteId, dateStr, maxAlt){
           const dow=new Date(dateStr+'T12:00').getDay();
-          const besoins=getBesoinsDate(siteId, dateStr);
-          if(!besoins.length) return [];
-          const cren=besoins[0];
-          return employees.filter(e=>{
-            if(e.archived) return false;
+          const wOff_=dateToWeekOffset(dateStr),di_=dateToDayIdx(dateStr);
+          const res_=[];
+          employees.forEach(e=>{
+            if(e.archived) return;
             const av=getWorkerAvailability(e);
-            const eligible=(e.sites||[]).includes(siteId)||av.defaultSite===siteId||(!av.defaultSite&&!(e.sites||[]).length);
-            if(!eligible) return false;
-            // Exclure les workers déjà planifiés ce jour (vrai créneau, pas sentinel)
-            const wOff_=dateToWeekOffset(dateStr), di_=dateToDayIdx(dateStr);
-            const day_=e.weeks?.[wOff_]?.[di_];
-            if(day_&&day_.status==='work'&&day_.start&&!day_._multisite_lock&&day_.start!=='00:00') return false;
-            // Exclure les workers en congé
-            if(day_&&day_.status==='leave') return false;
-            return true;
-          }).map(e=>{
-            const wOff=dateToWeekOffset(dateStr), di=dateToDayIdx(dateStr);
-            const day=e.weeks?.[wOff]?.[di];
-            const isRestDay=(e.restDays||[]).includes((dow===0)?6:(dow-1));
-            const alerts2=[];
-            if(isRestDay) alerts2.push('🔄 Jour de repos préféré');
-            if(!e.allowOvertime) alerts2.push('⏱ Vérifier heures');
-            return {e, alerts:alerts2};
-          }).slice(0,maxAlt||2);
+            if(!(e.sites||[]).includes(siteId)&&av.defaultSite!==siteId&&(av.defaultSite||(e.sites||[]).length)) return;
+            const d_=e.weeks?.[wOff_]?.[di_];
+            if(d_&&d_.status==='leave') return;
+            const truePlan=d_&&d_.status==='work'&&d_.start&&!d_._multisite_lock&&d_.start!=='00:00';
+            if(truePlan&&d_.site===siteId) return; // déjà là
+            const confSite=truePlan&&d_.site?((SITES[d_.site]?.name||d_.site)+' ('+d_.site+')'):null;
+            const isRest=(e.restDays||[]).includes((dow===0)?6:(dow-1));
+            const al2=[];
+            if(confSite) al2.push('⚡ Sur '+confSite+' ce jour');
+            else if(isRest) al2.push('🔄 Repos préféré');
+            res_.push({e,alerts:al2,priority:confSite?2:isRest?1:0});
+          });
+          return res_.sort((a,b)=>a.priority-b.priority).slice(0,maxAlt||2)
         }
 
                 // Grouper les manquants par site
@@ -3515,8 +3509,13 @@ function applyAlertAlternative(siteId, dateStr, empId){
   const hasRealConflict = existing_ && existing_.status==='work' && existing_.start && !existing_._multisite_lock && existing_.start !== '00:00';
   if(hasRealConflict){
     const when_=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
-    const siteName_ = existing_.site ? (SITES[existing_.site]?.name||existing_.site) : 'site inconnu';
-    if(!confirm(e.firstname+' est déjà planifié le '+when_+' sur '+siteName_+' ('+existing_.start+'→'+existing_.end+'). Remplacer par '+siteId+'?')) return;
+    const es_=existing_.site||'';
+    const esN_=es_?(SITES[es_]?.name||es_)+' ('+es_+')':'?';
+    const ts_=(SITES[siteId]?.name||siteId)+' ('+siteId+')';
+    const msg_=es_===siteId
+      ? e.firstname+' est déjà sur '+ts_+' ce jour ('+existing_.start+'-'+existing_.end+'). Modifier ?'
+      : e.firstname+' est sur '+esN_+' ce jour. Déplacer vers '+ts_+' ?';
+    if(!confirm(msg_)) return;
   }
 
   histPush();
@@ -3844,25 +3843,18 @@ function openPlanningEngine(){
 // Activer/désactiver une règle d'autoplan (réécrit proprement)
 
 function toggleAllRules(activate){
-  const skip = ['periodeForteCoeff']; // pas une règle on/off
+  const skip=['periodeForteCoeff'];
   Object.entries(AUTOPLAN_RULES).forEach(([k,r])=>{
-    if(skip.includes(k)) return;
-    if(r && typeof r.active !== 'undefined') r.active = activate;
+    if(!skip.includes(k)&&r&&typeof r.active!=='undefined') r.active=activate;
   });
-  // Mettre à jour les cases à cocher dans le panneau si ouvert
-  document.querySelectorAll('[id^="rule-cb-"]').forEach(cb=>{
-    const key = cb.id.replace('rule-cb-','');
-    if(!skip.includes(key)) cb.checked = activate;
-  });
-  // Mettre à jour les styles des labels
-  document.querySelectorAll('[id^="rule-lbl-"]').forEach(lbl=>{
-    const key = lbl.id.replace('rule-lbl-','');
+  Object.keys(AUTOPLAN_RULES).forEach(key=>{
     if(skip.includes(key)) return;
-    lbl.style.background = activate ? '#eef1fd' : '#f8f7f5';
-    lbl.style.borderColor = activate ? '#2d5be3' : '#e2e0d8';
-    lbl.style.color = activate ? '#2d5be3' : '#9898b8';
+    const cb=document.getElementById('rule-cb-'+key);
+    const lb=document.getElementById('rule-lbl-'+key);
+    if(cb) cb.checked=activate;
+    if(lb){ lb.style.background=activate?'#eef1fd':'#f8f7f5'; lb.style.borderColor=activate?'#2d5be3':'#e2e0d8'; lb.style.color=activate?'#2d5be3':'#9898b8'; }
   });
-  showToast((activate?'✅ Toutes les règles activées':'⬜ Toutes les règles désactivées'));
+  showToast(activate?'✅ Toutes les règles activées':'⬜ Toutes les règles désactivées');
 }
 
 function toggleAutoPlanRule(key, active){
@@ -7614,6 +7606,8 @@ function selectEmp(id){
   document.getElementById('planning-panel').style.display='block';
   loadPanel();
   updateMonthBox();
+  if(_viewMode==='month') try{renderMonthView();}catch(e){}
+  else try{renderWeek();}catch(e){}
 }
 
 function loadPanel(){
