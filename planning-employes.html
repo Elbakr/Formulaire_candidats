@@ -476,7 +476,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
           <input type="text" id="sync-bin-id" placeholder="64abc123..." value="">
         </div>
         <div class="form-group"><label>Master Key (API Key)</label>
-          <input type="text" id="sync-master-key" placeholder="$2a$10$..." value="">
+          <input type="text" id="sync-master-key" placeholder="$2a$10$..." value="$2a$10$F5WDFMcJ45ylysiNzaHp1ugrTiicbN38mz.YET3k.C8sCV46iYLtG">
         </div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button onclick="saveSyncConfig()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-family:'Sora',sans-serif;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
@@ -2671,6 +2671,7 @@ function openMultiSiteAutoplan(){
   const dEnd   = saved.dateEnd   || fmt(endNW);
   const nbP    = saved.nbProps   || '3';
   const sSites = saved.sites     || Object.keys(SITES);
+  const savedSitesOrder = saved.sitesOrder || saved.sites || Object.keys(SITES);
 
   // Construire les règles (DOM API, pas innerHTML)
   const rulesDiv = document.createElement('div');
@@ -9681,6 +9682,9 @@ function saveSyncConfig(){
   syncConfig.binId = document.getElementById('sync-bin-id').value.trim();
   syncConfig.masterKey = document.getElementById('sync-master-key').value.trim();
   localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+  // Sauvegarder aussi séparément pour le prefill
+  if(syncConfig.binId) localStorage.setItem('gp_bin_id', syncConfig.binId);
+  if(syncConfig.masterKey) localStorage.setItem('gp_master_key', syncConfig.masterKey);
   showToast('Configuration sync sauvegardée ✓');
 }
 
