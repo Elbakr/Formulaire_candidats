@@ -1713,12 +1713,12 @@ const SHIFTS = [
 // SITES CAFTAN FACTORY — Configuration réelle
 // ══════════════════════════════════════════════════════════════
 const SITES = {
-  A:{ id:'A', name:'Schaerbeek',  city:'Bruxelles', address:'Rue de Brabant 230, 1030 Schaerbeek',   color:'#2d5be3', light:'#eef1fd' },
-  B:{ id:'B', name:'Molenbeek',   city:'Bruxelles', address:'Rue Ransfort 67, 1080 Molenbeek',       color:'#16a34a', light:'#dcfce7' },
-  C:{ id:'C', name:'Anvers',      city:'Anvers',    address:'Lange Kievitstraat 64, 2018 Antwerpen',  color:'#7c3aed', light:'#f3e8ff' },
-  D:{ id:'D', name:'Entrepôt',    city:'Bruxelles', address:'Bruxelles',                              color:'#ea580c', light:'#ffedd5' },
-  E:{ id:'E', name:'Online',      city:'Bruxelles', address:'Télétravail / Mobile',                   color:'#0891b2', light:'#cffafe' },
-  F:{ id:'F', name:'Événements',  city:'Belg.',     address:'Déplacements Belgique',                  color:'#be185d', light:'#fce7f3' },
+  A:{ id:'A', name:'A Brabant',   abbr:'A', city:'Bruxelles', address:'Rue de Brabant 230, 1030 Schaerbeek',   color:'#2d5be3', light:'#eef1fd' },
+  B:{ id:'B', name:'B Ransfort',  abbr:'B', city:'Bruxelles', address:'Rue Ransfort 67, 1080 Molenbeek',       color:'#16a34a', light:'#dcfce7' },
+  C:{ id:'C', name:'C Antw',      abbr:'C', city:'Anvers',    address:'Lange Kievitstraat 64, 2018 Antwerpen',  color:'#7c3aed', light:'#f3e8ff' },
+  D:{ id:'D', name:'D Brabant',   abbr:'D', city:'Bruxelles', address:'Bruxelles',                              color:'#ea580c', light:'#ffedd5' },
+  E:{ id:'E', name:'E Molenb',    abbr:'E', city:'Bruxelles', address:'Télétravail / Mobile',                   color:'#0891b2', light:'#cffafe' },
+  F:{ id:'F', name:'F Antw',      abbr:'F', city:'Anvers',    address:'Déplacements Belgique',                  color:'#be185d', light:'#fce7f3' },
 };
 let curSiteFilter = null;
 
@@ -3245,17 +3245,22 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
           employees.forEach(e=>{
             if(e.archived) return;
             const av=getWorkerAvailability(e);
-            if(!(e.sites||[]).includes(siteId)&&av.defaultSite!==siteId&&(av.defaultSite||(e.sites||[]).length)) return;
+            // Éligible pour ce site?
+            const inList_=(e.sites||[]).includes(siteId);
+            const isDef_=av.defaultSite===siteId;
+            const noSite_=!av.defaultSite&&!(e.sites||[]).length;
+            if(!inList_&&!isDef_&&!noSite_) return;
             const d_=e.weeks?.[wOff_]?.[di_];
+            // Congé → exclu
             if(d_&&d_.status==='leave') return;
             const truePlan=d_&&d_.status==='work'&&d_.start&&!d_._multisite_lock&&d_.start!=='00:00';
-            if(truePlan&&d_.site===siteId) return; // déjà là
-            const confSite=truePlan&&d_.site?((SITES[d_.site]?.name||d_.site)+' ('+d_.site+')'):null;
+            // DÉJÀ PLANIFIÉ CE JOUR (peu importe le site) → EXCLURE des alternatives
+            // On ne propose QUE les workers libres ce jour
+            if(truePlan) return;
             const isRest=(e.restDays||[]).includes((dow===0)?6:(dow-1));
             const al2=[];
-            if(confSite) al2.push('⚡ Sur '+confSite+' ce jour');
-            else if(isRest) al2.push('🔄 Repos préféré');
-            res_.push({e,alerts:al2,priority:confSite?2:isRest?1:0});
+            if(isRest) al2.push('🔄 Repos préféré');
+            res_.push({e,alerts:al2,priority:isRest?1:0});
           });
           return res_.sort((a,b)=>a.priority-b.priority).slice(0,maxAlt||2)
         }
@@ -3519,7 +3524,7 @@ function applyAlertAlternative(siteId, dateStr, empId){
   if(hasRealConflict){
     const when_=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'});
     const es_=existing_.site||'';
-    const esN_=es_?(SITES[es_]?.name||es_)+' ('+es_+')':'?';
+    const esN_=es_?(SITES[es_]?.name||es_)+' ('+es_+')':'site non renseigné';
     const ts_=(SITES[siteId]?.name||siteId)+' ('+siteId+')';
     const msg_=es_===siteId
       ? e.firstname+' est déjà sur '+ts_+' ce jour ('+existing_.start+'-'+existing_.end+'). Modifier ?'
@@ -3664,10 +3669,23 @@ function switchMsTab(siteId){
           </button>
         </div>
         <div style="padding:8px 12px;overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:.7rem">
+          <table style="width:100%;border-collapse:collapse;font-size:.7rem;table-layout:fixed">
+            <colgroup>
+              <col style="width:80px">
+              <col style="width:140px">
+              <col>
+              <col style="width:60px">
+            </colgroup>
+            <thead>
+              <tr style="background:var(--bg);position:sticky;top:0;z-index:1">
+                <th style="padding:5px 8px;font-size:.64rem;font-weight:700;color:var(--ink3);text-align:left;border-bottom:2px solid var(--line)">Jour</th>
+                <th style="padding:5px 8px;font-size:.64rem;font-weight:700;color:var(--ink3);text-align:left;border-bottom:2px solid var(--line)">Créneau</th>
+                <th style="padding:5px 8px;font-size:.64rem;font-weight:700;color:var(--ink3);text-align:left;border-bottom:2px solid var(--line)">Effectif</th>
+                <th style="padding:5px 8px;font-size:.64rem;font-weight:700;color:var(--ink3);text-align:center;border-bottom:2px solid var(--line)">Alerte</th>
+              </tr>
+            </thead>
+            <tbody>
             ${(()=>{
-              // Afficher 1 ligne par CRÉNEAU (pas par jour) pour éviter la confusion
-              // Grouper par jour pour l'en-tête, mais lister chaque créneau séparément
               const byDay2 = {};
               p.plan.forEach(slot=>{
                 const key = slot.dateStr+'_'+slot.creneau.debut;
@@ -3711,13 +3729,18 @@ function switchMsTab(siteId){
                                   existing_&&existing_._source==='auto' ? '🟣' : '🔵';
                   return '<span onclick="openWorkerQuickView('+e.id+',event)" title="'+srcIcon+' source: '+(existing_?._source||'autoplan')+'" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;display:inline-flex;align-items:center;gap:2px">'+srcIcon+' '+e.firstname+timeTag+'</span>';
                 }).join(' ');
-                return dayHeader+`<tr style="border-bottom:1px solid #f5f4f0">
-                  <td style="padding:3px 6px;font-family:monospace;font-size:.64rem;color:var(--ink3);white-space:nowrap">${crStr}</td>
-                  <td style="padding:3px 6px">${wStr||'<span style="color:#dc2626;font-size:.65rem">Aucun worker</span>'}${d2.manquants>0?'<span style="color:#dc2626;font-size:.62rem;margin-left:4px">⚠️'+d2.manquants+'</span>':''}</td>
+                const dayCol = isNewDay
+                  ? `<td style="padding:4px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;vertical-align:top;color:${site.color||'#2d5be3'}" rowspan="1">${diffIcon}${DAYS2[dow2]} ${di2}</td>`
+                  : `<td style="padding:0;border:none"></td>`;
+                return `<tr style="border-bottom:1px solid #f0f0f0;${isNewDay?'border-top:2px solid #e2e0d8':''}">
+                  ${dayCol}
+                  <td style="padding:4px 8px;font-family:monospace;font-size:.66rem;color:var(--ink3);white-space:nowrap;vertical-align:middle">${crStr}</td>
+                  <td style="padding:4px 8px;vertical-align:middle">${wStr||'<span style="color:#dc2626;font-size:.65rem">—</span>'}</td>
+                  <td style="padding:4px 8px;text-align:center;vertical-align:middle">${d2.manquants>0?'<span style="color:#dc2626;font-size:.7rem;font-weight:700">⚠️'+d2.manquants+'</span>':''}</td>
                 </tr>`;
               }).join('');
-            })()}
-          </table>
+            })()} 
+            </tbody></table>
         </div>
       </div>`).join('');
 
@@ -4126,8 +4149,17 @@ function genPlanningProposals(siteId, weekStart, n=3, msBlockedMap){
             const dayEx=eEx.weeks?.[wEx]?.[dEx];
             if(!dayEx || dayEx.status!=='work' || !dayEx.start) return;
             // Vérifier que c'est bien pour ce site
-            const daySiteEx = dayEx.site || getWorkerAvailability(eEx).defaultSite || '';
+            const daySiteEx = dayEx.site || '';
+            // Si le site du créneau existant est connu et différent → skip
             if(daySiteEx && daySiteEx !== siteId) return;
+            // Si le site n'est pas renseigné → vérifier l'éligibilité normale du worker
+            if(!daySiteEx){
+              const avEx_ = getWorkerAvailability(eEx);
+              const inListEx = (eEx.sites||[]).includes(siteId);
+              const isDefEx  = avEx_.defaultSite === siteId;
+              const noSiteEx = !avEx_.defaultSite && !(eEx.sites||[]).length;
+              if(!inListEx && !isDefEx && !noSiteEx) return; // pas éligible pour ce site
+            }
             // VÉRIFIER LE BLOCAGE MULTI-SITES avant pré-assignation
             const _r11blocked = msBlockedMap || eEx._msBlocked;
             if(_r11blocked?.get(dateStr)?.has(empId)) return; // déjà sur un autre site
