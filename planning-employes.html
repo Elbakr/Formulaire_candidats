@@ -3554,6 +3554,81 @@ function openAllSitesOverview(weekStart){
   renderAllSitesOverview();
 }
 
+
+function removeWorkerFromSlot(empId, dateStr, siteId, weekStart){
+  const e=employees.find(x=>x.id==empId); if(!e) return;
+  const wOff=dateToWeekOffset(dateStr), di=dateToDayIdx(dateStr);
+  histPush();
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+  e.weeks[wOff][di]={status:'off',_source:'manual',_ts:new Date().toISOString()};
+  if(_msResults){
+    Object.values(_msResults).forEach(siteData=>{
+      siteData.forEach(({proposals})=>{
+        const prop=proposals[0]; if(!prop) return;
+        prop.plan.forEach(slot=>{
+          if(slot.dateStr!==dateStr) return;
+          const before=slot.assigned.length;
+          slot.assigned=slot.assigned.filter(a=>a.id!=empId);
+          if(slot.assigned.length<before) slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);
+        });
+      });
+    });
+  }
+  autoSave();
+  showToast('✅ '+e.firstname+' retiré(e) du planning le '+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'}));
+  try{renderAllSitesOverview();}catch(err){}
+}
+
+function handleWorkerDrop(empId, fromKey, toSite, toDate, toWeek){
+  if(!empId||!toSite||!toDate) return;
+  const e=employees.find(x=>x.id==empId); if(!e) return;
+  const parts=(fromKey||'').split('_');
+  const fromSite=parts.length>=3?parts[1]:'';
+  const fromDate=parts.length>=3?parts[2]:toDate;
+  const av=getWorkerAvailability(e);
+  const inList=(e.sites||[]).includes(toSite);
+  const isDef=av.defaultSite===toSite;
+  const noSite=!av.defaultSite&&!(e.sites||[]).length;
+  if(!inList&&!isDef&&!noSite){showToast('⚠️ '+e.firstname+" n'est pas assigné(e) au site "+(SITES[toSite]?.name||toSite));return;}
+  const wOff=dateToWeekOffset(toDate),di=dateToDayIdx(toDate);
+  const existing=e.weeks?.[wOff]?.[di];
+  if(existing&&existing.status==='work'&&existing.site&&existing.site!==toSite){
+    if(!confirm(e.firstname+' est déjà sur '+(SITES[existing.site]?.name||existing.site)+'. Déplacer vers '+(SITES[toSite]?.name||toSite)+' ?')) return;
+  }
+  histPush();
+  if(fromSite&&fromDate&&_msResults?.[fromSite]){
+    _msResults[fromSite].forEach(({proposals})=>{
+      const prop=proposals[0]; if(!prop) return;
+      prop.plan.forEach(slot=>{
+        if(slot.dateStr!==fromDate) return;
+        const before=slot.assigned.length;
+        slot.assigned=slot.assigned.filter(a=>a.id!=empId);
+        if(slot.assigned.length<before) slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);
+      });
+    });
+  }
+  const besoins=getBesoinsDate(toSite,toDate);
+  const cr=besoins[0]||{debut:'10:00',fin:'20:00'};
+  if(!e.weeks) e.weeks={};
+  if(!e.weeks[wOff]) e.weeks[wOff]={};
+  e.weeks[wOff][di]={status:'work',start:cr.debut,end:cr.fin,pause:e.pause||0,site:toSite,_source:'manual',endManual:true};
+  if(_msResults?.[toSite]){
+    _msResults[toSite].forEach(({weekStart,proposals})=>{
+      if(weekStart!==toWeek) return;
+      const prop=proposals[0]; if(!prop) return;
+      const slot=prop.plan.find(s=>s.dateStr===toDate&&s.creneau.debut===cr.debut);
+      if(slot&&!slot.assigned.some(a=>a.id==empId)){
+        slot.assigned.push({...e,_effectiveStart:cr.debut,_source:'manual'});
+        slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);
+      }
+    });
+  }
+  autoSave();
+  showToast('✅ '+e.firstname+' → '+(SITES[toSite]?.name||toSite)+' le '+new Date(toDate+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'}));
+  try{renderAllSitesOverview();}catch(err){}
+}
+
 function renderAllSitesOverview(){
   document.getElementById('all-sites-overview')?.remove();
   const modal = document.createElement('div');
@@ -3589,14 +3664,21 @@ function renderAllSitesOverview(){
       const isWE = di>=5;
       const cellBg = wList.length===0 ? '#fee2e2' : isWE ? '#fef3c7' : 'white';
 
-      cells += '<td style="padding:5px 6px;border:1px solid #e2e0d8;vertical-align:top;background:'+cellBg+';min-width:90px;font-size:.68rem">';
+      cells += '<td data-site="'+siteId+'" data-date="'+ds+'" data-week="'+wStart+'" ondragover="event.preventDefault()" ondragleave="" ondrop="event.preventDefault();handleWorkerDrop(event.dataTransfer.getData(String.fromCharCode(101,109,112,73,100)),event.dataTransfer.getData(String.fromCharCode(102,114,111,109,83,105,116,101)),\''+siteId+'\',\''+ds+'\',\''+wStart+'\')"  style="padding:5px 6px;border:1px solid #e2e0d8;vertical-align:top;background:'+cellBg+';min-width:90px;font-size:.68rem">';
       if(wList.length===0){
         cells += '<span style="color:#dc2626;font-size:.62rem">⚠️ vide</span>';
       } else {
         wList.forEach(e=>{
           const col=empColor(e);
-          cells += '<span onclick="event.stopPropagation();openWorkerQuickView('+e.id+',event)" style="display:inline-block;padding:1px 5px;border-radius:8px;font-size:.62rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;margin:1px">'+e.firstname+'</span>';
-        });
+          cells += '<span data-eid="'+e.id+'" draggable="true" style="display:inline-flex;align-items:center;gap:2px;padding:1px 3px 1px 5px;border-radius:8px;font-size:.62rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:grab;margin:1px;user-select:none" '+
+          'ondragstart="event.stopPropagation();const el=event.currentTarget;event.dataTransfer.setData(\'empId\',el.dataset.eid);event.dataTransfer.setData(\'fromSite\',el.closest(\'td\').dataset.week+\'_\'+el.closest(\'td\').dataset.site+\'_\'+el.closest(\'td\').dataset.date);el.style.opacity=\'0.4\'" '+
+          'ondragend="event.currentTarget.style.opacity=\'1\'" '+
+          'onclick="event.stopPropagation();openWorkerQuickView('+e.id+',event)">'+
+          e.firstname+
+          '<span data-eid="'+e.id+'" data-ds="'+ds+'" data-sid="'+siteId+'" data-wk="'+wStart+'" '+
+          'onclick="event.stopPropagation();const sp=this;removeWorkerFromSlot(parseInt(sp.dataset.eid),sp.dataset.ds,sp.dataset.sid,sp.dataset.wk)" '+
+          'style="padding:0 2px;font-size:.6rem;opacity:.6;cursor:pointer;font-weight:900" title="Retirer ce jour">×</span>'+
+          '</span>';       });
       }
       cells += '</td>';
     });
