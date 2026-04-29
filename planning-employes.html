@@ -368,6 +368,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     <button onclick="openStoreNeedsEditor()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#0891b2">📋 Besoins magasins</button>
     <button onclick="openAuditPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #6366f1;background:#ede9fe;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#6366f1">📋 Traçabilité</button>
     <button onclick="openWorkerNotifDashboard()" id="notif-dashboard-btn" style="padding:4px 11px;border-radius:20px;border:1.5px solid #7c3aed;background:#f3e8ff;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#7c3aed">🔔 Notifications <span id="notif-badge" style="display:none;background:#dc2626;color:white;border-radius:10px;padding:0 5px;font-size:.62rem;margin-left:2px">0</span></button>
+    <button id="btn-gap-analysis" onclick="if(Object.keys(_msResults||{}).length>0){const wks=(_msResults[_msOrderedSites?.[0]]||[]).map(r=>r.weekStart).filter(Boolean);openGapAnalysis(_msResults,_msOrderedSites,wks);}else{showToast('Générez d\'abord un autoplan');}" style="padding:4px 11px;border-radius:20px;border:1.5px solid #ea580c;background:#fff7ed;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#ea580c">🩹 Combler</button>
     <button onclick="openResetPanel()" style="padding:4px 11px;border-radius:20px;border:1.5px solid #dc2626;background:#fee2e2;font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:#dc2626">🔄 Reset</button>
     <button onclick="openValidationCenter()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--orange);background:var(--olight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--orange)">⏳ Validations</button>
     <button onclick="openCandidatesModal()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--glight);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--green)">👥 Candidats</button>
@@ -2823,6 +2824,16 @@ function openMultiSiteAutoplan(){
       '<div style="display:flex;gap:8px">'+
         '<button id="ms-cancel-btn" style="padding:7px 14px;border-radius:7px;border:1.5px solid var(--line);background:transparent;font-size:.8rem;cursor:pointer">Annuler</button>'+
         '<button id="ms-generate-btn" style="padding:7px 20px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.84rem;font-weight:800;cursor:pointer">🎛️ Coefficients dates</button>'+
+      '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f0fdf4;border-radius:10px;border:1.5px solid #16a34a;margin:8px 0">'+
+        '<div style="flex:1"><div style="font-size:.78rem;font-weight:800;color:#15803d">🌐 Moteur global</div>'+
+        '<div style="font-size:.64rem;color:#166534">Distribution simultanée sur tous les sites — recommandé</div></div>'+
+        '<label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">'+
+          '<input type="checkbox" id="engine-mode-global" checked style="opacity:0;width:0;height:0">'+
+          '<span onclick="const cb=document.getElementById(\'engine-mode-global\');cb.checked=!cb.checked;this.style.background=cb.checked?\'#16a34a\':\'#9ca3af\';this.querySelector(\'span\').style.transform=cb.checked?\'translateX(20px)\':\'translateX(0)\'" style="position:absolute;cursor:pointer;inset:0;background:#16a34a;border-radius:24px;transition:.3s">'+
+            '<span style="position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s;transform:translateX(20px)"></span>'+
+          '</span>'+
+        '</label>'+
+      '</div>'+
       '<button onclick="runMultiSiteAutoplan()" style="padding:9px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#2d5be3,#7c3aed);color:white;font-size:.84rem;font-weight:800;cursor:pointer">⚡ Générer</button>'+
       '</div>'+
     '</div>'+
@@ -2889,7 +2900,185 @@ function updateMsOrder(){
   document.querySelectorAll('.ms-order').forEach((el,i)=>{ el.textContent=i+1; });
 }
 
-async function runMultiSiteAutoplan(){
+// ══════════════════════════════════════════════════════════════════
+// MOTEUR GLOBAL — Distribution simultanée tous sites × tous jours
+// Remplace la cascade séquentielle par une répartition équilibrée
+// ══════════════════════════════════════════════════════════════════
+
+function runGlobalAutoplan(dateStart, dateEnd, orderedSites, nbProps){
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  // ── Collecter toutes les dates de la période ──────────────────
+  const allDates = [];
+  const cur = new Date(dateStart+'T12:00');
+  const endD = new Date(dateEnd+'T12:00');
+  while(cur <= endD){
+    const ds = cur.toISOString().slice(0,10);
+    if(ds >= todayStr) allDates.push(ds);
+    cur.setDate(cur.getDate()+1);
+  }
+  if(!allDates.length) return null;
+
+  const active = employees.filter(e=>!e.archived);
+
+  // ── PHASE 1 : Cartographie des besoins et disponibilités ──────
+  // Pour chaque (site, date, créneau) : calculer le besoin et les workers éligibles
+  const grid = []; // [{siteId, dateStr, creneau, eligible:[], assigned:[], manquants}]
+
+  orderedSites.forEach(siteId=>{
+    allDates.forEach(dateStr=>{
+      const besoins = getBesoinsDate(siteId, dateStr);
+      besoins.forEach(creneau=>{
+        const eligible = active.filter(e=>{
+          const av = getWorkerAvailability(e);
+          const inList = (e.sites||[]).includes(siteId);
+          const isDef  = av.defaultSite === siteId;
+          const noSite = !av.defaultSite && !(e.sites||[]).length;
+          if(!inList && !isDef && !noSite) return false;
+          if(!isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) return false;
+          return true;
+        });
+        grid.push({
+          siteId, dateStr, creneau,
+          eligible: eligible.map(e=>e.id),
+          assigned: [],
+          manquants: creneau.vendeurs,
+          priority: 0 // calculé en phase 2
+        });
+      });
+    });
+  });
+
+  // ── PHASE 2 : Calculer la priorité de chaque slot ─────────────
+  // Priorité = besoin / effectif éligible → plus élevé = plus critique
+  grid.forEach(slot=>{
+    const ratio = slot.eligible.length > 0
+      ? slot.creneau.vendeurs / slot.eligible.length
+      : slot.creneau.vendeurs * 999;
+    // Bonus pour jours spéciaux
+    const {isForte, isFerie} = isPeriodForte(slot.dateStr);
+    const dow = new Date(slot.dateStr+'T12:00').getDay();
+    const isSam = dow === 6;
+    let mult = 1;
+    if(isFerie) mult = 1.5;
+    else if(isSam) mult = 1.3;
+    else if(isForte) mult = 1.1;
+    slot.priority = ratio * mult;
+  });
+
+  // Trier par priorité décroissante (les plus critiques d'abord)
+  grid.sort((a,b)=>b.priority-a.priority);
+
+  // ── PHASE 3 : Distribution équilibrée ─────────────────────────
+  // Parcourir les slots du plus critique au moins critique
+  // Pour chaque slot : assigner les meilleurs workers disponibles
+
+  const workerDayAssign = {}; // empId → Set{dateStr} (jours déjà assignés)
+  const workerWeekLoad  = {}; // empId → minutes assignées cette semaine
+
+  grid.forEach(slot=>{
+    if(slot.manquants <= 0) return;
+
+    // Workers éligibles non encore assignés ce jour
+    const candidates = slot.eligible
+      .filter(empId=>{
+        // Pas déjà assigné ce jour
+        if(workerDayAssign[empId]?.has(slot.dateStr)) return false;
+        // Vérifier congés (e.weeks)
+        const e = active.find(x=>x.id===empId); if(!e) return false;
+        const wOff=dateToWeekOffset(slot.dateStr), di=dateToDayIdx(slot.dateStr);
+        const day=e.weeks?.[wOff]?.[di];
+        if(day?.status==='leave') return false;
+        return true;
+      })
+      .map(empId=>{
+        const e = active.find(x=>x.id===empId);
+        // Score de fit pour ce slot
+        const av = getWorkerAvailability(e);
+        const isDefault = av.defaultSite === slot.siteId;
+        const load = (workerWeekLoad[empId]||0)/60; // heures déjà assignées
+        const weeklyMax = (e.hoursMaxMonth||0)/4.33 || e.hours||40;
+        const loadPenalty = load > weeklyMax*0.9 ? -5 : 0;
+        let score = isDefault ? 10 : 5;
+        score += loadPenalty;
+        // Bonus workers existants (règle 11)
+        const wOff=dateToWeekOffset(slot.dateStr), di=dateToDayIdx(slot.dateStr);
+        const exDay=e.weeks?.[wOff]?.[di];
+        if(AUTOPLAN_RULES.useExistingPlan?.active && exDay?.status==='work' && exDay?.site===slot.siteId){
+          score += 20;
+        }
+        return {empId, score};
+      })
+      .sort((a,b)=>b.score-a.score);
+
+    // Assigner jusqu'au quota
+    const slotDur = timeToMin(slot.creneau.fin)-timeToMin(slot.creneau.debut);
+    candidates.forEach(({empId})=>{
+      if(slot.assigned.length >= slot.creneau.vendeurs) return;
+      const e = active.find(x=>x.id===empId);
+      slot.assigned.push({id:empId, firstname:e.firstname, lastname:e.lastname,
+        _effectiveStart:slot.creneau.debut, _source:'auto'});
+      if(!workerDayAssign[empId]) workerDayAssign[empId]=new Set();
+      workerDayAssign[empId].add(slot.dateStr);
+      workerWeekLoad[empId]=(workerWeekLoad[empId]||0)+slotDur;
+    });
+
+    slot.manquants = Math.max(0, slot.creneau.vendeurs - slot.assigned.length);
+  });
+
+  // ── PHASE 4 : Construire _msResults compatible ─────────────────
+  // Format identique à l'ancien moteur pour réutiliser l'affichage
+  const msResults = {};
+  const weeks = [...new Set(allDates.map(ds=>{
+    const d=new Date(ds+'T12:00'), dow=(d.getDay()||7)-1;
+    const mon=new Date(d); mon.setDate(d.getDate()-dow);
+    return mon.toISOString().slice(0,10);
+  }))].sort();
+
+  orderedSites.forEach(siteId=>{
+    msResults[siteId] = weeks.map(weekStart=>{
+      // Slots de ce site pour cette semaine
+      const siteSlots = grid.filter(s=>s.siteId===siteId && s.dateStr>=weekStart);
+      const weekEnd = new Date(weekStart+'T12:00');
+      weekEnd.setDate(weekEnd.getDate()+6);
+      const weekEndStr = weekEnd.toISOString().slice(0,10);
+      const planSlots = siteSlots.filter(s=>s.dateStr<=weekEndStr);
+
+      // Calculer couverture
+      const totalDem = planSlots.reduce((s,sl)=>s+sl.creneau.vendeurs,0);
+      const totalAss = planSlots.reduce((s,sl)=>s+sl.assigned.length,0);
+      const coverage = totalDem>0 ? Math.round(totalAss/totalDem*100) : 100;
+      const mixViolations = planSlots.filter(sl=>!teamRespectsMixRule(sl.assigned.map(a=>active.find(e=>e.id===a.id)).filter(Boolean))).length;
+
+      return {
+        weekStart,
+        proposals:[{
+          label:'🌐 Distribution globale',
+          plan: planSlots.map(sl=>({
+            dateStr:sl.dateStr,
+            creneau:sl.creneau,
+            assigned:sl.assigned.map(a=>({
+              ...active.find(e=>e.id===a.id),
+              _effectiveStart:a._effectiveStart,
+              _source:'auto'
+            })).filter(Boolean),
+            manquants:sl.manquants,
+            difficulty:1,
+            mixOk:true,
+            mixDetail:null
+          })),
+          coverage,
+          mixViolations,
+          mixDetails:[]
+        }]
+      };
+    });
+  });
+
+  return {msResults, grid, workerDayAssign, workerWeekLoad, weeks};
+}
+
+function runMultiSiteAutoplan(){
   const dateStart = document.getElementById('ms-date-start')?.value;
   const dateEnd   = document.getElementById('ms-date-end')?.value;
   const nbProps   = parseInt(document.getElementById('ms-nb-props')?.value||'3');
@@ -2939,92 +3128,48 @@ async function runMultiSiteAutoplan(){
   }
 
   // ── Générer les propositions pour toutes les semaines et tous les sites ──
-  const allResults = {}; // {siteId: [{weekStart, proposals}]}
-  const today2 = new Date().toISOString().slice(0,10);
+  // ── Choisir le moteur selon le mode sélectionné ─────────────
+  const useGlobal = document.getElementById('engine-mode-global')?.checked !== false;
+  let allResults, globalGrid = null, globalWorkerDayAssign = null;
 
-  // ── RÈGLE D'OR : 1 travailleur = 1 site par jour ────────────
-  const blockedOnDate = new Map();
-
-  // ── Trier les sites par ratio besoin/effectif (décroissant) ──
-  // Les sites les plus chargés relativement à leur effectif sont servis en premier.
-  // Cela garantit une répartition équitable plutôt que de laisser les derniers sites vides.
-  const sortedSites = [...orderedSites].sort((a,b)=>{
-    // Calculer le ratio pour la première semaine comme référence
-    const eligible = (siteId, wk)=>{
-      return employees.filter(e=>{
-        if(e.archived) return false;
-        const av=getWorkerAvailability(e);
-        return av.defaultSite===siteId||(e.sites||[]).includes(siteId)||(!av.defaultSite&&!(e.sites||[]).length);
-      }).length;
-    };
-    const wRef = weeks[0]||new Date().toISOString().slice(0,10);
-    const ea=eligible(a,wRef)||1, eb=eligible(b,wRef)||1;
-    // Sites avec moins d'effectif relatif passent en premier
-    return (1/ea)-(1/eb);
-  });
-  // Utiliser sortedSites au lieu de orderedSites pour la boucle
-  const orderedSitesBalanced = sortedSites;
-
-  // ── Équilibrage inter-sites ────────────────────────────────────
-  // Calculer le ratio besoin/effectif disponible par site et semaine
-  // pour distribuer équitablement les workers entre sites.
-  // Les sites les plus nécessiteux (ratio le plus élevé) sont traités en priorité.
-
-  // Réordonner les sites par ratio besoin/effectif pour chaque semaine
-  // (sites avec le moins d'effectif disponible relatif à leur besoin = prioritaires)
-  function calcSiteNeedRatio(siteId, weekStart){
-    // Compter les workers éligibles pour ce site
-    const eligible = employees.filter(e=>{
-      if(e.archived) return false;
-      const av = getWorkerAvailability(e);
-      const inList = (e.sites||[]).includes(siteId);
-      const isDef  = av.defaultSite === siteId;
-      const noSite = !av.defaultSite && !(e.sites||[]).length;
-      return inList || isDef || noSite;
-    }).length;
-    // Compter le besoin total (postes requis sur la semaine)
-    let need = 0;
-    for(let i=0;i<7;i++){
-      const d=new Date(weekStart+'T12:00'); d.setDate(d.getDate()+i);
-      const ds=d.toISOString().slice(0,10);
-      const besoins = getBesoinsDate(siteId, ds);
-      need += besoins.reduce((s,c)=>s+c.vendeurs, 0);
-    }
-    // Ratio = besoin / effectif → plus élevé = plus nécessiteux
-    return eligible > 0 ? need / eligible : need * 999;
-  }
-
-  for(const siteId of orderedSitesBalanced){
-    allResults[siteId] = [];
-
-    employees.forEach(e=>{ e._msBlocked = blockedOnDate; });
-
-    for(const weekStart of weeks){
-      try {
-        const props = genPlanningProposals(siteId, weekStart, nbProps, blockedOnDate);
-        allResults[siteId].push({weekStart, proposals:props});
-
-        // Bloquer uniquement les workers de la MEILLEURE proposition
-        // pour ne pas sur-bloquer avec les propositions alternatives
-        if(props[0]){
-          props[0].plan.forEach(slot=>{
-            slot.assigned.forEach(empRef=>{
-              if(!blockedOnDate.has(slot.dateStr))
-                blockedOnDate.set(slot.dateStr, new Set());
-              blockedOnDate.get(slot.dateStr).add(empRef.id);
+  if(useGlobal){
+    // ════ MOTEUR GLOBAL (distribution simultanée) ═══════════════
+    showToast('🌐 Moteur global — distribution simultanée…');
+    const globalResult = runGlobalAutoplan(dateStart, dateEnd, orderedSites, nbProps);
+    if(!globalResult){ showToast('⚠️ Aucune date future dans la période'); return; }
+    allResults             = globalResult.msResults;
+    globalGrid             = globalResult.grid;
+    globalWorkerDayAssign  = globalResult.workerDayAssign;
+    employees.forEach(e=>{ delete e._msBlocked; });
+  } else {
+    // ════ MOTEUR CASCADE (ancien — site par site) ════════════════
+    allResults = {};
+    const today2 = new Date().toISOString().slice(0,10);
+    const blockedOnDate = new Map();
+    const sortedSites = [...orderedSites];
+    const orderedSitesBalanced = sortedSites;
+    for(const siteId of orderedSitesBalanced){
+      allResults[siteId] = [];
+      employees.forEach(e=>{ e._msBlocked = blockedOnDate; });
+      for(const weekStart of weeks){
+        try {
+          const props = genPlanningProposals(siteId, weekStart, nbProps, blockedOnDate);
+          allResults[siteId].push({weekStart, proposals:props});
+          if(props[0]){
+            props[0].plan.forEach(slot=>{
+              slot.assigned.forEach(empRef=>{
+                if(!blockedOnDate.has(slot.dateStr)) blockedOnDate.set(slot.dateStr,new Set());
+                blockedOnDate.get(slot.dateStr).add(empRef.id);
+              });
             });
-          });
-        }
-      } catch(err){
-        console.error('[Autoplan] '+siteId+' sem '+weekStart+':', err);
+          }
+        } catch(err){ console.error('[Cascade] '+siteId+' sem '+weekStart+':', err); }
       }
     }
+    employees.forEach(e=>{ delete e._msBlocked; });
   }
 
-  // Nettoyer la référence temporaire
-  employees.forEach(e=>{ delete e._msBlocked; });
-
-  // Stocker pour les boutons d'action
+    // Stocker pour les boutons d'action
   _msResults = allResults;
   _msOrderedSites = orderedSites;
   _msPeriodStart = dateStart;
