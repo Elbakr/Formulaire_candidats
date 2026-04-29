@@ -2047,6 +2047,21 @@ function getBesoinsDate(siteId, date){
   }));
   // Vendredi: les créneaux sont déjà définis avec matin/aprem séparés dans STORE_NEEDS
   // splitVendrediPause n'est plus nécessaire ici (utilisé uniquement pour calcNetHours)
+
+  // ── Appliquer les exceptions ────────────────────────────────────
+  // Priorité: date spécifique > jour récurrent (dow_X) > défaut
+  const siteExc = STORE_NEEDS_EXCEPTIONS?.[siteId]||{};
+  const dateExc  = siteExc[date];                    // ex: '2026-06-15'
+  const dowKey   = 'dow_'+jour;                      // ex: 'dow_1' (tous les lundis)
+  const dowExc   = siteExc[dowKey];
+  const excData  = dateExc || dowExc;
+  if(excData && excData.length > 0){
+    return excData.map(b=>({
+      ...b,
+      vendeurs: isFerie||isForte ? Math.ceil((b.vendeurs||1)*multiplier) : (b.vendeurs||1),
+      periode: dateExc ? '📅 Exception ponctuelle' : '🔁 Exception récurrente'
+    }));
+  }
   return result;
 }
 
@@ -2396,6 +2411,9 @@ const AUTOPLAN_RULES = {
 // Coefficients de besoin par date spécifique {dateStr: coefficient}
 // Ex: {'2026-06-15': 1.8} → ce jour compte x1.8 dans le scoring
 let DATE_COEFFS = JSON.parse(localStorage.getItem('gp_date_coeffs')||'{}');
+// Exceptions par date pour STORE_NEEDS: {siteId: {dateStr: {debut, fin, vendeurs}[]}}
+let currentSiteId_ = 'A'; // site actif dans l'éditeur besoins
+let STORE_NEEDS_EXCEPTIONS = JSON.parse(localStorage.getItem('gp_store_needs_exceptions')||'{}');
 function saveDateCoeffs(){ localStorage.setItem('gp_date_coeffs', JSON.stringify(DATE_COEFFS)); }
 
 // ══════════════════════════════════════════════════════════════
@@ -6029,6 +6047,190 @@ function saveMsNeedsWithFeedback(){
   }
 }
 
+
+// ══════════════════════════════════════════════════════════════════
+// EXCEPTIONS PAR DATE — Besoins magasins
+// Modifier vendeurs/horaires pour 1 jour spécifique OU tous les lundis etc.
+// ══════════════════════════════════════════════════════════════════
+
+function openStoreNeedsExceptions(siteId){
+  document.getElementById('store-exc-modal')?.remove();
+  const site = SITES[siteId]||{};
+  const modal = document.createElement('div');
+  modal.id = 'store-exc-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1002;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto';
+  modal.addEventListener('click', ev=>{ if(ev.target===modal) modal.remove(); });
+
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:580px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3);margin:auto';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:13px 18px;display:flex;justify-content:space-between;align-items:center;background:'+(site.light||'#f8f7f5')+';border-bottom:2px solid '+(site.color||'#333');
+  const ht = document.createElement('div');
+  ht.innerHTML = '<div style="font-weight:800;color:'+(site.color||'#333')+'">📅 Exceptions — '+siteId+' '+(site.name||siteId)+'</div><div style="font-size:.68rem;color:var(--ink3);margin-top:2px">Ajustements pour un jour spécifique ou un jour de la semaine</div>';
+  const hc = document.createElement('button'); hc.textContent='✕'; hc.style.cssText='border:none;background:rgba(0,0,0,.08);border-radius:6px;padding:4px 8px;cursor:pointer'; hc.onclick=()=>modal.remove();
+  hdr.appendChild(ht); hdr.appendChild(hc);
+
+  const body = document.createElement('div');
+  body.style.cssText = 'padding:16px';
+
+  // ── Formulaire ajout ───────────────────────────────────────────
+  const DAYS_FR = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const addSection = document.createElement('div');
+  addSection.style.cssText = 'background:#f8f7f5;border-radius:10px;padding:12px;margin-bottom:14px;border:1.5px solid var(--line)';
+
+  const addTitle = document.createElement('div');
+  addTitle.style.cssText = 'font-size:.74rem;font-weight:800;color:var(--ink);margin-bottom:10px';
+  addTitle.textContent = '+ Nouvelle exception';
+  addSection.appendChild(addTitle);
+
+  // Mode: date spécifique OU jour de semaine
+  const modeRow = document.createElement('div');
+  modeRow.style.cssText = 'display:flex;gap:6px;margin-bottom:10px';
+  ['📅 Date spécifique','📆 Tous les...'].forEach((lbl,i)=>{
+    const btn = document.createElement('button');
+    btn.textContent = lbl; btn.dataset.mode = i===0?'date':'dow';
+    btn.style.cssText = 'padding:5px 12px;border-radius:7px;border:1.5px solid '+(i===0?'#2d5be3':'#e2e0d8')+';background:'+(i===0?'#eef1fd':'white')+';font-size:.72rem;font-weight:700;cursor:pointer';
+    btn.onclick = ()=>{
+      modeRow.querySelectorAll('button').forEach(b=>{ b.style.borderColor='#e2e0d8'; b.style.background='white'; });
+      btn.style.borderColor='#2d5be3'; btn.style.background='#eef1fd';
+      dateInput.style.display = btn.dataset.mode==='date'?'block':'none';
+      dowSelect.style.display = btn.dataset.mode==='dow'?'block':'none';
+    };
+    modeRow.appendChild(btn);
+  });
+  addSection.appendChild(modeRow);
+
+  // Input date
+  const dateInput = document.createElement('input');
+  dateInput.type='date'; dateInput.id='exc-date-input';
+  dateInput.style.cssText = 'width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.8rem;margin-bottom:8px;box-sizing:border-box';
+  addSection.appendChild(dateInput);
+
+  // Select jour de semaine
+  const dowSelect = document.createElement('select');
+  dowSelect.id='exc-dow-select';
+  dowSelect.style.cssText = 'width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:.8rem;margin-bottom:8px;box-sizing:border-box;display:none';
+  DAYS_FR.forEach((d,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=d; dowSelect.appendChild(o); });
+  dowSelect.value = 1; // Lundi par défaut
+  addSection.appendChild(dowSelect);
+
+  // Créneaux à définir
+  const crLabel = document.createElement('div');
+  crLabel.style.cssText = 'font-size:.7rem;font-weight:700;color:var(--ink3);margin-bottom:6px';
+  crLabel.textContent = 'Créneaux pour ce jour :';
+  addSection.appendChild(crLabel);
+
+  const crContainer = document.createElement('div');
+  crContainer.id = 'exc-creneau-list';
+  addSection.appendChild(crContainer);
+
+  // Pré-remplir avec les créneaux habituels du site
+  function getDefaultCreneaux(dow){
+    return (STORE_NEEDS[siteId]?.[dow]||STORE_NEEDS[siteId]?.[1]||[{debut:'10:00',fin:'20:00',vendeurs:2}])
+      .map(c=>({debut:c.debut,fin:c.fin,vendeurs:c.vendeurs}));
+  }
+
+  function renderCreneauxEditor(creneaux){
+    crContainer.innerHTML='';
+    creneaux.forEach((cr,i)=>{
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+      const debI=document.createElement('input'); debI.type='time'; debI.value=cr.debut; debI.style.cssText='padding:5px;border:1.5px solid var(--line);border-radius:6px;font-size:.76rem';
+      const finI=document.createElement('input'); finI.type='time'; finI.value=cr.fin; finI.style.cssText='padding:5px;border:1.5px solid var(--line);border-radius:6px;font-size:.76rem';
+      const venI=document.createElement('input'); venI.type='number'; venI.value=cr.vendeurs; venI.min=0; venI.max=10; venI.style.cssText='width:50px;padding:5px;border:1.5px solid var(--line);border-radius:6px;font-size:.76rem';
+      const lbV=document.createElement('span'); lbV.textContent='vendeurs'; lbV.style.cssText='font-size:.68rem;color:var(--ink3)';
+      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.style.cssText='padding:2px 6px;border-radius:5px;border:1px solid #fee2e2;background:#fee2e2;color:#dc2626;cursor:pointer;font-size:.66rem';
+      delBtn.onclick=()=>{ creneaux.splice(i,1); renderCreneauxEditor(creneaux); };
+      debI.onchange=()=>{ creneaux[i].debut=debI.value; };
+      finI.onchange=()=>{ creneaux[i].fin=finI.value; };
+      venI.onchange=()=>{ creneaux[i].vendeurs=parseInt(venI.value)||1; };
+      row.appendChild(debI); row.appendChild(document.createTextNode('→')); row.appendChild(finI);
+      row.appendChild(venI); row.appendChild(lbV); row.appendChild(delBtn);
+      crContainer.appendChild(row);
+    });
+    // Bouton ajouter créneau
+    const addCr=document.createElement('button');
+    addCr.textContent='+ Ajouter un créneau'; addCr.style.cssText='padding:4px 10px;border-radius:6px;border:1.5px dashed #2d5be3;color:#2d5be3;background:transparent;font-size:.7rem;cursor:pointer;margin-top:2px';
+    addCr.onclick=()=>{ creneaux.push({debut:'14:00',fin:'20:00',vendeurs:1}); renderCreneauxEditor(creneaux); };
+    crContainer.appendChild(addCr);
+  }
+
+  let currentCreneaux = getDefaultCreneaux(1);
+  renderCreneauxEditor(currentCreneaux);
+
+  // Mise à jour des créneaux quand le jour change
+  dowSelect.onchange=()=>{ currentCreneaux=getDefaultCreneaux(parseInt(dowSelect.value)); renderCreneauxEditor(currentCreneaux); };
+
+  // Bouton Appliquer
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = '✓ Appliquer cette exception';
+  applyBtn.style.cssText = 'width:100%;padding:8px;border-radius:8px;border:none;background:#2d5be3;color:white;font-size:.8rem;font-weight:700;cursor:pointer;margin-top:10px';
+  applyBtn.onclick = ()=>{
+    const isDate = dateInput.style.display !== 'none';
+    if(!STORE_NEEDS_EXCEPTIONS[siteId]) STORE_NEEDS_EXCEPTIONS[siteId]={};
+
+    if(isDate){
+      const ds = dateInput.value;
+      if(!ds){ showToast('Sélectionnez une date'); return; }
+      STORE_NEEDS_EXCEPTIONS[siteId][ds] = [...currentCreneaux];
+      showToast('✅ Exception appliquée pour le '+new Date(ds+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'}));
+    } else {
+      // Tous les jours de la semaine du type sélectionné
+      // On stocke avec clé "dow_X" pour les jours récurrents
+      const dow = parseInt(dowSelect.value);
+      const key = 'dow_'+dow;
+      STORE_NEEDS_EXCEPTIONS[siteId][key] = [...currentCreneaux];
+      showToast('✅ Exception appliquée pour tous les '+DAYS_FR[dow]+'s');
+    }
+    localStorage.setItem('gp_store_needs_exceptions', JSON.stringify(STORE_NEEDS_EXCEPTIONS));
+    scheduleSyncPush();
+    renderExcList();
+  };
+  addSection.appendChild(applyBtn);
+  body.appendChild(addSection);
+
+  // ── Liste des exceptions existantes ─────────────────────────
+  const excListDiv = document.createElement('div');
+  excListDiv.id = 'exc-list-container';
+  body.appendChild(excListDiv);
+
+  function renderExcList(){
+    excListDiv.innerHTML='';
+    const exc = STORE_NEEDS_EXCEPTIONS[siteId]||{};
+    const entries = Object.entries(exc).sort((a,b)=>a[0].localeCompare(b[0]));
+    if(!entries.length){
+      excListDiv.innerHTML='<div style="color:var(--ink3);font-size:.74rem;padding:8px 0">Aucune exception définie pour ce site.</div>';
+      return;
+    }
+    const title=document.createElement('div');
+    title.style.cssText='font-size:.74rem;font-weight:800;color:var(--ink);margin-bottom:8px';
+    title.textContent='Exceptions existantes ('+entries.length+')';
+    excListDiv.appendChild(title);
+    entries.forEach(([key,creneaux])=>{
+      const isDow = key.startsWith('dow_');
+      const label = isDow ? 'Tous les '+DAYS_FR[parseInt(key.replace('dow_',''))]+'s'
+        : new Date(key+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f7f5;border-radius:8px;border:1.5px solid var(--line);margin-bottom:6px';
+      const info=document.createElement('div'); info.style.cssText='flex:1';
+      info.innerHTML='<div style="font-size:.72rem;font-weight:700;color:var(--ink)">'+label+'</div>'+
+        '<div style="font-size:.66rem;color:var(--ink3);margin-top:2px">'+
+        creneaux.map(c=>c.debut+'→'+c.fin+' ('+c.vendeurs+' vend.)').join(' · ')+'</div>';
+      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.style.cssText='padding:2px 7px;border-radius:5px;border:1px solid #fee2e2;background:#fee2e2;color:#dc2626;font-size:.68rem;cursor:pointer';
+      delBtn.onclick=()=>{ delete STORE_NEEDS_EXCEPTIONS[siteId][key]; localStorage.setItem('gp_store_needs_exceptions',JSON.stringify(STORE_NEEDS_EXCEPTIONS)); scheduleSyncPush(); renderExcList(); };
+      row.appendChild(info); row.appendChild(delBtn);
+      excListDiv.appendChild(row);
+    });
+  }
+  renderExcList();
+
+  inner.appendChild(hdr); inner.appendChild(body);
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+}
+
 function openStoreNeedsEditor(){
   let modal = document.getElementById('store-needs-modal');
   if(modal) modal.remove();
@@ -6159,6 +6361,7 @@ function openStoreNeedsEditor(){
         </div>
       </div>
       <div style="display:flex;gap:8px">
+        <button onclick="openStoreNeedsExceptions(currentSiteId_||Object.keys(SITES)[0])" style="padding:7px 14px;border-radius:8px;border:1.5px solid #7c3aed;background:#f3e8ff;color:#7c3aed;font-size:.74rem;font-weight:700;cursor:pointer">📅 Exceptions</button>
         <button onclick="saveMsNeedsWithFeedback()" id="btn-save-needs" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.2);color:white;font-size:.76rem;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
         <button onclick="resetStoreNeeds()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.74rem;cursor:pointer">↺ Réinitialiser</button>
         <button onclick="document.getElementById('store-needs-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">✕</button>
@@ -7096,15 +7299,28 @@ function buildStatePayload(){
   ['A','B','C','D','E','F'].forEach(id=>{
     if(STORE_NEEDS[id]) storeNeedsOverrides[id] = STORE_NEEDS[id];
   });
+  // Sauvegarder les règles autoplan actives
+  const autoPlanRulesState = {};
+  Object.entries(AUTOPLAN_RULES).forEach(([k,r])=>{
+    if(r && typeof r.active !== 'undefined') autoPlanRulesState[k] = r.active;
+    if(r && typeof r.value !== 'undefined') autoPlanRulesState[k+'_val'] = r.value;
+  });
+  // Sauvegarder les exceptions par date (store needs + coefficients)
+  const dateCoeffsSnapshot = {...(DATE_COEFFS||{})};
+  const storeNeedDateExceptions = {...(STORE_NEEDS_EXCEPTIONS||{})};
+
   return {
     employees: employees.map(e=>({...e, weeks:{...e.weeks}, weekHoursOverride:{...(e.weekHoursOverride||{})}})),
     candidates, nid, candNid,
     curWeek, selId,
     storeManagers,
     storeNeedsOverrides,
+    autoPlanRulesState,
+    dateCoeffsSnapshot,
+    storeNeedDateExceptions,
     planningHistory: getPlanningHistory(),
     savedAt: new Date().toISOString(),
-    version: 5
+    version: 6
   };
 }
 
@@ -7140,6 +7356,24 @@ function applyStatePayload(data){
     localStorage.setItem('gp_store_needs', JSON.stringify(data.storeNeedsOverrides));
   }
   if(data.planningHistory) localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(data.planningHistory));
+  // Restaurer règles autoplan
+  if(data.autoPlanRulesState){
+    Object.entries(data.autoPlanRulesState).forEach(([k,v])=>{
+      const base = k.replace('_val','');
+      if(k.endsWith('_val')){ if(AUTOPLAN_RULES[base]) AUTOPLAN_RULES[base].value=v; }
+      else { if(AUTOPLAN_RULES[k]) AUTOPLAN_RULES[k].active=v; }
+    });
+  }
+  // Restaurer coefficients par date
+  if(data.dateCoeffsSnapshot){
+    Object.assign(DATE_COEFFS, data.dateCoeffsSnapshot);
+    saveDateCoeffs();
+  }
+  // Restaurer exceptions STORE_NEEDS par date
+  if(data.storeNeedDateExceptions){
+    Object.assign(STORE_NEEDS_EXCEPTIONS, data.storeNeedDateExceptions);
+    localStorage.setItem('gp_store_needs_exceptions', JSON.stringify(STORE_NEEDS_EXCEPTIONS));
+  }
   saveStateLocal();
 }
 
