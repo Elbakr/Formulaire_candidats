@@ -3667,24 +3667,37 @@ function switchMsTab(siteId){
         <div style="padding:8px 12px;overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.7rem">
             ${(()=>{
-              // Regrouper par jour — 1 ligne par jour, workers dédupliqués
+              // Afficher 1 ligne par CRÉNEAU (pas par jour) pour éviter la confusion
+              // Grouper par jour pour l'en-tête, mais lister chaque créneau séparément
               const byDay2 = {};
               p.plan.forEach(slot=>{
-                if(!byDay2[slot.dateStr]) byDay2[slot.dateStr]={
-                  dateStr:slot.dateStr, difficulty:slot.difficulty,
-                  creneaux:[], workers:new Map(), hasManquant:false
+                const key = slot.dateStr+'_'+slot.creneau.debut;
+                if(!byDay2[key]) byDay2[key]={
+                  dateStr:slot.dateStr, creneau:slot.creneau,
+                  difficulty:slot.difficulty,
+                  workers:new Map(), manquants:slot.manquants||0
                 };
-                const d2 = byDay2[slot.dateStr];
-                d2.creneaux.push(slot.creneau.debut+'→'+slot.creneau.fin);
-                slot.assigned.forEach(e=>d2.workers.set(e.id,e));
-                if(slot.manquants>0) d2.hasManquant=true;
+                slot.assigned.forEach(e=>byDay2[key].workers.set(e.id,e));
+                if(slot.manquants>0) byDay2[key].manquants=slot.manquants;
               });
               const DAYS2=['D','L','M','M','J','V','S'];
-              return Object.values(byDay2).map(d2=>{
+              // Trier par date puis par heure de début
+              const sortedEntries = Object.values(byDay2).sort((a,b)=>
+                a.dateStr.localeCompare(b.dateStr)||
+                timeToMin(a.creneau.debut)-timeToMin(b.creneau.debut)
+              );
+              // Grouper pour afficher la date une seule fois par jour
+              let lastDate='';
+              return sortedEntries.map(d2=>{
                 const dow2=new Date(d2.dateStr+'T12:00').getDay();
                 const di2=new Date(d2.dateStr+'T12:00').getDate();
                 const diffIcon=d2.difficulty===1?'⭐':d2.difficulty===2?'🎉':d2.difficulty===3?'☀️':'';
-                const crStr=[...new Set(d2.creneaux)].join(' · ');
+                const crStr=d2.creneau.debut+'→'+d2.creneau.fin+' ('+d2.creneau.vendeurs+' dem.)';
+                const isNewDay = d2.dateStr !== lastDate;
+                lastDate = d2.dateStr;
+                const dayHeader = isNewDay
+                  ? '<div style="font-size:.68rem;font-weight:800;color:var(--ink);background:#f5f4f0;padding:3px 6px;border-radius:5px;margin-bottom:3px">'+diffIcon+' '+DAYS2[dow2]+' '+di2+'</div>'
+                  : '';
                 const wStr=[...d2.workers.values()].map(e=>{
                   const col=empColor(e);
                   const mySlot = p.plan.find(sl=>sl.dateStr===d2.dateStr && sl.assigned.some(a=>a.id===e.id));
@@ -3699,10 +3712,9 @@ function switchMsTab(siteId){
                                   existing_&&existing_._source==='auto' ? '🟣' : '🔵';
                   return '<span onclick="openWorkerQuickView('+e.id+',event)" title="'+srcIcon+' source: '+(existing_?._source||'autoplan')+'" style="padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer;display:inline-flex;align-items:center;gap:2px">'+srcIcon+' '+e.firstname+timeTag+'</span>';
                 }).join(' ');
-                return `<tr style="border-bottom:1px solid #f5f4f0">
-                  <td style="padding:5px 6px;font-weight:700;white-space:nowrap;font-size:.72rem">${diffIcon}${DAYS2[dow2]} ${di2}</td>
-                  <td style="padding:5px 6px;font-family:monospace;font-size:.65rem;color:var(--ink3)">${crStr}</td>
-                  <td style="padding:5px 6px">${wStr||'<span style="color:#dc2626;font-size:.65rem">—</span>'}${d2.hasManquant?'<span style="color:#dc2626;font-size:.65rem;margin-left:4px">⚠️</span>':''}</td>
+                return dayHeader+`<tr style="border-bottom:1px solid #f5f4f0">
+                  <td style="padding:3px 6px;font-family:monospace;font-size:.64rem;color:var(--ink3);white-space:nowrap">${crStr}</td>
+                  <td style="padding:3px 6px">${wStr||'<span style="color:#dc2626;font-size:.65rem">Aucun worker</span>'}${d2.manquants>0?'<span style="color:#dc2626;font-size:.62rem;margin-left:4px">⚠️'+d2.manquants+'</span>':''}</td>
                 </tr>`;
               }).join('');
             })()}
