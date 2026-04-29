@@ -2202,7 +2202,7 @@ function workerPrefScore(e, dateStr, debut, fin){
 }
 
 // Matcher les travailleurs à un créneau avec scoring complet
-function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat, existingWorkers){
+function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, workerLoad, workerDaysUsed, allowDayRepeat, existingWorkers, msBlockedMap){
   // allowDayRepeat: Set d'empId autorisés à travailler un 2e créneau ce jour (vendredi)
   // excludedForDay: Set d'empId déjà planifiés ce jour sur un autre site (multi-sites)
   const candidates = [];
@@ -2228,12 +2228,11 @@ function matchWorkersToCreneau(siteId, dateStr, creneau, activeEmployees, worker
     if(!isMorningTeamFri && !isWorkerAvailable(e, dateStr, creneau.debut, creneau.fin)) continue;
 
     // ── RÈGLE 2c : 1 site par jour (multi-sites uniquement) ─────
-    // L'équipe matin vendredi N'EST PAS exemptée du blocage multi-sites
-    // Elle peut travailler matin+aprem sur le MÊME site, mais pas sur un autre
-    // Le blocage _msBlocked s'applique toujours
-    if(e._msBlocked){
-      const blocked = e._msBlocked.get(dateStr);
-      if(blocked && blocked.has(e.id)) continue;
+    // Vérifier via msBlockedMap (paramètre direct) OU via e._msBlocked (legacy)
+    const _blocked = msBlockedMap || e._msBlocked;
+    if(_blocked){
+      const blockedSet = _blocked.get(dateStr);
+      if(blockedSet && blockedSet.has(e.id)) continue;
     }
 
     // ── SCORING ─────────────────────────────────────────────
@@ -3002,7 +3001,7 @@ async function runMultiSiteAutoplan(){
 
     for(const weekStart of weeks){
       try {
-        const props = genPlanningProposals(siteId, weekStart, nbProps);
+        const props = genPlanningProposals(siteId, weekStart, nbProps, blockedOnDate);
         allResults[siteId].push({weekStart, proposals:props});
 
         // Bloquer uniquement les workers de la MEILLEURE proposition
@@ -3988,7 +3987,7 @@ function isDefaultSite_for(e, siteId){
 // GÉNÉRATION DES PROPOSITIONS — avec toutes les règles
 // ══════════════════════════════════════════════════════════════
 
-function genPlanningProposals(siteId, weekStart, n=3){
+function genPlanningProposals(siteId, weekStart, n=3, msBlockedMap){
   const active = employees.filter(e=>!e.archived);
   const proposals = [];
 
@@ -4109,7 +4108,7 @@ function genPlanningProposals(siteId, weekStart, n=3){
 
         let candidats = matchWorkersToCreneau(
           siteId, dateStr, creneau, active, workerLoad, workerDays, allowDayRepeat,
-          existingWorkers
+          existingWorkers, msBlockedMap
         );
 
         // ── Déclarer assigned et manquants ───────────────────────────
@@ -4129,6 +4128,9 @@ function genPlanningProposals(siteId, weekStart, n=3){
             // Vérifier que c'est bien pour ce site
             const daySiteEx = dayEx.site || getWorkerAvailability(eEx).defaultSite || '';
             if(daySiteEx && daySiteEx !== siteId) return;
+            // VÉRIFIER LE BLOCAGE MULTI-SITES avant pré-assignation
+            const _r11blocked = msBlockedMap || eEx._msBlocked;
+            if(_r11blocked?.get(dateStr)?.has(empId)) return; // déjà sur un autre site
             // Pré-assigner avec l'horaire existant
             const eExCopy = Object.assign({}, eEx);
             eExCopy._effectiveStart = dayEx.start;
@@ -4152,7 +4154,8 @@ function genPlanningProposals(siteId, weekStart, n=3){
             const mEmp = active.find(e=>e.id===empId);
             if(!mEmp) return;
             if(assigned.some(a=>a.id===empId)) return;
-            if(mEmp._msBlocked?.get(dateStr)?.has(empId)) return;
+            const _friBlk = msBlockedMap || mEmp._msBlocked;
+            if(_friBlk?.get(dateStr)?.has(empId)) return;
             assigned.push(mEmp);
             if(!workerDays[empId]) workerDays[empId]=new Set();
             workerDays[empId].add(dateStr);
@@ -4175,9 +4178,11 @@ function genPlanningProposals(siteId, weekStart, n=3){
         const mgrSentinel = (()=>{
           if(!mgrId || !mgrEmp) return false;
           if(mgrFriExempt) return false; // exempt vendredi aprem
-          if(!mgrEmp._msBlocked) return false;
-          const blocked = mgrEmp._msBlocked.get(dateStr);
-          return !!(blocked && blocked.has(mgrId));
+          // Vérifier via msBlockedMap (priorité) ou e._msBlocked (legacy)
+          const _mbk = msBlockedMap || mgrEmp._msBlocked;
+          if(!_mbk) return false;
+          const blockedSet = _mbk.get(dateStr);
+          return !!(blockedSet && blockedSet.has(mgrId));
         })();
         // Vérifier si le créneau actuel correspond bien à l'heure disponible du responsable
         const mgrEffStart = mgrEmp ? getEffectiveStart(mgrEmp, new Date(dateStr+'T12:00').getDay(), creneau.debut) : 0;
@@ -4313,6 +4318,9 @@ function genPlanningProposals(siteId, weekStart, n=3){
             }
           }
 
+          // Vérification finale anti-doublon inter-sites
+          const _mainBlk = msBlockedMap || emp._msBlocked;
+          if(_mainBlk?.get(dateStr)?.has(emp.id)) continue;
           assigned.push(emp);
           workerDays[emp.id].add(dateStr);
           workerLoad[emp.id]=(workerLoad[emp.id]||0)+(timeToMin(creneau.fin)-timeToMin(creneau.debut));
@@ -4324,7 +4332,8 @@ function genPlanningProposals(siteId, weekStart, n=3){
           const fallbackCandidats = active.filter(emp2=>{
             if(assigned.some(a=>a.id===emp2.id)) return false;
             if(workerDays[emp2.id]?.has(dateStr)) return false;
-            if(emp2._msBlocked?.get(dateStr)?.has(emp2.id)) return false;
+            const _fb_blocked2 = msBlockedMap || emp2._msBlocked;
+            if(_fb_blocked2?.get(dateStr)?.has(emp2.id)) return false;
             if(!isWorkerAvailable(emp2, dateStr, creneau.debut, creneau.fin)) return false;
             // RESPECTER LA RÈGLE SITE : ne prendre que des workers éligibles
             const av2 = getWorkerAvailability(emp2);
