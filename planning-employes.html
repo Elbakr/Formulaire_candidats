@@ -3527,7 +3527,28 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
                 const maxStr = monthlyMax > 0 ? '/'+toHM(monthlyMax) : '';
                 const pct = monthlyMax > 0 ? Math.round(hours/monthlyMax*100) : 0;
                 const pctColor = pct>100?'#dc2626':pct>85?'#d97706':'#059669';
-                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+toHM(hours)+maxStr+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
+                const quotaOk = monthlyMax > 0 && pct >= 85;
+                return {emp, hours, monthlyMax, pct, pctColor, quotaOk, col};
+              });
+              // Trier: dépassé (>100%) → atteint (85-100%) → en dessous → sans quota
+              workerData.sort((a,b)=>{
+                const grpA = a.monthlyMax===0?3:a.pct>100?0:a.pct>=85?1:2;
+                const grpB = b.monthlyMax===0?3:b.pct>100?0:b.pct>=85?1:2;
+                if(grpA!==grpB) return grpA-grpB;
+                return b.pct - a.pct;
+              });
+              const groups_ = [
+                {key:'over',   label:'⚠️ Quota dépassé',        items:workerData.filter(w=>w.monthlyMax>0&&w.pct>100),  bg:'#fee2e2'},
+                {key:'ok',     label:'✅ Quota atteint / proche', items:workerData.filter(w=>w.monthlyMax>0&&w.pct>=85&&w.pct<=100), bg:'#dcfce7'},
+                {key:'under',  label:'📋 Quota non atteint',      items:workerData.filter(w=>w.monthlyMax>0&&w.pct<85),  bg:'#fef9c3'},
+                {key:'none',   label:'➖ Sans quota défini',       items:workerData.filter(w=>w.monthlyMax===0), bg:'#f5f4f0'},
+              ].filter(g=>g.items.length>0);
+              return groups_.map(g=>{
+                const badges=g.items.map(({emp,hours,monthlyMax,pct,pctColor,col})=>{
+                  const maxStr2=monthlyMax>0?'/'+toHM(monthlyMax):'';
+                  return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+toHM(hours)+maxStr2+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
+                }).join('');
+                return '<div style="margin-bottom:8px"><div style="font-size:.65rem;font-weight:800;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;padding:2px 6px;background:'+g.bg+';border-radius:5px;display:inline-block">'+g.label+' ('+g.items.length+')</div><div style="display:flex;flex-wrap:wrap;gap:4px">'+badges+'</div></div>';
               }).join('');
           })()}
           </div>
@@ -3757,6 +3778,54 @@ function openAbsenceExplain(dateStr){
   footer.appendChild(fbtn);
   inner.appendChild(hdr); inner.appendChild(body); inner.appendChild(footer);
   modal.appendChild(inner); document.body.appendChild(modal);
+  makeDraggable(inner, hdr);
+}
+
+// ── Rendre une modale déplaçable par sa barre de titre ────────
+function makeDraggable(modal, handle){
+  // handle = élément sur lequel on clique pour déplacer (header)
+  // modal  = élément à déplacer
+  if(!handle || !modal) return;
+  handle.style.cursor = 'move';
+  var startX=0, startY=0, origL=0, origT=0;
+  handle.addEventListener('mousedown', function(ev){
+    if(ev.target.tagName==='BUTTON') return; // ne pas interférer avec les boutons
+    ev.preventDefault();
+    // Positionner la modal en position fixe si pas déjà
+    var rect = modal.getBoundingClientRect();
+    if(modal.style.position !== 'fixed'){
+      modal.style.position = 'fixed';
+      modal.style.left = rect.left + 'px';
+      modal.style.top  = rect.top  + 'px';
+    }
+    // Retirer le flex centrage du parent overlay
+    if(modal.parentElement){
+      modal.parentElement.style.alignItems = 'flex-start';
+      modal.parentElement.style.justifyContent = 'flex-start';
+    }
+    startX = ev.clientX; startY = ev.clientY;
+    origL  = parseInt(modal.style.left)||rect.left;
+    origT  = parseInt(modal.style.top)||rect.top;
+    function onMove(e){
+      modal.style.left = Math.max(0, origL + e.clientX - startX) + 'px';
+      modal.style.top  = Math.max(0, origT + e.clientY - startY) + 'px';
+    }
+    function onUp(){ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+  });
+  // Touch support
+  handle.addEventListener('touchstart', function(ev){
+    if(ev.target.tagName==='BUTTON') return;
+    var t=ev.touches[0];
+    var rect=modal.getBoundingClientRect();
+    if(modal.style.position!=='fixed'){ modal.style.position='fixed'; modal.style.left=rect.left+'px'; modal.style.top=rect.top+'px'; }
+    if(modal.parentElement){ modal.parentElement.style.alignItems='flex-start'; modal.parentElement.style.justifyContent='flex-start'; }
+    startX=t.clientX; startY=t.clientY; origL=parseInt(modal.style.left)||rect.left; origT=parseInt(modal.style.top)||rect.top;
+    function onMove2(e){ var t2=e.touches[0]; modal.style.left=Math.max(0,origL+t2.clientX-startX)+'px'; modal.style.top=Math.max(0,origT+t2.clientY-startY)+'px'; }
+    function onEnd(){ handle.removeEventListener('touchmove',onMove2); handle.removeEventListener('touchend',onEnd); }
+    handle.addEventListener('touchmove',onMove2,{passive:true}); handle.addEventListener('touchend',onEnd);
+  },{passive:true});
 }
 
 function openManualAssign(siteId, dateStr, weekStart){
@@ -6028,7 +6097,7 @@ function openGlobalWorkerView(defaultTab){
 
     <!-- TABS : Mensuel / Hebdo -->
     <div style="display:flex;border-bottom:2px solid var(--line);background:#fafaf8">
-      <button onclick="setGlobalTab(defaultTab||'month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
+      <button onclick="setGlobalTab('month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
       <button onclick="setGlobalTab('week')" id="gtab-week" style="padding:10px 20px;border:none;background:transparent;color:var(--ink3);font-size:.78rem;font-weight:700;cursor:pointer">📋 Vue hebdomadaire</button>
     </div>
 
@@ -7035,11 +7104,55 @@ loadStoreNeedsOverrides();
 // ══════════════════════════════════════════════════════════════
 function openWorkerQuickView(empId, event){
   if(event) event.stopPropagation();
-  const e = employees.find(x=>x.id===empId);
+  var e=employees.find(function(x){return x.id===empId;});
   if(!e) return;
-  selId = empId;
-  // Ouvrir la vue globale en mode hebdomadaire par défaut
-  openGlobalWorkerView('week');
+  selId=empId; renderSidebar();
+  var pnl=document.getElementById('worker-quick-panel');
+  if(pnl) pnl.remove();
+  var col=empColor(e);
+  var monthlyMax=e.hoursMaxMonth||Math.round((e.hours||0)*4.33);
+  var workedMins=0;
+  if(e.weeks) Object.values(e.weeks).forEach(function(w){
+    if(!w) return;
+    Object.values(w).forEach(function(d){
+      if(d&&d.status==='work'&&d.start&&d.end) workedMins+=timeToMin(d.end)-timeToMin(d.start);
+    });
+  });
+  var pct=monthlyMax>0?Math.round(workedMins/60/monthlyMax*100):0;
+  var pctCol=pct>100?'#dc2626':pct>=85?'#16a34a':'#ca8a04';
+  var panel=document.createElement('div');
+  panel.id='worker-quick-panel';
+  panel.style.cssText='position:fixed;z-index:2002;background:white;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:290px;overflow:hidden';
+  var ex=(event&&event.clientX)?event.clientX:(window.innerWidth-300);
+  var ey=(event&&event.clientY)?event.clientY:80;
+  panel.style.left=Math.min(ex,window.innerWidth-300)+'px';
+  panel.style.top=Math.min(ey+10,window.innerHeight-260)+'px';
+  function closeP(){panel.remove();document.removeEventListener('click',closeP);}
+  setTimeout(function(){document.addEventListener('click',closeP);},50);
+  panel.addEventListener('click',function(ev){ev.stopPropagation();});
+  var hdrQ=document.createElement('div');
+  hdrQ.style.cssText='background:'+col.bg+';padding:12px 14px;display:flex;justify-content:space-between;align-items:flex-start';
+  hdrQ.innerHTML='<div><div style="font-size:.95rem;font-weight:900;color:'+col.fg+'">'+e.firstname+' '+e.lastname+'</div>'
+    +'<div style="font-size:.66rem;color:'+col.fg+';opacity:.8;margin-top:2px">'+e.status+' &middot; '+(e.hours||0)+'h/sem</div>'
+    +'<div style="font-size:.63rem;color:'+col.fg+';opacity:.7;margin-top:1px">Sites: ['+((e.sites||[]).join(',')||'&mdash;')+']</div>'
+    +'<div style="font-size:.66rem;font-weight:700;color:'+pctCol+';margin-top:3px">'+toHM(workedMins)+'/'+toHM(monthlyMax)+'h ('+pct+'%)</div>'
+    +'</div>'
+    +'<button onclick="var x=document.getElementById('worker-quick-panel');if(x)x.remove();"'
+    +' style="border:none;background:rgba(0,0,0,.12);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:.8rem">&#x2715;</button>';
+  var actQ=document.createElement('div');
+  actQ.style.cssText='display:flex;gap:5px;padding:10px 12px;border-top:1px solid #eee';
+  var bFiche=document.createElement('button');
+  bFiche.textContent='Fiche complete';
+  bFiche.style.cssText='flex:1;padding:7px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.73rem;font-weight:700;cursor:pointer';
+  bFiche.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();selectEmp(e.id);setTimeout(function(){openEditModal();},50);};
+  var bPlan=document.createElement('button');
+  bPlan.textContent='Planning';
+  bPlan.style.cssText='flex:1;padding:7px;border-radius:7px;border:1.5px solid #2d5be3;background:white;color:#2d5be3;font-size:.73rem;font-weight:700;cursor:pointer';
+  bPlan.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();openGlobalWorkerView('month');};
+  actQ.appendChild(bFiche); actQ.appendChild(bPlan);
+  panel.appendChild(hdrQ); panel.appendChild(actQ);
+  document.body.appendChild(panel);
+  makeDraggable(panel,hdrQ);
 }
 
 function openStoreManagerConfig(){
@@ -8625,6 +8738,45 @@ function renderSidebar(){
         items[next].click();
         items[next].scrollIntoView({block:'nearest'});
       }
+    });
+  }
+  // Drag reorder sidebar workers
+  if(list){
+    var dragSrc=null;
+    Array.from(list.querySelectorAll('[data-empid]')).forEach(function(item){
+      item.setAttribute('draggable','true');
+      item.addEventListener('dragstart',function(ev){
+        dragSrc=this;
+        ev.dataTransfer.effectAllowed='move';
+        this.style.opacity='.4';
+      });
+      item.addEventListener('dragend',function(){
+        this.style.opacity='1';
+        dragSrc=null;
+      });
+      item.addEventListener('dragover',function(ev){
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect='move';
+        this.style.borderColor='#2d5be3';
+      });
+      item.addEventListener('dragleave',function(){
+        this.style.borderColor='';
+      });
+      item.addEventListener('drop',function(ev){
+        ev.stopPropagation(); ev.preventDefault();
+        this.style.borderColor='';
+        if(!dragSrc||dragSrc===this) return;
+        // Réordonner employees[] selon la nouvelle position
+        var fromId=parseInt(dragSrc.dataset.empid);
+        var toId=parseInt(this.dataset.empid);
+        var fromIdx=employees.findIndex(function(e){return e.id===fromId;});
+        var toIdx=employees.findIndex(function(e){return e.id===toId;});
+        if(fromIdx<0||toIdx<0) return;
+        var moved=employees.splice(fromIdx,1)[0];
+        employees.splice(toIdx,0,moved);
+        autoSave();
+        renderSidebar();
+      });
     });
   }
 
