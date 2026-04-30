@@ -3576,109 +3576,272 @@ function openAllSitesOverview(weekStart){
 
 function openManualAssign(siteId, dateStr, weekStart){
   document.getElementById('manual-assign-modal')?.remove();
-  const site=SITES[siteId]||{};
-  const dayLabel=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'});
-  const available=employees.filter(function(e){
-    if(e.archived) return false;
-    var av=getWorkerAvailability(e);
-    var inList=(e.sites||[]).includes(siteId),isDef=av.defaultSite===siteId,noSite=!av.defaultSite&&!(e.sites||[]).length;
-    if(!inList&&!isDef&&!noSite) return false;
-    if(!isWorkerAvailable(e,dateStr,'08:00','22:00')) return false;
-    var wOff=dateToWeekOffset(dateStr),di=dateToDayIdx(dateStr);
-    if(e.weeks&&e.weeks[wOff]&&e.weeks[wOff][di]&&e.weeks[wOff][di].status==='leave') return false;
-    return true;
-  }).sort(function(a,b){return a.firstname.localeCompare(b.firstname);});
-  var besoins=getBesoinsDate(siteId,dateStr);
-  var modal=document.createElement('div');
-  modal.id='manual-assign-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:12px';
-  modal.addEventListener('click',function(ev){if(ev.target===modal)modal.remove();});
-  var inner=document.createElement('div');
-  inner.style.cssText='background:white;border-radius:14px;width:100%;max-width:480px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3)';
-  inner.addEventListener('click',function(ev){ev.stopPropagation();});
-  var hdr=document.createElement('div');
-  hdr.style.cssText='padding:12px 16px;background:'+(site.light||'#f8f7f5')+';border-bottom:2px solid '+(site.color||'#e2e0d8')+';display:flex;justify-content:space-between;align-items:flex-start';
-  var ht=document.createElement('div');
-  ht.innerHTML='<div style="font-weight:800;color:'+(site.color||'#333')+';font-size:.88rem">+ '+siteId+' '+(site.name||siteId)+'</div><div style="font-size:.7rem;color:var(--ink3);margin-top:1px">'+dayLabel+'</div>';
-  var hc=document.createElement('button');hc.textContent='x';hc.style.cssText='border:none;background:rgba(0,0,0,.1);border-radius:6px;padding:3px 7px;cursor:pointer;font-weight:700';hc.onclick=function(){modal.remove();};
-  hdr.appendChild(ht);hdr.appendChild(hc);
-  var body=document.createElement('div');body.style.cssText='padding:14px;max-height:70vh;overflow-y:auto';
-  var selDeb=besoins[0]?besoins[0].debut:'10:00';
-  var selFin=besoins[0]?besoins[0].fin:'20:00';
-  var crSec=document.createElement('div');crSec.style.cssText='margin-bottom:12px';
-  var crLbl=document.createElement('div');crLbl.style.cssText='font-size:.68rem;font-weight:800;text-transform:uppercase;color:var(--ink3);margin-bottom:6px';crLbl.textContent='Creneau';
-  crSec.appendChild(crLbl);
-  var crBtns=document.createElement('div');crBtns.style.cssText='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px';
-  var debI=document.createElement('input');debI.type='time';debI.value=selDeb;debI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
-  var finI=document.createElement('input');finI.type='time';finI.value=selFin;finI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
-  debI.onchange=function(){selDeb=debI.value;};finI.onchange=function(){selFin=finI.value;};
-  besoins.forEach(function(cr,i){
-    var b=document.createElement('button');b.textContent=cr.debut+'->'+cr.fin;
-    b.style.cssText='padding:4px 10px;border-radius:7px;border:2px solid '+(i===0?(site.color||'#2d5be3'):'#e2e0d8')+';background:'+(i===0?(site.light||'#eef1fd'):'white')+';font-size:.7rem;font-weight:700;cursor:pointer';
-    b.onclick=function(){
-      selDeb=cr.debut;selFin=cr.fin;debI.value=cr.debut;finI.value=cr.fin;
-      Array.from(crBtns.querySelectorAll('button')).forEach(function(x){x.style.borderColor='#e2e0d8';x.style.background='white';});
-      b.style.borderColor=site.color||'#2d5be3';b.style.background=site.light||'#eef1fd';
-    };
-    crBtns.appendChild(b);
+
+  const site      = SITES[siteId] || {};
+  const wOff      = dateToWeekOffset(dateStr);
+  const di        = dateToDayIdx(dateStr);
+  const dayLabel  = new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',
+    {weekday:'long', day:'numeric', month:'long'});
+
+  // ── Qui est déjà assigné ce jour (toutes sources) ? ────────────
+  // On regarde e.weeks ET _msResults pour être complet
+  const alreadyIds = new Set();
+  employees.forEach(function(e){
+    // Via e.weeks
+    const d = e.weeks && e.weeks[wOff] && e.weeks[wOff][di];
+    if(d && d.status === 'work' && d.start && !d._multisite_lock) alreadyIds.add(e.id);
   });
-  crSec.appendChild(crBtns);
-  var hourRow=document.createElement('div');hourRow.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  hourRow.appendChild(document.createTextNode('Horaire: '));hourRow.appendChild(debI);hourRow.appendChild(document.createTextNode(' -> '));hourRow.appendChild(finI);
-  crSec.appendChild(hourRow);body.appendChild(crSec);
-  var wLbl=document.createElement('div');wLbl.style.cssText='font-size:.68rem;font-weight:800;text-transform:uppercase;color:var(--ink3);margin-bottom:6px';wLbl.textContent='Disponibles ('+available.length+')';
-  body.appendChild(wLbl);
-  var wGrid=document.createElement('div');wGrid.style.cssText='display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto';
-  available.forEach(function(e){
-    var wOff=dateToWeekOffset(dateStr),di=dateToDayIdx(dateStr);
-    var existing=e.weeks&&e.weeks[wOff]&&e.weeks[wOff][di];
-    var isAlready=existing&&existing.status==='work'&&existing.site===siteId;
-    var col=empColor(e);var av=getWorkerAvailability(e);
-    var row=document.createElement('label');
-    row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;border:1.5px solid #e2e0d8;cursor:pointer;background:white';
-    var cb=document.createElement('input');cb.type='checkbox';cb.style.cssText='width:15px;height:15px;accent-color:'+(site.color||'#2d5be3')+';flex-shrink:0';
-    if(isAlready){cb.checked=true;cb.disabled=true;}
-    cb.addEventListener('change',function(){row.style.background=cb.checked?(site.light||'#eef1fd'):'white';row.style.borderColor=cb.checked?(site.color||'#2d5be3'):'#e2e0d8';});
-    var badge=document.createElement('span');badge.style.cssText='padding:2px 7px;border-radius:10px;background:'+col.bg+';color:'+col.fg+';font-size:.7rem;font-weight:700;flex-shrink:0';badge.textContent=e.firstname;
-    var info=document.createElement('span');info.style.cssText='font-size:.63rem;color:var(--ink3);flex:1';
-    info.textContent=e.status+' '+(e.hours||0)+'h'+(av.defaultSite===siteId?' *':'')+(isAlready?' DEJA':'');
-    if(isAlready){row.style.background='#f0fdf4';row.style.borderColor='#16a34a';}
-    row.appendChild(cb);row.appendChild(badge);row.appendChild(info);wGrid.appendChild(row);
-  });
-  body.appendChild(wGrid);
-  var applyBtn=document.createElement('button');
-  applyBtn.textContent='Assigner les selectionnes';
-  applyBtn.style.cssText='width:100%;padding:10px;border-radius:8px;border:none;background:'+(site.color||'#2d5be3')+';color:white;font-size:.8rem;font-weight:700;cursor:pointer;margin-top:12px';
-  applyBtn.onclick=function(){
-    var toAssign=[];
-    var rows=wGrid.querySelectorAll('label');
-    rows.forEach(function(row,ri){
-      var cb=row.querySelector('input[type=checkbox]');
-      if(cb&&cb.checked&&!cb.disabled) toAssign.push(available[ri]);
+  // Via _msResults (résultats autoplan en attente d'application)
+  if(_msResults) {
+    Object.values(_msResults).forEach(function(siteData){
+      siteData.forEach(function(week){
+        var prop = week.proposals && week.proposals[0];
+        if(!prop) return;
+        prop.plan.forEach(function(slot){
+          if(slot.dateStr !== dateStr) return;
+          slot.assigned.forEach(function(a){ alreadyIds.add(a.id); });
+        });
+      });
     });
-    if(!toAssign.length){showToast('Cochez au moins un travailleur');return;}
+  }
+
+  // ── Travailleurs disponibles = éligibles pour ce site ET libres ce jour ──
+  const besoins   = getBesoinsDate(siteId, dateStr);
+  const available = employees.filter(function(e){
+    if(e.archived) return false;
+    // Éligible pour ce site ?
+    var av      = getWorkerAvailability(e);
+    var inList  = (e.sites||[]).includes(siteId);
+    var isDef   = av.defaultSite === siteId;
+    var noSite  = !av.defaultSite && !(e.sites||[]).length;
+    if(!inList && !isDef && !noSite) return false;
+    // En congé ce jour ?
+    var d = e.weeks && e.weeks[wOff] && e.weeks[wOff][di];
+    if(d && d.status === 'leave') return false;
+    // Déjà planifié ce jour ? → exclure
+    if(alreadyIds.has(e.id)) return false;
+    // Disponible selon ses contraintes horaires ?
+    if(!isWorkerAvailable(e, dateStr, '08:00', '22:00')) return false;
+    return true;
+  }).sort(function(a,b){ return a.firstname.localeCompare(b.firstname); });
+
+  // ── Construction de la modale ────────────────────────────────────
+  var modal = document.createElement('div');
+  modal.id = 'manual-assign-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:12px';
+  modal.addEventListener('click', function(ev){ if(ev.target===modal) modal.remove(); });
+
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3);max-height:90vh;display:flex;flex-direction:column';
+  inner.addEventListener('click', function(ev){ ev.stopPropagation(); });
+
+  // Header
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:12px 16px;background:'+(site.light||'#f8f7f5')+';border-bottom:2px solid '+(site.color||'#e2e0d8')+';display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0';
+  var ht = document.createElement('div');
+  ht.innerHTML = '<div style="font-weight:800;color:'+(site.color||'#333')+';font-size:.88rem">\u2795 '
+    +siteId+' \u2014 '+(site.name||siteId)+'</div>'
+    +'<div style="font-size:.7rem;color:var(--ink3);margin-top:2px">'+dayLabel+'</div>'
+    +'<div style="font-size:.64rem;color:var(--ink3);margin-top:1px">'
+    +available.length+' travailleur(s) disponible(s) \u2014 '
+    +alreadyIds.size+' d\u00e9j\u00e0 assign\u00e9(s) ce jour</div>';
+  var hc = document.createElement('button');
+  hc.textContent = '\u2715';
+  hc.style.cssText = 'border:none;background:rgba(0,0,0,.1);border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:700;font-size:.9rem;flex-shrink:0';
+  hc.onclick = function(){ modal.remove(); };
+  hdr.appendChild(ht); hdr.appendChild(hc);
+
+  // Body scrollable
+  var body = document.createElement('div');
+  body.style.cssText = 'padding:14px;overflow-y:auto;flex:1';
+
+  // ── Section créneau ───────────────────────────────────────────
+  var selDeb = besoins.length ? besoins[0].debut : '10:00';
+  var selFin = besoins.length ? besoins[0].fin   : '20:00';
+
+  var crSec = document.createElement('div');
+  crSec.style.cssText = 'margin-bottom:14px';
+
+  var crLbl = document.createElement('div');
+  crLbl.style.cssText = 'font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:6px';
+  crLbl.textContent = 'Cr\u00e9neau';
+  crSec.appendChild(crLbl);
+
+  // Boutons créneaux configurés
+  if(besoins.length){
+    var crBtns = document.createElement('div');
+    crBtns.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px';
+    besoins.forEach(function(cr, i){
+      var b = document.createElement('button');
+      b.textContent = cr.debut + '\u2192' + cr.fin;
+      b.style.cssText = 'padding:5px 10px;border-radius:7px;border:2px solid '
+        +(i===0 ? (site.color||'#2d5be3') : '#e2e0d8')
+        +';background:'+(i===0 ? (site.light||'#eef1fd') : 'white')
+        +';font-size:.72rem;font-weight:700;cursor:pointer';
+      // Stocker les valeurs directement sur le bouton pour éviter le problème de closure
+      b.dataset.debut = cr.debut;
+      b.dataset.fin   = cr.fin;
+      b.addEventListener('click', function(){
+        selDeb = this.dataset.debut;
+        selFin = this.dataset.fin;
+        debI.value = selDeb;
+        finI.value = selFin;
+        // Reset styles
+        crBtns.querySelectorAll('button').forEach(function(x){
+          x.style.borderColor = '#e2e0d8';
+          x.style.background  = 'white';
+        });
+        this.style.borderColor = site.color||'#2d5be3';
+        this.style.background  = site.light||'#eef1fd';
+      });
+      if(i===0){ b.style.borderColor=site.color||'#2d5be3'; b.style.background=site.light||'#eef1fd'; }
+      crBtns.appendChild(b);
+    });
+    crSec.appendChild(crBtns);
+  }
+
+  // Horaire libre
+  var hourRow = document.createElement('div');
+  hourRow.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  var hourLbl = document.createElement('span');
+  hourLbl.style.cssText = 'font-size:.72rem;color:var(--ink3)';
+  hourLbl.textContent = 'Horaire :';
+  var debI = document.createElement('input');
+  debI.type = 'time'; debI.value = selDeb;
+  debI.style.cssText = 'padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
+  debI.addEventListener('change', function(){ selDeb = this.value; });
+  var arrowSp = document.createElement('span');
+  arrowSp.textContent = '\u2192'; arrowSp.style.cssText = 'color:var(--ink3)';
+  var finI = document.createElement('input');
+  finI.type = 'time'; finI.value = selFin;
+  finI.style.cssText = 'padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
+  finI.addEventListener('change', function(){ selFin = this.value; });
+  hourRow.appendChild(hourLbl);
+  hourRow.appendChild(debI);
+  hourRow.appendChild(arrowSp);
+  hourRow.appendChild(finI);
+  crSec.appendChild(hourRow);
+  body.appendChild(crSec);
+
+  // ── Section workers ───────────────────────────────────────────
+  var wLbl = document.createElement('div');
+  wLbl.style.cssText = 'font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:6px';
+  wLbl.textContent = 'Travailleurs libres ce jour (' + available.length + ')';
+  body.appendChild(wLbl);
+
+  if(!available.length){
+    var noW = document.createElement('div');
+    noW.style.cssText = 'padding:12px;background:#fee2e2;border-radius:8px;font-size:.76rem;color:#dc2626;text-align:center';
+    noW.textContent = 'Aucun travailleur disponible ce jour pour ce site.';
+    body.appendChild(noW);
+  } else {
+    var wGrid = document.createElement('div');
+    wGrid.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+
+    // Map empId → checkbox pour lire les sélections fiablement
+    var cbMap = {};
+
+    available.forEach(function(e){
+      var col = empColor(e);
+      var av2 = getWorkerAvailability(e);
+
+      var row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;border:1.5px solid #e2e0d8;cursor:pointer;background:white;transition:background .1s';
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.empid = e.id;
+      cb.style.cssText = 'width:15px;height:15px;accent-color:'+(site.color||'#2d5be3')+';flex-shrink:0;cursor:pointer';
+      cb.addEventListener('change', function(){
+        row.style.background   = cb.checked ? (site.light||'#eef1fd') : 'white';
+        row.style.borderColor  = cb.checked ? (site.color||'#2d5be3') : '#e2e0d8';
+      });
+      cbMap[e.id] = cb;
+
+      var badge = document.createElement('span');
+      badge.style.cssText = 'padding:2px 8px;border-radius:10px;background:'+col.bg+';color:'+col.fg
+        +';font-size:.72rem;font-weight:700;flex-shrink:0';
+      badge.textContent = e.firstname + ' ' + (e.lastname||'');
+
+      var info = document.createElement('span');
+      info.style.cssText = 'font-size:.63rem;color:var(--ink3);flex:1';
+      info.textContent = e.status + ' \u00b7 ' + (e.hours||0) + 'h/sem'
+        + (av2.defaultSite===siteId ? ' \u2605' : '')
+        + ((e.sites||[]).length > 0 ? ' \u00b7 [' + (e.sites||[]).join(',') + ']' : '');
+
+      row.appendChild(cb);
+      row.appendChild(badge);
+      row.appendChild(info);
+      wGrid.appendChild(row);
+    });
+    body.appendChild(wGrid);
+  }
+
+  // ── Bouton Assigner ───────────────────────────────────────────
+  var footer = document.createElement('div');
+  footer.style.cssText = 'padding:12px 14px;border-top:1px solid var(--line);flex-shrink:0';
+  var applyBtn = document.createElement('button');
+  applyBtn.textContent = '\u2713 Assigner les s\u00e9lectionn\u00e9s';
+  applyBtn.style.cssText = 'width:100%;padding:10px;border-radius:8px;border:none;background:'
+    +(site.color||'#2d5be3')+';color:white;font-size:.82rem;font-weight:700;cursor:pointer';
+  applyBtn.addEventListener('click', function(){
+    // Lire les checkboxes via cbMap (fiable)
+    var toAssign = available.filter(function(e){ return cbMap[e.id] && cbMap[e.id].checked; });
+    if(!toAssign.length){
+      showToast('Cochez au moins un travailleur');
+      return;
+    }
     histPush();
     toAssign.forEach(function(e){
-      var wOff=dateToWeekOffset(dateStr),di=dateToDayIdx(dateStr);
-      if(!e.weeks)e.weeks={};if(!e.weeks[wOff])e.weeks[wOff]={};
-      e.weeks[wOff][di]={status:'work',start:selDeb,end:selFin,pause:e.pause||0,site:siteId,_source:'manual',endManual:true};
-      if(_msResults&&_msResults[siteId]){
+      // Sauvegarder dans e.weeks
+      if(!e.weeks) e.weeks = {};
+      if(!e.weeks[wOff]) e.weeks[wOff] = {};
+      e.weeks[wOff][di] = {
+        status: 'work', start: selDeb, end: selFin,
+        pause: e.pause||0, site: siteId,
+        _source: 'manual', endManual: true,
+        _ts: new Date().toISOString()
+      };
+      // Mettre à jour _msResults
+      if(_msResults && _msResults[siteId]){
         _msResults[siteId].forEach(function(item){
-          if(item.weekStart!==weekStart)return;
-          var prop=item.proposals[0];if(!prop)return;
-          var slot=prop.plan.find(function(s){return s.dateStr===dateStr&&s.creneau.debut===selDeb;});
-          if(slot){if(!slot.assigned.some(function(a){return a.id===e.id;})){slot.assigned.push(Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'}));slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);}}
-          else{prop.plan.push({dateStr:dateStr,creneau:{debut:selDeb,fin:selFin,vendeurs:1},assigned:[Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'})],manquants:0,difficulty:0,mixOk:true});}
+          if(item.weekStart !== weekStart) return;
+          var prop = item.proposals && item.proposals[0];
+          if(!prop) return;
+          var slot = prop.plan.find(function(s){
+            return s.dateStr === dateStr && s.creneau.debut === selDeb;
+          });
+          if(slot){
+            if(!slot.assigned.some(function(a){ return a.id === e.id; })){
+              slot.assigned.push(Object.assign({}, e, {_effectiveStart:selDeb, _source:'manual'}));
+              slot.manquants = Math.max(0, (slot.creneau.vendeurs||0) - slot.assigned.length);
+            }
+          } else {
+            // Créneau hors besoins → l'ajouter
+            prop.plan.push({
+              dateStr: dateStr,
+              creneau: {debut:selDeb, fin:selFin, vendeurs:1},
+              assigned: [Object.assign({}, e, {_effectiveStart:selDeb, _source:'manual'})],
+              manquants: 0, difficulty: 0, mixOk: true
+            });
+          }
         });
       }
     });
     autoSave();
-    showToast('Assigne: '+toAssign.map(function(e){return e.firstname;}).join(', '));
+    var names = toAssign.map(function(e){ return e.firstname; }).join(', ');
+    showToast('\u2705 ' + names + ' \u2192 ' + (site.name||siteId)
+      + ' ' + new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'}));
     modal.remove();
-    try{renderAllSitesOverview();}catch(err){}
-  };
-  body.appendChild(applyBtn);
-  inner.appendChild(hdr);inner.appendChild(body);modal.appendChild(inner);document.body.appendChild(modal);
+    try{ renderAllSitesOverview(); } catch(err2){}
+  });
+  footer.appendChild(applyBtn);
+
+  inner.appendChild(hdr);
+  inner.appendChild(body);
+  inner.appendChild(footer);
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
 }
 
 function removeWorkerFromSlot(empId, dateStr, siteId, weekStart){
