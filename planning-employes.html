@@ -3936,6 +3936,19 @@ function renderAllSitesOverview(){
 
   // Construire le tableau sites × jours
   const sites = _msOrderedSites.length ? _msOrderedSites : Object.keys(SITES);
+  const activeTotal_ = employees.filter(function(e){ return !e.archived; }).length;
+  // Déployés par jour: calculé avant la génération des lignes
+  const deployedByDay_ = {};
+  sites.forEach(function(sid){
+    const sd = (_msResults||{})[sid]||[];
+    const wd = sd.find(function(r){ return r.weekStart===wStart; });
+    const pp = wd && wd.proposals && wd.proposals[0];
+    if(!pp) return;
+    pp.plan.forEach(function(sl){
+      if(!deployedByDay_[sl.dateStr]) deployedByDay_[sl.dateStr] = new Set();
+      sl.assigned.forEach(function(a){ deployedByDay_[sl.dateStr].add(a.id); });
+    });
+  });
   let rows = '';
   sites.forEach(siteId=>{
     const site = SITES[siteId]||{};
@@ -4003,7 +4016,15 @@ function renderAllSitesOverview(){
             const ds=d.toISOString().slice(0,10);
             const isWE=i>=5;
             return '<th style="padding:6px 8px;border:1px solid #e2e0d8;background:'+(isWE?'#fef3c7':'#f5f4f0')+';font-size:.7rem;text-align:center;white-space:nowrap">'+
-              DAYS[i]+'<br><span style="font-size:.62rem;opacity:.7">'+d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</span></th>';
+              (()=>{
+              const dep_=(deployedByDay_[ds]||new Set()).size;
+              const pct_=activeTotal_>0?Math.round(dep_/activeTotal_*100):0;
+              const badgeCol_=dep_===0?'#9898b8':pct_>=80?'#16a34a':pct_>=50?'#ca8a04':'#dc2626';
+              const badgeBg_=dep_===0?'transparent':pct_>=80?'#dcfce7':pct_>=50?'#fef9c3':'#fee2e2';
+              return DAYS[i]+'<br><span style="font-size:.62rem;opacity:.7">'+d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'</span>'
+                +'<br><span style="font-size:.62rem;font-weight:800;color:'+badgeCol_+';background:'+badgeBg_+';border-radius:8px;padding:0 3px">'+
+                (dep_>0?dep_+'/'+activeTotal_:'—')+'</span>';
+            })()+'</th>';
           }).join('')+
         '</tr></thead>'+
         '<tbody>'+rows+'</tbody>'+
@@ -5651,11 +5672,35 @@ function openGlobalWorkerView(defaultTab){
   modal.id = 'global-view-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto';
 
-  const startDate = e.startDate ? new Date(e.startDate+'T12:00') : new Date();
+  const contractStart = e.startDate ? new Date(e.startDate+'T12:00') : new Date();
   const endDate   = e.endDate   ? new Date(e.endDate+'T12:00')   : null;
   const today     = new Date(); today.setHours(12,0,0,0);
 
-  // Calculer la plage à afficher : début contrat → fin contrat (ou +6 mois si indéfini)
+  // Trouver le premier mois qui a réellement des données dans e.weeks
+  // pour ne pas afficher les mois vides avant le premier créneau planifié
+  let firstDataDate = null;
+  if(e.weeks){
+    Object.keys(e.weeks).forEach(wOff=>{
+      const weekObj = e.weeks[wOff];
+      if(!weekObj) return;
+      Object.keys(weekObj).forEach(di=>{
+        const day = weekObj[di];
+        if(day && (day.status==='work'||day.status==='leave') && day.start){
+          // Reconstituer la date approximative depuis le weekOffset
+          const baseDate = new Date('2024-01-01T12:00');
+          baseDate.setDate(baseDate.getDate() + parseInt(wOff)*7 + parseInt(di));
+          if(!firstDataDate || baseDate < firstDataDate) firstDataDate = new Date(baseDate);
+        }
+      });
+    });
+  }
+  // Partir du début contrat OU du premier mois avec données (le plus récent des deux)
+  const startDate = firstDataDate
+    ? new Date(Math.max(contractStart.getTime(),
+        new Date(firstDataDate.getFullYear(), firstDataDate.getMonth(), 1).getTime()))
+    : contractStart;
+
+  // Calculer la plage à afficher
   const displayEnd = endDate || new Date(today.getFullYear(), today.getMonth()+6, 1);
 
   // Construire la liste des mois
