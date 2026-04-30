@@ -7102,6 +7102,11 @@ loadStoreNeedsOverrides();
 // VUE RAPIDE TRAVAILLEUR — Accessible depuis le récap autoplan
 // Affiche le planning de la semaine + stats + infos fiche
 // ══════════════════════════════════════════════════════════════
+function closeWorkerPanel(){
+  var p=document.getElementById('worker-quick-panel');
+  if(p) p.remove();
+}
+
 function openWorkerQuickView(empId, event){
   if(event) event.stopPropagation();
   var e=employees.find(function(x){return x.id===empId;});
@@ -7137,8 +7142,7 @@ function openWorkerQuickView(empId, event){
     +'<div style="font-size:.63rem;color:'+col.fg+';opacity:.7;margin-top:1px">Sites: ['+((e.sites||[]).join(',')||'&mdash;')+']</div>'
     +'<div style="font-size:.66rem;font-weight:700;color:'+pctCol+';margin-top:3px">'+toHM(workedMins)+'/'+toHM(monthlyMax)+'h ('+pct+'%)</div>'
     +'</div>'
-    +'<button onclick="var x=document.getElementById('worker-quick-panel');if(x)x.remove();"'
-    +' style="border:none;background:rgba(0,0,0,.12);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:.8rem">&#x2715;</button>';
+    +'<button onclick="closeWorkerPanel()" style="border:none;background:rgba(0,0,0,.12);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:.8rem">&#x2715;</button>';
   var actQ=document.createElement('div');
   actQ.style.cssText='display:flex;gap:5px;padding:10px 12px;border-top:1px solid #eee';
   var bFiche=document.createElement('button');
