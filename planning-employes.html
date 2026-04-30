@@ -3397,7 +3397,8 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
           });
         });
         if(!alerts.length) return '';
-        const manquants=alerts.filter(a=>a.type==='manquant');
+        const todayISO_=new Date().toISOString().slice(0,10);
+        const manquants=alerts.filter(a=>a.type==='manquant'&&a.date>=todayISO_);
         const conges=alerts.filter(a=>a.type==='conge');
 
         // Pour chaque jour manquant: trouver 2 alternatives
@@ -3452,9 +3453,11 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
             const dow2=new Date(a.date+'T12:00').getDay();
             const DAYS3=['D','L','M','M','J','V','S'];
             const label2=DAYS3[dow2]+' '+new Date(a.date+'T12:00').getDate()+' '+new Date(a.date+'T12:00').toLocaleDateString('fr-BE',{month:'short'});
-            return '<div style="padding:5px 10px;border-bottom:1px solid #fde68a;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+            return '<div style="padding:5px 10px;border-bottom:1px solid #fde68a;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
               '<span style="font-size:.7rem;font-weight:700;color:#92400e;min-width:75px">'+label2+'</span>'+
-              (alts.length?'<span style="font-size:.6rem;color:#b45309">→</span>'+altsHTML:'<span style="font-size:.6rem;color:#dc2626">⛔ Aucune alternative</span>')+
+              (alts.length?'<span style="font-size:.6rem;color:#b45309">&#8594;</span>'+altsHTML+'<span style="font-size:.6rem;color:#92400e;margin:0 2px">ou</span>':'<span style="font-size:.6rem;color:#dc2626">&#9940; Aucune alternative</span>')+
+              '<button style="padding:2px 8px;border-radius:5px;border:none;background:#2d5be3;color:white;font-size:.6rem;font-weight:700;cursor:pointer" data-site="'+a.site+'" data-date="'+a.date+'" onclick="event.stopPropagation();openManualAssign(this.dataset.site,this.dataset.date,null)">+ Assigner</button>'+
+              '<button style="padding:2px 8px;border-radius:5px;border:none;background:#ea580c;color:white;font-size:.6rem;font-weight:700;cursor:pointer" data-date="'+a.date+'" onclick="event.stopPropagation();showToast('+JSON.stringify('📢 Renfort demandé pour')+'+this.dataset.date)">&#128226; Renfort</button>'+
             '</div>';
           }).join('');
           return '<div style="border:1.5px solid '+col+'44;border-radius:10px;margin-bottom:8px;overflow:hidden">'+
@@ -5545,12 +5548,13 @@ function renderMonthView(){
       textColor=isWeekend?'var(--ink3)':'var(--ink)';
     }
 
+    const isPast_ = ds < todayStr;
     html += `<div
       data-ds="${ds}" data-woff="${wOff}" data-di="${di}"
-      onclick="toggleDayWork('${ds}')"
-      ondblclick="event.stopPropagation();openDayEdit('${ds}',${dow})"
-      style="min-height:64px;border-radius:7px;background:${bg};border:${border};padding:4px 5px;cursor:pointer;transition:all .15s;position:relative;user-select:none"
-      title="Clic=activer/désactiver · Dblclic=modifier horaire"
+      onclick="${isPast_ ? '' : `toggleDayWork('${ds}')`}"
+      ondblclick="${isPast_ ? '' : `event.stopPropagation();openDayEdit('${ds}',${dow})`}"
+      style="min-height:64px;border-radius:7px;background:${isPast_?'#f2f2f2':bg};border:${isPast_?'1px solid #e0e0e0':border};padding:4px 5px;cursor:${isPast_?'default':'pointer'};transition:all .15s;position:relative;user-select:none;opacity:${isPast_?'.55':'1'}"
+      title="${isPast_?'Date passée — lecture seule':'Clic=activer/désactiver · Dblclic=modifier horaire'}"
     >
       <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px">
         <div style="font-size:.76rem;font-weight:${isToday_?'800':'600'};color:${isToday_?'var(--accent)':textColor}">${d}</div>
@@ -6270,8 +6274,9 @@ function autoplanGlobalWorker(){
 let _bulkMode = false;
 let _bulkSelected = new Set();
 
-function toggleBulkMode(){
-  _bulkMode = !_bulkMode;
+function toggleBulkMode(forceOff){
+  if(forceOff && !_bulkMode) return;
+  _bulkMode = forceOff ? false : !_bulkMode;
   _bulkSelected.clear();
   const btn = document.getElementById('btn-bulk');
   if(btn){
@@ -6284,6 +6289,11 @@ function toggleBulkMode(){
   if(_bulkMode) renderBulkBar();
   else document.getElementById('bulk-action-bar')?.remove();
 }
+
+// Escape quitte le mode sélection
+document.addEventListener('keydown', function(ev){
+  if(ev.key === 'Escape' && _bulkMode) toggleBulkMode(true);
+});
 
 function toggleBulkSelect(empId, e){
   e.stopPropagation();
@@ -8598,6 +8608,26 @@ function renderSidebar(){
   });
 
   // Compteur
+  // Scroll clavier ↑↓ sur la liste workers
+  if(list && !list._keyHandlerSet){
+    list._keyHandlerSet = true;
+    list.setAttribute('tabindex','0');
+    list.addEventListener('keydown', function(ev){
+      if(ev.key!=='ArrowUp'&&ev.key!=='ArrowDown') return;
+      ev.preventDefault();
+      const items = Array.from(list.querySelectorAll('[data-empid]'));
+      if(!items.length) return;
+      const cur = items.findIndex(function(el){ return el.dataset.empid==selId; });
+      let next = cur;
+      if(ev.key==='ArrowDown') next = Math.min(cur+1, items.length-1);
+      if(ev.key==='ArrowUp')   next = Math.max(cur-1, 0);
+      if(next!==cur && items[next]){
+        items[next].click();
+        items[next].scrollIntoView({block:'nearest'});
+      }
+    });
+  }
+
   const badge = document.getElementById('emp-count-badge');
   if(badge) badge.textContent = active.length < allActive.length
     ? `${active.length}/${allActive.length}`
@@ -8638,7 +8668,7 @@ function renderSidebar(){
       : empName(e);
 
     return `<div class="emp-item ${e.id===selId&&!_bulkMode?'active':''} ${isSelected?'bulk-selected':''}"
-      onclick="${_bulkMode?`toggleBulkSelect(${e.id},event)`:`selectEmp(${e.id})`}"
+      data-empid="${e.id}" onclick="${_bulkMode?`toggleBulkSelect(${e.id},event)`:`selectEmp(${e.id})`}"
       style="${isSelected?'background:var(--alight);border-left:3px solid var(--accent)':''}">
       ${_bulkMode?`<input type="checkbox" ${isSelected?'checked':''} onclick="toggleBulkSelect(${e.id},event)" style="margin-right:6px;accent-color:var(--accent);flex-shrink:0">`:''} 
       <div class="emp-dot" style="background:${c.bg};color:${c.fg}">${init}</div>
