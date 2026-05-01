@@ -111,7 +111,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 .day-end{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--ink3);text-align:center;margin-top:2px}
 .day-h{font-family:'JetBrains Mono',monospace;font-size:.64rem;font-weight:600;color:var(--ink);text-align:center;margin-top:1px}
 .pause-info{font-size:.52rem;color:var(--purple);text-align:center;margin-top:1px;font-weight:600}
-.overlay{position:fixed;inset:0;background:rgba(26,26,46,.45);backdrop-filter:blur(6px);z-index:3000;display:none;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto}
+.overlay{position:fixed;inset:0;background:rgba(26,26,46,.45);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto}
 .overlay.open{display:flex}
 .modal{background:var(--white);border-radius:18px;width:min(700px,96vw);max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:var(--shl);animation:popIn .22s ease}
 .modal::-webkit-scrollbar{width:4px}
@@ -379,7 +379,6 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     </button>
     <button id="lang-btn" onclick="toggleLang()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--line);background:var(--white);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--ink2)">🇳🇱 NL</button>
     <span id="sync-status" title="Statut synchronisation" style="font-size:.9rem;cursor:pointer" onclick="if(isAdmin()){openModal('sync-modal');syncTab('sync');}">💾</span>
-    <button onclick="openModal('sync-modal');syncTab('sync');" title="Synchronisation cloud" style="padding:4px 10px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-size:.7rem;font-weight:700;cursor:pointer;color:#0e7490">☁️ Sync</button>
     <span id="save-indicator" style="font-size:.62rem;color:var(--green);font-weight:600;opacity:0;transition:opacity 1s">✓</span>
     <!-- Profil actif -->
     <button id="current-profile-btn" onclick="openProfileSwitch()"
@@ -3094,9 +3093,6 @@ function runGlobalAutoplan(dateStart, dateEnd, orderedSites, nbProps){
     });
   });
 
-  // Définir les variables de période pour le calcul des heures
-  _msPeriodStart = dateStart;
-  _msPeriodEnd   = dateEnd;
   return {msResults, grid, workerDayAssign, workerWeekLoad, weeks};
 }
 
@@ -3523,35 +3519,15 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
                 totals[e.id].hours += h;
               });
             });
-            const workerData = Object.values(totals)
+            return Object.values(totals)
+              .sort((a,b)=>b.hours-a.hours)
               .map(({emp,hours})=>{
                 const col=empColor(emp);
                 const monthlyMax = emp.hoursMaxMonth || Math.round((emp.hours||0)*4.33);
                 const maxStr = monthlyMax > 0 ? '/'+toHM(monthlyMax) : '';
                 const pct = monthlyMax > 0 ? Math.round(hours/monthlyMax*100) : 0;
                 const pctColor = pct>100?'#dc2626':pct>85?'#d97706':'#059669';
-                const quotaOk = monthlyMax > 0 && pct >= 85;
-                return {emp, hours, monthlyMax, pct, pctColor, quotaOk, col};
-              });
-              // Trier: dépassé (>100%) → atteint (85-100%) → en dessous → sans quota
-              workerData.sort((a,b)=>{
-                const grpA = a.monthlyMax===0?3:a.pct>100?0:a.pct>=85?1:2;
-                const grpB = b.monthlyMax===0?3:b.pct>100?0:b.pct>=85?1:2;
-                if(grpA!==grpB) return grpA-grpB;
-                return b.pct - a.pct;
-              });
-              const groups_ = [
-                {key:'over',   label:'⚠️ Quota dépassé',        items:workerData.filter(w=>w.monthlyMax>0&&w.pct>100),  bg:'#fee2e2'},
-                {key:'ok',     label:'✅ Quota atteint / proche', items:workerData.filter(w=>w.monthlyMax>0&&w.pct>=85&&w.pct<=100), bg:'#dcfce7'},
-                {key:'under',  label:'📋 Quota non atteint',      items:workerData.filter(w=>w.monthlyMax>0&&w.pct<85),  bg:'#fef9c3'},
-                {key:'none',   label:'➖ Sans quota défini',       items:workerData.filter(w=>w.monthlyMax===0), bg:'#f5f4f0'},
-              ].filter(g=>g.items.length>0);
-              return groups_.map(g=>{
-                const badges=g.items.map(({emp,hours,monthlyMax,pct,pctColor,col})=>{
-                  const maxStr2=monthlyMax>0?'/'+toHM(monthlyMax):'';
-                  return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+(hours>0?toHM(hours):'0h')+maxStr2+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
-                }).join('');
-                return '<div style="margin-bottom:8px"><div style="font-size:.65rem;font-weight:800;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;padding:2px 6px;background:'+g.bg+';border-radius:5px;display:inline-block">'+g.label+' ('+g.items.length+')</div><div style="display:flex;flex-wrap:wrap;gap:4px">'+badges+'</div></div>';
+                return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+toHM(hours)+maxStr+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
               }).join('');
           })()}
           </div>
@@ -3781,242 +3757,287 @@ function openAbsenceExplain(dateStr){
   footer.appendChild(fbtn);
   inner.appendChild(hdr); inner.appendChild(body); inner.appendChild(footer);
   modal.appendChild(inner); document.body.appendChild(modal);
-  makeDraggable(inner, hdr);
 }
-
-// ── Rendre une modale déplaçable par sa barre de titre ────────
-function makeDraggable(modal, handle){
-  // handle = élément sur lequel on clique pour déplacer (header)
-  // modal  = élément à déplacer
-  if(!handle || !modal) return;
-  handle.style.cursor = 'move';
-  var startX=0, startY=0, origL=0, origT=0;
-  handle.addEventListener('mousedown', function(ev){
-    if(ev.target.tagName==='BUTTON') return; // ne pas interférer avec les boutons
-    ev.preventDefault();
-    // Positionner la modal en position fixe si pas déjà
-    var rect = modal.getBoundingClientRect();
-    if(modal.style.position !== 'fixed'){
-      modal.style.position = 'fixed';
-      modal.style.left = rect.left + 'px';
-      modal.style.top  = rect.top  + 'px';
-    }
-    // Retirer le flex centrage du parent overlay
-    if(modal.parentElement){
-      modal.parentElement.style.alignItems = 'flex-start';
-      modal.parentElement.style.justifyContent = 'flex-start';
-    }
-    startX = ev.clientX; startY = ev.clientY;
-    origL  = parseInt(modal.style.left)||rect.left;
-    origT  = parseInt(modal.style.top)||rect.top;
-    function onMove(e){
-      modal.style.left = Math.max(0, origL + e.clientX - startX) + 'px';
-      modal.style.top  = Math.max(0, origT + e.clientY - startY) + 'px';
-    }
-    function onUp(){ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup',   onUp);
-  });
-  // Touch support
-  handle.addEventListener('touchstart', function(ev){
-    if(ev.target.tagName==='BUTTON') return;
-    var t=ev.touches[0];
-    var rect=modal.getBoundingClientRect();
-    if(modal.style.position!=='fixed'){ modal.style.position='fixed'; modal.style.left=rect.left+'px'; modal.style.top=rect.top+'px'; }
-    if(modal.parentElement){ modal.parentElement.style.alignItems='flex-start'; modal.parentElement.style.justifyContent='flex-start'; }
-    startX=t.clientX; startY=t.clientY; origL=parseInt(modal.style.left)||rect.left; origT=parseInt(modal.style.top)||rect.top;
-    function onMove2(e){ var t2=e.touches[0]; modal.style.left=Math.max(0,origL+t2.clientX-startX)+'px'; modal.style.top=Math.max(0,origT+t2.clientY-startY)+'px'; }
-    function onEnd(){ handle.removeEventListener('touchmove',onMove2); handle.removeEventListener('touchend',onEnd); }
-    handle.addEventListener('touchmove',onMove2,{passive:true}); handle.addEventListener('touchend',onEnd);
-  },{passive:true});
-}
-
-function closeManualAssign(){var m=document.getElementById('manual-assign-modal');if(m)m.remove();}
 
 function openManualAssign(siteId, dateStr, weekStart){
-  closeManualAssign();
-  var site=SITES[siteId]||{};
-  var siteColor=site.color||'#2d5be3', siteBg=site.light||'#eef1fd';
-  var wOff=dateToWeekOffset(dateStr), di=dateToDayIdx(dateStr);
-  var dayLabel=new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('manual-assign-modal')?.remove();
 
-  if(!weekStart&&_msResults&&_msResults[siteId]&&_msResults[siteId][0])
-    weekStart=_msResults[siteId][0].weekStart;
-  if(!weekStart){var d0=new Date(dateStr+'T12:00'),dow0=(d0.getDay()||7)-1;d0.setDate(d0.getDate()-dow0);weekStart=d0.toISOString().slice(0,10);}
+  var site = SITES[siteId]||{};
+  var wOff = dateToWeekOffset(dateStr);
+  var di   = dateToDayIdx(dateStr);
+  var dayLabel = new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'});
 
-  function weekHours(e){
-    var mins=0;
-    if(!e.weeks||!e.weeks[wOff]) return 0;
-    var week=e.weeks[wOff];
-    for(var d2=0;d2<7;d2++){var day=week[d2];if(day&&day.status==='work'&&day.start&&day.end)mins+=Math.max(0,timeToMin(day.end)-timeToMin(day.start)-(day.pause||0));}
-    return mins/60;
+  // Résoudre weekStart si null
+  if(!weekStart && _msResults && _msResults[siteId] && _msResults[siteId][0]){
+    weekStart = _msResults[siteId][0].weekStart;
+  }
+  if(!weekStart){
+    // Calculer le lundi de la semaine de dateStr
+    var d0=new Date(dateStr+'T12:00'), dow0=(d0.getDay()||7)-1;
+    d0.setDate(d0.getDate()-dow0);
+    weekStart=d0.toISOString().slice(0,10);
   }
 
-  var alreadyOnSite=[];
-  if(_msResults&&_msResults[siteId]){
+  // ── État actuel du créneau ─────────────────────────────────────
+  var besoins = getBesoinsDate(siteId, dateStr);
+  var alreadyAssigned = []; // workers déjà assignés sur ce site ce jour
+  if(_msResults && _msResults[siteId]){
     _msResults[siteId].forEach(function(week){
-      var prop=week.proposals&&week.proposals[0];if(!prop)return;
+      var prop=week.proposals&&week.proposals[0]; if(!prop) return;
       prop.plan.forEach(function(slot){
-        if(slot.dateStr!==dateStr)return;
-        slot.assigned.forEach(function(a){var emp=employees.find(function(e){return e.id===a.id;});if(emp&&!alreadyOnSite.some(function(x){return x.id===a.id;}))alreadyOnSite.push(emp);});
+        if(slot.dateStr!==dateStr) return;
+        slot.assigned.forEach(function(a){
+          var emp=employees.find(function(e){return e.id===a.id;});
+          if(emp && !alreadyAssigned.some(function(x){return x.id===a.id;}))
+            alreadyAssigned.push(emp);
+        });
       });
     });
   }
+  var totalDemande = besoins.reduce(function(s,b){return s+(b.vendeurs||0);},0);
+  var manquants    = Math.max(0, totalDemande - alreadyAssigned.length);
 
-  var besoins=getBesoinsDate(siteId,dateStr);
-  var totalDem=besoins.reduce(function(s,b){return s+(b.vendeurs||0);},0);
-  var manquants=Math.max(0,totalDem-alreadyOnSite.length);
+  // ── Classer tous les workers actifs ───────────────────────────
+  var allActive = employees.filter(function(e){return !e.archived;});
+  var workerGroups = {free:[], conflict:[], ineligible:[], leave:[]};
 
-  var groups={free:[],quota:[],ineligible:[],unavail:[],leave:[]};
-  employees.filter(function(e){return !e.archived;}).forEach(function(e){
-    if(alreadyOnSite.some(function(x){return x.id===e.id;})) return;
-    var av=getWorkerAvailability(e);
-    var d=e.weeks&&e.weeks[wOff]&&e.weeks[wOff][di];
-    var wh=weekHours(e), wq=e.hours||0;
-    var pct=wq>0?Math.round(wh/wq*100):0;
-    var hInfo=toHM(Math.round(wh*60))+'/'+(wq||'?')+'h sem. ('+pct+'%)';
-    if(d&&d.status==='leave'){groups.leave.push({e:e,reason:'En congé ce jour',hInfo:hInfo,pct:pct,force:false});return;}
+  allActive.forEach(function(e){
+    var av = getWorkerAvailability(e);
+    var d  = e.weeks&&e.weeks[wOff]&&e.weeks[wOff][di];
+    var inList =(e.sites||[]).includes(siteId);
+    var isDef  = av.defaultSite===siteId;
+    var noSite = !av.defaultSite&&!(e.sites||[]).length;
+    var eligible = inList||isDef||noSite;
+
+    // Déjà assigné sur CE site → ignorer
+    if(alreadyAssigned.some(function(x){return x.id===e.id;})) return;
+
+    // En congé
+    if(d&&d.status==='leave'){ workerGroups.leave.push({e:e,info:'En congé'}); return; }
+
+    // Déjà assigné sur UN AUTRE site ce jour
     var conflictSite=null;
-    if(d&&d.status==='work'&&d.start&&!d._multisite_lock)conflictSite=d.site||null;
-    if(!conflictSite&&_msResults){
+    if(d&&d.status==='work'&&d.start&&!d._multisite_lock){
+      conflictSite=d.site||(av.defaultSite!==siteId?av.defaultSite:null);
+    }
+    // Vérifier aussi dans _msResults les autres sites
+    if(!conflictSite && _msResults){
       Object.entries(_msResults).forEach(function(entry){
-        var sid=entry[0],siteData=entry[1];if(sid===siteId)return;
-        siteData.forEach(function(week){var prop=week.proposals&&week.proposals[0];if(!prop)return;
-          prop.plan.forEach(function(slot){if(slot.dateStr!==dateStr)return;if(slot.assigned.some(function(a){return a.id===e.id;}))conflictSite=sid;});
+        var sid=entry[0],siteData=entry[1];
+        if(sid===siteId) return;
+        siteData.forEach(function(week){
+          var prop=week.proposals&&week.proposals[0]; if(!prop) return;
+          prop.plan.forEach(function(slot){
+            if(slot.dateStr!==dateStr) return;
+            if(slot.assigned.some(function(a){return a.id===e.id;})) conflictSite=sid;
+          });
         });
       });
     }
     if(conflictSite){
-      var csN=(SITES[conflictSite]&&SITES[conflictSite].name)||conflictSite;
-      groups.unavail.push({e:e,reason:'Plan. sur '+csN+' ce jour &mdash; force possible',hInfo:hInfo,pct:pct,force:true});return;
+      var csName=(SITES[conflictSite]&&SITES[conflictSite].name)||conflictSite;
+      workerGroups.conflict.push({e:e,info:'Assigné sur '+csName+' ('+conflictSite+') ce jour',conflictSite:conflictSite});
+      return;
     }
-    var inList=(e.sites||[]).includes(siteId),isDef=av.defaultSite===siteId,noSite=!av.defaultSite&&!(e.sites||[]).length;
-    if(!isWorkerAvailable(e,dateStr,'08:00','22:00')){groups.unavail.push({e:e,reason:'Indisponible (horaires)',hInfo:hInfo,pct:pct,force:false});return;}
-    if(e.weekCycle&&e.weekCycle>1){var phase=((wOff-(e.weekPhase||0))%e.weekCycle+e.weekCycle)%e.weekCycle;if(phase!==0){groups.unavail.push({e:e,reason:'Semaine off (cycle '+e.weekCycle+')',hInfo:hInfo,pct:pct,force:true});return;}}
-    if(!inList&&!isDef&&!noSite){
-      var empS=(e.sites||[]).join(',')||'aucun';
-      groups.ineligible.push({e:e,reason:'Sites: ['+empS+'] &mdash; pas ce site',hInfo:hInfo,pct:pct,force:true});return;
+
+    // Pas éligible pour ce site
+    if(!eligible){
+      var empSites=(e.sites||[]).map(function(s){return s;}).join(',')||'aucun';
+      workerGroups.ineligible.push({e:e,info:'Sites assignés: ['+empSites+'] — pas ce site'});
+      return;
     }
-    if(wq>0&&pct>=90){groups.quota.push({e:e,reason:'Quota sem. quasi atteint',hInfo:hInfo,pct:pct,force:false});return;}
-    groups.free.push({e:e,reason:e.status+(isDef?' ★ principal':''),hInfo:hInfo,pct:pct,force:false});
+
+    // Indisponible selon contraintes
+    if(!isWorkerAvailable(e,dateStr,'08:00','22:00')){
+      workerGroups.ineligible.push({e:e,info:'Indisponible ce jour (contraintes horaires)'});
+      return;
+    }
+
+    // Cycle semaines
+    if(e.weekCycle&&e.weekCycle>1){
+      var phase=((wOff-(e.weekPhase||0))%e.weekCycle+e.weekCycle)%e.weekCycle;
+      if(phase!==0){
+        workerGroups.ineligible.push({e:e,info:'Semaine non travaillée (cycle '+e.weekCycle+')'});
+        return;
+      }
+    }
+
+    // Libre et disponible
+    workerGroups.free.push({e:e,info:e.status+' \u00b7 '+(e.hours||0)+'h/sem'+(isDef?' \u2605':'')});
   });
 
+  // ── Construction de la modale ─────────────────────────────────
   var modal=document.createElement('div');
   modal.id='manual-assign-modal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:10px';
   modal.addEventListener('click',function(ev){if(ev.target===modal)modal.remove();});
+
   var inner=document.createElement('div');
   inner.style.cssText='background:white;border-radius:14px;width:100%;max-width:520px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.3);max-height:92vh;display:flex;flex-direction:column';
   inner.addEventListener('click',function(ev){ev.stopPropagation();});
 
+  // Header
   var hdr=document.createElement('div');
-  hdr.style.cssText='background:linear-gradient(135deg,'+siteColor+','+siteColor+'cc);padding:13px 16px;flex-shrink:0';
+  hdr.style.cssText='background:linear-gradient(135deg,'+(site.color||'#2d5be3')+','+(site.color||'#2d5be3')+'cc);padding:13px 16px;flex-shrink:0';
   hdr.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-    +'<div><div style="font-weight:800;color:white;font-size:.9rem">+ Assigner &mdash; '+siteId+' '+(site.name||siteId)+'</div>'
+    +'<div><div style="font-weight:800;color:white;font-size:.9rem">+ Assigner \u2014 '+siteId+' '+(site.name||siteId)+'</div>'
     +'<div style="font-size:.7rem;color:rgba(255,255,255,.8);margin-top:2px">'+dayLabel+'</div>'
     +'<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'
-    +(alreadyOnSite.length?'<span style="padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.2);color:white;font-size:.64rem;font-weight:700">'+alreadyOnSite.length+' assign&eacute;(s)</span>':'')
-    +(manquants>0?'<span style="padding:2px 8px;border-radius:10px;background:rgba(220,38,38,.4);color:white;font-size:.64rem;font-weight:700">'+manquants+' manquant(s)</span>':'')
+    +(alreadyAssigned.length?'<span style="padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.2);color:white;font-size:.64rem;font-weight:700">\u2705 '+alreadyAssigned.length+' assign\u00e9(s)</span>':'')
+    +(manquants>0?'<span style="padding:2px 8px;border-radius:10px;background:rgba(220,38,38,.4);color:white;font-size:.64rem;font-weight:700">\u26a0\ufe0f '+manquants+' manquant(s)</span>':'')
+    +(alreadyAssigned.length+manquants===0?'<span style="padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.2);color:white;font-size:.64rem">Aucun besoin d\u00e9fini ce jour</span>':'')
     +'</div></div>'
-    +'<button onclick="closeManualAssign()" style="border:none;background:rgba(255,255,255,.2);color:white;width:28px;height:28px;border-radius:6px;cursor:pointer;font-weight:700">&#x2715;</button>'
+    +'<button onclick="document.getElementById(\'manual-assign-modal\').remove()" style="border:none;background:rgba(255,255,255,.2);color:white;width:28px;height:28px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.9rem">\u2715</button>'
     +'</div>';
 
+  // Body
   var body=document.createElement('div');
-  body.style.cssText='padding:12px 14px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px';
-  var selDeb=besoins.length?besoins[0].debut:'10:00',selFin=besoins.length?besoins[0].fin:'20:00';
+  body.style.cssText='padding:12px 14px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px';
+
+  // ── Créneau ──────────────────────────────────────────────────
+  var selDeb=besoins.length?besoins[0].debut:'10:00';
+  var selFin=besoins.length?besoins[0].fin:'20:00';
   var cbMap={};
 
   var crSec=document.createElement('div');
   var crLbl=document.createElement('div');
   crLbl.style.cssText='font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:6px';
-  crLbl.textContent='Créneau';crSec.appendChild(crLbl);
-  if(besoins.length){
-    var crBtns=document.createElement('div');crBtns.style.cssText='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px';
-    besoins.forEach(function(cr,i){
-      var b=document.createElement('button');b.dataset.debut=cr.debut;b.dataset.fin=cr.fin;
-      b.textContent=cr.debut+'→'+cr.fin+' ('+cr.vendeurs+' dem.)';
-      b.style.cssText='padding:4px 10px;border-radius:7px;border:2px solid '+(i===0?siteColor:'#e2e0d8')+';background:'+(i===0?siteBg:'white')+';font-size:.7rem;font-weight:700;cursor:pointer';
-      b.addEventListener('click',function(){selDeb=this.dataset.debut;selFin=this.dataset.fin;debI.value=selDeb;finI.value=selFin;
-        crBtns.querySelectorAll('button').forEach(function(x){x.style.borderColor='#e2e0d8';x.style.background='white';});this.style.borderColor=siteColor;this.style.background=siteBg;});
-      crBtns.appendChild(b);
-    });crSec.appendChild(crBtns);
-  }
-  var hourRow=document.createElement('div');hourRow.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  var debI=document.createElement('input');debI.type='time';debI.value=selDeb;debI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
-  debI.addEventListener('change',function(){selDeb=this.value;});
-  var finI=document.createElement('input');finI.type='time';finI.value=selFin;finI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
-  finI.addEventListener('change',function(){selFin=this.value;});
-  hourRow.appendChild(document.createTextNode('Horaire : '));hourRow.appendChild(debI);
-  hourRow.appendChild(document.createTextNode(' → '));hourRow.appendChild(finI);
-  crSec.appendChild(hourRow);body.appendChild(crSec);
+  crLbl.textContent='Cr\u00e9neau';
+  crSec.appendChild(crLbl);
 
-  function makeSection(label,dotColor,items){
+  if(besoins.length){
+    var crBtns=document.createElement('div'); crBtns.style.cssText='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px';
+    besoins.forEach(function(cr,i){
+      var b=document.createElement('button');
+      b.dataset.debut=cr.debut; b.dataset.fin=cr.fin;
+      b.textContent=cr.debut+'\u2192'+cr.fin+' ('+cr.vendeurs+' dem.)';
+      b.style.cssText='padding:4px 10px;border-radius:7px;border:2px solid '+(i===0?(site.color||'#2d5be3'):'#e2e0d8')
+        +';background:'+(i===0?(site.light||'#eef1fd'):'white')+';font-size:.7rem;font-weight:700;cursor:pointer';
+      b.addEventListener('click',function(){
+        selDeb=this.dataset.debut; selFin=this.dataset.fin;
+        debI.value=selDeb; finI.value=selFin;
+        crBtns.querySelectorAll('button').forEach(function(x){x.style.borderColor='#e2e0d8';x.style.background='white';});
+        this.style.borderColor=site.color||'#2d5be3'; this.style.background=site.light||'#eef1fd';
+      });
+      crBtns.appendChild(b);
+    });
+    crSec.appendChild(crBtns);
+  }
+
+  var hourRow=document.createElement('div'); hourRow.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  var debI=document.createElement('input'); debI.type='time'; debI.value=selDeb;
+  debI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
+  debI.addEventListener('change',function(){selDeb=this.value;});
+  var finI=document.createElement('input'); finI.type='time'; finI.value=selFin;
+  finI.style.cssText='padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:.78rem';
+  finI.addEventListener('change',function(){selFin=this.value;});
+  var arrW=document.createElement('span'); arrW.textContent='\u2192'; arrW.style.cssText='color:var(--ink3)';
+  hourRow.appendChild(document.createTextNode('Horaire : ')); hourRow.appendChild(debI); hourRow.appendChild(arrW); hourRow.appendChild(finI);
+  crSec.appendChild(hourRow);
+  body.appendChild(crSec);
+
+  // ── Fonction pour créer une section workers ──────────────────
+  function makeWorkerSection(title, color, items, canForce){
     if(!items.length) return;
     var sec=document.createElement('div');
-    var sh=document.createElement('div');sh.style.cssText='font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:5px;display:flex;align-items:center;gap:5px';
-    sh.innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:'+dotColor+';display:inline-block;flex-shrink:0"></span>'+label+' ('+items.length+')';
-    sec.appendChild(sh);
-    var grid=document.createElement('div');grid.style.cssText='display:flex;flex-direction:column;gap:4px';
+    var secLbl=document.createElement('div');
+    secLbl.style.cssText='font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:6px;display:flex;align-items:center;gap:5px';
+    secLbl.innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:'+color+';display:inline-block"></span> '
+      +title+' ('+items.length+')';
+    if(canForce){
+      var forceNote=document.createElement('span');
+      forceNote.style.cssText='font-size:.6rem;color:var(--ink3);font-weight:400;margin-left:4px';
+      forceNote.textContent='— assigner quand m\u00eame possible';
+      secLbl.appendChild(forceNote);
+    }
+    sec.appendChild(secLbl);
+    var grid=document.createElement('div'); grid.style.cssText='display:flex;flex-direction:column;gap:4px';
     items.forEach(function(item){
-      var e=item.e;
-      var pBg=item.pct>100?'#fee2e2':item.pct>=85?'#dcfce7':item.pct>=50?'#fef9c3':'#f0f0f0';
-      var pFg=item.pct>100?'#dc2626':item.pct>=85?'#16a34a':item.pct>=50?'#92400e':'#555';
+      var e=item.e, col=empColor(e);
       var row=document.createElement('label');
       row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;border:1.5px solid #e2e0d8;cursor:pointer;background:white;transition:all .1s';
-      var cb=document.createElement('input');cb.type='checkbox';cb.dataset.empid=e.id;
-      cb.style.cssText='width:15px;height:15px;accent-color:'+siteColor+';flex-shrink:0;cursor:pointer';
-      cb.addEventListener('change',function(){row.style.background=cb.checked?siteBg:'white';row.style.borderColor=cb.checked?siteColor:'#e2e0d8';});
+      var cb=document.createElement('input'); cb.type='checkbox'; cb.dataset.empid=e.id;
+      cb.style.cssText='width:15px;height:15px;accent-color:#2d5be3;flex-shrink:0;cursor:pointer';
+      cb.addEventListener('change',function(){
+        row.style.background=cb.checked?'#eef1fd':'white';
+        row.style.borderColor=cb.checked?'#2d5be3':'#e2e0d8';
+      });
       cbMap[e.id]=cb;
-      var badge=document.createElement('span');badge.style.cssText='padding:2px 8px;border-radius:10px;background:'+pBg+';color:'+pFg+';font-size:.7rem;font-weight:700;flex-shrink:0;white-space:nowrap';
+      var badge=document.createElement('span');
+      badge.style.cssText='padding:2px 8px;border-radius:10px;background:'+col.bg+';color:'+col.fg+';font-size:.7rem;font-weight:700;flex-shrink:0;white-space:nowrap';
       badge.textContent=e.firstname+' '+(e.lastname||'');
-      var info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
-      info.innerHTML='<div style="font-size:.62rem;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+item.reason+'</div>'
-        +'<div style="font-size:.6rem;font-weight:700;color:'+pFg+';margin-top:1px">'+item.hInfo+'</div>';
-      row.appendChild(cb);row.appendChild(badge);row.appendChild(info);grid.appendChild(row);
+      var info=document.createElement('div'); info.style.cssText='flex:1;min-width:0';
+      info.innerHTML='<div style="font-size:.62rem;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+item.info+'</div>';
+      if(item.conflictSite){
+        info.innerHTML+='<div style="font-size:.6rem;color:#dc2626;margin-top:1px">\u26a1 D\u00e9placer depuis '+(SITES[item.conflictSite]&&SITES[item.conflictSite].name||item.conflictSite)+' si assign\u00e9</div>';
+      }
+      row.appendChild(cb); row.appendChild(badge); row.appendChild(info);
+      grid.appendChild(row);
     });
-    sec.appendChild(grid);body.appendChild(sec);
+    sec.appendChild(grid);
+    body.appendChild(sec);
   }
 
-  makeSection('Libres et disponibles','#16a34a',groups.free);
-  makeSection('Quota semaine quasi atteint','#ea580c',groups.quota);
-  makeSection('Pas assigné à ce site (force possible)','#7c3aed',groups.ineligible);
-  makeSection('Indisponibles ce jour (force possible)','#6b7280',groups.unavail);
-  makeSection('En congé','#dc2626',groups.leave);
-
-  if(!groups.free.length&&!groups.quota.length&&!groups.ineligible.length&&!groups.unavail.length){
-    var noW=document.createElement('div');noW.style.cssText='padding:16px;background:#fee2e2;border-radius:8px;font-size:.76rem;color:#dc2626;text-align:center';
-    noW.textContent='Tous les travailleurs actifs sont en congé ou déjà assignés.';body.appendChild(noW);
+  // Afficher les 3 groupes
+  makeWorkerSection('Libres et disponibles','#16a34a', workerGroups.free, false);
+  makeWorkerSection('Avec conflit de site','#ea580c', workerGroups.conflict, true);
+  makeWorkerSection('Forcer (pas sur ce site)','#7c3aed', workerGroups.ineligible, true);
+  if(workerGroups.free.length+workerGroups.conflict.length+workerGroups.ineligible.length===0){
+    var noW=document.createElement('div');
+    noW.style.cssText='padding:16px;background:#fee2e2;border-radius:8px;font-size:.76rem;color:#dc2626;text-align:center';
+    noW.textContent='Aucun travailleur disponible (tous en cong\u00e9 ou d\u00e9j\u00e0 assign\u00e9s).';
+    body.appendChild(noW);
   }
 
-  var footer=document.createElement('div');footer.style.cssText='padding:10px 14px;border-top:1px solid var(--line);flex-shrink:0';
-  var applyBtn=document.createElement('button');applyBtn.textContent='✓ Assigner les sélectionnés';
-  applyBtn.style.cssText='width:100%;padding:10px;border-radius:8px;border:none;background:'+siteColor+';color:white;font-size:.82rem;font-weight:700;cursor:pointer';
+  // ── Footer ───────────────────────────────────────────────────
+  var footer=document.createElement('div');
+  footer.style.cssText='padding:10px 14px;border-top:1px solid var(--line);flex-shrink:0';
+  var applyBtn=document.createElement('button');
+  applyBtn.textContent='\u2713 Assigner les s\u00e9lectionn\u00e9s';
+  applyBtn.style.cssText='width:100%;padding:10px;border-radius:8px;border:none;background:'+(site.color||'#2d5be3')+';color:white;font-size:.82rem;font-weight:700;cursor:pointer';
   applyBtn.addEventListener('click',function(){
     var toAssign=[];
-    Object.entries(cbMap).forEach(function(entry){var id=entry[0],cb=entry[1];if(cb.checked){var emp=employees.find(function(e){return String(e.id)===String(id);});if(emp)toAssign.push(emp);}});
-    if(!toAssign.length){showToast('Cochez au moins un travailleur');return;}
+    Object.entries(cbMap).forEach(function(entry){
+      var id=entry[0], cb=entry[1];
+      if(cb.checked){
+        var emp=employees.find(function(e){return String(e.id)===String(id);});
+        if(emp) toAssign.push(emp);
+      }
+    });
+    if(!toAssign.length){showToast('Cochez au moins un travailleur'); return;}
     histPush();
     toAssign.forEach(function(e){
-      if(!e.weeks)e.weeks={};if(!e.weeks[wOff])e.weeks[wOff]={};
-      e.weeks[wOff][di]={status:'work',start:selDeb,end:selFin,pause:e.pause||0,site:siteId,_source:'manual',endManual:true,_ts:new Date().toISOString()};
+      if(!e.weeks) e.weeks={};
+      if(!e.weeks[wOff]) e.weeks[wOff]={};
+      e.weeks[wOff][di]={status:'work',start:selDeb,end:selFin,pause:e.pause||0,
+        site:siteId,_source:'manual',endManual:true,_ts:new Date().toISOString()};
+      // Mettre à jour _msResults
       if(_msResults&&_msResults[siteId]){
         _msResults[siteId].forEach(function(item){
           if(item.weekStart!==weekStart) return;
-          var prop=item.proposals&&item.proposals[0];if(!prop)return;
+          var prop=item.proposals&&item.proposals[0]; if(!prop) return;
           var slot=prop.plan.find(function(s){return s.dateStr===dateStr&&s.creneau.debut===selDeb;});
-          if(slot){if(!slot.assigned.some(function(a){return a.id===e.id;})){slot.assigned.push(Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'}));slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);}}
-          else{prop.plan.push({dateStr:dateStr,creneau:{debut:selDeb,fin:selFin,vendeurs:1},assigned:[Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'})],manquants:0,difficulty:0,mixOk:true});}
+          if(slot){
+            if(!slot.assigned.some(function(a){return a.id===e.id;})){
+              slot.assigned.push(Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'}));
+              slot.manquants=Math.max(0,(slot.creneau.vendeurs||0)-slot.assigned.length);
+            }
+          } else {
+            prop.plan.push({dateStr:dateStr,creneau:{debut:selDeb,fin:selFin,vendeurs:1},
+              assigned:[Object.assign({},e,{_effectiveStart:selDeb,_source:'manual'})],manquants:0,difficulty:0,mixOk:true});
+          }
         });
       }
     });
     autoSave();
-    showToast('✅ '+toAssign.map(function(e){return e.firstname;}).join(', ')+' → '+(site.name||siteId));
-    modal.remove();try{renderAllSitesOverview();}catch(err2){}
+    showToast('\u2705 '+toAssign.map(function(e){return e.firstname;}).join(', ')+' \u2192 '+(site.name||siteId)+' le '+new Date(dateStr+'T12:00').toLocaleDateString('fr-BE',{weekday:'short',day:'numeric',month:'short'}));
+    modal.remove();
+    try{renderAllSitesOverview();}catch(err2){}
   });
   footer.appendChild(applyBtn);
-  inner.appendChild(hdr);inner.appendChild(body);inner.appendChild(footer);
-  modal.appendChild(inner);document.body.appendChild(modal);
-  makeDraggable(inner,hdr);
+
+  inner.appendChild(hdr); inner.appendChild(body); inner.appendChild(footer);
+  modal.appendChild(inner); document.body.appendChild(modal);
 }
 
 function removeWorkerFromSlot(empId, dateStr, siteId, weekStart){
@@ -5491,11 +5512,7 @@ function renderMonthView(){
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const date = new Date(ds+'T12:00:00');
     const dow  = date.getDay(); // 0=Dim
-    const wOff = dateToWeekOffset(ds);
-    const di   = dateToDayIdx(ds);
-    // Initialiser la semaine si absente → applique indispos récurrentes
-    if(!e.weeks?.[wOff]) getWeekDays(e, wOff);
-    const day  = e.weeks?.[wOff]?.[di] || null;
+    const {wOff, di, day} = getDayData(e, ds);
     const todayStr = new Date().toISOString().slice(0,10);
     const isToday_ = ds === todayStr;
     const isWeekend = dow===0||dow===6;
@@ -6011,7 +6028,7 @@ function openGlobalWorkerView(defaultTab){
 
     <!-- TABS : Mensuel / Hebdo -->
     <div style="display:flex;border-bottom:2px solid var(--line);background:#fafaf8">
-      <button onclick="setGlobalTab('month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
+      <button onclick="setGlobalTab(defaultTab||'month')" id="gtab-month" style="padding:10px 20px;border:none;background:var(--accent);color:white;font-size:.78rem;font-weight:700;cursor:pointer">📅 Vue mensuelle</button>
       <button onclick="setGlobalTab('week')" id="gtab-week" style="padding:10px 20px;border:none;background:transparent;color:var(--ink3);font-size:.78rem;font-weight:700;cursor:pointer">📋 Vue hebdomadaire</button>
     </div>
 
@@ -7016,61 +7033,13 @@ loadStoreNeedsOverrides();
 // VUE RAPIDE TRAVAILLEUR — Accessible depuis le récap autoplan
 // Affiche le planning de la semaine + stats + infos fiche
 // ══════════════════════════════════════════════════════════════
-function closeWorkerPanel(){
-  var p=document.getElementById('worker-quick-panel');
-  if(p) p.remove();
-}
-
 function openWorkerQuickView(empId, event){
   if(event) event.stopPropagation();
-  var e=employees.find(function(x){return x.id===empId;});
+  const e = employees.find(x=>x.id===empId);
   if(!e) return;
-  selId=empId; renderSidebar();
-  var pnl=document.getElementById('worker-quick-panel');
-  if(pnl) pnl.remove();
-  var col=empColor(e);
-  var monthlyMax=e.hoursMaxMonth||Math.round((e.hours||0)*4.33);
-  var workedMins=0;
-  if(e.weeks) Object.values(e.weeks).forEach(function(w){
-    if(!w) return;
-    Object.values(w).forEach(function(d){
-      if(d&&d.status==='work'&&d.start&&d.end) workedMins+=timeToMin(d.end)-timeToMin(d.start);
-    });
-  });
-  var pct=monthlyMax>0?Math.round(workedMins/60/monthlyMax*100):0;
-  var pctCol=pct>100?'#dc2626':pct>=85?'#16a34a':'#ca8a04';
-  var panel=document.createElement('div');
-  panel.id='worker-quick-panel';
-  panel.style.cssText='position:fixed;z-index:2002;background:white;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:290px;overflow:hidden';
-  var ex=(event&&event.clientX)?event.clientX:(window.innerWidth-300);
-  var ey=(event&&event.clientY)?event.clientY:80;
-  panel.style.left=Math.min(ex,window.innerWidth-300)+'px';
-  panel.style.top=Math.min(ey+10,window.innerHeight-260)+'px';
-  function closeP(){panel.remove();document.removeEventListener('click',closeP);}
-  setTimeout(function(){document.addEventListener('click',closeP);},50);
-  panel.addEventListener('click',function(ev){ev.stopPropagation();});
-  var hdrQ=document.createElement('div');
-  hdrQ.style.cssText='background:'+col.bg+';padding:12px 14px;display:flex;justify-content:space-between;align-items:flex-start';
-  hdrQ.innerHTML='<div><div style="font-size:.95rem;font-weight:900;color:'+col.fg+'">'+e.firstname+' '+e.lastname+'</div>'
-    +'<div style="font-size:.66rem;color:'+col.fg+';opacity:.8;margin-top:2px">'+e.status+' &middot; '+(e.hours||0)+'h/sem</div>'
-    +'<div style="font-size:.63rem;color:'+col.fg+';opacity:.7;margin-top:1px">Sites: ['+((e.sites||[]).join(',')||'&mdash;')+']</div>'
-    +'<div style="font-size:.66rem;font-weight:700;color:'+pctCol+';margin-top:3px">'+toHM(workedMins)+'/'+toHM(monthlyMax)+' ('+pct+'%)</div>'
-    +'</div>'
-    +'<button onclick="closeWorkerPanel()" style="border:none;background:rgba(0,0,0,.12);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:.8rem">&#x2715;</button>';
-  var actQ=document.createElement('div');
-  actQ.style.cssText='display:flex;gap:5px;padding:10px 12px;border-top:1px solid #eee';
-  var bFiche=document.createElement('button');
-  bFiche.textContent='Fiche complete';
-  bFiche.style.cssText='flex:1;padding:7px;border-radius:7px;border:none;background:#2d5be3;color:white;font-size:.73rem;font-weight:700;cursor:pointer';
-  bFiche.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();selectEmp(e.id);setTimeout(function(){openEditModal();},50);};
-  var bPlan=document.createElement('button');
-  bPlan.textContent='Planning';
-  bPlan.style.cssText='flex:1;padding:7px;border-radius:7px;border:1.5px solid #2d5be3;background:white;color:#2d5be3;font-size:.73rem;font-weight:700;cursor:pointer';
-  bPlan.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();openGlobalWorkerView('month');};
-  actQ.appendChild(bFiche); actQ.appendChild(bPlan);
-  panel.appendChild(hdrQ); panel.appendChild(actQ);
-  document.body.appendChild(panel);
-  makeDraggable(panel,hdrQ);
+  selId = empId;
+  // Ouvrir la vue globale en mode hebdomadaire par défaut
+  openGlobalWorkerView('week');
 }
 
 function openStoreManagerConfig(){
@@ -7756,31 +7725,14 @@ const SYNC_KEY  = 'gp_sync_config';
 // Clés JSONBin pré-configurées (partagées tous fichiers Caftan Factory)
 const JSONBIN_DEFAULT = {
   masterKey: '$2a$10$F5WDFMcJ45ylysiNzaHp1ugrTiicbN38mz.YET3k.C8sCV46iYLtG',
-  binId: localStorage.getItem('gp_bin_id')||''  // BIN_ID saisi via ☁️ Sync
+  binId: localStorage.getItem('gp_bin_id')||''  // BIN_ID saisi une fois via Admin
 };
 let syncConfig = (() => {
   const stored = JSON.parse(localStorage.getItem(SYNC_KEY)||'{}');
-  // Lire binId depuis l'URL (param ?bid=xxx ou hash #bid=xxx) pour partage multi-PC
-  let urlBinId = '';
-  try{
-    const sp = new URLSearchParams(window.location.search);
-    urlBinId = sp.get('bid') || '';
-    if(!urlBinId){
-      const hash = window.location.hash.replace('#','');
-      urlBinId = new URLSearchParams(hash).get('bid') || '';
-    }
-    if(urlBinId){
-      localStorage.setItem('gp_bin_id', urlBinId);
-      // Nettoyer l'URL
-      if(window.history && window.history.replaceState)
-        window.history.replaceState({}, '', window.location.pathname);
-    }
-  }catch(e){}
-  const binId = stored.binId || urlBinId || JSONBIN_DEFAULT.binId;
-  if(binId) localStorage.setItem('gp_bin_id', binId);
+  // Utiliser les clés par défaut si pas de config locale
   return {
     masterKey: stored.masterKey || JSONBIN_DEFAULT.masterKey,
-    binId:     binId,
+    binId:     stored.binId     || JSONBIN_DEFAULT.binId,
     lastSync:  stored.lastSync  || ''
   };
 })();
@@ -7805,14 +7757,12 @@ async function cloudPush(){
         'Content-Type': 'application/json',
         'X-Master-Key': syncConfig.masterKey
       },
-      body: JSON.stringify({ record: Object.assign({}, payload, {lastModified: new Date().toISOString()}), metadata: { private: true } })
+      body: JSON.stringify({ record: payload, metadata: { private: true } })
     });
     if(!res.ok) throw new Error('HTTP '+res.status);
     syncConfig.lastSync = new Date().toISOString();
     localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
     _setSyncStatus('ok');
-    // Mettre à jour le timestamp connu pour éviter un pull inutile juste après
-    if(typeof _lastKnownModified !== 'undefined') _lastKnownModified = payload.savedAt||'';
     return true;
   } catch(ex){
     console.warn('Cloud push failed:', ex);
@@ -7831,17 +7781,12 @@ async function cloudPull(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const json = await res.json();
     const data = json.record || json;
-    if(data && data.employees){
-      if(data.employees.length){
-        applyStatePayload(data);
-      }
+    if(data && data.employees && data.employees.length){
+      applyStatePayload(data);
       syncConfig.lastSync = new Date().toISOString();
       localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
       _setSyncStatus('ok');
-      // Mémoriser la date de modif pour éviter un pull redondant
-      if(typeof _lastKnownModified !== 'undefined' && data.lastModified)
-        _lastKnownModified = data.lastModified;
-      return true; // bin accessible, même s'il est vide
+      return true;
     }
     _setSyncStatus('ok');
     return false;
@@ -8680,46 +8625,6 @@ function renderSidebar(){
         items[next].click();
         items[next].scrollIntoView({block:'nearest'});
       }
-    });
-  }
-  // Drag reorder sidebar workers
-  if(list){
-    var dragSrc=null;
-    Array.from(list.querySelectorAll('[data-empid]')).forEach(function(item){
-      item.setAttribute('draggable','true');
-      Array.from(item.children).forEach(function(ch){ch.style.pointerEvents='none';});
-      item.addEventListener('dragstart',function(ev){
-        dragSrc=this;
-        ev.dataTransfer.effectAllowed='move';
-        this.style.opacity='.4';
-      });
-      item.addEventListener('dragend',function(){
-        this.style.opacity='1';
-        dragSrc=null;
-      });
-      item.addEventListener('dragover',function(ev){
-        ev.preventDefault();
-        ev.dataTransfer.dropEffect='move';
-        this.style.borderColor='#2d5be3';
-      });
-      item.addEventListener('dragleave',function(ev){
-        if(!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.style.borderColor='';
-      });
-      item.addEventListener('drop',function(ev){
-        ev.stopPropagation(); ev.preventDefault();
-        var tgt=ev.currentTarget; tgt.style.borderColor='';
-        if(!dragSrc||dragSrc===tgt) return;
-        // Réordonner employees[] selon la nouvelle position
-        var fromId=parseInt(dragSrc.dataset.empid);
-        var toId=parseInt(tgt.dataset.empid);
-        var fromIdx=employees.findIndex(function(e){return e.id===fromId;});
-        var toIdx=employees.findIndex(function(e){return e.id===toId;});
-        if(fromIdx<0||toIdx<0) return;
-        var moved=employees.splice(fromIdx,1)[0];
-        employees.splice(toIdx,0,moved);
-        autoSave();
-        renderSidebar();
-      });
     });
   }
 
@@ -11335,134 +11240,40 @@ function doLogin(){
   completeLogin();
 }
 
-async function createBinIfNeeded(){
-  if(syncConfig.binId) return true;
-  if(!syncConfig.masterKey) return false;
-  try{
-    showToast('Creation du bin cloud...');
-    const r = await fetch('https://api.jsonbin.io/v3/b',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','X-Master-Key':syncConfig.masterKey,'X-Bin-Name':'GestiPlanning-CaftanFactory','X-Bin-Private':'true'},
-      body: JSON.stringify({employees:[],candidates:[],storeManagers:{},savedAt:new Date().toISOString(),version:6})
-    });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const data = await r.json();
-    const newId = data.metadata&&data.metadata.id;
-    if(!newId) throw new Error('No ID in response');
-    syncConfig.binId = newId;
-    JSONBIN_DEFAULT.binId = newId;
-    localStorage.setItem('gp_bin_id', newId);
-    localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
-    showToast('Bin cree ! Envoi des donnees...');
-    // Pousser les données actuelles dans le nouveau bin
-    await cloudPush();
-    const bf=document.getElementById('sync-bin-id'); if(bf) bf.value=newId;
-    const bd=document.getElementById('sync-bin-display');
-    if(bd) bd.innerHTML='<div style="font-size:.72rem;color:#16a34a;font-weight:700;margin-bottom:4px">Nouveau bin cree !</div>'
-      +'<div id="nbd" style="font-family:monospace;background:#f0fdf4;border:1.5px solid #16a34a;padding:6px 10px;border-radius:6px;font-size:.75rem;word-break:break-all;cursor:pointer">'+newId+'</div>';
-    var nbd=document.getElementById('nbd'); if(nbd) nbd.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(this.textContent).then(function(){showToast('Copie !');});};
-    return true;
-  }catch(ex){
-    console.error('[GestiPlanning] createBin error:',ex);
-    showToast('Echec creation bin: '+ex.message);
-    return false;
-  }
-}
-
-
 async function completeLogin(){
-  // ── ÉTAPE 1 : charger les données locales IMMÉDIATEMENT ──────
-  // L'app s'ouvre sans attendre le réseau
-  const hasLocal = loadStateLocal();
+  // Show loading
+  document.getElementById('login-sync-msg').style.display = 'block';
+  document.getElementById('login-sync-msg').textContent = '🔄 Chargement des données...';
 
-  // ── ÉTAPE 2 : afficher l'app tout de suite ───────────────────
+  // Try cloud first, then local
+  let loaded = false;
+  if(syncConfig.binId && syncConfig.masterKey){
+    loaded = await cloudPull();
+    if(!loaded){
+      document.getElementById('login-sync-msg').textContent = '⚠️ Cloud inaccessible — données locales chargées';
+    }
+  }
+  if(!loaded) loaded = loadStateLocal();
+
+  // Update UI
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-layout').style.removeProperty('display');
   document.getElementById('topbar').style.removeProperty('display');
+
+  // Update profile badge
   updateProfileBadge();
   applyProfilePermissions();
+
+  // Init app
   applyI18n();
   updateArchivesCount();
   if(selId && employees.find(e=>e.id===selId)) selectEmp(selId);
   else if(employees.length) selectEmp(employees[0].id);
   updateNotifBadge();
   _undoStack = []; _redoStack = []; _updateHistBtns();
-  _setSyncStatus(syncConfig.binId ? 'syncing' : 'local');
+  _setSyncStatus(syncConfig.binId ? 'ok' : 'local');
+  // Vérifier si un candidat a été transféré depuis CaftanRH
   setTimeout(checkRHTransfer, 500);
-
-  // ── ÉTAPE 3 : sync cloud EN ARRIÈRE-PLAN (non-bloquant) ──────
-  // Ne bloque plus l'affichage — se fait après que l'app est visible
-  setTimeout(async function(){
-    try{
-      // Créer bin si absent
-      if(!syncConfig.binId && syncConfig.masterKey){
-        await createBinIfNeeded();
-      }
-      if(syncConfig.binId && syncConfig.masterKey){
-        const cloudLoaded = await cloudPull();
-        if(cloudLoaded){
-          // Données cloud plus récentes → appliquer et rafraîchir
-          renderSidebar();
-          try{ if(selId && employees.find(e=>e.id===selId)) renderWeek(); }catch(e){}
-          _setSyncStatus('ok');
-          showToast('☁️ Planning synchronisé');
-        } else {
-          _setSyncStatus(hasLocal ? 'local' : 'error');
-        }
-      }
-    }catch(ex){
-      console.warn('[GestiPlanning] Background sync failed:', ex);
-      _setSyncStatus('local');
-    }
-  }, 100); // 100ms après l'affichage → imperceptible
-
-  // Fake: ne pas ré-exécuter le reste du login (déjà fait ci-dessus)
-  var _loginDone = true; if(!_loginDone) {
-
-  // ── Sync automatique en arrière-plan ─────────────────────────
-  // Rafraîchir depuis le cloud quand l'onglet reprend le focus
-  document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState==='visible') checkAndPull();
-  });
-  // ── Sync intelligente : vérifie le timestamp avant de puller ──
-  // Stocke la date de dernière modif connue pour éviter les pulls inutiles
-  var _lastKnownModified = '';
-
-  async function checkAndPull(){
-    if(!syncConfig.binId || !syncConfig.masterKey || _syncPending) return;
-    try{
-      // Requête légère : lit uniquement les métadonnées (pas les données)
-      var metaRes = await fetch('https://api.jsonbin.io/v3/b/'+syncConfig.binId+'/latest?meta=false',{
-        headers:{'X-Master-Key':syncConfig.masterKey,'X-Bin-Meta':'true'}
-      });
-      if(!metaRes.ok) return;
-      // Lire le header de date de modification
-      var serverDate = metaRes.headers.get('X-Bin-Updated-At') || metaRes.headers.get('Last-Modified') || '';
-      if(!serverDate){
-        // Fallback: lire le champ lastModified dans les données (requête complète)
-        var json = await metaRes.json();
-        var rec = json.record || json;
-        serverDate = rec.lastModified || rec.savedAt || '';
-      }
-      // Comparer avec ce qu'on connaît
-      if(serverDate && serverDate === _lastKnownModified) return; // rien de nouveau
-      // Nouveau contenu détecté → pull complet
-      var loaded = await cloudPull();
-      if(loaded){
-        _lastKnownModified = serverDate;
-        renderSidebar();
-        try{ if(selId) renderWeek(); }catch(e){}
-        _setSyncStatus('ok');
-      }
-    }catch(ex){ /* silencieux */ }
-  }
-
-  // Intervalle 30s — checkAndPull est léger si rien n'a changé
-  setInterval(function(){
-    if(document.visibilityState==='visible') checkAndPull();
-  }, 30000);
-
-  } // fin bloc fake
 }
 
 function updateProfileBadge(){
@@ -11559,24 +11370,11 @@ async function testAndPull(){
   saveSyncConfig();
   const res = document.getElementById('sync-test-result');
   res.style.display = 'block'; res.style.color = 'var(--ink3)';
-  if(!syncConfig.binId){
-    res.textContent = 'Creation du bin...';
-    const created = await createBinIfNeeded();
-    if(!created){ res.style.color='var(--red)'; res.textContent='Echec creation bin — verifiez la Master Key.'; return; }
-    res.textContent = 'Bin cree, test connexion...';
-  } else {
-    res.textContent = 'Test en cours...';
-  }
+  res.textContent = '🔄 Test en cours...';
   const ok = await cloudPull();
   if(ok){
     res.style.color = 'var(--green)';
-    var shareUrl = window.location.href.split('?')[0]+'?bid='+syncConfig.binId;
-    res.innerHTML = '✅ Connexion réussie — données chargées !<br>'
-      +'<span style="font-size:.64rem;color:#166534">Pour partager sur un autre PC, copiez cette URL :<br>'
-      +'<span style="font-family:monospace;font-size:.6rem;word-break:break-all;cursor:pointer" '
-      +'id="share-url-display">'+shareUrl+'</span></span>';
-    var sud=document.getElementById('share-url-display');
-    if(sud) sud.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(this.textContent).then(function(){showToast('URL copiée !');});};
+    res.textContent = '✅ Connexion réussie — données chargées !';
     renderSidebar();
     if(selId && employees.find(e=>e.id===selId)) loadPanel();
     else if(employees.length) selectEmp(employees[0].id);
