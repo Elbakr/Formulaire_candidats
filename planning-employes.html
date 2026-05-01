@@ -11367,23 +11367,53 @@ async function createBinIfNeeded(){
 
 
 async function completeLogin(){
-  // Show loading
-  document.getElementById('login-sync-msg').style.display = 'block';
-  document.getElementById('login-sync-msg').textContent = '🔄 Chargement des données...';
+  // ── ÉTAPE 1 : charger les données locales IMMÉDIATEMENT ──────
+  // L'app s'ouvre sans attendre le réseau
+  const hasLocal = loadStateLocal();
 
-  // Creer bin si absent
-  if(!syncConfig.binId && syncConfig.masterKey){
-    await createBinIfNeeded();
-  }
-  // Try cloud first, then local
-  let loaded = false;
-  if(syncConfig.binId && syncConfig.masterKey){
-    loaded = await cloudPull();
-    if(!loaded){
-      document.getElementById('login-sync-msg').textContent = '⚠️ Cloud inaccessible — données locales chargées';
+  // ── ÉTAPE 2 : afficher l'app tout de suite ───────────────────
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-layout').style.removeProperty('display');
+  document.getElementById('topbar').style.removeProperty('display');
+  updateProfileBadge();
+  applyProfilePermissions();
+  applyI18n();
+  updateArchivesCount();
+  if(selId && employees.find(e=>e.id===selId)) selectEmp(selId);
+  else if(employees.length) selectEmp(employees[0].id);
+  updateNotifBadge();
+  _undoStack = []; _redoStack = []; _updateHistBtns();
+  _setSyncStatus(syncConfig.binId ? 'syncing' : 'local');
+  setTimeout(checkRHTransfer, 500);
+
+  // ── ÉTAPE 3 : sync cloud EN ARRIÈRE-PLAN (non-bloquant) ──────
+  // Ne bloque plus l'affichage — se fait après que l'app est visible
+  setTimeout(async function(){
+    try{
+      // Créer bin si absent
+      if(!syncConfig.binId && syncConfig.masterKey){
+        await createBinIfNeeded();
+      }
+      if(syncConfig.binId && syncConfig.masterKey){
+        const cloudLoaded = await cloudPull();
+        if(cloudLoaded){
+          // Données cloud plus récentes → appliquer et rafraîchir
+          renderSidebar();
+          try{ if(selId && employees.find(e=>e.id===selId)) renderWeek(); }catch(e){}
+          _setSyncStatus('ok');
+          showToast('☁️ Planning synchronisé');
+        } else {
+          _setSyncStatus(hasLocal ? 'local' : 'error');
+        }
+      }
+    }catch(ex){
+      console.warn('[GestiPlanning] Background sync failed:', ex);
+      _setSyncStatus('local');
     }
-  }
-  if(!loaded) loaded = loadStateLocal();
+  }, 100); // 100ms après l'affichage → imperceptible
+
+  // Fake: ne pas ré-exécuter le reste du login (déjà fait ci-dessus)
+  var _loginDone = true; if(!_loginDone) {
 
   // ── Sync automatique en arrière-plan ─────────────────────────
   // Rafraîchir depuis le cloud quand l'onglet reprend le focus
@@ -11428,25 +11458,7 @@ async function completeLogin(){
     if(document.visibilityState==='visible') checkAndPull();
   }, 30000);
 
-  // Update UI
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app-layout').style.removeProperty('display');
-  document.getElementById('topbar').style.removeProperty('display');
-
-  // Update profile badge
-  updateProfileBadge();
-  applyProfilePermissions();
-
-  // Init app
-  applyI18n();
-  updateArchivesCount();
-  if(selId && employees.find(e=>e.id===selId)) selectEmp(selId);
-  else if(employees.length) selectEmp(employees[0].id);
-  updateNotifBadge();
-  _undoStack = []; _redoStack = []; _updateHistBtns();
-  _setSyncStatus(syncConfig.binId ? 'ok' : 'local');
-  // Vérifier si un candidat a été transféré depuis CaftanRH
-  setTimeout(checkRHTransfer, 500);
+  } // fin bloc fake
 }
 
 function updateProfileBadge(){
