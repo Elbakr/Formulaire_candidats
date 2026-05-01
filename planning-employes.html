@@ -111,7 +111,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
 .day-end{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--ink3);text-align:center;margin-top:2px}
 .day-h{font-family:'JetBrains Mono',monospace;font-size:.64rem;font-weight:600;color:var(--ink);text-align:center;margin-top:1px}
 .pause-info{font-size:.52rem;color:var(--purple);text-align:center;margin-top:1px;font-weight:600}
-.overlay{position:fixed;inset:0;background:rgba(26,26,46,.45);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto}
+.overlay{position:fixed;inset:0;background:rgba(26,26,46,.45);backdrop-filter:blur(6px);z-index:3000;display:none;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto}
 .overlay.open{display:flex}
 .modal{background:var(--white);border-radius:18px;width:min(700px,96vw);max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:var(--shl);animation:popIn .22s ease}
 .modal::-webkit-scrollbar{width:4px}
@@ -379,6 +379,7 @@ textarea{resize:vertical;min-height:56px;font-size:.8rem}
     </button>
     <button id="lang-btn" onclick="toggleLang()" style="padding:4px 11px;border-radius:20px;border:1.5px solid var(--line);background:var(--white);font-family:'Sora',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--ink2)">🇳🇱 NL</button>
     <span id="sync-status" title="Statut synchronisation" style="font-size:.9rem;cursor:pointer" onclick="if(isAdmin()){openModal('sync-modal');syncTab('sync');}">💾</span>
+    <button onclick="openModal('sync-modal');syncTab('sync');" title="Synchronisation cloud" style="padding:4px 10px;border-radius:20px;border:1.5px solid #0891b2;background:#cffafe;font-size:.7rem;font-weight:700;cursor:pointer;color:#0e7490">☁️ Sync</button>
     <span id="save-indicator" style="font-size:.62rem;color:var(--green);font-weight:600;opacity:0;transition:opacity 1s">✓</span>
     <!-- Profil actif -->
     <button id="current-profile-btn" onclick="openProfileSwitch()"
@@ -3093,6 +3094,9 @@ function runGlobalAutoplan(dateStart, dateEnd, orderedSites, nbProps){
     });
   });
 
+  // Définir les variables de période pour le calcul des heures
+  _msPeriodStart = dateStart;
+  _msPeriodEnd   = dateEnd;
   return {msResults, grid, workerDayAssign, workerWeekLoad, weeks};
 }
 
@@ -3545,7 +3549,7 @@ function openMultiSiteResults(allResults, orderedSites, weeks){
               return groups_.map(g=>{
                 const badges=g.items.map(({emp,hours,monthlyMax,pct,pctColor,col})=>{
                   const maxStr2=monthlyMax>0?'/'+toHM(monthlyMax):'';
-                  return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+toHM(hours)+maxStr2+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
+                  return '<span onclick="openWorkerQuickView('+emp.id+',event)" style="padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;background:'+col.bg+';color:'+col.fg+';cursor:pointer" title="'+pct+'% du quota mensuel">'+emp.firstname+' '+(hours>0?toHM(hours):'0h')+maxStr2+(monthlyMax>0?'<span style="font-size:.6rem;color:'+pctColor+';margin-left:3px">'+pct+'%</span>':'')+'</span>';
                 }).join('');
                 return '<div style="margin-bottom:8px"><div style="font-size:.65rem;font-weight:800;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;padding:2px 6px;background:'+g.bg+';border-radius:5px;display:inline-block">'+g.label+' ('+g.items.length+')</div><div style="display:flex;flex-wrap:wrap;gap:4px">'+badges+'</div></div>';
               }).join('');
@@ -7046,7 +7050,7 @@ function openWorkerQuickView(empId, event){
   hdrQ.innerHTML='<div><div style="font-size:.95rem;font-weight:900;color:'+col.fg+'">'+e.firstname+' '+e.lastname+'</div>'
     +'<div style="font-size:.66rem;color:'+col.fg+';opacity:.8;margin-top:2px">'+e.status+' &middot; '+(e.hours||0)+'h/sem</div>'
     +'<div style="font-size:.63rem;color:'+col.fg+';opacity:.7;margin-top:1px">Sites: ['+((e.sites||[]).join(',')||'&mdash;')+']</div>'
-    +'<div style="font-size:.66rem;font-weight:700;color:'+pctCol+';margin-top:3px">'+toHM(workedMins)+'/'+toHM(monthlyMax)+'h ('+pct+'%)</div>'
+    +'<div style="font-size:.66rem;font-weight:700;color:'+pctCol+';margin-top:3px">'+toHM(workedMins)+'/'+toHM(monthlyMax)+' ('+pct+'%)</div>'
     +'</div>'
     +'<button onclick="closeWorkerPanel()" style="border:none;background:rgba(0,0,0,.12);border-radius:5px;padding:2px 7px;cursor:pointer;font-size:.8rem">&#x2715;</button>';
   var actQ=document.createElement('div');
@@ -8655,6 +8659,7 @@ function renderSidebar(){
     var dragSrc=null;
     Array.from(list.querySelectorAll('[data-empid]')).forEach(function(item){
       item.setAttribute('draggable','true');
+      Array.from(item.children).forEach(function(ch){ch.style.pointerEvents='none';});
       item.addEventListener('dragstart',function(ev){
         dragSrc=this;
         ev.dataTransfer.effectAllowed='move';
@@ -8669,16 +8674,16 @@ function renderSidebar(){
         ev.dataTransfer.dropEffect='move';
         this.style.borderColor='#2d5be3';
       });
-      item.addEventListener('dragleave',function(){
-        this.style.borderColor='';
+      item.addEventListener('dragleave',function(ev){
+        if(!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.style.borderColor='';
       });
       item.addEventListener('drop',function(ev){
         ev.stopPropagation(); ev.preventDefault();
-        this.style.borderColor='';
-        if(!dragSrc||dragSrc===this) return;
+        var tgt=ev.currentTarget; tgt.style.borderColor='';
+        if(!dragSrc||dragSrc===tgt) return;
         // Réordonner employees[] selon la nouvelle position
         var fromId=parseInt(dragSrc.dataset.empid);
-        var toId=parseInt(this.dataset.empid);
+        var toId=parseInt(tgt.dataset.empid);
         var fromIdx=employees.findIndex(function(e){return e.id===fromId;});
         var toIdx=employees.findIndex(function(e){return e.id===toId;});
         if(fromIdx<0||toIdx<0) return;
@@ -11316,6 +11321,24 @@ async function completeLogin(){
     }
   }
   if(!loaded) loaded = loadStateLocal();
+
+  // ── Sync automatique en arrière-plan ─────────────────────────
+  // Rafraîchir depuis le cloud quand l'onglet reprend le focus
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='visible' && syncConfig.binId && syncConfig.masterKey){
+      cloudPull().then(function(loaded){
+        if(loaded){ renderSidebar(); renderWeek(); showToast('🔄 Planning synchronisé depuis le cloud'); }
+      }).catch(function(){});
+    }
+  });
+  // Sync automatique toutes les 90 secondes
+  setInterval(function(){
+    if(document.visibilityState==='visible' && syncConfig.binId && syncConfig.masterKey && !_syncPending){
+      cloudPull().then(function(loaded){
+        if(loaded){ renderSidebar(); renderWeek(); }
+      }).catch(function(){});
+    }
+  }, 90000);
 
   // Update UI
   document.getElementById('login-screen').style.display = 'none';
