@@ -7825,12 +7825,14 @@ async function cloudPull(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const json = await res.json();
     const data = json.record || json;
-    if(data && data.employees && data.employees.length){
-      applyStatePayload(data);
+    if(data && data.employees){
+      if(data.employees.length){
+        applyStatePayload(data);
+      }
       syncConfig.lastSync = new Date().toISOString();
       localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
       _setSyncStatus('ok');
-      return true;
+      return true; // bin accessible, même s'il est vide
     }
     _setSyncStatus('ok');
     return false;
@@ -11342,7 +11344,9 @@ async function createBinIfNeeded(){
     JSONBIN_DEFAULT.binId = newId;
     localStorage.setItem('gp_bin_id', newId);
     localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
-    showToast('Bin cree: '+newId);
+    showToast('Bin cree ! Envoi des donnees...');
+    // Pousser les données actuelles dans le nouveau bin
+    await cloudPush();
     const bf=document.getElementById('sync-bin-id'); if(bf) bf.value=newId;
     const bd=document.getElementById('sync-bin-display');
     if(bd) bd.innerHTML='<div style="font-size:.72rem;color:#16a34a;font-weight:700;margin-bottom:4px">Nouveau bin cree !</div>'
