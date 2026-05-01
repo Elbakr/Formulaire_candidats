@@ -7801,12 +7801,14 @@ async function cloudPush(){
         'Content-Type': 'application/json',
         'X-Master-Key': syncConfig.masterKey
       },
-      body: JSON.stringify({ record: payload, metadata: { private: true } })
+      body: JSON.stringify({ record: Object.assign({}, payload, {lastModified: new Date().toISOString()}), metadata: { private: true } })
     });
     if(!res.ok) throw new Error('HTTP '+res.status);
     syncConfig.lastSync = new Date().toISOString();
     localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
     _setSyncStatus('ok');
+    // Mettre à jour le timestamp connu pour éviter un pull inutile juste après
+    if(typeof _lastKnownModified !== 'undefined') _lastKnownModified = payload.savedAt||'';
     return true;
   } catch(ex){
     console.warn('Cloud push failed:', ex);
@@ -7832,6 +7834,9 @@ async function cloudPull(){
       syncConfig.lastSync = new Date().toISOString();
       localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
       _setSyncStatus('ok');
+      // Mémoriser la date de modif pour éviter un pull redondant
+      if(typeof _lastKnownModified !== 'undefined' && data.lastModified)
+        _lastKnownModified = data.lastModified;
       return true; // bin accessible, même s'il est vide
     }
     _setSyncStatus('ok');
@@ -11383,20 +11388,45 @@ async function completeLogin(){
   // ── Sync automatique en arrière-plan ─────────────────────────
   // Rafraîchir depuis le cloud quand l'onglet reprend le focus
   document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState==='visible' && syncConfig.binId && syncConfig.masterKey){
-      cloudPull().then(function(loaded){
-        if(loaded){ renderSidebar(); renderWeek(); showToast('🔄 Planning synchronisé depuis le cloud'); }
-      }).catch(function(){});
-    }
+    if(document.visibilityState==='visible') checkAndPull();
   });
-  // Sync automatique toutes les 90 secondes
+  // ── Sync intelligente : vérifie le timestamp avant de puller ──
+  // Stocke la date de dernière modif connue pour éviter les pulls inutiles
+  var _lastKnownModified = '';
+
+  async function checkAndPull(){
+    if(!syncConfig.binId || !syncConfig.masterKey || _syncPending) return;
+    try{
+      // Requête légère : lit uniquement les métadonnées (pas les données)
+      var metaRes = await fetch('https://api.jsonbin.io/v3/b/'+syncConfig.binId+'/latest?meta=false',{
+        headers:{'X-Master-Key':syncConfig.masterKey,'X-Bin-Meta':'true'}
+      });
+      if(!metaRes.ok) return;
+      // Lire le header de date de modification
+      var serverDate = metaRes.headers.get('X-Bin-Updated-At') || metaRes.headers.get('Last-Modified') || '';
+      if(!serverDate){
+        // Fallback: lire le champ lastModified dans les données (requête complète)
+        var json = await metaRes.json();
+        var rec = json.record || json;
+        serverDate = rec.lastModified || rec.savedAt || '';
+      }
+      // Comparer avec ce qu'on connaît
+      if(serverDate && serverDate === _lastKnownModified) return; // rien de nouveau
+      // Nouveau contenu détecté → pull complet
+      var loaded = await cloudPull();
+      if(loaded){
+        _lastKnownModified = serverDate;
+        renderSidebar();
+        try{ if(selId) renderWeek(); }catch(e){}
+        _setSyncStatus('ok');
+      }
+    }catch(ex){ /* silencieux */ }
+  }
+
+  // Intervalle 30s — checkAndPull est léger si rien n'a changé
   setInterval(function(){
-    if(document.visibilityState==='visible' && syncConfig.binId && syncConfig.masterKey && !_syncPending){
-      cloudPull().then(function(loaded){
-        if(loaded){ renderSidebar(); renderWeek(); }
-      }).catch(function(){});
-    }
-  }, 90000);
+    if(document.visibilityState==='visible') checkAndPull();
+  }, 30000);
 
   // Update UI
   document.getElementById('login-screen').style.display = 'none';
