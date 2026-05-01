@@ -5491,7 +5491,11 @@ function renderMonthView(){
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const date = new Date(ds+'T12:00:00');
     const dow  = date.getDay(); // 0=Dim
-    const {wOff, di, day} = getDayData(e, ds);
+    const wOff = dateToWeekOffset(ds);
+    const di   = dateToDayIdx(ds);
+    // Initialiser la semaine si absente → applique indispos récurrentes
+    if(!e.weeks?.[wOff]) getWeekDays(e, wOff);
+    const day  = e.weeks?.[wOff]?.[di] || null;
     const todayStr = new Date().toISOString().slice(0,10);
     const isToday_ = ds === todayStr;
     const isWeekend = dow===0||dow===6;
