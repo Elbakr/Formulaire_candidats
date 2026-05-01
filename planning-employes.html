@@ -7752,14 +7752,31 @@ const SYNC_KEY  = 'gp_sync_config';
 // Clés JSONBin pré-configurées (partagées tous fichiers Caftan Factory)
 const JSONBIN_DEFAULT = {
   masterKey: '$2a$10$F5WDFMcJ45ylysiNzaHp1ugrTiicbN38mz.YET3k.C8sCV46iYLtG',
-  binId: localStorage.getItem('gp_bin_id')||''  // BIN_ID saisi une fois via Admin
+  binId: localStorage.getItem('gp_bin_id')||''  // BIN_ID saisi via ☁️ Sync
 };
 let syncConfig = (() => {
   const stored = JSON.parse(localStorage.getItem(SYNC_KEY)||'{}');
-  // Utiliser les clés par défaut si pas de config locale
+  // Lire binId depuis l'URL (param ?bid=xxx ou hash #bid=xxx) pour partage multi-PC
+  let urlBinId = '';
+  try{
+    const sp = new URLSearchParams(window.location.search);
+    urlBinId = sp.get('bid') || '';
+    if(!urlBinId){
+      const hash = window.location.hash.replace('#','');
+      urlBinId = new URLSearchParams(hash).get('bid') || '';
+    }
+    if(urlBinId){
+      localStorage.setItem('gp_bin_id', urlBinId);
+      // Nettoyer l'URL
+      if(window.history && window.history.replaceState)
+        window.history.replaceState({}, '', window.location.pathname);
+    }
+  }catch(e){}
+  const binId = stored.binId || urlBinId || JSONBIN_DEFAULT.binId;
+  if(binId) localStorage.setItem('gp_bin_id', binId);
   return {
     masterKey: stored.masterKey || JSONBIN_DEFAULT.masterKey,
-    binId:     stored.binId     || JSONBIN_DEFAULT.binId,
+    binId:     binId,
     lastSync:  stored.lastSync  || ''
   };
 })();
@@ -11307,11 +11324,48 @@ function doLogin(){
   completeLogin();
 }
 
+async function createBinIfNeeded(){
+  if(syncConfig.binId) return true;
+  if(!syncConfig.masterKey) return false;
+  try{
+    showToast('Creation du bin cloud...');
+    const r = await fetch('https://api.jsonbin.io/v3/b',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Master-Key':syncConfig.masterKey,'X-Bin-Name':'GestiPlanning-CaftanFactory','X-Bin-Private':'true'},
+      body: JSON.stringify({employees:[],candidates:[],storeManagers:{},savedAt:new Date().toISOString(),version:6})
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    const newId = data.metadata&&data.metadata.id;
+    if(!newId) throw new Error('No ID in response');
+    syncConfig.binId = newId;
+    JSONBIN_DEFAULT.binId = newId;
+    localStorage.setItem('gp_bin_id', newId);
+    localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+    showToast('Bin cree: '+newId);
+    const bf=document.getElementById('sync-bin-id'); if(bf) bf.value=newId;
+    const bd=document.getElementById('sync-bin-display');
+    if(bd) bd.innerHTML='<div style="font-size:.72rem;color:#16a34a;font-weight:700;margin-bottom:4px">Nouveau bin cree !</div>'
+      +'<div id="nbd" style="font-family:monospace;background:#f0fdf4;border:1.5px solid #16a34a;padding:6px 10px;border-radius:6px;font-size:.75rem;word-break:break-all;cursor:pointer">'+newId+'</div>';
+    var nbd=document.getElementById('nbd'); if(nbd) nbd.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(this.textContent).then(function(){showToast('Copie !');});};
+    return true;
+  }catch(ex){
+    console.error('[GestiPlanning] createBin error:',ex);
+    showToast('Echec creation bin: '+ex.message);
+    return false;
+  }
+}
+
+
 async function completeLogin(){
   // Show loading
   document.getElementById('login-sync-msg').style.display = 'block';
   document.getElementById('login-sync-msg').textContent = '🔄 Chargement des données...';
 
+  // Creer bin si absent
+  if(!syncConfig.binId && syncConfig.masterKey){
+    await createBinIfNeeded();
+  }
   // Try cloud first, then local
   let loaded = false;
   if(syncConfig.binId && syncConfig.masterKey){
@@ -11455,11 +11509,24 @@ async function testAndPull(){
   saveSyncConfig();
   const res = document.getElementById('sync-test-result');
   res.style.display = 'block'; res.style.color = 'var(--ink3)';
-  res.textContent = '🔄 Test en cours...';
+  if(!syncConfig.binId){
+    res.textContent = 'Creation du bin...';
+    const created = await createBinIfNeeded();
+    if(!created){ res.style.color='var(--red)'; res.textContent='Echec creation bin — verifiez la Master Key.'; return; }
+    res.textContent = 'Bin cree, test connexion...';
+  } else {
+    res.textContent = 'Test en cours...';
+  }
   const ok = await cloudPull();
   if(ok){
     res.style.color = 'var(--green)';
-    res.textContent = '✅ Connexion réussie — données chargées !';
+    var shareUrl = window.location.href.split('?')[0]+'?bid='+syncConfig.binId;
+    res.innerHTML = '✅ Connexion réussie — données chargées !<br>'
+      +'<span style="font-size:.64rem;color:#166534">Pour partager sur un autre PC, copiez cette URL :<br>'
+      +'<span style="font-family:monospace;font-size:.6rem;word-break:break-all;cursor:pointer" '
+      +'id="share-url-display">'+shareUrl+'</span></span>';
+    var sud=document.getElementById('share-url-display');
+    if(sud) sud.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(this.textContent).then(function(){showToast('URL copiée !');});};
     renderSidebar();
     if(selId && employees.find(e=>e.id===selId)) loadPanel();
     else if(employees.length) selectEmp(employees[0].id);
