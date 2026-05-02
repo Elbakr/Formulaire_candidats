@@ -2576,7 +2576,7 @@ function openRestDaysManager(){
       </div>
       <div style="display:flex;gap:8px">
         <button onclick="applyRestDaysDistribution();openRestDaysManager()" style="padding:6px 12px;border-radius:8px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.74rem;font-weight:700;cursor:pointer">🔄 Redistribuer</button>
-        <button onclick="document.getElementById('rest-days-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+        <button onclick="closeRestDaysModal()" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
       </div>
     </div>
 
@@ -5512,10 +5512,12 @@ function renderMonthView(){
     });
     allR.sort(function(a,b){return b.hours-a.hours;});
     var myRk=allR.findIndex(function(x){return x.id===e.id;})+1;
+    var wwh=allR.filter(function(x){return x.hours>0;});
     ranking={
-      rank:myRk,total:allR.length,
+      rank:wwh.findIndex(function(x){return x.id===e.id;})+1||myRk,
+      total:wwh.length||allR.length,
       medal:myRk===1?'🥇':myRk===2?'🥈':myRk===3?'🥉':'#'+myRk,
-      podium:allR.slice(0,Math.min(3,allR.length)).map(function(x,i){return (i+1)+'. '+x.name+' ('+toHM(x.hours)+')';}).join(' · ')
+      podium:wwh.slice(0,Math.min(3,wwh.length)).map(function(x,i){return (i+1)+'. '+x.name+' ('+toHM(x.hours)+')';}).join(' · ')||'Aucune heure ce mois'
     };
   }
   // Construire HTML stats
@@ -5772,6 +5774,8 @@ function openDayEdit(dateStr, dow){
   var modeRow=document.createElement('div');modeRow.style.cssText='display:flex;gap:6px';
   var bWork=document.createElement('button');bWork.id='de-btn-work';bWork.innerHTML='&#128197; Travail';
   bWork.onclick=function(){deSetMode('work');};
+  bWork.dataset.active=isLeaveNow?'0':'1';
+  bLeave.dataset.active=isLeaveNow?'1':'0';
   var bLeave=document.createElement('button');bLeave.id='de-btn-leave';bLeave.innerHTML='&#127958; Congé ponctuel';
   bLeave.onclick=function(){deSetMode('leave');};
   var bs='flex:1;padding:8px;border-radius:9px;font-size:.76rem;font-weight:700;cursor:pointer;border:2px solid ';
@@ -5844,12 +5848,12 @@ function deSetMode(mode){
   var bw=document.getElementById('de-btn-work'),bl=document.getElementById('de-btn-leave'),hb=document.getElementById('de-hours-block');
   var bs='flex:1;padding:8px;border-radius:9px;font-size:.76rem;font-weight:700;cursor:pointer;border:2px solid ';
   if(mode==='work'){
-    if(bw)bw.style.cssText=bs+'#2d5be3;background:#eef1fd;color:#2d5be3';
-    if(bl)bl.style.cssText=bs+'#e2e0d8;background:white;color:#9898b8';
+    if(bw){bw.style.cssText=bs+'#2d5be3;background:#eef1fd;color:#2d5be3';bw.dataset.active='1';}
+    if(bl){bl.style.cssText=bs+'#e2e0d8;background:white;color:#9898b8';bl.dataset.active='0';}
     if(hb)hb.style.display='flex';
   } else {
-    if(bl)bl.style.cssText=bs+'#ea580c;background:#fff7ed;color:#ea580c';
-    if(bw)bw.style.cssText=bs+'#e2e0d8;background:white;color:#9898b8';
+    if(bl){bl.style.cssText=bs+'#ea580c;background:#fff7ed;color:#ea580c';bl.dataset.active='1';}
+    if(bw){bw.style.cssText=bs+'#e2e0d8;background:white;color:#9898b8';bw.dataset.active='0';}
     if(hb)hb.style.display='none';
   }
 }
@@ -5860,7 +5864,7 @@ function saveDayPlan(dateStr,dow){
   var end=document.getElementById('de-end')&&document.getElementById('de-end').value;
   var scope=(document.querySelector('input[name="de-scope"]:checked')||{}).value||'single';
   var bl=document.getElementById('de-btn-leave');
-  var isLeave=!!(bl&&(bl.style.cssText.indexOf('ea580c')>=0));
+  var isLeave=!!(bl&&bl.dataset.active==='1');
   if(!isLeave&&(!start||!end||start>=end)){showToast('Horaire invalide');return;}
   var dayDow=parseInt(dow);
   var DAYS3=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -5938,7 +5942,7 @@ function openValidationCenter(){
   <div style="background:white;border-radius:14px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
     <div style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:.95rem;font-weight:800;color:white">⏳ Demandes de validation (${pending.length})</div>
-      <button onclick="document.getElementById('validation-modal').remove()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+      <button onclick="closeValidationModal()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
     </div>
     <div style="padding:16px">
       ${!pending.length?'<div style="text-align:center;padding:32px;color:#9898b8">✅ Aucune demande en attente.</div>':
@@ -6138,7 +6142,7 @@ function openGlobalWorkerView(defaultTab){
       <div style="display:flex;gap:8px">
         <button onclick="autoplanGlobalWorker()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.76rem;font-weight:700;cursor:pointer">🤖 Autoplanifier période</button>
         <button onclick="printGlobalView()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.76rem;font-weight:700;cursor:pointer">🖨️ Imprimer</button>
-        <button onclick="document.getElementById('global-view-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer">✕</button>
+        <button onclick="closeGlobalWorkerView()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer">&#x2715;</button>
       </div>
     </div>
 
@@ -6983,7 +6987,7 @@ function openStoreNeedsEditor(){
         <button onclick="openStoreNeedsExceptions(currentSiteId_||Object.keys(SITES)[0])" style="padding:7px 14px;border-radius:8px;border:1.5px solid #7c3aed;background:#f3e8ff;color:#7c3aed;font-size:.74rem;font-weight:700;cursor:pointer">📅 Exceptions</button>
         <button onclick="saveMsNeedsWithFeedback()" id="btn-save-needs" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.2);color:white;font-size:.76rem;font-weight:700;cursor:pointer">💾 Sauvegarder</button>
         <button onclick="resetStoreNeeds()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:.74rem;cursor:pointer">↺ Réinitialiser</button>
-        <button onclick="document.getElementById('store-needs-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">✕</button>
+        <button onclick="closeStoreNeedsModal()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">✕</button>
       </div>
     </div>
 
@@ -7261,7 +7265,7 @@ function openStoreManagerConfig(){
   <div style="background:white;border-radius:16px;width:100%;max-width:600px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
     <div style="background:linear-gradient(135deg,#059669,#16a34a);padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:.95rem;font-weight:800;color:white">🏪 Responsables de magasin</div>
-      <button onclick="document.getElementById('store-manager-modal').remove()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+      <button onclick="closeStoreManagerModal()" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
     </div>
     <div style="padding:10px 16px 4px;background:#f0fdf4;border-bottom:1px solid #bbf7d0;font-size:.72rem;color:#166534">
       ✋ = Désigné manuellement &nbsp;·&nbsp; 🤖 = Calculé automatiquement (Grade → Ancienneté → Score)
@@ -7694,7 +7698,7 @@ function openSiteWeekRecap(siteId, weekStart, prop){
       <div style="display:flex;gap:8px">
         <button onclick="applyRecapProposal()" style="padding:7px 14px;border-radius:8px;border:none;background:#059669;color:white;font-size:.78rem;font-weight:700;cursor:pointer">✓ Appliquer au planning</button>
         <button onclick="printSiteRecap()" style="padding:7px 14px;border-radius:8px;border:none;background:rgba(255,255,255,.15);color:white;font-size:.78rem;font-weight:700;cursor:pointer">🖨️ Imprimer</button>
-        <button onclick="document.getElementById('site-recap-modal').remove()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer">✕</button>
+        <button onclick="closeSiteRecapModal()" style="background:rgba(255,255,255,.15);border:none;color:white;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer">✕</button>
       </div>
     </div>
 
@@ -11481,6 +11485,15 @@ function getPrefs(){
 }
 function savePrefs(p){ localStorage.setItem(GP_PREFS_KEY,JSON.stringify(p)); }
 function setPref(key,val){ var p=getPrefs(); p[key]=val; savePrefs(p); if(_viewMode==='month')renderMonthView(); }
+function closeRestDaysModal(){var m=document.getElementById('rest-days-modal');if(m)m.remove();}
+function closeValidationModal(){var m=document.getElementById('validation-modal');if(m)m.remove();}
+function closeStoreNeedsModal(){var m=document.getElementById('store-needs-modal');if(m)m.remove();}
+function closeStoreManagerModal(){var m=document.getElementById('store-manager-modal');if(m)m.remove();}
+function closeSiteRecapModal(){var m=document.getElementById('site-recap-modal');if(m)m.remove();}
+function closeGlobalWorkerView(){ var m=document.getElementById('global-view-modal'); if(m)m.remove(); }
+function closeAbsenceExplain(){ var m=document.getElementById('absence-explain-modal'); if(m)m.remove(); }
+function closeMultiSiteResults(){ var m=document.getElementById('ms-results-modal'); if(m)m.remove(); }
+
 function closePrefsMdl(){ var m=document.getElementById('prefs-modal'); if(m)m.remove(); }
 function openPrefsPanel(){
   closePrefsMdl();
