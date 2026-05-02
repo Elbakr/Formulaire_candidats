@@ -5483,6 +5483,11 @@ function renderMonthView(){
   }
 
   const prefs3 = getPrefs();
+  // Lancer le calcul classement en arrière-plan si pas en cache
+  if(prefs3.monthShowRanking!==false){
+    if(!_rankingCache || _rankingCache.year!==year || _rankingCache.month!==month)
+      calcMonthRanking(year, month);
+  }
   // Heures par semaine
   var weeklyBD=[];
   getWeeksInSameMonth(curWeek).forEach(function(wOff2){
@@ -5498,28 +5503,9 @@ function renderMonthView(){
     weeklyBD.push({label:'S '+wDates2[0].toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}),hours:+wH2.toFixed(2)});
   });
   // Classement
-  var ranking=null;
-  if(prefs3.monthShowRanking!==false){
-    var allR=employees.filter(function(w){return !w.archived;}).map(function(w){
-      var wH3=0;
-      for(var d3=1;d3<=lastDay.getDate();d3++){
-        var ds3x=year+'-'+String(month+1).padStart(2,'0')+'-'+String(d3).padStart(2,'0');
-        var d3d=w.weeks&&w.weeks[dateToWeekOffset(ds3x)]&&w.weeks[dateToWeekOffset(ds3x)][dateToDayIdx(ds3x)];
-        if(d3d&&d3d.status==='work'&&d3d.start&&d3d.end)
-          wH3+=Math.max(0,timeToMin(d3d.end)-timeToMin(d3d.start)-(d3d.pause||0))/60;
-      }
-      return {id:w.id,name:w.firstname,hours:+wH3.toFixed(2)};
-    });
-    allR.sort(function(a,b){return b.hours-a.hours;});
-    var myRk=allR.findIndex(function(x){return x.id===e.id;})+1;
-    var wwh=allR.filter(function(x){return x.hours>0;});
-    ranking={
-      rank:wwh.findIndex(function(x){return x.id===e.id;})+1||myRk,
-      total:wwh.length||allR.length,
-      medal:myRk===1?'🥇':myRk===2?'🥈':myRk===3?'🥉':'#'+myRk,
-      podium:wwh.slice(0,Math.min(3,wwh.length)).map(function(x,i){return (i+1)+'. '+x.name+' ('+toHM(x.hours)+')';}).join(' · ')||'Aucune heure ce mois'
-    };
-  }
+  // Classement: lire depuis le cache (calcul asynchrone via calcMonthRanking)
+  var ranking = _rankingCache && _rankingCache.year===year && _rankingCache.month===month
+    ? _rankingCache.data[e.id] || null : null;
   // Construire HTML stats
   var sH='<div style="margin-bottom:10px">'
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">'
@@ -7204,7 +7190,12 @@ function openWorkerQuickView(empId, event){
   bPlan.textContent='Planning';
   bPlan.style.cssText='flex:1;padding:7px;border-radius:7px;border:1.5px solid #2d5be3;background:white;color:#2d5be3;font-size:.73rem;font-weight:700;cursor:pointer';
   bPlan.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();openGlobalWorkerView('month');};
-  actQ.appendChild(bFiche); actQ.appendChild(bPlan);
+  var bEval=document.createElement('button');
+  bEval.innerHTML='&#x2B50;';
+  bEval.title='Evaluation / Score';
+  bEval.style.cssText='padding:7px 10px;border-radius:7px;border:1.5px solid #f59e0b;background:#fffbeb;color:#92400e;font-size:.78rem;font-weight:700;cursor:pointer';
+  bEval.onclick=function(){var x=document.getElementById('worker-quick-panel');if(x)x.remove();openEvalModal(e.id);};
+  actQ.appendChild(bFiche); actQ.appendChild(bPlan); actQ.appendChild(bEval);
   panel.appendChild(hdrQ); panel.appendChild(actQ);
   document.body.appendChild(panel);
   makeDraggable(panel,hdrQ);
@@ -8730,8 +8721,19 @@ function getWeekDays(e, off){
 (function initDOM(){
   try{
     const tdEl = document.getElementById('topbar-date');
-    if(tdEl) tdEl.textContent =
-      new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+    if(tdEl){
+      // Afficher la date du jour (opérationnel) + heure de génération du fichier
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'short'});
+      const timeStr = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      tdEl.textContent = dateStr+' '+timeStr;
+      // Mettre à jour l'heure chaque minute
+      setInterval(function(){
+        const n=new Date();
+        tdEl.textContent=n.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'short'})
+          +' '+n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      }, 60000);
+    }
 
     ['cfg-start','cfg-end','new-start-time'].forEach(id=>{
       const el=document.getElementById(id);
@@ -11479,6 +11481,135 @@ const GP_PREFS_DEFAULTS = {
   monthShowRanking:     true,
   monthShowProgress:    true,
 };
+
+var _rankingCache = null;
+
+function calcMonthRanking(year, month){
+  setTimeout(function(){
+    var lastDay = new Date(year, month+1, 0);
+    var allR = employees.filter(function(w){return !w.archived;}).map(function(w){
+      var wH=0;
+      for(var d=1;d<=lastDay.getDate();d++){
+        var ds=year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+        var wO=dateToWeekOffset(ds),dI=dateToDayIdx(ds);
+        var day=w.weeks&&w.weeks[wO]&&w.weeks[wO][dI];
+        if(day&&day.status==='work'&&day.start&&day.end)
+          wH+=Math.max(0,timeToMin(day.end)-timeToMin(day.start)-(day.pause||0))/60;
+      }
+      return {id:w.id,name:w.firstname,hours:+wH.toFixed(2)};
+    });
+    allR.sort(function(a,b){return b.hours-a.hours;});
+    var wwh=allR.filter(function(x){return x.hours>0;});
+    var data={};
+    wwh.forEach(function(x,i){
+      var medal=i===0?'\uD83E\uDD47':i===1?'\uD83E\uDD48':i===2?'\uD83E\uDD49':'#'+(i+1);
+      data[x.id]={rank:i+1,total:wwh.length,medal:medal,
+        podium:wwh.slice(0,Math.min(3,wwh.length)).map(function(y,j){return (j+1)+'. '+y.name+' ('+toHM(y.hours)+')';}).join(' \u00b7 ')};
+    });
+    _rankingCache={year:year,month:month,data:data};
+    if(_viewMode==='month'){var bd=getWeekDates(curWeek)[0];if(bd.getFullYear()===year&&bd.getMonth()===month)renderMonthView();}
+  }, 0);
+}
+
+var EVAL_CRITERIA = [
+  {id:'ponctualite', label:'Ponctualit\u00e9',       weight:+2, type:'pos'},
+  {id:'polyvalence', label:'Polyvalence sites',      weight:+2, type:'pos'},
+  {id:'initiative',  label:'Initiative',             weight:+1, type:'pos'},
+  {id:'client',      label:'Relation client',        weight:+2, type:'pos'},
+  {id:'autonomie',   label:'Autonomie',              weight:+1, type:'pos'},
+  {id:'retard',      label:'Retard',                 weight:-2, type:'neg'},
+  {id:'absence',     label:'Absence injustifi\u00e9e',weight:-3,type:'neg'},
+  {id:'conflit',     label:'Conflit \u00e9quipe',    weight:-2, type:'neg'},
+  {id:'qualite',     label:'Qualit\u00e9 travail -', weight:-1, type:'neg'},
+  {id:'refus',       label:'Refus de t\u00e2che',    weight:-2, type:'neg'},
+];
+
+function getEmpScore(empId){
+  var e=employees.find(function(x){return x.id===empId;});
+  if(!e||!e.evalEntries) return 0;
+  return e.evalEntries.reduce(function(s,en){
+    var c=EVAL_CRITERIA.find(function(x){return x.id===en.criteriaId;});
+    return s+(c?c.weight*(en.count||1):0);
+  },0);
+}
+
+function closeEvalModal(){var m=document.getElementById('eval-modal');if(m)m.remove();}
+
+function removeEvalEntry(empId,displayIdx){
+  var e=employees.find(function(x){return x.id===empId;});if(!e)return;
+  var sorted=e.evalEntries.slice().sort(function(a,b){return b.ts-a.ts;});
+  var entry=sorted[displayIdx];if(!entry)return;
+  var ri=e.evalEntries.indexOf(entry);if(ri>=0)e.evalEntries.splice(ri,1);
+  autoSave();_rankingCache=null;openEvalModal(empId);
+}
+
+function openEvalModal(empId){
+  var e=employees.find(function(x){return x.id===empId;});if(!e)return;
+  var old=document.getElementById('eval-modal');if(old)old.remove();
+  var col=empColor(e);
+  if(!e.evalEntries)e.evalEntries=[];
+  var modal=document.createElement('div');
+  modal.id='eval-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3003;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.addEventListener('click',function(ev){if(ev.target===modal)modal.remove();});
+  var inner=document.createElement('div');
+  inner.style.cssText='background:white;border-radius:16px;width:100%;max-width:440px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.3)';
+  inner.addEventListener('click',function(ev){ev.stopPropagation();});
+  var score=getEmpScore(empId);
+  var hdrE=document.createElement('div');hdrE.id='eval-hdr';
+  hdrE.style.cssText='background:'+col.bg+';padding:13px 16px;display:flex;justify-content:space-between;align-items:center;cursor:move;flex-shrink:0';
+  hdrE.innerHTML='<div><div style="font-weight:800;color:'+col.fg+';font-size:.9rem">&#127942; '+e.firstname+' '+e.lastname+'</div>'
+    +'<div style="font-size:.7rem;color:'+col.fg+';opacity:.8;margin-top:2px">Score: <strong>'+(score>0?'+':'')+score+' pts</strong></div></div>'
+    +'<button onclick="closeEvalModal()" style="border:none;background:rgba(0,0,0,.1);color:'+col.fg+';width:26px;height:26px;border-radius:6px;cursor:pointer;font-weight:700">&#x2715;</button>';
+  var bodyE=document.createElement('div');
+  bodyE.style.cssText='padding:12px 16px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px';
+  var dateRow=document.createElement('div');dateRow.style.cssText='display:flex;align-items:center;gap:8px';
+  dateRow.innerHTML='<label style="font-size:.72rem;color:#555;font-weight:600;flex-shrink:0">Date</label>'
+    +'<input type="date" id="eval-date" value="'+new Date().toISOString().slice(0,10)+'" style="padding:5px 8px;border:1.5px solid #e2e0d8;border-radius:7px;font-size:.78rem">'
+    +'<input type="text" id="eval-note" placeholder="Note..." style="flex:1;padding:5px 8px;border:1.5px solid #e2e0d8;border-radius:7px;font-size:.78rem">';
+  bodyE.appendChild(dateRow);
+  var grid=document.createElement('div');grid.style.cssText='display:flex;flex-direction:column;gap:3px';
+  EVAL_CRITERIA.forEach(function(crit){
+    var row=document.createElement('button');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1.5px solid '+(crit.type==='pos'?'#dcfce7':'#fee2e2')+';background:'+(crit.type==='pos'?'#f0fdf4':'#fff5f5')+';cursor:pointer;text-align:left;width:100%';
+    row.innerHTML='<span>'+(crit.type==='pos'?'&#x2705;':'&#x26A0;&#xFE0F;')+'</span>'
+      +'<span style="font-size:.78rem;font-weight:600;flex:1;color:#1a1a2e">'+crit.label+'</span>'
+      +'<span style="font-size:.72rem;font-weight:700;color:'+(crit.type==='pos'?'#16a34a':'#dc2626')+'">'+(crit.weight>0?'+':'')+crit.weight+' pts</span>';
+    row.onclick=function(){
+      var d2=document.getElementById('eval-date').value||new Date().toISOString().slice(0,10);
+      var n2=document.getElementById('eval-note').value||'';
+      e.evalEntries.push({criteriaId:crit.id,date:d2,note:n2,count:1,ts:Date.now()});
+      autoSave();_rankingCache=null;openEvalModal(empId);
+      showToast((crit.type==='pos'?'&#x2705;':'&#x26A0;')+' '+crit.label+' enregistr\u00e9');
+    };
+    grid.appendChild(row);
+  });
+  bodyE.appendChild(grid);
+  if(e.evalEntries.length>0){
+    var histLbl=document.createElement('div');
+    histLbl.style.cssText='font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#9898b8;margin-top:4px';
+    histLbl.textContent='Historique ('+e.evalEntries.length+')';
+    bodyE.appendChild(histLbl);
+    var hlist=document.createElement('div');hlist.style.cssText='display:flex;flex-direction:column;gap:3px;max-height:180px;overflow-y:auto';
+    e.evalEntries.slice().sort(function(a,b){return b.ts-a.ts;}).slice(0,20).forEach(function(entry,i){
+      var c2=EVAL_CRITERIA.find(function(x){return x.id===entry.criteriaId;});if(!c2)return;
+      var r2=document.createElement('div');
+      r2.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;background:#f8f7f5;font-size:.7rem';
+      r2.innerHTML='<span>'+(c2.type==='pos'?'&#x2705;':'&#x26A0;')+'</span>'
+        +'<span style="flex:1;font-weight:600">'+c2.label+'</span>'
+        +'<span style="color:#9898b8">'+entry.date+'</span>'
+        +(entry.note?'<span style="color:#9898b8;font-style:italic;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"> \u2014 '+entry.note+'</span>':'')
+        +'<span style="font-weight:700;color:'+(c2.weight>0?'#16a34a':'#dc2626')+'">'+(c2.weight>0?'+':'')+c2.weight+'</span>'
+        +'<button onclick="removeEvalEntry('+empId+','+i+')" style="border:none;background:none;cursor:pointer;color:#dc2626;font-size:.7rem;padding:0 3px;flex-shrink:0">&#x2715;</button>';
+      hlist.appendChild(r2);
+    });
+    bodyE.appendChild(hlist);
+  }
+  inner.appendChild(hdrE);inner.appendChild(bodyE);modal.appendChild(inner);
+  document.body.appendChild(modal);
+  makeDraggable(inner,hdrE);
+}
+
 function getPrefs(){
   try{ return Object.assign({},GP_PREFS_DEFAULTS,JSON.parse(localStorage.getItem(GP_PREFS_KEY)||'{}')); }
   catch(e){ return Object.assign({},GP_PREFS_DEFAULTS); }
