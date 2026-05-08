@@ -5527,11 +5527,18 @@ function renderMonthView(){
     });
     sH+='</div>';
   }
-  if(prefs3.monthShowRanking!==false&&ranking)
-    sH+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;background:#f8f7f5;border:1px solid var(--line);margin-bottom:4px">'
-      +'<div style="font-size:1rem">'+ranking.medal+'</div>'
-      +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700;color:var(--ink)">'+ranking.rank+'/'+ranking.total+' en heures ce mois</div>'
-      +'<div style="font-size:.6rem;color:var(--ink3)">'+ranking.podium+'</div></div></div>';
+  if(prefs3.monthShowRanking!==false){
+    if(ranking){
+      sH+='<div id="month-ranking-block" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;background:#f8f7f5;border:1px solid var(--line);margin-bottom:4px">'
+        +'<div style="font-size:1rem">'+ranking.medal+'</div>'
+        +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700;color:var(--ink)">'+ranking.rank+'/'+ranking.total+' en heures ce mois</div>'
+        +'<div style="font-size:.6rem;color:var(--ink3)">'+ranking.podium+'</div></div></div>';
+    } else {
+      // Placeholder mis à jour par calcMonthRanking
+      sH+='<div id="month-ranking-block" style="height:32px;border-radius:9px;background:#f8f7f5;border:1px solid var(--line);margin-bottom:4px;display:flex;align-items:center;padding:0 10px">'
+        +'<span style="font-size:.65rem;color:#9898b8">Calcul classement...</span></div>';
+    }
+  }
   sH+='</div>';
 
   let html = sH + `
@@ -11507,7 +11514,23 @@ function calcMonthRanking(year, month){
         podium:wwh.slice(0,Math.min(3,wwh.length)).map(function(y,j){return (j+1)+'. '+y.name+' ('+toHM(y.hours)+')';}).join(' \u00b7 ')};
     });
     _rankingCache={year:year,month:month,data:data};
-    if(_viewMode==='month'){var bd=getWeekDates(curWeek)[0];if(bd.getFullYear()===year&&bd.getMonth()===month)renderMonthView();}
+    // Mettre à jour uniquement le bloc classement sans re-render tout le mois
+    if(_viewMode==='month'){
+      var bd=getWeekDates(curWeek)[0];
+      if(bd.getFullYear()===year&&bd.getMonth()===month){
+        var e2=emp();
+        if(e2&&data[e2.id]){
+          var rk=data[e2.id];
+          var el=document.getElementById('month-ranking-block');
+          if(el){
+            el.innerHTML='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;background:#f8f7f5;border:1px solid var(--line);margin-bottom:4px">'
+              +'<div style="font-size:1rem">'+rk.medal+'</div>'
+              +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700;color:var(--ink)">'+rk.rank+'/'+rk.total+' en heures ce mois</div>'
+              +'<div style="font-size:.6rem;color:var(--ink3)">'+rk.podium+'</div></div></div>';
+          }
+        }
+      }
+    }
   }, 0);
 }
 
