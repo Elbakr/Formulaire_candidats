@@ -1,8 +1,22 @@
-# CaftanRH — Plateforme RH (Recrutement + GestiPlanning)
+# CaftanRH — Plateforme RH intelligente
 
-Application full-stack pour gérer **le recrutement** et **la planification d'équipe**, prête à déployer en entreprise. Synchronisation **temps réel** entre tous les utilisateurs (RH, managers, candidats, admin, employés).
+Plateforme full-stack autonome qui gère **tout le cycle de vie RH** : sourcing → recrutement → embauche → planning → scoring → paie. Synchronisation **temps réel** entre tous les utilisateurs.
 
-**Le pont automatique** : quand un candidat passe au statut "Embauché", il est automatiquement créé comme employé actif dans GestiPlanning, prêt à recevoir ses shifts. Zéro double-saisie.
+**Les ponts automatiques** :
+- **Sourcing → Recrutement** : import auto des candidatures Gravity Forms (caftanfactory.com) toutes les 15 min
+- **Embauche → GestiPlanning** : trigger PG qui crée automatiquement l'employé quand `application.status='hired'`
+- **Shifts → Scoring** : métriques auto (fiabilité, couverture) recalculées chaque nuit
+- **Shifts → Paie** : export CSV mensuel pour secrétariat social (SD Worx, Securex…)
+
+## Modules
+
+| Module | Objet |
+|---|---|
+| **Recrutement** | Pipeline 7 statuts + kanban drag&drop, fiche candidat (notes, entretiens, docs), formulaire public `/postuler`, emails auto (accusé/convocation/refus/embauche). |
+| **GestiPlanning** | Liste employés, planning hebdo grille, **génération automatique de la semaine** (algo qui distribue shifts selon contraintes), gestion congés avec workflow approbation. |
+| **Scoring équipe** | Évaluations manager 5 axes (fiabilité, autonomie, esprit d'équipe, qualité, présentation) + métriques auto (% shifts honorés, % couverture, jours de congé). Score global 0-100. |
+| **Paie (export)** | Export CSV mensuel pivot universel (heures normales / week-end / nuit / jours de congé). À envoyer au secrétariat social. |
+| **Intégrations** | Gravity Forms WordPress (REST API v2), Resend (emails), Cron Vercel toutes les 15 min. |
 
 ## Stack
 
@@ -34,13 +48,18 @@ Application full-stack pour gérer **le recrutement** et **la planification d'é
 │   │   └── proxy.ts             ← middleware d'auth (Next.js 16)
 │   └── package.json
 │
-├── supabase/migrations/         ← SCHÉMA SQL
-│   ├── 20260509000001_schema.sql    ← tables recrutement + types + realtime
-│   ├── 20260509000002_rls.sql       ← Row Level Security par rôle
-│   ├── 20260509000003_storage.sql   ← buckets et policies storage
-│   ├── 20260509000004_seed.sql      ← départements + offres exemple
-│   ├── 20260509000005_planning.sql  ← GestiPlanning : employés, shifts, congés + auto-promotion
-│   └── 20260509000006_org_settings.sql ← paramètres organisation
+├── supabase/migrations/         ← SCHÉMA SQL (10 migrations)
+│   ├── 20260509000001_schema.sql        ← recrutement (candidates, applications, jobs…)
+│   ├── 20260509000002_rls.sql           ← Row Level Security par rôle
+│   ├── 20260509000003_storage.sql       ← buckets documents/avatars
+│   ├── 20260509000004_seed.sql          ← seed initial
+│   ├── 20260509000005_planning.sql      ← GestiPlanning + auto-promotion candidat→employé
+│   ├── 20260509000006_org_settings.sql  ← paramètres organisation
+│   ├── 20260509000007_gf.sql            ← Gravity Forms (config + dédup)
+│   ├── 20260509000008_scoring.sql       ← évaluations + métriques auto + view employee_scores
+│   ├── 20260509000008b_scoring_fix.sql  ← fix enum shift_status no_show
+│   ├── 20260509000009_employee_constraints.sql ← contraintes pour auto-planning
+│   └── 20260509000010_payroll_export.sql ← audit log exports paie
 │
 ├── recrutement.html, formulaire-candidat.html, …  ← ANCIENNE app (GitHub Pages)
 └── README.md (ce fichier)
@@ -161,14 +180,38 @@ Vercel redéploiera automatiquement à chaque push.
 - La `service_role_key` n'est utilisée que côté serveur (formulaire public) — jamais exposée au browser.
 - L'auth Supabase gère les sessions avec rotation des tokens.
 
+## Scripts npm
+
+| Commande | Action |
+|---|---|
+| `npm run dev` | serveur de dev local |
+| `npm run build` | build de prod |
+| `npm run migrate` | applique les migrations SQL en attente |
+| `npm run seed:employees` | seed les 15 employés actifs (génère credentials dans `employees-credentials.md`) |
+| `npm run make-admin -- <email>` | promouvoir un compte en admin |
+| `npm run sync:gf` | sync manuelle Gravity Forms |
+| `npm run scoring:recompute` | recalcule les métriques auto pour tous les employés actifs |
+
+## Cron jobs (Vercel)
+
+Configurés dans `caftan-rh/vercel.json` :
+
+| Path | Schedule | Action |
+|---|---|---|
+| `/api/cron/gf-sync` | toutes les 15 min | importe les nouvelles candidatures Gravity Forms |
+| `/api/cron/scoring-recompute` | tous les jours à 3h | recalcule les métriques auto de scoring |
+
+Les deux endpoints exigent un `Authorization: Bearer ${CRON_SECRET}`. À configurer aussi dans les Environment Variables Vercel.
+
 ## Évolutions prévues
 
-- [ ] Génération des types TypeScript depuis Supabase (`supabase gen types typescript > types/database.types.ts`)
-- [ ] Vue messagerie agrégée (RH)
-- [ ] Notifications push / email automatiques sur changement de statut
-- [ ] Export PDF candidature
-- [ ] Calendrier partagé Google/Outlook pour les entretiens
-- [ ] Tests E2E (Playwright)
+- [ ] Time clock mobile (clock-in/out géo-localisé) — débloquera la métrique ponctualité réelle
+- [ ] Onboarding checklist post-embauche (NRN, contrat signé, badge…)
+- [ ] E-signature des contrats
+- [ ] AI ranking de candidats (LLM scoring de la motivation)
+- [ ] NL/EN i18n (Belgique néerlandophone)
+- [ ] Génération des types TypeScript depuis Supabase
+- [ ] Tests E2E Playwright
 
 ## License
 
