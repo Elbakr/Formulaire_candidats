@@ -13,6 +13,7 @@ export const ACTIVITY_KINDS = [
   // notes / messages
   "note.added",
   "email.sent",
+  "email.received",
   // planning
   "shift.created",
   "shift.updated",
@@ -55,6 +56,7 @@ export const ACTIVITY_KIND_LABELS: Record<string, string> = {
   "application.status_changed": "Statut candidature changé",
   "note.added": "Note ajoutée",
   "email.sent": "Email envoyé",
+  "email.received": "Email reçu",
   "shift.created": "Shift créé",
   "shift.updated": "Shift modifié",
   "time_off.decided": "Congé décidé",
@@ -67,7 +69,7 @@ export const ACTIVITY_KIND_LABELS: Record<string, string> = {
  */
 export const ACTIVITY_KIND_GROUPS: { label: string; kinds: string[] }[] = [
   { label: "Candidatures", kinds: ["application.created", "application.status_changed"] },
-  { label: "Communication", kinds: ["note.added", "email.sent"] },
+  { label: "Communication", kinds: ["note.added", "email.sent", "email.received"] },
   { label: "Planning", kinds: ["shift.created", "shift.updated", "time_off.decided"] },
   { label: "Équipe", kinds: ["employee.updated", "evaluation.created"] },
 ];

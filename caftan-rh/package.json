@@ -14,9 +14,13 @@
     "scoring:recompute": "node scripts/scoring-recompute.mjs",
     "seed:templates": "node scripts/seed-email-templates.mjs",
     "seed:onboarding": "node scripts/seed-onboarding-runs.mjs",
-    "seed:sequences": "node scripts/seed-sequences.mjs"
+    "seed:sequences": "node scripts/seed-sequences.mjs",
+    "inbound:test": "node scripts/inbound-test.mjs",
+    "inbound:demo": "node scripts/inbound-test.mjs --demo",
+    "seed:agent-demo": "node scripts/seed-agent-actions.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
     "@emailjs/browser": "^4.4.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-avatar": "^1.1.11",

@@ -2,7 +2,12 @@ import { AppShell, type NavSection } from "@/components/app-shell";
 import { requireRole } from "@/lib/auth";
 
 const sections: NavSection[] = [
-  { items: [{ href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" }] },
+  {
+    items: [
+      { href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" },
+      { href: "/rh/inbox", label: "Inbox actions IA", icon: "Sparkles" },
+    ],
+  },
   {
     title: "Recrutement",
     items: [

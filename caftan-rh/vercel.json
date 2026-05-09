@@ -3,6 +3,7 @@
     { "path": "/api/cron/gf-sync", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/scoring-recompute", "schedule": "0 3 * * *" },
     { "path": "/api/cron/daily-reminders", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/sequences-tick", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/sequences-tick", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/doc-chaser", "schedule": "0 9 * * *" }
   ]
 }

@@ -17,6 +17,8 @@ export type DynamicVars = {
   custom?: string;
   dates?: string; // formatted "JJ/MM/AAAA ou JJ/MM/AAAA"
   times?: string; // formatted "9h00 / 14h00"
+  document_label?: string; // libellé doc demandé (catalogue)
+  document_upload_url?: string; // magic link signé pour upload doc
 };
 
 export function renderTemplate(
@@ -34,6 +36,8 @@ export function renderTemplate(
     custom: vars.custom ?? "",
     dates: vars.dates ?? "",
     times: vars.times ?? "",
+    document_label: vars.document_label ?? "",
+    document_upload_url: vars.document_upload_url ?? "",
   };
   return raw.replace(/\{\{(\w+)\}\}/g, (_, key) => dict[key] ?? "");
 }

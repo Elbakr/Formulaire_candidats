@@ -17,6 +17,7 @@ const sections: NavSection[] = [
       { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
       { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
+      { href: "/admin/ai-audit", label: "AI audit", icon: "Sparkles" },
     ],
   },
   {

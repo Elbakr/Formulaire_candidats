@@ -24,7 +24,13 @@ type RealtimeTable =
   | "sequences"
   | "sequence_steps"
   | "sequence_runs"
-  | "sequence_run_steps";
+  | "sequence_run_steps"
+  | "inbound_emails"
+  | "email_threads"
+  | "documents"
+  | "document_catalog"
+  | "document_upload_tokens"
+  | "agent_actions";
 
 export function useRealtime(table: RealtimeTable, onChange: () => void, filter?: string) {
   const onChangeRef = useRef(onChange);

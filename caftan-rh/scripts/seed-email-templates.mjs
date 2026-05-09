@@ -197,6 +197,85 @@ Merci de nous les envoyer par email à {{org_email}} ou via WhatsApp.`),
 
 {{custom}}`),
   },
+  // ── Vague 2 — Demande de documents avec magic link
+  {
+    slug: "request_document_id",
+    label: "🪪 Demande carte d'identité",
+    category: "documents",
+    subject: "Carte d'identité — {{org_name}}",
+    body_html: wrap(`Chèr(e) {{firstname}},
+
+Pour finaliser ton dossier chez {{org_name}}, nous avons besoin d'une copie nette de ta carte d'identité (recto et verso).
+
+📎 Tu peux téléverser le document directement, sans créer de compte, via ce lien sécurisé :
+
+👉 <a href="{{document_upload_url}}" style="background:#d4a017;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold">Téléverser ma carte d'identité</a>
+
+Le lien est valable 7 jours et tes données sont chiffrées.
+
+{{custom}}
+
+Merci !`),
+  },
+  {
+    slug: "request_document_iban",
+    label: "🏦 Demande IBAN bancaire",
+    category: "documents",
+    subject: "Coordonnées bancaires — {{org_name}}",
+    body_html: wrap(`Chèr(e) {{firstname}},
+
+Pour préparer ta paie chez {{org_name}}, nous avons besoin de ton IBAN bancaire (justificatif type RIB ou photo de carte bancaire avec IBAN visible).
+
+📎 Tu peux téléverser le document directement, sans créer de compte, via ce lien sécurisé :
+
+👉 <a href="{{document_upload_url}}" style="background:#d4a017;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold">Téléverser mon IBAN</a>
+
+Le lien est valable 7 jours et tes données sont chiffrées.
+
+{{custom}}
+
+Merci !`),
+  },
+  {
+    slug: "request_document_medical",
+    label: "🩺 Demande certificat médical",
+    category: "documents",
+    subject: "Certificat médical — {{org_name}}",
+    body_html: wrap(`Chèr(e) {{firstname}},
+
+Pour ton dossier d'embauche chez {{org_name}}, nous avons besoin d'un certificat médical d'aptitude au travail.
+
+📎 Tu peux téléverser le document directement, sans créer de compte, via ce lien sécurisé :
+
+👉 <a href="{{document_upload_url}}" style="background:#d4a017;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold">Téléverser mon certificat</a>
+
+Le lien est valable 7 jours et tes données sont chiffrées.
+
+{{custom}}
+
+Merci !`),
+  },
+  {
+    slug: "request_document_generic",
+    label: "📋 Demande document (générique)",
+    category: "documents",
+    subject: "{{document_label}} — {{org_name}}",
+    body_html: wrap(`Chèr(e) {{firstname}},
+
+Pour finaliser ton dossier chez {{org_name}}, nous avons besoin du document suivant :
+
+📄 <strong>{{document_label}}</strong>
+
+📎 Tu peux le téléverser directement, sans créer de compte, via ce lien sécurisé :
+
+👉 <a href="{{document_upload_url}}" style="background:#d4a017;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold">Téléverser le document</a>
+
+Le lien est valable 7 jours et tes données sont chiffrées.
+
+{{custom}}
+
+Merci !`),
+  },
 ];
 
 async function main() {
