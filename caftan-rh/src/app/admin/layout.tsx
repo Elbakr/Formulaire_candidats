@@ -7,6 +7,16 @@ const sections: NavSection[] = [
       { href: "/admin", label: "Vue d'ensemble", icon: "LayoutDashboard" },
       { href: "/admin/users", label: "Utilisateurs", icon: "Users" },
       { href: "/admin/departments", label: "Services", icon: "Building2" },
+    ],
+  },
+  {
+    title: "Intégrations",
+    items: [
+      { href: "/admin/integrations/gravity-forms", label: "Gravity Forms", icon: "Briefcase" },
+    ],
+  },
+  {
+    items: [
       { href: "/admin/settings", label: "Paramètres", icon: "Sliders" },
     ],
   },
