@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type LucideIcon, LogOut, Settings } from "lucide-react";
+import {
+  LogOut, Settings,
+  LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
+  Calendar, FileText, MessageSquare, User, Building2, Sliders,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BRAND, ROLE_LABELS } from "@/lib/config";
 import { Button } from "./ui/button";
@@ -17,10 +22,17 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
+const ICONS: Record<string, LucideIcon> = {
+  LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
+  Calendar, FileText, MessageSquare, User, Building2, Sliders,
+};
+
+export type NavIconName = keyof typeof ICONS;
+
 export type NavItem = {
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon: NavIconName;
   badge?: number;
 };
 
@@ -88,7 +100,7 @@ export function AppShell({
               ) : null}
               {s.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                const Icon = item.icon;
+                const Icon = ICONS[item.icon] ?? LayoutDashboard;
                 return (
                   <Link
                     key={item.href}
