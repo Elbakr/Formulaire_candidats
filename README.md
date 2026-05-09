@@ -1,6 +1,8 @@
-# CaftanRH — Plateforme de recrutement
+# CaftanRH — Plateforme RH (Recrutement + GestiPlanning)
 
-Application full-stack de gestion du recrutement et des candidatures, prête à déployer en entreprise. Synchronisation **temps réel** entre tous les utilisateurs (RH, managers, candidats, admin).
+Application full-stack pour gérer **le recrutement** et **la planification d'équipe**, prête à déployer en entreprise. Synchronisation **temps réel** entre tous les utilisateurs (RH, managers, candidats, admin, employés).
+
+**Le pont automatique** : quand un candidat passe au statut "Embauché", il est automatiquement créé comme employé actif dans GestiPlanning, prêt à recevoir ses shifts. Zéro double-saisie.
 
 ## Stack
 
@@ -33,10 +35,12 @@ Application full-stack de gestion du recrutement et des candidatures, prête à 
 │   └── package.json
 │
 ├── supabase/migrations/         ← SCHÉMA SQL
-│   ├── 20260509000001_schema.sql    ← tables + types + triggers + realtime
+│   ├── 20260509000001_schema.sql    ← tables recrutement + types + realtime
 │   ├── 20260509000002_rls.sql       ← Row Level Security par rôle
 │   ├── 20260509000003_storage.sql   ← buckets et policies storage
-│   └── 20260509000004_seed.sql      ← départements + offres exemple
+│   ├── 20260509000004_seed.sql      ← départements + offres exemple
+│   ├── 20260509000005_planning.sql  ← GestiPlanning : employés, shifts, congés + auto-promotion
+│   └── 20260509000006_org_settings.sql ← paramètres organisation
 │
 ├── recrutement.html, formulaire-candidat.html, …  ← ANCIENNE app (GitHub Pages)
 └── README.md (ce fichier)
@@ -57,14 +61,20 @@ L'ancienne app HTML monolithique (`recrutement.html`, etc.) est conservée à la
 
 ### 2. Applique le schéma SQL
 
-Dans **Supabase → SQL Editor**, exécute dans l'ordre les fichiers de `supabase/migrations/` :
+Deux options :
 
-1. `20260509000001_schema.sql`
-2. `20260509000002_rls.sql`
-3. `20260509000003_storage.sql`
-4. `20260509000004_seed.sql`
+**Option A — Script automatique (recommandé)** :
 
-Active aussi **Realtime** sur les tables `applications`, `interviews`, `notes`, `messages` (déjà fait via `alter publication ... add table` dans la 1re migration, mais vérifie dans **Database → Replication**).
+```bash
+cd caftan-rh
+npm run migrate
+```
+
+Le script lit la `DATABASE_URL` dans `.env.local`, applique les migrations dans l'ordre, et trace celles déjà appliquées (table `_caftanrh_migrations`).
+
+**Option B — Manuel via SQL Editor Supabase** : copie-colle chaque fichier de `supabase/migrations/` dans l'ordre dans le SQL Editor.
+
+Le Realtime est activé via `alter publication supabase_realtime add table ...` dans les migrations.
 
 ### 3. Crée un compte Resend (optionnel mais recommandé)
 
@@ -111,14 +121,29 @@ Ouvre http://localhost:3000
 
 ## Rôles et URLs
 
-| Rôle | Espace | Accès |
+| Rôle | Espaces | Accès |
 |---|---|---|
-| `admin` | `/admin` | Tout. Gestion users, services, offres, paramètres. |
-| `rh` | `/rh` | Candidats, pipeline, offres, messages, rapports. |
-| `manager` | `/manager` | Candidats qui leur sont assignés, agenda, notes, entretiens. |
-| `candidate` | `/me` | Leurs propres candidatures, documents, messages, profil. |
+| `admin` | `/admin`, `/rh`, `/planning` | Tout. Gestion users, services, offres, paramètres. |
+| `rh` | `/rh`, `/planning` | Candidats, pipeline, offres, **GestiPlanning** complet, messages, rapports. |
+| `manager` | `/manager`, `/planning` | Candidats assignés, agenda, **GestiPlanning** (lecture + édition shifts de son équipe). |
+| `candidate` / employé | `/me` | Candidatures + **mon planning** + **mes congés** + profil. |
 
 Les **candidats anonymes** postulent via `/postuler` (pas besoin de compte).
+
+## Modules
+
+### Recrutement
+- Formulaire candidat public (`/postuler`) + upload CV
+- Pipeline 7 statuts avec kanban drag & drop
+- Notes (publiques/privées), entretiens, notation 5★
+- Emails automatiques (accusé, convocation, refus, embauche)
+
+### GestiPlanning
+- Liste des employés (auto-créés à l'embauche, ou ajoutés manuellement)
+- Planning hebdomadaire (grille employés × jours, drag-edit shifts)
+- Calcul automatique des heures vs cible hebdo
+- Demandes de congés (employé) + workflow approbation (manager/RH)
+- Vue "Mon planning" pour les employés (shifts à venir)
 
 ## Déploiement (Vercel)
 

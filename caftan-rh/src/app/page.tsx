@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/config";
-import { ArrowRight, Briefcase, Users, MessageSquare } from "lucide-react";
+import { ArrowRight, Briefcase, Users, MessageSquare, CalendarDays } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -43,10 +43,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-5 py-16 grid md:grid-cols-3 gap-5">
+      <section className="mx-auto max-w-6xl px-5 py-16 grid md:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
           { icon: Users, title: "Pipeline temps réel", desc: "Tous les recruteurs voient les mêmes données instantanément, sans rafraîchir." },
           { icon: Briefcase, title: "Multi-rôles", desc: "RH, managers, candidats — chacun voit ce qui le concerne, rien de plus." },
+          { icon: CalendarDays, title: "GestiPlanning intégré", desc: "Embauche → planning hebdo → congés. Une fois embauché, l'employé apparaît dans le planning automatiquement." },
           { icon: MessageSquare, title: "Communication centralisée", desc: "Templates d'emails, historique, rappels automatiques." },
         ].map(({ icon: Icon, title, desc }) => (
           <div key={title} className="rounded-[var(--radius)] bg-surface p-6 border border-line">
