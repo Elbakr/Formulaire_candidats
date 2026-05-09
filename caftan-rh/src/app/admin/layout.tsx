@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth";
 const sections: NavSection[] = [
   {
     items: [
+      { href: "/admin/cockpit", label: "Cockpit exécutif", icon: "LayoutDashboard" },
       { href: "/admin", label: "Vue d'ensemble", icon: "LayoutDashboard" },
       { href: "/admin/users", label: "Utilisateurs", icon: "Users" },
       { href: "/admin/departments", label: "Services", icon: "Building2" },

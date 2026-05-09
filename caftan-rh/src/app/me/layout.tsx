@@ -13,6 +13,7 @@ const sections: NavSection[] = [
   {
     title: "Mon poste",
     items: [
+      { href: "/me/clock", label: "Pointage", icon: "Clock" },
       { href: "/me/planning", label: "Mon planning", icon: "CalendarDays" },
       { href: "/me/time-off", label: "Mes congés", icon: "CalendarOff" },
       { href: "/me/scoring", label: "Mon score", icon: "FileBarChart" },

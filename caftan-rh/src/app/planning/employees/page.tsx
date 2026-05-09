@@ -53,7 +53,7 @@ export default async function EmployeesPage() {
         ) : (
           <div className="divide-y divide-line">
             {employees.map((e) => (
-              <div key={e.id} className="p-3 flex items-center gap-3 flex-wrap">
+              <a key={e.id} href={`/planning/employees/${e.id}`} className="p-3 flex items-center gap-3 flex-wrap hover:bg-surface-2 transition-colors">
                 <NameAvatar name={e.full_name} className={e.status !== "active" ? "opacity-50" : ""} />
                 <div className="flex-1 min-w-[200px]">
                   <div className="font-bold text-sm">{e.full_name}</div>
@@ -73,7 +73,7 @@ export default async function EmployeesPage() {
                 >
                   {e.status === "active" ? "Actif" : e.status === "on_leave" ? "En congé" : "Archivé"}
                 </span>
-              </div>
+              </a>
             ))}
           </div>
         )}

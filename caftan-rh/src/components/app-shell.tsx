@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { NotificationsBell } from "./notifications-bell";
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
@@ -46,7 +47,7 @@ export function AppShell({
   children,
 }: {
   sections: NavSection[];
-  user: { full_name: string | null; email: string; role: string };
+  user: { id: string; full_name: string | null; email: string; role: string };
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -63,6 +64,7 @@ export function AppShell({
             {ROLE_LABELS[user.role] ?? user.role}
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <NotificationsBell userId={user.id} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-md border border-white/15 bg-white/5 px-2.5 py-1.5 text-xs hover:bg-white/10 transition-colors">

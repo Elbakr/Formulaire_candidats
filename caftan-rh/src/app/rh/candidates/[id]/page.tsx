@@ -12,6 +12,7 @@ import { StatusControl } from "./status-control";
 import { NotesPanel } from "./notes-panel";
 import { InterviewsPanel } from "./interviews-panel";
 import { SendEmailButton } from "./send-email-button";
+import { CandidateAdminForm } from "./admin-form";
 
 export default async function CandidateDetailPage(props: PageProps<"/rh/candidates/[id]">) {
   const { id } = await props.params;
@@ -110,6 +111,7 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
           <TabsTrigger value="interviews">Entretiens ({interviewsRes.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="documents">Documents ({docsRes.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="motivation">Motivation</TabsTrigger>
+          <TabsTrigger value="admin">Dossier admin</TabsTrigger>
         </TabsList>
 
         <TabsContent value="notes">
@@ -146,6 +148,10 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
               {app.motivation || <span className="text-ink-3">Aucune motivation fournie.</span>}
             </div>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="admin">
+          <CandidateAdminForm candidate={candidate as never} />
         </TabsContent>
       </Tabs>
     </div>
