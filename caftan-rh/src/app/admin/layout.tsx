@@ -10,6 +10,13 @@ const sections: NavSection[] = [
     ],
   },
   {
+    title: "Pilotage",
+    items: [
+      { href: "/admin/payroll", label: "Paie (export)", icon: "FileBarChart" },
+      { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+    ],
+  },
+  {
     title: "Intégrations",
     items: [
       { href: "/admin/integrations/gravity-forms", label: "Gravity Forms", icon: "Briefcase" },
