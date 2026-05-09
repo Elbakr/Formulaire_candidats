@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate": "node scripts/run-migrations.mjs"
+    "migrate": "node scripts/run-migrations.mjs",
+    "seed:employees": "node scripts/seed-employees.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -35,6 +35,9 @@ yarn-error.log*
 !.env.local.example
 !.env.example
 
+# Generated credentials — NEVER commit
+employees-credentials.md
+
 # vercel
 .vercel
 
