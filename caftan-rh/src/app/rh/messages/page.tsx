@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Mail, Inbox, AlertCircle } from "lucide-react";
+import { Mail, Inbox, AlertCircle, Plus } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -121,6 +121,13 @@ export default async function RhMessagesPage({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/rh/messages/import"
+            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-bold border border-gold bg-gold text-[#1a1a0d] transition-colors hover:bg-gold-dark hover:text-white"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Importer un email
+          </Link>
           <Link
             href="/rh/messages/unmatched"
             className={cn(
