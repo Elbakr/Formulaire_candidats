@@ -69,6 +69,11 @@ export function EmailSendDialog({
   const [dates, setDates] = useState("");
   const [times, setTimes] = useState("");
   const [previewing, setPreviewing] = useState(false);
+  // Mode séquentiel : un créneau d'entretien différent par candidat (1 date, créneaux espacés de N min)
+  const [seqOn, setSeqOn] = useState(false);
+  const [seqDate, setSeqDate] = useState("");
+  const [seqStart, setSeqStart] = useState("10:00");
+  const [seqDuration, setSeqDuration] = useState(20);
 
   useEffect(() => {
     if (!slug) return;
@@ -80,6 +85,7 @@ export function EmailSendDialog({
     if (!open) {
       setSlug(""); setSubject(""); setCustom(""); setDates(""); setTimes("");
       setPreviewing(false); setProgress(null);
+      setSeqOn(false); setSeqDate(""); setSeqStart("10:00"); setSeqDuration(20);
     }
   }, [open]);
 
@@ -96,15 +102,37 @@ export function EmailSendDialog({
       return;
     }
 
+    // Calcule un slot par destinataire en mode séquentiel
+    let perRecipient: Record<string, { dates?: string | null; times?: string | null }> | undefined;
+    if (seqOn && seqDate && (showDates || showTimes)) {
+      const [hStr, mStr] = seqStart.split(":");
+      const baseMin = (parseInt(hStr || "10", 10) || 10) * 60 + (parseInt(mStr || "0", 10) || 0);
+      const fmtTime = (mins: number) =>
+        `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+      const fmtDate = (iso: string) =>
+        new Date(`${iso}T12:00`).toLocaleDateString("fr-BE", {
+          weekday: "long", day: "numeric", month: "long", year: "numeric",
+        });
+      perRecipient = {};
+      applicationIds.forEach((appId, k) => {
+        const slotMin = baseMin + k * seqDuration;
+        perRecipient![appId] = {
+          dates: fmtDate(seqDate),
+          times: fmtTime(slotMin),
+        };
+      });
+    }
+
     startTransition(async () => {
       // 1) Prepare server-side (rendering avec variables, fetch destinataires)
       const prep = await prepareEmailBatchAction({
         applicationIds,
         templateSlug: slug,
         customMessage: custom || null,
-        dates: dates || null,
-        times: times || null,
+        dates: seqOn ? null : (dates || null),
+        times: seqOn ? null : (times || null),
         customSubject: subject || null,
+        perRecipient,
       });
       if (prep.error || !prep.emails) {
         toast.error(prep.error ?? "Préparation échouée.");
@@ -190,20 +218,65 @@ export function EmailSendDialog({
               </div>
 
               {(showDates || showTimes) ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {showDates ? (
-                    <div>
-                      <Label htmlFor="dates">Dates proposées</Label>
-                      <Input id="dates" value={dates} onChange={(e) => setDates(e.target.value)} placeholder="lundi 12/05 ou mardi 13/05" />
-                    </div>
+                <>
+                  {applicationIds.length > 1 ? (
+                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-md bg-gold-light/40 border border-gold-light">
+                      <input
+                        type="checkbox"
+                        checked={seqOn}
+                        onChange={(e) => setSeqOn(e.target.checked)}
+                        className="h-4 w-4 rounded border-line"
+                      />
+                      <span className="text-sm font-bold text-gold-dark">
+                        Mode séquentiel — 1 créneau différent par candidat
+                      </span>
+                    </label>
                   ) : null}
-                  {showTimes ? (
-                    <div>
-                      <Label htmlFor="times">Horaires</Label>
-                      <Input id="times" value={times} onChange={(e) => setTimes(e.target.value)} placeholder="10h00 / 14h00 / 17h00" />
+
+                  {seqOn ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label htmlFor="seq-date">Date des entretiens</Label>
+                        <Input id="seq-date" type="date" value={seqDate} onChange={(e) => setSeqDate(e.target.value)} required />
+                      </div>
+                      <div>
+                        <Label htmlFor="seq-start">Heure 1er créneau</Label>
+                        <Input id="seq-start" type="time" value={seqStart} onChange={(e) => setSeqStart(e.target.value)} />
+                      </div>
+                      <div>
+                        <Label htmlFor="seq-duration">Durée par créneau (min)</Label>
+                        <Input id="seq-duration" type="number" min={5} max={240} value={seqDuration} onChange={(e) => setSeqDuration(parseInt(e.target.value) || 20)} />
+                      </div>
+                      <div className="col-span-3 text-[11px] text-ink-3">
+                        Slots calculés : {applicationIds.length} candidat·e·s, 1 par {seqDuration} min →{" "}
+                        <strong className="font-mono">
+                          {(() => {
+                            const [h, m] = seqStart.split(":");
+                            const base = (parseInt(h || "10") * 60) + (parseInt(m || "0") || 0);
+                            const last = base + (applicationIds.length - 1) * seqDuration;
+                            const fmt = (x: number) => `${String(Math.floor(x / 60) % 24).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+                            return `${fmt(base)} → ${fmt(last)}`;
+                          })()}
+                        </strong>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      {showDates ? (
+                        <div>
+                          <Label htmlFor="dates">Dates proposées</Label>
+                          <Input id="dates" value={dates} onChange={(e) => setDates(e.target.value)} placeholder="lundi 12/05 ou mardi 13/05" />
+                        </div>
+                      ) : null}
+                      {showTimes ? (
+                        <div>
+                          <Label htmlFor="times">Horaires</Label>
+                          <Input id="times" value={times} onChange={(e) => setTimes(e.target.value)} placeholder="10h00 / 14h00 / 17h00" />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </>
               ) : null}
 
               <div>

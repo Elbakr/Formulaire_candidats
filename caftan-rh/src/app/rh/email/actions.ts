@@ -13,6 +13,8 @@ type PrepareArgs = {
   dates?: string | null;
   times?: string | null;
   customSubject?: string | null;
+  /** Override per-application — utile pour mode séquentiel (chaque candidat = créneau différent) */
+  perRecipient?: Record<string, { dates?: string | null; times?: string | null }>;
 };
 
 export type PreparedEmail = {
@@ -75,10 +77,11 @@ export async function prepareEmailBatchAction(args: PrepareArgs): Promise<Prepar
       firstname: firstNameOf(app.candidate.full_name),
       fullname: app.candidate.full_name,
     };
+    const override = args.perRecipient?.[app.id];
     const dynamicVars = {
       custom: args.customMessage ?? "",
-      dates: args.dates ?? "",
-      times: args.times ?? "",
+      dates: override?.dates ?? args.dates ?? "",
+      times: override?.times ?? args.times ?? "",
     };
     const subject = renderTemplate(args.customSubject || template.subject, { ...orgVars, ...candidateVars, ...dynamicVars });
     const body = renderTemplate(template.body_html, { ...orgVars, ...candidateVars, ...dynamicVars });
