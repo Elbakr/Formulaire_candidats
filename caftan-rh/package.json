@@ -11,7 +11,8 @@
     "seed:employees": "node scripts/seed-employees.mjs",
     "make-admin": "node scripts/make-admin.mjs",
     "sync:gf": "node scripts/sync-gf.mjs",
-    "scoring:recompute": "node scripts/scoring-recompute.mjs"
+    "scoring:recompute": "node scripts/scoring-recompute.mjs",
+    "seed:templates": "node scripts/seed-email-templates.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

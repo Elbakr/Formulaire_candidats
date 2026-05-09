@@ -29,6 +29,7 @@ const sections: NavSection[] = [
     title: "Communication",
     items: [
       { href: "/rh/messages", label: "Messagerie", icon: "Mail" },
+      { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
       { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },
     ],
   },

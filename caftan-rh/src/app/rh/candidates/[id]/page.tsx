@@ -11,6 +11,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { StatusControl } from "./status-control";
 import { NotesPanel } from "./notes-panel";
 import { InterviewsPanel } from "./interviews-panel";
+import { SendEmailButton } from "./send-email-button";
 
 export default async function CandidateDetailPage(props: PageProps<"/rh/candidates/[id]">) {
   const { id } = await props.params;
@@ -58,12 +59,22 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
     country: string | null;
   };
 
+  // Templates emails pour le bouton "Envoyer email"
+  const { data: tmpls } = await supabase
+    .from("email_templates")
+    .select("slug, label, subject, body_html, needs_dates, needs_times")
+    .eq("is_active", true)
+    .order("label");
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm">
           <Link href="/rh/candidates"><ArrowLeft className="h-3.5 w-3.5" /> Retour</Link>
         </Button>
+        <div className="ml-auto">
+          <SendEmailButton applicationId={app.id} candidateName={candidate.full_name} templates={(tmpls ?? []) as never} />
+        </div>
       </div>
 
       <Card>
