@@ -3,10 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { sendEmail } from "@/lib/emails";
 import { renderTemplate, firstNameOf, type OrgVars } from "@/lib/email-templates";
 
-type SendArgs = {
+type PrepareArgs = {
   applicationIds: string[];
   templateSlug: string;
   customMessage?: string | null;
@@ -15,15 +14,27 @@ type SendArgs = {
   customSubject?: string | null;
 };
 
-type Result = {
-  ok?: boolean;
-  error?: string;
-  sent?: number;
-  failures?: Array<{ application_id: string; error: string }>;
+export type PreparedEmail = {
+  application_id: string;
+  to_email: string;
+  to_name: string;
+  subject: string;
+  body: string;
 };
 
-export async function sendCustomEmailAction(args: SendArgs): Promise<Result> {
-  const { profile } = await requireRole(["admin", "rh", "manager"]);
+type PrepareResult = {
+  ok?: boolean;
+  error?: string;
+  emails?: PreparedEmail[];
+  invalidCount?: number;
+};
+
+/**
+ * Prepare les emails à envoyer (rendering serveur + récupération destinataires).
+ * Le client envoie ensuite via EmailJS et appelle logEmailSentAction pour chaque succès.
+ */
+export async function prepareEmailBatchAction(args: PrepareArgs): Promise<PrepareResult> {
+  await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
 
   if (!args.applicationIds || args.applicationIds.length === 0) {
@@ -41,7 +52,7 @@ export async function sendCustomEmailAction(args: SendArgs): Promise<Result> {
   ]);
 
   if (!tmpl) return { error: "Template introuvable." };
-  const template = tmpl as unknown as { slug: string; label: string; subject: string; body_html: string };
+  const template = tmpl as unknown as { slug: string; subject: string; body_html: string };
   const orgVars: OrgVars = {
     org_name: (org as { org_name?: string } | null)?.org_name ?? "Caftan Factory",
     org_email: (org as { org_email?: string } | null)?.org_email ?? "hr@caftanfactory.com",
@@ -50,13 +61,13 @@ export async function sendCustomEmailAction(args: SendArgs): Promise<Result> {
     org_address: (org as { org_address?: string } | null)?.org_address ?? "Rue de Brabant 230, 1030 Schaerbeek",
   };
 
-  const failures: Array<{ application_id: string; error: string }> = [];
-  let sent = 0;
+  const emails: PreparedEmail[] = [];
+  let invalid = 0;
 
   type AppRow = { id: string; candidate: { email: string; full_name: string } | null };
   for (const app of (apps ?? []) as unknown as AppRow[]) {
     if (!app.candidate?.email) {
-      failures.push({ application_id: app.id, error: "Pas d'email candidat." });
+      invalid += 1;
       continue;
     }
     const candidateVars = {
@@ -70,25 +81,36 @@ export async function sendCustomEmailAction(args: SendArgs): Promise<Result> {
     };
     const subject = renderTemplate(args.customSubject || template.subject, { ...orgVars, ...candidateVars, ...dynamicVars });
     const body = renderTemplate(template.body_html, { ...orgVars, ...candidateVars, ...dynamicVars });
-
-    const r = await sendEmail({ to: app.candidate.email, subject, html: body, replyTo: orgVars.org_email });
-    if (r?.error) {
-      failures.push({ application_id: app.id, error: r.error });
-      continue;
-    }
-    // Log dans messages (même si Resend a été skippé)
-    await supabase.from("messages").insert({
+    emails.push({
       application_id: app.id,
-      direction: "outbound",
-      sender_id: profile.id,
+      to_email: app.candidate.email,
+      to_name: app.candidate.full_name,
       subject,
-      body: body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000),
+      body,
     });
-    sent += 1;
   }
 
+  return { ok: true, emails, invalidCount: invalid };
+}
+
+export async function logEmailSentAction(
+  applicationId: string,
+  subject: string,
+  body: string,
+  provider = "emailjs",
+) {
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  await supabase.from("messages").insert({
+    application_id: applicationId,
+    direction: "outbound",
+    sender_id: profile.id,
+    subject,
+    body: body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000),
+    email_provider_id: provider,
+  });
   revalidatePath("/rh", "layout");
-  return { ok: true, sent, failures };
+  return { ok: true };
 }
 
 export async function saveTemplateAction(formData: FormData) {

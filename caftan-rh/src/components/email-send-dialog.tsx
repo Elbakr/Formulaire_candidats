@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import emailjs from "@emailjs/browser";
 import { Send, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { sendCustomEmailAction } from "@/app/rh/email/actions";
+import { prepareEmailBatchAction, logEmailSentAction } from "@/app/rh/email/actions";
 import { toast } from "sonner";
 
 type Template = {
@@ -27,6 +28,24 @@ type Template = {
   needs_dates: boolean;
   needs_times: boolean;
 };
+
+const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+const FROM_NAME = process.env.NEXT_PUBLIC_EMAILJS_FROM_NAME || "CaftanRH";
+const REPLY_TO = process.env.NEXT_PUBLIC_EMAILJS_REPLY_TO || "hr@caftanfactory.com";
+
+let emailjsInitialized = false;
+function ensureEmailJSInit() {
+  if (emailjsInitialized || !PUBLIC_KEY) return emailjsInitialized;
+  try {
+    emailjs.init({ publicKey: PUBLIC_KEY });
+    emailjsInitialized = true;
+  } catch (e) {
+    console.warn("EmailJS init failed:", e);
+  }
+  return emailjsInitialized;
+}
 
 export function EmailSendDialog({
   open,
@@ -43,6 +62,7 @@ export function EmailSendDialog({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [slug, setSlug] = useState("");
   const [subject, setSubject] = useState("");
   const [custom, setCustom] = useState("");
@@ -56,10 +76,10 @@ export function EmailSendDialog({
     if (t) setSubject(t.subject);
   }, [slug, templates]);
 
-  // Reset form on close
   useEffect(() => {
     if (!open) {
-      setSlug(""); setSubject(""); setCustom(""); setDates(""); setTimes(""); setPreviewing(false);
+      setSlug(""); setSubject(""); setCustom(""); setDates(""); setTimes("");
+      setPreviewing(false); setProgress(null);
     }
   }, [open]);
 
@@ -67,10 +87,18 @@ export function EmailSendDialog({
   const showDates = tmpl?.needs_dates ?? false;
   const showTimes = tmpl?.needs_times ?? false;
 
-  function send() {
+  const emailjsConfigured = !!SERVICE_ID && !!TEMPLATE_ID && !!PUBLIC_KEY;
+
+  async function send() {
     if (!slug) { toast.error("Choisis un template."); return; }
+    if (!emailjsConfigured) {
+      toast.error("EmailJS non configuré. Vérifie NEXT_PUBLIC_EMAILJS_* dans .env.local.");
+      return;
+    }
+
     startTransition(async () => {
-      const r = await sendCustomEmailAction({
+      // 1) Prepare server-side (rendering avec variables, fetch destinataires)
+      const prep = await prepareEmailBatchAction({
         applicationIds,
         templateSlug: slug,
         customMessage: custom || null,
@@ -78,16 +106,55 @@ export function EmailSendDialog({
         times: times || null,
         customSubject: subject || null,
       });
-      if (r.error) toast.error(r.error);
-      else {
-        toast.success(`${r.sent ?? 0} email(s) envoyé(s).${(r.failures?.length ?? 0) > 0 ? ` ${r.failures!.length} échec(s).` : ""}`, { duration: 6000 });
-        if (r.failures && r.failures.length > 0) {
-          console.warn("Send failures:", r.failures);
-          toast.warning(r.failures.map((f) => f.error).slice(0, 3).join(" · "));
-        }
-        onOpenChange(false);
-        router.refresh();
+      if (prep.error || !prep.emails) {
+        toast.error(prep.error ?? "Préparation échouée.");
+        return;
       }
+
+      ensureEmailJSInit();
+
+      const total = prep.emails.length;
+      setProgress({ done: 0, total });
+      let sent = 0;
+      const failures: Array<{ to: string; error: string }> = [];
+
+      // 2) Pour chaque destinataire, envoyer via EmailJS (browser)
+      for (let i = 0; i < prep.emails.length; i++) {
+        const m = prep.emails[i];
+        try {
+          await emailjs.send(SERVICE_ID!, TEMPLATE_ID!, {
+            to_email: m.to_email,
+            to_name: m.to_name,
+            from_name: FROM_NAME,
+            reply_to: REPLY_TO,
+            subject: m.subject,
+            message: m.body,
+          }, { publicKey: PUBLIC_KEY! });
+          sent += 1;
+          // Log success in messages table
+          await logEmailSentAction(m.application_id, m.subject, m.body, "emailjs");
+        } catch (e) {
+          const err = (e as { text?: string; message?: string })?.text
+            ?? (e as Error)?.message
+            ?? "EmailJS error";
+          failures.push({ to: m.to_email, error: err });
+        }
+        setProgress({ done: i + 1, total });
+      }
+
+      if (sent > 0) {
+        toast.success(`${sent} email(s) envoyé(s).${failures.length > 0 ? ` ${failures.length} échec(s).` : ""}`, { duration: 6000 });
+      }
+      if (failures.length > 0) {
+        console.warn("Email failures:", failures);
+        toast.error(`Échecs : ${failures.slice(0, 3).map((f) => `${f.to} (${f.error})`).join(" · ")}`, { duration: 8000 });
+      }
+      if (prep.invalidCount && prep.invalidCount > 0) {
+        toast.warning(`${prep.invalidCount} candidat(s) sans email — ignorés.`);
+      }
+
+      onOpenChange(false);
+      router.refresh();
     });
   }
 
@@ -98,6 +165,7 @@ export function EmailSendDialog({
           <DialogTitle>Envoyer un email</DialogTitle>
           <DialogDescription>
             Destinataire(s) : {recipientPreview} ({applicationIds.length})
+            {!emailjsConfigured ? <span className="block text-danger mt-1">⚠ EmailJS non configuré</span> : null}
           </DialogDescription>
         </DialogHeader>
 
@@ -156,6 +224,15 @@ export function EmailSendDialog({
                   <div className="text-xs" dangerouslySetInnerHTML={{ __html: tmpl.body_html }} />
                 </div>
               ) : null}
+
+              {progress ? (
+                <div className="text-xs text-ink-2">
+                  Envoi en cours : <strong>{progress.done}/{progress.total}</strong>
+                  <div className="h-1.5 bg-line rounded-full overflow-hidden mt-1">
+                    <div className="h-full bg-gold transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : (
             <div className="text-center text-sm text-ink-3 py-4">Choisis un template pour continuer.</div>
@@ -163,8 +240,8 @@ export function EmailSendDialog({
         </div>
 
         <DialogFooter className="-mx-5 -mb-3">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annuler</Button>
-          <Button type="button" variant="gold" disabled={pending || !slug} onClick={send}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>Annuler</Button>
+          <Button type="button" variant="gold" disabled={pending || !slug || !emailjsConfigured} onClick={send}>
             <Send className="h-4 w-4" /> {pending ? "Envoi…" : `Envoyer à ${applicationIds.length}`}
           </Button>
         </DialogFooter>
