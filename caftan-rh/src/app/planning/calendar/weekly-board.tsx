@@ -10,6 +10,7 @@ import { NameAvatar } from "@/components/ui/avatar";
 import { useRealtime } from "@/hooks/use-realtime";
 import { addDays, parseISODate, toISODate, DAY_LABELS, shiftHours } from "@/lib/planning";
 import { ShiftDialog } from "./shift-dialog";
+import { GenerateWeekButton } from "./generate-button";
 
 type Employee = {
   id: string;
@@ -87,7 +88,9 @@ export function WeeklyPlanningBoard({
             Du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au {addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}
           </p>
         </div>
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex gap-1 items-center flex-wrap">
+          <GenerateWeekButton weekISO={mondayISO} />
+          <span className="w-2" />
           <Button asChild variant="outline" size="sm">
             <Link href={`?week=${prev}`}><ChevronLeft className="h-3.5 w-3.5" /></Link>
           </Button>
