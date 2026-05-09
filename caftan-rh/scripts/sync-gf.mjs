@@ -149,6 +149,7 @@ async function main() {
     email: m.email, full_name: m.full_name, phone: m.phone,
     birth_date: m.birth_date, city: m.city, source: m.source,
     gf_entry_id: m.gf_entry_id, raw_payload: m.raw_payload,
+    applied_at: m.raw_payload?.date_created ?? null,
   }));
   const { data: created, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id");
   if (error) { console.error("Erreur insert candidates:", error.message); process.exit(1); }

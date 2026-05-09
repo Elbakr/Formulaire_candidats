@@ -14,6 +14,8 @@ export type ApplicationListItem = {
     email: string;
     phone: string | null;
     city: string | null;
+    applied_at: string;
+    source: string | null;
   };
   job: { id: string; title: string } | null;
   assigned_manager_profile: { id: string; full_name: string | null } | null;
@@ -24,22 +26,28 @@ export async function fetchApplications(opts?: {
   managerId?: string;
   candidateProfileId?: string;
   limit?: number;
+  /** ISO date YYYY-MM-DD inclusive */
+  appliedFrom?: string;
+  /** ISO date YYYY-MM-DD inclusive */
+  appliedTo?: string;
 }): Promise<ApplicationListItem[]> {
   const supabase = await createClient();
   let query = supabase
     .from("applications")
     .select(
       `id, status, rating, motivation, created_at, updated_at,
-       candidate:candidates(id, full_name, email, phone, city, profile_id),
+       candidate:candidates(id, full_name, email, phone, city, profile_id, applied_at, source),
        job:jobs(id, title),
        assigned_manager_profile:profiles!applications_assigned_manager_fkey(id, full_name)`,
     )
-    .order("updated_at", { ascending: false });
+    .order("applied_at", { ascending: false, foreignTable: "candidates" });
 
   if (opts?.status) query = query.eq("status", opts.status);
   if (opts?.managerId) query = query.eq("assigned_manager", opts.managerId);
   if (opts?.candidateProfileId)
     query = query.eq("candidate.profile_id", opts.candidateProfileId);
+  if (opts?.appliedFrom) query = query.gte("candidate.applied_at", `${opts.appliedFrom}T00:00:00`);
+  if (opts?.appliedTo) query = query.lte("candidate.applied_at", `${opts.appliedTo}T23:59:59`);
   if (opts?.limit) query = query.limit(opts.limit);
 
   const { data, error } = await query;

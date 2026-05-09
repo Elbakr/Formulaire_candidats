@@ -69,6 +69,7 @@ export type MappedCandidate = {
   raw_payload: Record<string, unknown>;
   motivation: string | null;
   cv_url: string | null;
+  applied_at: string | null;
 };
 
 export function mapGFEntry(entry: GFEntry, fieldMap: GFFieldMap): MappedCandidate | null {
@@ -109,6 +110,7 @@ export function mapGFEntry(entry: GFEntry, fieldMap: GFFieldMap): MappedCandidat
     source: "gravity_forms",
     motivation: motivationParts.length ? motivationParts.join("\n") : null,
     cv_url: findCvUrl(entry),
+    applied_at: entry.date_created ? String(entry.date_created) : null,
     raw_payload: {
       gf_id: entry.id,
       form_id: entry.form_id,
