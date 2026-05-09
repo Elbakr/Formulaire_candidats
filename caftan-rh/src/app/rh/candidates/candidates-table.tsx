@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Mail, X } from "lucide-react";
+import { Search, Mail, X, ArrowUpDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge, STATUS_LABELS } from "@/components/ui/badge";
@@ -40,6 +40,7 @@ export function CandidatesTable({
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [datePreset, setDatePreset] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("recent"); // recent | old | name_asc | name_desc | status
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [emailOpen, setEmailOpen] = useState(false);
 
@@ -71,21 +72,27 @@ export function CandidatesTable({
     }
   }
 
+  // Defensive: filter out applications without a candidate (RLS or orphan state)
+  const safeData = useMemo(
+    () => initialData.filter((a) => a.candidate && a.candidate.id),
+    [initialData],
+  );
+
   const sources = useMemo(() => {
     const s = new Set<string>();
-    for (const a of initialData) if (a.candidate.source) s.add(a.candidate.source);
+    for (const a of safeData) if (a.candidate.source) s.add(a.candidate.source);
     return Array.from(s).sort();
-  }, [initialData]);
+  }, [safeData]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const fromMs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
     const toMs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null;
-    return initialData.filter((a) => {
+    const list = safeData.filter((a) => {
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (sourceFilter !== "all" && a.candidate.source !== sourceFilter) return false;
       if (fromMs || toMs) {
-        const t = new Date(a.candidate.applied_at).getTime();
+        const t = a.candidate.applied_at ? new Date(a.candidate.applied_at).getTime() : 0;
         if (fromMs && t < fromMs) return false;
         if (toMs && t > toMs) return false;
       }
@@ -97,7 +104,27 @@ export function CandidatesTable({
         (a.job?.title ?? "").toLowerCase().includes(q)
       );
     });
-  }, [initialData, search, statusFilter, sourceFilter, dateFrom, dateTo]);
+
+    // Sort
+    const collator = new Intl.Collator("fr", { sensitivity: "base" });
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case "old":
+          return new Date(a.candidate.applied_at ?? 0).getTime() - new Date(b.candidate.applied_at ?? 0).getTime();
+        case "name_asc":
+          return collator.compare(a.candidate.full_name, b.candidate.full_name);
+        case "name_desc":
+          return collator.compare(b.candidate.full_name, a.candidate.full_name);
+        case "status":
+          return collator.compare(a.status, b.status);
+        case "recent":
+        default:
+          return new Date(b.candidate.applied_at ?? 0).getTime() - new Date(a.candidate.applied_at ?? 0).getTime();
+      }
+    });
+
+    return list;
+  }, [safeData, search, statusFilter, sourceFilter, dateFrom, dateTo, sortBy]);
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -171,6 +198,19 @@ export function CandidatesTable({
                 ))}
               </SelectContent>
             </Select>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[160px]">
+                <ArrowUpDown className="h-3.5 w-3.5 mr-1" />
+                <SelectValue placeholder="Trier" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Plus récent</SelectItem>
+                <SelectItem value="old">Plus ancien</SelectItem>
+                <SelectItem value="name_asc">Nom A → Z</SelectItem>
+                <SelectItem value="name_desc">Nom Z → A</SelectItem>
+                <SelectItem value="status">Par statut</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Filtre date d'inscription */}
@@ -214,19 +254,25 @@ export function CandidatesTable({
                 />
               </>
             ) : null}
-            {(dateFrom || dateTo) ? (
-              <span className="ml-auto text-ink-2 font-mono">
-                {filtered.length} / {initialData.length} candidats
-              </span>
-            ) : null}
+            <span className="ml-auto text-ink-2 font-mono text-xs">
+              {filtered.length} / {safeData.length} candidat{safeData.length > 1 ? "s" : ""}
+            </span>
           </div>
         </div>
 
         {filtered.length === 0 ? (
-          <div className="p-12 text-center text-sm text-ink-3">Aucune candidature trouvée.</div>
+          <div className="p-12 text-center text-sm text-ink-3">
+            Aucune candidature ne correspond aux filtres.
+            <button
+              onClick={() => { setSearch(""); setStatusFilter("all"); setSourceFilter("all"); applyDatePreset("all"); }}
+              className="block mx-auto mt-3 text-gold-dark font-bold hover:underline"
+            >
+              Réinitialiser les filtres
+            </button>
+          </div>
         ) : (
           <div className="divide-y divide-line">
-            {filtered.map((app) => {
+            {filtered.slice(0, 500).map((app) => {
               const checked = selected.has(app.id);
               return (
                 <div
@@ -261,6 +307,11 @@ export function CandidatesTable({
                 </div>
               );
             })}
+            {filtered.length > 500 ? (
+              <div className="p-4 text-center text-xs text-ink-3 bg-surface-2">
+                Affichage limité aux 500 premiers résultats. Utilise les filtres pour affiner ({filtered.length - 500} de plus disponibles).
+              </div>
+            ) : null}
           </div>
         )}
       </Card>

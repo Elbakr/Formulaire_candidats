@@ -48,7 +48,9 @@ export async function fetchApplications(opts?: {
     query = query.eq("candidate.profile_id", opts.candidateProfileId);
   if (opts?.appliedFrom) query = query.gte("candidate.applied_at", `${opts.appliedFrom}T00:00:00`);
   if (opts?.appliedTo) query = query.lte("candidate.applied_at", `${opts.appliedTo}T23:59:59`);
-  if (opts?.limit) query = query.limit(opts.limit);
+  // Override Supabase default 1000-row cap. Without explicit range, only ~1000
+  // rows come back even when the table has more.
+  query = query.range(0, (opts?.limit ?? 5000) - 1);
 
   const { data, error } = await query;
   if (error) {
