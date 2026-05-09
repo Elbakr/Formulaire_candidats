@@ -1,19 +1,19 @@
 -- Row Level Security policies par rôle
 
-create or replace function current_role() returns app_role as $$
+create or replace function current_app_role() returns app_role as $$
   select role from profiles where id = auth.uid();
 $$ language sql stable security definer set search_path = public;
 
 create or replace function is_admin() returns boolean as $$
-  select coalesce(current_role() = 'admin', false);
+  select coalesce(current_app_role() = 'admin', false);
 $$ language sql stable;
 
 create or replace function is_rh() returns boolean as $$
-  select coalesce(current_role() in ('admin','rh'), false);
+  select coalesce(current_app_role() in ('admin','rh'), false);
 $$ language sql stable;
 
 create or replace function is_manager() returns boolean as $$
-  select coalesce(current_role() in ('admin','rh','manager'), false);
+  select coalesce(current_app_role() in ('admin','rh','manager'), false);
 $$ language sql stable;
 
 alter table profiles enable row level security;
