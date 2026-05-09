@@ -2,6 +2,7 @@ import { fetchApplications, fetchOpenJobs } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
 import { CandidatesTable } from "./candidates-table";
 import { NewCandidateButton } from "./new-candidate-button";
+import { ExportCandidatesButton } from "./export-button";
 
 export default async function RhCandidatesPage() {
   const supabase = await createClient();
@@ -19,7 +20,10 @@ export default async function RhCandidatesPage() {
           <h1 className="text-2xl font-bold">Candidats</h1>
           <p className="text-sm text-ink-2">{apps.length} candidatures · sync temps réel · sélectionne plusieurs candidats pour envoyer un email en masse.</p>
         </div>
-        <NewCandidateButton jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <ExportCandidatesButton />
+          <NewCandidateButton jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
+        </div>
       </div>
       <CandidatesTable initialData={apps} templates={(tmpls ?? []) as never} />
     </div>

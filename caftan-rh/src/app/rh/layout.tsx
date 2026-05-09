@@ -9,6 +9,7 @@ const sections: NavSection[] = [
       { href: "/rh/candidates", label: "Candidats", icon: "Users" },
       { href: "/rh/pipeline", label: "Pipeline", icon: "KanbanSquare" },
       { href: "/rh/jobs", label: "Offres", icon: "Briefcase" },
+      { href: "/rh/agenda", label: "Agenda RDV", icon: "Calendar" },
     ],
   },
   {
@@ -17,6 +18,7 @@ const sections: NavSection[] = [
       { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
       { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
       { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
+      { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
     ],
   },
   {
@@ -30,6 +32,7 @@ const sections: NavSection[] = [
     items: [
       { href: "/rh/messages", label: "Messagerie", icon: "Mail" },
       { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
+      { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },
       { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },
     ],
   },

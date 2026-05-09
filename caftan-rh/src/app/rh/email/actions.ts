@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { renderTemplate, firstNameOf, type OrgVars } from "@/lib/email-templates";
+import { logActivity } from "@/lib/activity";
 
 type PrepareArgs = {
   applicationIds: string[];
@@ -108,6 +109,15 @@ export async function logEmailSentAction(
     subject,
     body: body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000),
     email_provider_id: provider,
+  });
+  await logActivity({
+    kind: "email.sent",
+    targetType: "application",
+    targetId: applicationId,
+    description: `Email envoyé : ${subject}`.slice(0, 200),
+    actorId: profile.id,
+    actorLabel: profile.full_name ?? profile.email ?? null,
+    data: { provider, subject },
   });
   revalidatePath("/rh", "layout");
   return { ok: true };

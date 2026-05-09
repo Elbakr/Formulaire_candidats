@@ -13,6 +13,7 @@ import { NotesPanel } from "./notes-panel";
 import { InterviewsPanel } from "./interviews-panel";
 import { SendEmailButton } from "./send-email-button";
 import { CandidateAdminForm } from "./admin-form";
+import { TimelinePanel } from "./timeline-panel";
 
 export default async function CandidateDetailPage(props: PageProps<"/rh/candidates/[id]">) {
   const { id } = await props.params;
@@ -105,14 +106,19 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
 
       <StatusControl applicationId={app.id} currentStatus={app.status} currentRating={app.rating ?? 0} />
 
-      <Tabs defaultValue="notes">
+      <Tabs defaultValue="timeline">
         <TabsList>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="notes">Notes ({notesRes.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="interviews">Entretiens ({interviewsRes.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="documents">Documents ({docsRes.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="motivation">Motivation</TabsTrigger>
           <TabsTrigger value="admin">Dossier admin</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="timeline">
+          <TimelinePanel applicationId={app.id} />
+        </TabsContent>
 
         <TabsContent value="notes">
           <NotesPanel applicationId={app.id} notes={(notesRes.data ?? []) as never} />

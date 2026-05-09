@@ -15,6 +15,8 @@ const sections: NavSection[] = [
     items: [
       { href: "/admin/payroll", label: "Paie (export)", icon: "FileBarChart" },
       { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+      { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
+      { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
     ],
   },
   {

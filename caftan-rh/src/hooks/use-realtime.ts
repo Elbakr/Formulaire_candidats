@@ -15,7 +15,16 @@ type RealtimeTable =
   | "notifications"
   | "clock_entries"
   | "evaluations"
-  | "employee_metrics";
+  | "employee_metrics"
+  | "onboarding_runs"
+  | "onboarding_run_items"
+  | "onboarding_templates"
+  | "onboarding_template_items"
+  | "activity_log"
+  | "sequences"
+  | "sequence_steps"
+  | "sequence_runs"
+  | "sequence_run_steps";
 
 export function useRealtime(table: RealtimeTable, onChange: () => void, filter?: string) {
   const onChangeRef = useRef(onChange);

@@ -15,6 +15,7 @@ const sections: NavSection[] = [
       { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
       { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
       { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
+      { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
     ],
   },
   {
