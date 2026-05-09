@@ -11,6 +11,8 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { addDays, parseISODate, toISODate, DAY_LABELS, shiftHours } from "@/lib/planning";
 import { ShiftDialog } from "./shift-dialog";
 import { GenerateWeekButton } from "./generate-button";
+import { BroadcastScheduleButton } from "./broadcast-button";
+import { Printer } from "lucide-react";
 
 type Employee = {
   id: string;
@@ -90,6 +92,10 @@ export function WeeklyPlanningBoard({
         </div>
         <div className="ml-auto flex gap-1 items-center flex-wrap">
           <GenerateWeekButton weekISO={mondayISO} />
+          <BroadcastScheduleButton weekISO={mondayISO} />
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/planning/print?week=${mondayISO}`} target="_blank"><Printer className="h-3.5 w-3.5" /> Imprimer</Link>
+          </Button>
           <span className="w-2" />
           <Button asChild variant="outline" size="sm">
             <Link href={`?week=${prev}`}><ChevronLeft className="h-3.5 w-3.5" /></Link>

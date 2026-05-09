@@ -28,13 +28,13 @@ export async function requireRole(allowed: AppRole[]) {
 }
 
 export function roleHome(role: AppRole | string) {
+  // Patron, RH et Manager : la page la plus utile au quotidien = le planning de la semaine.
+  // Le candidat / employé : son propre espace.
   switch (role) {
     case "admin":
-      return "/admin";
     case "rh":
-      return "/rh";
     case "manager":
-      return "/manager";
+      return "/planning/calendar";
     default:
       return "/me";
   }

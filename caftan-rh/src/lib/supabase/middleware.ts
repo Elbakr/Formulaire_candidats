@@ -66,11 +66,9 @@ export async function updateSession(request: NextRequest) {
 export function roleHome(role: string) {
   switch (role) {
     case "admin":
-      return "/admin";
     case "rh":
-      return "/rh";
     case "manager":
-      return "/manager";
+      return "/planning/calendar";
     default:
       return "/me";
   }
