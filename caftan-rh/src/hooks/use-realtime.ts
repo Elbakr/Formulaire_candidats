@@ -4,7 +4,14 @@ import { useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
-type RealtimeTable = "applications" | "interviews" | "notes" | "messages";
+type RealtimeTable =
+  | "applications"
+  | "interviews"
+  | "notes"
+  | "messages"
+  | "shifts"
+  | "time_off_requests"
+  | "employees";
 
 export function useRealtime(table: RealtimeTable, onChange: () => void, filter?: string) {
   const onChangeRef = useRef(onChange);

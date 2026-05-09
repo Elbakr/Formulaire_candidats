@@ -3,13 +3,62 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import {
+  sendInterviewInvite,
+  sendRejection,
+  sendOffer,
+} from "@/lib/emails";
+import { formatDateTime } from "@/lib/utils";
 import type { ApplicationStatus } from "@/types/database.types";
+
+async function fetchAppContext(applicationId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("applications")
+    .select(`id, candidate:candidates(email, full_name), job:jobs(title)`)
+    .eq("id", applicationId)
+    .single();
+  return data as {
+    id: string;
+    candidate: { email: string; full_name: string } | null;
+    job: { title: string } | null;
+  } | null;
+}
 
 export async function updateApplicationStatusAction(applicationId: string, status: ApplicationStatus) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
   const { error } = await supabase.from("applications").update({ status }).eq("id", applicationId);
   if (error) return { error: error.message };
+
+  // Trigger emails on key transitions + log in messages table
+  if (status === "refused" || status === "hired") {
+    const ctx = await fetchAppContext(applicationId);
+    if (ctx?.candidate?.email) {
+      let subject = "";
+      let body = "";
+      if (status === "refused") {
+        subject = "Suite donnée à ta candidature";
+        body = `Suite à examen de ton dossier, nous ne pouvons pas donner suite à ta candidature pour cette fois-ci. Bonne continuation.`;
+        await sendRejection({ to: ctx.candidate.email, fullName: ctx.candidate.full_name });
+      } else if (status === "hired") {
+        subject = "Bienvenue dans l'équipe !";
+        body = `Nous avons le plaisir de te confirmer ton recrutement au poste de ${ctx.job?.title ?? "ton nouveau poste"}. À très vite pour les prochaines étapes.`;
+        await sendOffer({
+          to: ctx.candidate.email,
+          fullName: ctx.candidate.full_name,
+          jobTitle: ctx.job?.title ?? "votre nouveau poste",
+        });
+      }
+      await supabase.from("messages").insert({
+        application_id: applicationId,
+        direction: "outbound",
+        subject,
+        body,
+      });
+    }
+  }
+
   revalidatePath("/rh", "layout");
   revalidatePath("/manager", "layout");
   return { ok: true };
@@ -72,6 +121,31 @@ export async function scheduleInterviewAction(formData: FormData) {
     .update({ status: "rdv_scheduled" })
     .eq("id", applicationId);
 
+  // Email d'invitation à l'entretien + log dans messages
+  const ctx = await fetchAppContext(applicationId);
+  if (ctx?.candidate?.email) {
+    const where =
+      type === "video"
+        ? meetingUrl || "Lien envoyé séparément"
+        : type === "phone"
+          ? `Téléphone ${location || ""}`
+          : location || "Sur place — adresse communiquée";
+    const whenLocal = formatDateTime(scheduledAt);
+    await sendInterviewInvite({
+      to: ctx.candidate.email,
+      fullName: ctx.candidate.full_name,
+      whenLocal,
+      location: where,
+    });
+    await supabase.from("messages").insert({
+      application_id: applicationId,
+      direction: "outbound",
+      sender_id: profile.id,
+      subject: "Convocation à un entretien",
+      body: `Tu es convoqué·e à un entretien le ${whenLocal} (${where}).`,
+    });
+  }
+
   revalidatePath("/rh", "layout");
   revalidatePath("/manager", "layout");
   return { ok: true };
@@ -95,8 +169,9 @@ export async function createCandidateAction(formData: FormData) {
     .single();
   if (error || !cand) return { error: error?.message ?? "Échec création" };
 
+  const c = cand as unknown as { id: string };
   await supabase.from("applications").insert({
-    candidate_id: cand.id,
+    candidate_id: c.id,
     job_id: jobId,
     status: "new",
   });

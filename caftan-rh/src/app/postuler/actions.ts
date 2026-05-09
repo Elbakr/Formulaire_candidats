@@ -81,6 +81,13 @@ export async function submitPublicApplication(formData: FormData) {
   }
 
   await sendApplicationAcknowledgement({ to: email, fullName });
+  const a = app as unknown as { id: string };
+  await supabase.from("messages").insert({
+    application_id: a.id,
+    direction: "outbound",
+    subject: "Candidature bien reçue",
+    body: `Merci ${fullName}, nous avons bien reçu ta candidature. Nous reviendrons vers toi rapidement.`,
+  });
 
-  return { ok: true, applicationId: app.id };
+  return { ok: true, applicationId: a.id };
 }

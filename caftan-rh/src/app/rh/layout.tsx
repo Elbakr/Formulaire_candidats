@@ -12,6 +12,14 @@ const sections: NavSection[] = [
     ],
   },
   {
+    title: "GestiPlanning",
+    items: [
+      { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
+      { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
+      { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
+    ],
+  },
+  {
     title: "Communication",
     items: [
       { href: "/rh/messages", label: "Messagerie", icon: "Mail" },

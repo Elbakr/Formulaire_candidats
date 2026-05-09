@@ -3,13 +3,6 @@ import { requireRole } from "@/lib/auth";
 
 const sections: NavSection[] = [
   {
-    items: [
-      { href: "/manager", label: "Tableau de bord", icon: "LayoutDashboard" },
-      { href: "/manager/candidates", label: "Mes candidats", icon: "Users" },
-      { href: "/manager/calendar", label: "Mon agenda", icon: "Calendar" },
-    ],
-  },
-  {
     title: "GestiPlanning",
     items: [
       { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
@@ -17,9 +10,15 @@ const sections: NavSection[] = [
       { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
     ],
   },
+  {
+    title: "Retour",
+    items: [
+      { href: "/rh", label: "Recrutement RH", icon: "Briefcase" },
+    ],
+  },
 ];
 
-export default async function ManagerLayout({ children }: { children: React.ReactNode }) {
+export default async function PlanningLayout({ children }: { children: React.ReactNode }) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   return <AppShell sections={sections} user={profile}>{children}</AppShell>;
 }

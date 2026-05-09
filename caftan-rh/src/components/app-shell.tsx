@@ -6,6 +6,7 @@ import {
   LogOut, Settings,
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
+  CalendarDays, UserCheck, CalendarOff, Clock,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import {
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
+  CalendarDays, UserCheck, CalendarOff, Clock,
 };
 
 export type NavIconName = keyof typeof ICONS;
