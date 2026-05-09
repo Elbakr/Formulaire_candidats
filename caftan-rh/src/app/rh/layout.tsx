@@ -20,6 +20,12 @@ const sections: NavSection[] = [
     ],
   },
   {
+    title: "Pilotage",
+    items: [
+      { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+    ],
+  },
+  {
     title: "Communication",
     items: [
       { href: "/rh/messages", label: "Messagerie", icon: "Mail" },

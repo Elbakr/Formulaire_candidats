@@ -17,6 +17,12 @@ const sections: NavSection[] = [
       { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
     ],
   },
+  {
+    title: "Pilotage",
+    items: [
+      { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+    ],
+  },
 ];
 
 export default async function ManagerLayout({ children }: { children: React.ReactNode }) {

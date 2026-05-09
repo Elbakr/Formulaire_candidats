@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/gf-sync", "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/gf-sync", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/scoring-recompute", "schedule": "0 3 * * *" }
   ]
 }
