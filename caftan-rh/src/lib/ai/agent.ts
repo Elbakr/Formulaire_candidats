@@ -83,7 +83,10 @@ async function loadPrompt<TInput>(task: AgentTask): Promise<LoadedPrompt<TInput>
       const m = await import("./prompts/digest.v1");
       return { system: m.system, userBuilder: m.userBuilder as (i: TInput) => string, expectsJson: m.expectsJson };
     }
-    case "scheduling":
+    case "scheduling": {
+      const m = await import("./prompts/scheduling.v1");
+      return { system: m.system, userBuilder: m.userBuilder as (i: TInput) => string, expectsJson: m.expectsJson };
+    }
     case "anomaly":
       throw new Error(`Prompt for task "${task}" not yet implemented.`);
   }

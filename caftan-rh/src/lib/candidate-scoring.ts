@@ -1,5 +1,16 @@
-// Heuristique simple de scoring candidat (0-100).
-// Critères pondérés : complétude dossier, dispos, langues, présence CV.
+// Scoring intelligent candidat (0-100) avec 7 sous-scores détaillés.
+// Inspiré de l'ancien `calcScore` (recrutement.html section 1.6/1.7).
+//
+// Sous-scores :
+//   - profile_completeness  /20  — champs admin remplis
+//   - motivation_quality    /15  — longueur + signaux qualité
+//   - availability_fit      /15  — available_from + wanted_contract_type + jours dispo
+//   - languages_fit         /20  — FR/AR/NL/EN avec niveaux
+//   - cv_present            /10  — CV uploadé
+//   - experience_age        /10  — proxy via âge (ne pas discriminer trop fort)
+//   - urgency               /10  — bonus si récent, malus si vieux sans contact
+
+import { hasFRandAR, inferLangs, levelMeets } from "@/lib/heuristics/languages";
 
 export type CandidateScored = {
   email?: string | null;
@@ -15,38 +26,170 @@ export type CandidateScored = {
   wanted_contract_type?: string | null;
   langs?: Record<string, string> | null;
   raw_payload?: Record<string, unknown> | null;
+  applied_at?: string | null;
+  created_at?: string | null;
+  /** Pipeline status, used to detect "applied long ago, never contacted". */
+  status?: string | null;
 };
 
-export function computeCandidateScore(c: CandidateScored): number {
-  let score = 0;
+export type ScoreBreakdown = {
+  profile: number;
+  motivation: number;
+  availability: number;
+  languages: number;
+  cv: number;
+  experience: number;
+  urgency: number;
+};
 
-  // Complétude (40 pts)
-  const completenessFields: (keyof CandidateScored)[] = [
+export type ScoreResult = {
+  total: number;
+  breakdown: ScoreBreakdown;
+  recommendation: { label: string; tone: "good" | "ok" | "warn" | "bad"; detail: string };
+};
+
+const MAX = {
+  profile: 20,
+  motivation: 15,
+  availability: 15,
+  languages: 20,
+  cv: 10,
+  experience: 10,
+  urgency: 10,
+};
+
+function calcAge(birth?: string | null): number | null {
+  if (!birth) return null;
+  const d = new Date(birth);
+  if (Number.isNaN(d.getTime())) return null;
+  const diff = Date.now() - d.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+}
+
+export function computeCandidateScoreDetailed(c: CandidateScored): ScoreResult {
+  // 1. Profile completeness
+  const fields: (keyof CandidateScored)[] = [
     "email", "phone", "birth_date", "city", "address", "postal_code", "nrn", "iban",
   ];
-  const filled = completenessFields.filter((f) => !!(c[f] as unknown as string)?.toString().trim()).length;
-  score += Math.round((filled / completenessFields.length) * 40);
+  const filled = fields.filter((f) => !!String(c[f] ?? "").trim()).length;
+  const profile = Math.round((filled / fields.length) * MAX.profile);
 
-  // Motivation (10 pts)
-  const motivLen = (c.motivation ?? "").length;
-  if (motivLen > 50) score += 10;
-  else if (motivLen > 0) score += 5;
+  // 2. Motivation
+  const motivLen = (c.motivation ?? "").trim().length;
+  let motivation = 0;
+  if (motivLen >= 200) motivation = MAX.motivation;
+  else if (motivLen >= 100) motivation = 11;
+  else if (motivLen >= 50) motivation = 7;
+  else if (motivLen > 0) motivation = 3;
 
-  // Dispo : si available_from set + wanted_contract_type → 15 pts
-  if (c.available_from) score += 8;
-  if (c.wanted_contract_type) score += 7;
+  // 3. Availability
+  let availability = 0;
+  if (c.available_from) availability += 6;
+  if (c.wanted_contract_type) availability += 5;
+  // Jours dispo dans raw_payload
+  const raw = (c.raw_payload ?? {}) as Record<string, unknown>;
+  const dispoJours = raw.dispo_jours ?? raw.jours_dispo ?? raw.availability_days ?? raw.days;
+  if (Array.isArray(dispoJours) && dispoJours.length > 0) {
+    availability += Math.min(4, dispoJours.length);
+  } else if (typeof dispoJours === "string" && dispoJours.length > 0) {
+    availability += 2;
+  }
+  availability = Math.min(MAX.availability, availability);
 
-  // Langues (15 pts max — 5 par langue de niveau Courant ou Maternelle, max 3)
-  const langs = c.langs ?? {};
-  const goodLangs = Object.values(langs).filter((v) => /courant|maternelle/i.test(String(v))).length;
-  score += Math.min(15, goodLangs * 5);
+  // 4. Languages — utilise heuristique FR+AR par défaut si vide
+  const langs = inferLangs({ langs: c.langs ?? null });
+  let languages = 0;
+  const keysLower = Object.keys(langs).map((k) => k.toLowerCase());
+  const hasFR = keysLower.some((k) => k.startsWith("fra") || k === "fr");
+  const hasAR = keysLower.some((k) => k.startsWith("ara") || k === "ar");
+  const hasNL = keysLower.some((k) => k.startsWith("nee") || k.startsWith("néer") || k === "nl");
+  const hasEN = keysLower.some((k) => k.startsWith("ang") || k.startsWith("eng") || k === "en");
+  if (hasFR) languages += 7;
+  if (hasAR) languages += 7;
+  if (hasNL) languages += 4;
+  if (hasEN) languages += 2;
+  // Bonus niveau courant FR/AR
+  for (const k of Object.keys(langs)) {
+    const lk = k.toLowerCase();
+    if ((lk.startsWith("fra") || lk.startsWith("ara")) && levelMeets(langs[k], "courant")) {
+      languages += 1;
+    }
+  }
+  languages = Math.min(MAX.languages, languages);
 
-  // CV (raw_payload contient cv_url ou source url) (10 pts)
-  const raw = c.raw_payload as { cv_url?: string } | null;
-  if (raw?.cv_url) score += 10;
+  // 5. CV
+  const cvUrl = (raw.cv_url as string | undefined) ?? (raw.cv as string | undefined);
+  const cv = cvUrl && String(cvUrl).trim() ? MAX.cv : 0;
 
-  // Cap
-  return Math.max(0, Math.min(100, score));
+  // 6. Experience proxy via âge
+  const age = calcAge(c.birth_date);
+  let experience = 0;
+  if (age !== null) {
+    if (age < 18) experience = 0; // mineur = blocant ailleurs, mais ici juste 0
+    else if (age >= 22 && age <= 30) experience = MAX.experience;
+    else if (age >= 18 && age < 22) experience = 7;
+    else if (age > 30 && age <= 40) experience = 9;
+    else if (age > 40 && age <= 50) experience = 7;
+    else experience = 4;
+  } else {
+    experience = 5; // neutre si inconnu
+  }
+
+  // 7. Urgency : appliqué récemment = bonus ; appliqué il y a >30j sans contact = malus
+  const appliedISO = c.applied_at ?? c.created_at ?? null;
+  let urgency = 5; // neutre par défaut
+  if (appliedISO) {
+    const days = Math.floor((Date.now() - new Date(appliedISO).getTime()) / 86_400_000);
+    if (days <= 3) urgency = MAX.urgency;
+    else if (days <= 7) urgency = 8;
+    else if (days <= 14) urgency = 6;
+    else if (days <= 30) urgency = 4;
+    else {
+      // Vieux + jamais contacté → malus
+      const stale = c.status === "new" || !c.status;
+      urgency = stale ? 0 : 3;
+    }
+  }
+
+  const breakdown: ScoreBreakdown = {
+    profile,
+    motivation,
+    availability,
+    languages,
+    cv,
+    experience,
+    urgency,
+  };
+
+  const total = Math.max(
+    0,
+    Math.min(100, profile + motivation + availability + languages + cv + experience + urgency),
+  );
+
+  // Recommandation
+  let rec: ScoreResult["recommendation"];
+  const blockingFR_AR = !hasFRandAR(langs);
+  if (total >= 75) {
+    rec = { label: "Profil prometteur, à contacter rapidement", tone: "good", detail: "Score élevé sur la plupart des axes." };
+  } else if (total >= 60) {
+    rec = { label: "Bon profil — convoquer", tone: "good", detail: "Score solide, à convoquer en entretien." };
+  } else if (total >= 45) {
+    rec = { label: "Profil moyen, à examiner", tone: "ok", detail: "Quelques manques mais peut être convoqué après vérification." };
+  } else if (total >= 30) {
+    rec = { label: "À mettre en liste d'attente", tone: "warn", detail: "Profil incomplet, à reconsidérer si besoin." };
+  } else {
+    rec = { label: "Profil faible, à refuser poliment", tone: "bad", detail: "Score insuffisant sur plusieurs axes critiques." };
+  }
+  if (blockingFR_AR) {
+    rec = { ...rec, detail: rec.detail + " ⚠ Pas de FR+AR détecté (souvent éliminatoire à Bruxelles)." };
+  }
+
+  return { total, breakdown, recommendation: rec };
+}
+
+/** Backwards-compat : retourne juste le total. */
+export function computeCandidateScore(c: CandidateScored): number {
+  return computeCandidateScoreDetailed(c).total;
 }
 
 export function scoreLabel(score: number): { label: string; cls: string } {
@@ -55,3 +198,6 @@ export function scoreLabel(score: number): { label: string; cls: string } {
   if (score >= 35) return { label: "Moyen", cls: "bg-warn-light text-warn" };
   return { label: "Faible", cls: "bg-danger-light text-danger" };
 }
+
+/** Max value of each sub-score (utile pour les barres UI). */
+export const SCORE_MAX = MAX;

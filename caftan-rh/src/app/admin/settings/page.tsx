@@ -22,12 +22,22 @@ export default async function AdminSettingsPage() {
               timezone: string;
               default_language: string;
               logo_url: string | null;
+              prayer_pause_enabled: boolean | null;
+              prayer_pause_summer: string | null;
+              prayer_pause_winter: string | null;
+              prayer_pause_dst_start: string | null;
+              prayer_pause_dst_end: string | null;
             }) ?? {
               org_name: "CaftanRH",
               email_signature: "",
               timezone: "Europe/Brussels",
               default_language: "fr-BE",
               logo_url: "",
+              prayer_pause_enabled: true,
+              prayer_pause_summer: "13:55-14:45",
+              prayer_pause_winter: "12:55-13:45",
+              prayer_pause_dst_start: "04-01",
+              prayer_pause_dst_end: "10-01",
             }
           }
         />

@@ -20,8 +20,17 @@ export async function createEvaluationAction(formData: FormData) {
   const periodEnd = String(formData.get("period_end") ?? "");
   const comment = String(formData.get("comment") ?? "").trim() || null;
 
+  // 7 axes Discovery (recrutement.html EVAL_CRIT)
   const scores: Record<string, number> = {};
-  for (const k of ["fiabilite", "autonomie", "esprit_equipe", "qualite", "presentation"]) {
+  for (const k of [
+    "ponctualite",
+    "presentation",
+    "communication",
+    "motivation",
+    "experience",
+    "polyvalence",
+    "disponibilite",
+  ]) {
     const v = Number(formData.get(`score_${k}`) ?? 0);
     if (v < 1 || v > 5) return { error: `Note ${k} invalide (1-5).` };
     scores[k] = v;

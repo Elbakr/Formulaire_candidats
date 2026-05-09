@@ -2,7 +2,7 @@
 // en attente de validation humaine. Ordre : pending d'abord, plus récents en haut.
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Inbox as InboxIcon, Mail, FileText, Tag, UserCheck, AlertTriangle } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Inbox as InboxIcon, Mail, FileText, Tag, UserCheck, AlertTriangle } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -43,6 +43,7 @@ const KIND_LABELS: Record<string, string> = {
   candidate_scoring: "Scoring candidat",
   spam_archive: "Archivage spam",
   follow_up: "Relance",
+  scheduling_proposal: "Proposition de créneaux",
 };
 
 const KIND_ICONS: Record<string, typeof Mail> = {
@@ -54,6 +55,7 @@ const KIND_ICONS: Record<string, typeof Mail> = {
   candidate_scoring: UserCheck,
   spam_archive: AlertTriangle,
   follow_up: Mail,
+  scheduling_proposal: CalendarClock,
 };
 
 function safeDate(s: string | undefined) {
@@ -102,6 +104,8 @@ function headlineFor(row: AgentActionRow, targetLabel: string | null): string {
       return `Archiver email de ${target} (spam)`;
     case "follow_up":
       return `Relancer ${target}`;
+    case "scheduling_proposal":
+      return `3 créneaux d'entretien proposés pour ${target}`;
     default:
       return `${KIND_LABELS[row.kind] ?? row.kind} · ${target}`;
   }

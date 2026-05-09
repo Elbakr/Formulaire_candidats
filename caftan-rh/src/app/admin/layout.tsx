@@ -18,6 +18,8 @@ const sections: NavSection[] = [
       { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
       { href: "/admin/ai-audit", label: "AI audit", icon: "Sparkles" },
+      { href: "/admin/anomalies", label: "Anomalies", icon: "AlertTriangle" },
+      { href: "/admin/digest", label: "Digest IA", icon: "Sparkles" },
     ],
   },
   {

@@ -9,12 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { createEvaluationAction } from "../../actions";
 import { toast } from "sonner";
 
+// 7 axes Discovery (recrutement.html EVAL_CRIT)
 const AXES: Array<[string, string, string]> = [
-  ["fiabilite", "Fiabilité", "Présence, ponctualité, respect des engagements"],
-  ["autonomie", "Autonomie", "Capacité à travailler sans supervision"],
-  ["esprit_equipe", "Esprit d'équipe", "Communication, entraide"],
-  ["qualite", "Qualité du travail", "Précision, soin, rigueur"],
+  ["ponctualite", "Ponctualité", "Présence, respect des horaires"],
   ["presentation", "Présentation", "Tenue, attitude face aux clients"],
+  ["communication", "Communication", "Aisance verbale, écoute, clarté"],
+  ["motivation", "Motivation", "Engagement, énergie, envie d'apprendre"],
+  ["experience", "Expérience", "Maîtrise du poste, savoir-faire"],
+  ["polyvalence", "Polyvalence", "Capacité à changer de tâche/site"],
+  ["disponibilite", "Disponibilité", "Souplesse horaire, week-ends, dépannage"],
 ];
 
 export function EvaluationForm({ employeeId }: { employeeId: string }) {

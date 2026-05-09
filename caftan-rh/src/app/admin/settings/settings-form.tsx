@@ -14,6 +14,11 @@ type Settings = {
   timezone: string;
   default_language: string;
   logo_url: string | null;
+  prayer_pause_enabled?: boolean | null;
+  prayer_pause_summer?: string | null;
+  prayer_pause_winter?: string | null;
+  prayer_pause_dst_start?: string | null;
+  prayer_pause_dst_end?: string | null;
 };
 
 export function SettingsForm({ initial }: { initial: Settings }) {
@@ -57,6 +62,62 @@ export function SettingsForm({ initial }: { initial: Settings }) {
           placeholder="-- L'équipe CaftanRH ..."
         />
       </div>
+
+      <fieldset className="border border-line rounded-md p-4 space-y-3">
+        <legend className="text-sm font-bold px-2">Pause prière vendredi (auto-planning)</legend>
+        <p className="text-xs text-ink-3">
+          L&apos;auto-planning découpe les shifts qui chevauchent ce créneau le vendredi. Été/hiver détectés via les
+          dates DST ci-dessous (format <code>MM-JJ</code>).
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="prayer_pause_enabled"
+            defaultChecked={initial.prayer_pause_enabled ?? true}
+            className="h-4 w-4 rounded border-line"
+          />
+          <span>Activer la pause prière le vendredi</span>
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="prayer_pause_summer">Pause été (HH:MM-HH:MM)</Label>
+            <Input
+              id="prayer_pause_summer"
+              name="prayer_pause_summer"
+              defaultValue={initial.prayer_pause_summer ?? "13:55-14:45"}
+              placeholder="13:55-14:45"
+            />
+          </div>
+          <div>
+            <Label htmlFor="prayer_pause_winter">Pause hiver (HH:MM-HH:MM)</Label>
+            <Input
+              id="prayer_pause_winter"
+              name="prayer_pause_winter"
+              defaultValue={initial.prayer_pause_winter ?? "12:55-13:45"}
+              placeholder="12:55-13:45"
+            />
+          </div>
+          <div>
+            <Label htmlFor="prayer_pause_dst_start">Début été (MM-JJ)</Label>
+            <Input
+              id="prayer_pause_dst_start"
+              name="prayer_pause_dst_start"
+              defaultValue={initial.prayer_pause_dst_start ?? "04-01"}
+              placeholder="04-01"
+            />
+          </div>
+          <div>
+            <Label htmlFor="prayer_pause_dst_end">Fin été (MM-JJ)</Label>
+            <Input
+              id="prayer_pause_dst_end"
+              name="prayer_pause_dst_end"
+              defaultValue={initial.prayer_pause_dst_end ?? "10-01"}
+              placeholder="10-01"
+            />
+          </div>
+        </div>
+      </fieldset>
+
       <Button type="submit" variant="gold" disabled={pending}>
         {pending ? "…" : "Enregistrer"}
       </Button>

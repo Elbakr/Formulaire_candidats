@@ -4,12 +4,15 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
+// 7 axes Discovery (recrutement.html EVAL_CRIT)
 const SCORE_AXES: Array<[string, string]> = [
-  ["fiabilite", "Fiabilité"],
-  ["autonomie", "Autonomie"],
-  ["esprit_equipe", "Esprit d'équipe"],
-  ["qualite", "Qualité du travail"],
+  ["ponctualite", "Ponctualité"],
   ["presentation", "Présentation"],
+  ["communication", "Communication"],
+  ["motivation", "Motivation"],
+  ["experience", "Expérience"],
+  ["polyvalence", "Polyvalence"],
+  ["disponibilite", "Disponibilité"],
 ];
 
 export default async function MyScoringPage() {
@@ -120,7 +123,7 @@ export default async function MyScoringPage() {
                   <span className="text-xs text-ink-3">période {formatDate(e.period_start)} – {formatDate(e.period_end)}</span>
                   <span className="text-xs text-ink-3 ml-auto">{formatDateTime(e.created_at)}</span>
                 </div>
-                <div className="grid grid-cols-5 gap-1 text-xs">
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 text-xs">
                   {SCORE_AXES.map(([k, lbl]) => (
                     <div key={k} className="bg-surface-2 rounded p-1.5 text-center">
                       <div className="text-[9px] text-ink-3 uppercase font-bold truncate">{lbl}</div>

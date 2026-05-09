@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import { NameAvatar } from "@/components/ui/avatar";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
+// 7 axes Discovery (recrutement.html EVAL_CRIT)
 const SCORE_AXES: Array<[string, string]> = [
-  ["fiabilite", "Fiabilité"],
-  ["autonomie", "Autonomie"],
-  ["esprit_equipe", "Esprit d'équipe"],
-  ["qualite", "Qualité du travail"],
+  ["ponctualite", "Ponctualité"],
   ["presentation", "Présentation"],
+  ["communication", "Communication"],
+  ["motivation", "Motivation"],
+  ["experience", "Expérience"],
+  ["polyvalence", "Polyvalence"],
+  ["disponibilite", "Disponibilité"],
 ];
 
 export default async function ScoringDetailPage(props: PageProps<"/scoring/[employeeId]">) {
@@ -145,7 +148,7 @@ export default async function ScoringDetailPage(props: PageProps<"/scoring/[empl
                   <span className="text-xs text-ink-3">par {e.evaluator?.full_name ?? "—"}</span>
                   <span className="text-xs text-ink-3 ml-auto">{formatDateTime(e.created_at)}</span>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
                   {SCORE_AXES.map(([k, lbl]) => (
                     <div key={k} className="bg-surface-2 rounded p-2">
                       <div className="text-[10px] text-ink-3 uppercase font-bold">{lbl}</div>

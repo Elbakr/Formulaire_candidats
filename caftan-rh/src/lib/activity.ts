@@ -22,7 +22,7 @@ export type { ActivityKind, ActivityTargetType, ActivityRow } from "@/lib/activi
  */
 export async function logActivity(opts: {
   kind: ActivityKind;
-  targetType?: ActivityTargetType;
+  targetType?: ActivityTargetType | null;
   targetId?: string | null;
   description?: string | null;
   data?: Record<string, unknown> | null;

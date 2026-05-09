@@ -30,7 +30,8 @@ type RealtimeTable =
   | "documents"
   | "document_catalog"
   | "document_upload_tokens"
-  | "agent_actions";
+  | "agent_actions"
+  | "anomaly_flags";
 
 export function useRealtime(table: RealtimeTable, onChange: () => void, filter?: string) {
   const onChangeRef = useRef(onChange);

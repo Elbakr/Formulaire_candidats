@@ -38,9 +38,15 @@ export default async function AiAuditPage() {
   const supabase = await createClient();
 
   const since30d = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const sinceMonth = startOfMonthIso();
 
-  const [{ data: audit30d }, { data: auditMonth }, { data: settingsRow }] = await Promise.all([
+  const [
+    { data: audit30d },
+    { data: auditMonth },
+    { data: settingsRow },
+    { data: autoExecRaw },
+  ] = await Promise.all([
     supabase
       .from("ai_audit")
       .select("task, success, cost_usd, cached, duration_ms, created_at")
@@ -55,7 +61,26 @@ export default async function AiAuditPage() {
       .select("ai_autonomy_level, ai_provider, ai_model_strong, ai_model_fast, ai_budget_usd_monthly")
       .eq("id", 1)
       .maybeSingle(),
+    supabase
+      .from("agent_actions")
+      .select("id, kind, target_type, target_id, ai_confidence, decision_reason, executed_at")
+      .is("decided_by", null)
+      .eq("status", "executed")
+      .gte("executed_at", since7d)
+      .order("executed_at", { ascending: false })
+      .limit(50),
   ]);
+
+  type AutoExecRow = {
+    id: string;
+    kind: string;
+    target_type: string | null;
+    target_id: string | null;
+    ai_confidence: number | null;
+    decision_reason: string | null;
+    executed_at: string | null;
+  };
+  const autoExecRows = (autoExecRaw ?? []) as AutoExecRow[];
 
   const rows = (audit30d ?? []) as AuditRow[];
   const monthRows = (auditMonth ?? []) as Pick<AuditRow, "cost_usd" | "success" | "cached">[];
@@ -168,6 +193,57 @@ export default async function AiAuditPage() {
                     <td className="p-2 text-right font-mono">${m.cost.toFixed(4)}</td>
                   </tr>
                 ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      <Card>
+        <div className="p-4 border-b border-line">
+          <h2 className="font-bold">Actions auto-exécutées (7 derniers jours)</h2>
+          <p className="text-xs text-ink-3 mt-0.5">
+            Actions déclenchées par la whitelist d&apos;auto-exécution (sans validation humaine).
+            Chaque ligne correspond à un <code>agent_action</code> avec <code>decided_by IS NULL</code>.
+          </p>
+        </div>
+        {autoExecRows.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-3">
+            Aucune action auto-exécutée sur les 7 derniers jours.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-surface-2">
+              <tr className="text-[10px] uppercase tracking-wider text-ink-3">
+                <th className="text-left p-2 font-bold">Kind</th>
+                <th className="text-left p-2 font-bold">Cible</th>
+                <th className="text-right p-2 font-bold">Confiance</th>
+                <th className="text-left p-2 font-bold">Raison</th>
+                <th className="text-right p-2 font-bold">Quand</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {autoExecRows.map((row) => (
+                <tr key={row.id}>
+                  <td className="p-2 font-bold">{row.kind}</td>
+                  <td className="p-2 text-xs text-ink-2">
+                    {row.target_type ?? "—"} · {row.target_id ? row.target_id.slice(0, 8) : "—"}
+                  </td>
+                  <td className="p-2 text-right font-mono">
+                    {row.ai_confidence !== null ? `${Math.round(Number(row.ai_confidence) * 100)}%` : "—"}
+                  </td>
+                  <td className="p-2 text-xs text-ink-2 max-w-md truncate" title={row.decision_reason ?? ""}>
+                    {row.decision_reason ?? "—"}
+                  </td>
+                  <td className="p-2 text-right text-xs text-ink-3 whitespace-nowrap">
+                    {row.executed_at
+                      ? new Date(row.executed_at).toLocaleString("fr-BE", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

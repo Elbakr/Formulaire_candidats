@@ -12,9 +12,12 @@ import { StatusControl } from "./status-control";
 import { NotesPanel } from "./notes-panel";
 import { InterviewsPanel } from "./interviews-panel";
 import { SendEmailButton } from "./send-email-button";
+import { ScheduleButton } from "./schedule-button";
 import { CandidateAdminForm } from "./admin-form";
 import { TimelinePanel } from "./timeline-panel";
 import { DocumentsPanel } from "./documents-panel";
+import { CandidateScoreCard } from "./score-card";
+import { detectGender, genderEmoji, genderLabel } from "@/lib/heuristics/gender";
 
 export default async function CandidateDetailPage(props: PageProps<"/rh/candidates/[id]">) {
   const { id } = await props.params;
@@ -60,7 +63,18 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
     address: string | null;
     postal_code: string | null;
     country: string | null;
+    iban: string | null;
+    motivation?: string | null;
+    available_from: string | null;
+    wanted_contract_type: string | null;
+    langs: Record<string, string> | null;
+    raw_payload: Record<string, unknown> | null;
+    applied_at: string | null;
+    created_at: string | null;
   };
+
+  const firstName = candidate.full_name.split(/\s+/)[0] ?? "";
+  const detectedGender = detectGender(firstName);
 
   // Templates emails pour le bouton "Envoyer email"
   const { data: tmpls } = await supabase
@@ -75,7 +89,8 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
         <Button asChild variant="ghost" size="sm">
           <Link href="/rh/candidates"><ArrowLeft className="h-3.5 w-3.5" /> Retour</Link>
         </Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-start gap-2 flex-wrap">
+          <ScheduleButton applicationId={app.id} />
           <SendEmailButton applicationId={app.id} candidateName={candidate.full_name} templates={(tmpls ?? []) as never} />
         </div>
       </div>
@@ -84,7 +99,17 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
         <div className="p-4 flex items-start gap-4 flex-wrap">
           <NameAvatar name={candidate.full_name} className="h-14 w-14 text-base rounded-xl" />
           <div className="flex-1 min-w-[200px]">
-            <h1 className="text-xl font-bold">{candidate.full_name}</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold">{candidate.full_name}</h1>
+              {detectedGender !== "unknown" ? (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gold-light text-gold-dark"
+                  title={`Genre détecté à partir du prénom — ${genderLabel(detectedGender)}`}
+                >
+                  {genderEmoji(detectedGender)} {genderLabel(detectedGender)}
+                </span>
+              ) : null}
+            </div>
             <div className="text-xs text-ink-2 mt-0.5">{(app.job as { title?: string } | null)?.title ?? "Candidature spontanée"}</div>
             <div className="flex flex-wrap gap-3 mt-2 text-xs text-ink-2">
               <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {candidate.email}</span>
@@ -106,6 +131,27 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
       </Card>
 
       <StatusControl applicationId={app.id} currentStatus={app.status} currentRating={app.rating ?? 0} />
+
+      <CandidateScoreCard
+        candidate={{
+          email: candidate.email,
+          phone: candidate.phone,
+          birth_date: candidate.birth_date,
+          city: candidate.city,
+          address: candidate.address,
+          postal_code: candidate.postal_code,
+          nrn: candidate.nrn,
+          iban: candidate.iban,
+          motivation: app.motivation,
+          available_from: candidate.available_from,
+          wanted_contract_type: candidate.wanted_contract_type,
+          langs: candidate.langs,
+          raw_payload: candidate.raw_payload,
+          applied_at: candidate.applied_at,
+          created_at: candidate.created_at,
+          status: app.status,
+        }}
+      />
 
       <Tabs defaultValue="timeline">
         <TabsList>

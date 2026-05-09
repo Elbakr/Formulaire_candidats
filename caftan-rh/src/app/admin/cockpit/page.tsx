@@ -26,6 +26,7 @@ export default async function CockpitPage() {
     { data: pipelineRaw },
     { data: topScores },
     { data: upcomingTrials },
+    { data: anomaliesRaw },
   ] = await Promise.all([
     supabase.from("candidates").select("id", { count: "exact", head: true }),
     supabase.from("candidates").select("id", { count: "exact", head: true }).gte("created_at", monthStart),
@@ -36,12 +37,29 @@ export default async function CockpitPage() {
     supabase.from("applications").select("status"),
     supabase.from("employee_scores").select("employee_id, full_name, global_score, job_title").eq("status", "active").order("global_score", { ascending: false }).limit(5),
     supabase.from("employees").select("id, full_name, trial_end_date, contract_type").eq("status", "active").not("trial_end_date", "is", null).order("trial_end_date", { ascending: true }).limit(5),
+    supabase
+      .from("anomaly_flags")
+      .select("id, kind, severity, title, target_type, target_id, detected_at")
+      .is("resolved_at", null)
+      .eq("severity", "critical")
+      .order("detected_at", { ascending: false })
+      .limit(5),
   ]);
 
   const pipelineCounts: Record<string, number> = {};
   for (const r of (pipelineRaw ?? []) as { status: string }[]) {
     pipelineCounts[r.status] = (pipelineCounts[r.status] ?? 0) + 1;
   }
+
+  type CritAnomaly = {
+    id: string;
+    kind: string;
+    title: string;
+    target_type: string;
+    target_id: string | null;
+    detected_at: string;
+  };
+  const criticalAnomalies = (anomaliesRaw ?? []) as unknown as CritAnomaly[];
 
   return (
     <div className="space-y-5">
@@ -118,6 +136,36 @@ export default async function CockpitPage() {
           )}
         </Card>
       </div>
+
+      <Card>
+        <div className="p-4 border-b border-line flex items-center justify-between">
+          <div>
+            <h2 className="font-bold">Anomalies critiques (top 5)</h2>
+            <p className="text-xs text-ink-3 mt-0.5">Détectées par le scan automatique.</p>
+          </div>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/admin/anomalies">Tout voir <ArrowRight className="h-3 w-3" /></Link>
+          </Button>
+        </div>
+        {criticalAnomalies.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-3">Rien à signaler. Tout est sous contrôle.</div>
+        ) : (
+          <ul className="divide-y divide-line">
+            {criticalAnomalies.map((a) => (
+              <li key={a.id} className="p-3 flex items-center gap-3">
+                <AlertCircle className="h-4 w-4 text-danger" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">{a.title}</div>
+                  <div className="text-xs text-ink-3 truncate">{a.kind} · {a.target_type}</div>
+                </div>
+                <Link href="/admin/anomalies" className="text-[11px] font-bold text-gold-dark hover:underline">
+                  Voir
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>

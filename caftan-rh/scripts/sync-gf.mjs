@@ -100,6 +100,7 @@ function mapEntry(e, fm) {
       gf_id: e.id, form_id: e.form_id, date_created: e.date_created,
       ip: e.ip, source_url: e.source_url, user_agent: e.user_agent,
     },
+    gf_full_payload: e,
   };
 }
 
@@ -150,10 +151,30 @@ async function main() {
     birth_date: m.birth_date, city: m.city, source: m.source,
     gf_entry_id: m.gf_entry_id, raw_payload: m.raw_payload,
     applied_at: m.raw_payload?.date_created ?? null,
+    cv_url: m.cv_url ?? null,
+    gf_full_payload: m.gf_full_payload ?? null,
   }));
-  const { data: created, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id");
+  const { data: created, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id, cv_url");
   if (error) { console.error("Erreur insert candidates:", error.message); process.exit(1); }
   console.log(`  ✓ ${created.length} candidats créés.`);
+
+  // Crée un documents row pour chaque CV récupéré
+  const cvDocs = created
+    .filter((c) => c.cv_url)
+    .map((c) => ({
+      candidate_id: c.id,
+      kind: "cv",
+      catalog_slug: "cv",
+      storage_path: c.cv_url,
+      file_name: `CV - ${toCreate.find((m) => m.gf_entry_id === c.gf_entry_id)?.full_name ?? "candidat"}.pdf`,
+      mime_type: "application/pdf",
+      validation_status: "pending",
+    }));
+  if (cvDocs.length > 0) {
+    const { error: docsErr } = await supabase.from("documents").insert(cvDocs);
+    if (docsErr) console.error("  ⚠ Erreur insert documents:", docsErr.message);
+    else console.log(`  ✓ ${cvDocs.length} CVs documentés.`);
+  }
 
   const appRows = created.map((c) => {
     const m = toCreate.find((x) => x.gf_entry_id === c.gf_entry_id);

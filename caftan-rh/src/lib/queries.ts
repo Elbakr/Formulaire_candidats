@@ -16,6 +16,13 @@ export type ApplicationListItem = {
     city: string | null;
     applied_at: string;
     source: string | null;
+    // Smart Filter Drawer fields
+    birth_date: string | null;
+    nrn: string | null;
+    distance_km: number | null;
+    wanted_contract_type: string | null;
+    langs: Record<string, string> | null;
+    raw_payload: Record<string, unknown> | null;
   };
   job: { id: string; title: string } | null;
   assigned_manager_profile: { id: string; full_name: string | null } | null;
@@ -36,7 +43,8 @@ export async function fetchApplications(opts?: {
     .from("applications")
     .select(
       `id, status, rating, motivation, created_at, updated_at,
-       candidate:candidates(id, full_name, email, phone, city, profile_id, applied_at, source),
+       candidate:candidates(id, full_name, email, phone, city, profile_id, applied_at, source,
+         birth_date, nrn, distance_km, wanted_contract_type, langs, raw_payload),
        job:jobs(id, title),
        assigned_manager_profile:profiles!applications_assigned_manager_fkey(id, full_name)`,
     )

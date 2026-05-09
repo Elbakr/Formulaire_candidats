@@ -18,7 +18,9 @@
     "inbound:test": "node scripts/inbound-test.mjs",
     "inbound:demo": "node scripts/inbound-test.mjs --demo",
     "inbound:poll": "node scripts/inbound-poll.mjs",
-    "seed:agent-demo": "node scripts/seed-agent-actions.mjs"
+    "seed:agent-demo": "node scripts/seed-agent-actions.mjs",
+    "anomaly:scan": "node scripts/anomaly-scan.mjs",
+    "digest:now": "node scripts/digest-now.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",

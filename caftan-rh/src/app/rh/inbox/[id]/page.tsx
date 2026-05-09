@@ -41,6 +41,7 @@ const KIND_LABELS: Record<string, string> = {
   candidate_scoring: "Scoring candidat",
   spam_archive: "Archivage spam",
   follow_up: "Relance",
+  scheduling_proposal: "Proposition de créneaux",
 };
 
 async function fetchTargetSummary(targetType: string | null, targetId: string | null) {
@@ -98,6 +99,24 @@ export default async function InboxDetailPage(props: {
     row.kind === "reply_draft"
       ? ((row.payload?.drafts as Array<{ tone: string; subject: string; body_html: string }>) ?? [])
       : [];
+
+  const schedulingSlots =
+    row.kind === "scheduling_proposal"
+      ? ((row.payload?.slots as Array<{
+          date: string;
+          start_time: string;
+          end_time: string;
+          reasoning?: string;
+        }>) ?? [])
+      : [];
+  const schedulingSummary =
+    row.kind === "scheduling_proposal"
+      ? ((row.payload?.ai_summary as string | undefined) ?? null)
+      : null;
+  const schedulingCandidateName =
+    row.kind === "scheduling_proposal"
+      ? ((row.payload?.candidate_name as string | undefined) ?? null)
+      : null;
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -226,6 +245,58 @@ export default async function InboxDetailPage(props: {
             </form>
           )}
         </Card>
+      ) : row.kind === "scheduling_proposal" ? (
+        <Card>
+          <div className="p-4 border-b border-line">
+            <h2 className="font-bold">Créneaux proposés par l&apos;IA</h2>
+            <p className="text-xs text-ink-3 mt-0.5">
+              {schedulingSummary ?? "Choisis un créneau puis Approuver pour préparer l'invitation."}
+            </p>
+          </div>
+          {schedulingSlots.length === 0 ? (
+            <div className="p-6 text-sm text-ink-3 text-center">Aucun créneau dans le payload.</div>
+          ) : (
+            <form action={approveAndRedirectAction} className="p-4 space-y-3">
+              <input type="hidden" name="id" value={row.id} />
+              {schedulingSlots.map((s, idx) => (
+                <label
+                  key={idx}
+                  className="block rounded-md border border-line p-3 hover:border-gold cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="draft_index"
+                      value={idx}
+                      defaultChecked={idx === 0}
+                      disabled={!editable}
+                    />
+                    <div className="flex-1">
+                      <div className="font-mono font-bold text-sm">
+                        {s.date} · {s.start_time} – {s.end_time}
+                      </div>
+                      {s.reasoning ? (
+                        <div className="text-[11px] text-ink-3 mt-0.5">{s.reasoning}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </label>
+              ))}
+              {editable ? (
+                <div className="flex flex-col sm:flex-row gap-2 pt-2 items-start sm:items-center">
+                  <Button type="submit" variant="gold">
+                    Approuver et préparer l&apos;invitation
+                  </Button>
+                  <span className="text-[11px] text-ink-3">
+                    {schedulingCandidateName
+                      ? `L'envoi de l'invitation à ${schedulingCandidateName} se fera ensuite depuis la fiche candidat (template "invite").`
+                      : "L'envoi de l'invitation se fera ensuite depuis la fiche candidat (template \"invite\")."}
+                  </span>
+                </div>
+              ) : null}
+            </form>
+          )}
+        </Card>
       ) : (
         <Card className="p-4">
           <h2 className="font-bold mb-2">Détails de l&apos;action</h2>
@@ -239,7 +310,7 @@ export default async function InboxDetailPage(props: {
       {editable ? (
         <Card className="p-4">
           <div className="grid sm:grid-cols-2 gap-3">
-            {row.kind !== "reply_draft" ? (
+            {row.kind !== "reply_draft" && row.kind !== "scheduling_proposal" ? (
               <form action={approveAndRedirectAction} className="flex items-center gap-2">
                 <input type="hidden" name="id" value={row.id} />
                 <Button type="submit" variant="gold">

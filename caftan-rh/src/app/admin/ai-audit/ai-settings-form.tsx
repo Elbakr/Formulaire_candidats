@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,15 +22,38 @@ type Settings = {
   ai_budget_usd_monthly: number | null;
 };
 
-const AUTONOMY_OPTIONS: { value: string; label: string }[] = [
-  { value: "0", label: "0 — Suggestion uniquement (humain valide tout)" },
-  { value: "1", label: "1 — Auto sur cas triviaux (whitelist)" },
-  { value: "2", label: "2 — Auto étendu (confiance ≥ 0.85)" },
-  { value: "3", label: "3 — Autonome (sauf liste noire)" },
+const AUTONOMY_OPTIONS: { value: string; label: string; helper: string }[] = [
+  {
+    value: "0",
+    label: "Niveau 0 — Manuel (humain valide tout)",
+    helper:
+      "Mode par défaut. Toutes les actions IA passent par l'Inbox et attendent une validation humaine. Aucune action automatique.",
+  },
+  {
+    value: "1",
+    label: "Niveau 1 — Auto sur cas triviaux (whitelist)",
+    helper:
+      "Active l'auto-exécution pour : accusé de réception, classification spam, tag de pièce jointe, item d'onboarding cocheable. Confiance IA requise ≥ 95 %.",
+  },
+  {
+    value: "2",
+    label: "Niveau 2 — Auto étendu (relances incluses)",
+    helper:
+      "Niveau 1 + relance automatique J+5 sur candidatures sans réponse. ATTENTION : envoie de vrais emails aux candidats.",
+  },
+  {
+    value: "3",
+    label: "Niveau 3 — Autonomie complète (mode expert)",
+    helper:
+      "DANGER : tous les use-cases IA, y compris décisions de routage. Réservé aux scénarios pilotes après audit. Black-list : rejet, signature contrat, embauche, fire.",
+  },
 ];
 
 export function AiSettingsForm({ initial }: { initial: Settings }) {
   const [pending, startTransition] = useTransition();
+  const [level, setLevel] = useState<string>(String(initial.ai_autonomy_level ?? 0));
+  const helper = AUTONOMY_OPTIONS.find((o) => o.value === level)?.helper ?? "";
+  const isDangerous = level === "2" || level === "3";
   return (
     <form
       action={(fd) =>
@@ -44,7 +67,7 @@ export function AiSettingsForm({ initial }: { initial: Settings }) {
     >
       <div>
         <Label htmlFor="ai_autonomy_level">Niveau d&apos;autonomie</Label>
-        <Select name="ai_autonomy_level" defaultValue={String(initial.ai_autonomy_level ?? 0)}>
+        <Select name="ai_autonomy_level" value={level} onValueChange={setLevel}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -56,6 +79,14 @@ export function AiSettingsForm({ initial }: { initial: Settings }) {
             ))}
           </SelectContent>
         </Select>
+        {helper ? (
+          <p
+            className={`text-xs mt-1 ${isDangerous ? "text-warn font-semibold" : "text-ink-3"}`}
+          >
+            {isDangerous ? "⚠ " : ""}
+            {helper}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
