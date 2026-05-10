@@ -40,6 +40,8 @@
 
 html, body {
   height: 100%;
+  /* iOS : utiliser la dynamic viewport height pour éviter les sauts liés à la barre d'adresse */
+  height: 100dvh;
 }
 
 body {
@@ -48,6 +50,28 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  /* Désactive le surlignage tactile orange par défaut sur iOS / Android */
+  -webkit-tap-highlight-color: transparent;
+  /* Évite les bounces incontrôlés du body sur iOS (les zones scrollables locales gèrent leur propre overscroll) */
+  overscroll-behavior-y: none;
+}
+
+/* iOS Safari zoome automatiquement quand un input a une taille de police < 16px.
+   On force 16px sur tous les champs de saisie pour éviter ce zoom intrusif. */
+input, textarea, select {
+  font-size: 16px;
+}
+@media (min-width: 640px) {
+  input, textarea, select {
+    font-size: 14px;
+  }
+}
+
+/* Targets tactiles : minimum 44×44 sur mobile pour les boutons icônes */
+@media (max-width: 640px) {
+  button[aria-label], a[aria-label] {
+    min-height: 40px;
+  }
 }
 
 ::selection {
@@ -58,4 +82,41 @@ body {
 @layer utilities {
   .text-balance { text-wrap: balance; }
   .scrollbar-thin { scrollbar-width: thin; }
+
+  /* Safe areas iOS (notch + home indicator) */
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .min-h-screen-mobile { min-height: 100dvh; }
+  .h-screen-mobile { height: 100dvh; }
+
+  /* Scroll élastique fluide iOS dans les conteneurs scrollables */
+  .scroll-smooth-touch {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Impression — workflow self-service via window.print() :
+   - on cache la nav globale (header, sidebar, dialogs)
+   - les utilitaires `print:hidden` permettent de cacher des contrôles
+     spécifiques (boutons d'action, switchers de vue, etc.) */
+@media print {
+  header, nav, aside, [data-sidebar], .print\:hidden {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  .scroll-smooth-touch {
+    overflow: visible !important;
+  }
+  @page {
+    margin: 12mm;
+  }
 }

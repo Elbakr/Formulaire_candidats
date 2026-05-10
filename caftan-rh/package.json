@@ -20,7 +20,14 @@
     "inbound:poll": "node scripts/inbound-poll.mjs",
     "seed:agent-demo": "node scripts/seed-agent-actions.mjs",
     "anomaly:scan": "node scripts/anomaly-scan.mjs",
-    "digest:now": "node scripts/digest-now.mjs"
+    "digest:now": "node scripts/digest-now.mjs",
+    "seed:holidays": "node scripts/seed-holidays.mjs",
+    "seed:holidays-intl": "node scripts/seed-holidays-intl.mjs",
+    "seed:sites": "node scripts/seed-sites.mjs",
+    "seed:chat-rooms": "node scripts/seed-chat-rooms.mjs",
+    "seed:be-postcodes": "node scripts/seed-be-postcodes.mjs",
+    "seed:rush-profile": "node scripts/seed-rush-profile.mjs",
+    "vapid:generate": "node scripts/generate-vapid.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
@@ -48,6 +55,8 @@
     "resend": "^6.12.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
+    "twilio": "^6.0.2",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
@@ -55,6 +64,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
+    "@types/web-push": "^3.6.4",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -62,6 +72,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "pg": "^8.20.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -1,15 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { Card } from "@/components/ui/card";
-import { NameAvatar } from "@/components/ui/avatar";
-import { EmployeesActions } from "./employees-actions";
-import { formatDate } from "@/lib/utils";
+import { EmployeesActions, ExportEmployeesButton } from "./employees-actions";
+import { EmployeesList } from "./employees-list";
+
+export const dynamic = "force-dynamic";
 
 export default async function EmployeesPage() {
-  await requireRole(["admin", "rh", "manager"]);
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
 
-  const [{ data: emps }, { data: depts }] = await Promise.all([
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [{ data: emps }, { data: depts }, { data: assignsRaw }] = await Promise.all([
     supabase
       .from("employees")
       .select(`id, full_name, email, phone, job_title, weekly_hours, contract_type, status, start_date,
@@ -17,7 +18,32 @@ export default async function EmployeesPage() {
       .order("status", { ascending: true })
       .order("full_name"),
     supabase.from("departments").select("id, name").order("name"),
+    supabase
+      .from("site_assignments")
+      .select(
+        `employee_id, is_primary,
+         site:sites(code, color)`,
+      )
+      .lte("start_date", todayISO)
+      .or(`end_date.is.null,end_date.gte.${todayISO}`),
   ]);
+
+  type AssignRow = {
+    employee_id: string;
+    is_primary: boolean;
+    site: { code: string; color: string | null } | null;
+  };
+  const assigns = (assignsRaw ?? []) as unknown as AssignRow[];
+  const sitesByEmp = new Map<string, Array<{ code: string; color: string | null; is_primary: boolean }>>();
+  for (const a of assigns) {
+    if (!a.site) continue;
+    const arr = sitesByEmp.get(a.employee_id) ?? [];
+    arr.push({ code: a.site.code, color: a.site.color, is_primary: a.is_primary });
+    sitesByEmp.set(a.employee_id, arr);
+  }
+  for (const arr of sitesByEmp.values()) {
+    arr.sort((x, y) => Number(y.is_primary) - Number(x.is_primary));
+  }
 
   const employees = (emps ?? []) as unknown as Array<{
     id: string;
@@ -34,6 +60,7 @@ export default async function EmployeesPage() {
 
   const active = employees.filter((e) => e.status === "active");
   const archived = employees.filter((e) => e.status !== "active");
+  const isAdmin = profile.role === "admin";
 
   return (
     <div className="space-y-4">
@@ -42,42 +69,13 @@ export default async function EmployeesPage() {
           <h1 className="text-2xl font-bold">Employés</h1>
           <p className="text-sm text-ink-2">{active.length} actif·ve·s · {archived.length} archivé·e·s</p>
         </div>
-        <EmployeesActions departments={depts ?? []} />
+        <div className="flex gap-2">
+          <ExportEmployeesButton employees={employees} />
+          <EmployeesActions departments={depts ?? []} />
+        </div>
       </div>
 
-      <Card>
-        {employees.length === 0 ? (
-          <div className="p-10 text-center text-sm text-ink-3">
-            Pas encore d'employé. Quand un candidat passe au statut "Embauché", il est automatiquement créé ici.
-          </div>
-        ) : (
-          <div className="divide-y divide-line">
-            {employees.map((e) => (
-              <a key={e.id} href={`/planning/employees/${e.id}`} className="p-3 flex items-center gap-3 flex-wrap hover:bg-surface-2 transition-colors">
-                <NameAvatar name={e.full_name} className={e.status !== "active" ? "opacity-50" : ""} />
-                <div className="flex-1 min-w-[200px]">
-                  <div className="font-bold text-sm">{e.full_name}</div>
-                  <div className="text-xs text-ink-3">
-                    {e.job_title ?? "—"} · {e.department?.name ?? "Sans service"} · {e.contract_type ?? "—"} · {e.weekly_hours ?? 38}h/sem
-                  </div>
-                </div>
-                <span className="text-[11px] text-ink-3 hidden md:inline">depuis {formatDate(e.start_date)}</span>
-                <span
-                  className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
-                    e.status === "active"
-                      ? "bg-success-light text-success"
-                      : e.status === "on_leave"
-                        ? "bg-warn-light text-warn"
-                        : "bg-surface-2 text-ink-3"
-                  }`}
-                >
-                  {e.status === "active" ? "Actif" : e.status === "on_leave" ? "En congé" : "Archivé"}
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
-      </Card>
+      <EmployeesList employees={employees} sitesByEmp={sitesByEmp} isAdmin={isAdmin} />
     </div>
   );
 }

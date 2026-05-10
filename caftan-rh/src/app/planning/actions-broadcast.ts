@@ -35,9 +35,13 @@ export async function prepareWeekScheduleEmailsAction(weekISO: string): Promise<
       .select("id, full_name, email, weekly_hours")
       .eq("status", "active")
       .order("full_name"),
+    // Broadcast = email envoyé À l'employé. On exclut strictement les shifts
+    // overtime (règle Karim 2026-05-11) — l'employé ne doit JAMAIS recevoir
+    // ses heures sup dans un communiqué automatique.
     supabase
       .from("shifts")
       .select("employee_id, date, start_time, end_time, break_minutes, position, location")
+      .eq("is_overtime", false)
       .gte("date", start)
       .lte("date", end)
       .order("date", { ascending: true }),

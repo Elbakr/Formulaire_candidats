@@ -14,6 +14,12 @@ export const ACTIVITY_KINDS = [
   "note.added",
   "email.sent",
   "email.received",
+  // whatsapp compliance
+  "whatsapp.sent",
+  "whatsapp.blocked",
+  "whatsapp.template_required",
+  "whatsapp.opt_in",
+  "whatsapp.opt_out",
   // planning
   "shift.created",
   "shift.updated",
@@ -57,6 +63,11 @@ export const ACTIVITY_KIND_LABELS: Record<string, string> = {
   "note.added": "Note ajoutée",
   "email.sent": "Email envoyé",
   "email.received": "Email reçu",
+  "whatsapp.sent": "WhatsApp envoyé",
+  "whatsapp.blocked": "WhatsApp bloqué (compliance)",
+  "whatsapp.template_required": "Template WhatsApp requis",
+  "whatsapp.opt_in": "Opt-in WhatsApp",
+  "whatsapp.opt_out": "Opt-out WhatsApp (STOP)",
   "shift.created": "Shift créé",
   "shift.updated": "Shift modifié",
   "time_off.decided": "Congé décidé",
@@ -70,6 +81,16 @@ export const ACTIVITY_KIND_LABELS: Record<string, string> = {
 export const ACTIVITY_KIND_GROUPS: { label: string; kinds: string[] }[] = [
   { label: "Candidatures", kinds: ["application.created", "application.status_changed"] },
   { label: "Communication", kinds: ["note.added", "email.sent", "email.received"] },
+  {
+    label: "WhatsApp",
+    kinds: [
+      "whatsapp.sent",
+      "whatsapp.blocked",
+      "whatsapp.template_required",
+      "whatsapp.opt_in",
+      "whatsapp.opt_out",
+    ],
+  },
   { label: "Planning", kinds: ["shift.created", "shift.updated", "time_off.decided"] },
   { label: "Équipe", kinds: ["employee.updated", "evaluation.created"] },
 ];

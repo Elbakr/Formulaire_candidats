@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Mail, X, ArrowUpDown, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { Search, Mail, X, ArrowUpDown, ChevronDown, SlidersHorizontal, Eye } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge, STATUS_LABELS } from "@/components/ui/badge";
@@ -615,6 +615,15 @@ export function CandidatesTable({
                       {app.candidate.source ? <span className="text-[10px] opacity-70">via {app.candidate.source}</span> : null}
                     </div>
                     <Badge variant={app.status as ApplicationStatus}>{STATUS_LABELS[app.status]}</Badge>
+                  </Link>
+                  <Link
+                    href={`/360/candidate/${app.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Vue 360°"
+                    aria-label="Vue 360°"
+                    className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-ink-2 hover:border-gold hover:text-gold-dark transition-colors shrink-0"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
                   </Link>
                 </div>
               );

@@ -13,19 +13,37 @@ const sections: NavSection[] = [
   {
     title: "Pilotage",
     items: [
-      { href: "/admin/payroll", label: "Paie (export)", icon: "FileBarChart" },
+      { href: "/admin/presence", label: "Présence live", icon: "Activity" },
+      { href: "/admin/analytics", label: "Analytics", icon: "FileBarChart" },
+      { href: "/admin/documents", label: "Documents", icon: "FileText" },
+      { href: "/admin/payroll", label: "Paie & exports", icon: "FileText" },
       { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+      { href: "/scoring/weekly", label: "Notation hebdo", icon: "Star" },
+      { href: "/admin/cdd-renewals", label: "Renouvellements CDD", icon: "RefreshCw" },
+      { href: "/admin/pre-interview", label: "Pré-entretiens", icon: "Sparkles" },
       { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
       { href: "/admin/ai-audit", label: "AI audit", icon: "Sparkles" },
       { href: "/admin/anomalies", label: "Anomalies", icon: "AlertTriangle" },
       { href: "/admin/digest", label: "Digest IA", icon: "Sparkles" },
+      { href: "/admin/holidays", label: "Jours fériés & fermetures", icon: "Calendar" },
+      { href: "/admin/seasonal", label: "Saisonnalités", icon: "Sparkles" },
+      { href: "/admin/bonus", label: "Primes & concours", icon: "Star" },
+      { href: "/admin/vip-clients", label: "Clientes VIP", icon: "Users" },
+    ],
+  },
+  {
+    title: "Communication",
+    items: [
+      { href: "/admin/broadcasts", label: "Annonces", icon: "Megaphone" },
+      { href: "/admin/absences", label: "Absences imprévues", icon: "AlertCircle" },
     ],
   },
   {
     title: "Intégrations",
     items: [
       { href: "/admin/integrations/gravity-forms", label: "Gravity Forms", icon: "Briefcase" },
+      { href: "/admin/integrations/whatsapp", label: "WhatsApp", icon: "MessageSquare" },
     ],
   },
   {

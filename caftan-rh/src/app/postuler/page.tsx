@@ -25,7 +25,7 @@ export default async function PostulerHomePage() {
         <div className="mt-8 space-y-3">
           {jobs.length === 0 ? (
             <div className="rounded-[var(--radius)] bg-surface border border-line p-6 text-center">
-              <p className="text-sm text-ink-2">Aucune offre ouverte pour l'instant.</p>
+              <p className="text-sm text-ink-2">Aucune offre ouverte pour l&apos;instant.</p>
               <Button asChild variant="gold" className="mt-3">
                 <Link href="/postuler/spontanee">Candidature spontanée <ArrowRight className="h-4 w-4" /></Link>
               </Button>
@@ -63,7 +63,7 @@ export default async function PostulerHomePage() {
             className="block rounded-[var(--radius)] bg-surface-2 border border-dashed border-line p-5 hover:border-gold hover:bg-surface transition-colors text-center"
           >
             <div className="text-sm font-bold">Candidature spontanée</div>
-            <div className="text-xs text-ink-3 mt-0.5">Tu ne trouves pas l'offre ? Envoie-nous quand même ton profil.</div>
+            <div className="text-xs text-ink-3 mt-0.5">Tu ne trouves pas l&apos;offre ? Envoie-nous quand même ton profil.</div>
           </Link>
         </div>
       </section>

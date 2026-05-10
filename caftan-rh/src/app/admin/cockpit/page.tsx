@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { Users, Briefcase, CalendarDays, FileBarChart, AlertCircle, ArrowRight, Star } from "lucide-react";
+import { Users, Briefcase, CalendarDays, FileBarChart, AlertCircle, ArrowRight, Star, AlertTriangle, RefreshCw } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import { startOfWeek, addDays, toISODate } from "@/lib/planning";
 import { formatDate } from "@/lib/utils";
+import {
+  fetchAtRisk,
+  fetchUpcomingCddEnds,
+  fetchUnusualAbsenteeism,
+} from "@/lib/performance-shared";
 
 export default async function CockpitPage() {
   await requireRole(["admin", "rh"]);
@@ -50,6 +56,13 @@ export default async function CockpitPage() {
   for (const r of (pipelineRaw ?? []) as { status: string }[]) {
     pipelineCounts[r.status] = (pipelineCounts[r.status] ?? 0) + 1;
   }
+
+  // Module 5 — Performance équipe.
+  const [atRisk, cddUpcoming, absUnusual] = await Promise.all([
+    fetchAtRisk(supabase, { managerId: null, limit: 5 }),
+    fetchUpcomingCddEnds(supabase, { managerId: null, limit: 5 }),
+    fetchUnusualAbsenteeism(supabase, { managerId: null, limit: 5 }),
+  ]);
 
   type CritAnomaly = {
     id: string;
@@ -121,15 +134,19 @@ export default async function CockpitPage() {
           ) : (
             <ul className="divide-y divide-line">
               {(topScores as unknown as Array<{ employee_id: string; full_name: string; global_score: number; job_title: string | null }>).map((s, i) => (
-                <li key={s.employee_id}>
-                  <Link href={`/scoring/${s.employee_id}`} className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors">
-                    <div className="w-6 text-center font-mono font-bold text-ink-3">#{i + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-sm truncate">{s.full_name}</div>
-                      <div className="text-xs text-ink-3 truncate">{s.job_title}</div>
-                    </div>
-                    <div className="font-mono font-extrabold text-gold-dark">{Number(s.global_score ?? 0).toFixed(0)}</div>
-                  </Link>
+                <li key={s.employee_id} className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors">
+                  <div className="w-6 text-center font-mono font-bold text-ink-3 shrink-0">#{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <EmployeeQuickLink
+                      employeeId={s.employee_id}
+                      fullName={s.full_name}
+                      variant="block"
+                      fullWidth
+                      subtitle={s.job_title ?? undefined}
+                      primaryHref={`/scoring/${s.employee_id}`}
+                    />
+                  </div>
+                  <div className="font-mono font-extrabold text-gold-dark shrink-0">{Number(s.global_score ?? 0).toFixed(0)}</div>
                 </li>
               ))}
             </ul>
@@ -167,6 +184,105 @@ export default async function CockpitPage() {
         )}
       </Card>
 
+      <div>
+        <h2 className="text-lg font-bold mb-2">Performance équipe</h2>
+        <div className="grid lg:grid-cols-3 gap-4">
+          <Card>
+            <div className="p-4 border-b border-line flex items-center justify-between">
+              <h3 className="font-bold flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-warn" /> 5 employés à risque</h3>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/scoring">Détails <ArrowRight className="h-3 w-3" /></Link>
+              </Button>
+            </div>
+            {atRisk.length === 0 ? (
+              <div className="p-6 text-center text-sm text-ink-3">Personne à risque.</div>
+            ) : (
+              <ul className="divide-y divide-line">
+                {atRisk.map((r) => (
+                  <li key={r.employee_id} className="p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <EmployeeQuickLink
+                        employeeId={r.employee_id}
+                        fullName={r.full_name}
+                        variant="block"
+                        fullWidth
+                        subtitle={r.reasons.join(" · ")}
+                        primaryHref={`/scoring/${r.employee_id}`}
+                      />
+                    </div>
+                    <div className="font-mono font-bold text-danger shrink-0">{Number(r.global_score ?? 0).toFixed(0)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card>
+            <div className="p-4 border-b border-line flex items-center justify-between">
+              <h3 className="font-bold flex items-center gap-2"><RefreshCw className="h-4 w-4 text-warn" /> Alertes CDD ≤ 30j</h3>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/admin/cdd-renewals">Décider <ArrowRight className="h-3 w-3" /></Link>
+              </Button>
+            </div>
+            {cddUpcoming.length === 0 ? (
+              <div className="p-6 text-center text-sm text-ink-3">Pas de CDD à échéance proche.</div>
+            ) : (
+              <ul className="divide-y divide-line">
+                {cddUpcoming.map((c) => (
+                  <li key={c.employee_id} className="p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <EmployeeQuickLink
+                        employeeId={c.employee_id}
+                        fullName={c.full_name}
+                        variant="block"
+                        fullWidth
+                        subtitle={`Fin contrat ${formatDate(c.end_date)} · J-${c.days_remaining}`}
+                      />
+                    </div>
+                    {c.has_pending ? (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-info-light text-info shrink-0">
+                        Fiche prête
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-warn-light text-warn shrink-0">
+                        À préparer
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card>
+            <div className="p-4 border-b border-line">
+              <h3 className="font-bold flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-danger" /> Absentéisme anormal</h3>
+              <p className="text-xs text-ink-3 mt-0.5">{`> 3 absences imprévues / 60j`}</p>
+            </div>
+            {absUnusual.length === 0 ? (
+              <div className="p-6 text-center text-sm text-ink-3">Aucun signal anormal.</div>
+            ) : (
+              <ul className="divide-y divide-line">
+                {absUnusual.map((a) => (
+                  <li key={a.employee_id} className="p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <EmployeeQuickLink
+                        employeeId={a.employee_id}
+                        fullName={a.full_name}
+                        variant="block"
+                        fullWidth
+                        subtitle={`${a.absence_count} absence${a.absence_count > 1 ? "s" : ""} en 60 jours`}
+                      />
+                    </div>
+                    <div className="font-mono font-bold text-danger shrink-0">{a.absence_count}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
           <div className="p-4 border-b border-line">
@@ -179,10 +295,17 @@ export default async function CockpitPage() {
             <ul className="divide-y divide-line">
               {(upcomingTrials as unknown as Array<{ id: string; full_name: string; trial_end_date: string; contract_type: string | null }>).map((e) => (
                 <li key={e.id} className="p-3 flex items-center gap-3">
-                  <AlertCircle className="h-4 w-4 text-warn" />
-                  <div className="flex-1">
-                    <div className="font-bold text-sm">{e.full_name}</div>
-                    <div className="text-xs text-ink-3">{e.contract_type ?? "—"} · fin essai {formatDate(e.trial_end_date)}</div>
+                  <AlertCircle className="h-4 w-4 text-warn shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <EmployeeQuickLink
+                      employeeId={e.id}
+                      fullName={e.full_name}
+                      variant="block"
+                      fullWidth
+                      subtitle={
+                        <>{e.contract_type ?? "—"} · fin essai {formatDate(e.trial_end_date)}</>
+                      }
+                    />
                   </div>
                 </li>
               ))}

@@ -10,6 +10,17 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { saveEmployeeAdminAction } from "../actions-admin";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  validateNRN,
+  formatNRN,
+  validateBelgianIBAN,
+  formatIBAN,
+  validateBelgianPhone,
+  formatBelgianPhone,
+  validateBelgianPostcode,
+  regionFromPostcode,
+  type ValidationResult,
+} from "@/lib/be-validators";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -104,7 +115,14 @@ export function EmployeeAdminForm({
         <div className="grid md:grid-cols-2 gap-3">
           <Field label="Nom complet" name="full_name" defaultValue={employee.full_name} />
           <Field label="Email" name="email" defaultValue={employee.email} type="email" />
-          <Field label="Téléphone" name="phone" defaultValue={employee.phone ?? ""} type="tel" />
+          <ValidatedField
+            label="Téléphone"
+            name="phone"
+            defaultValue={employee.phone ?? ""}
+            placeholder="+32 4XX XX XX XX"
+            validator={validateBelgianPhone}
+            formatter={formatBelgianPhone}
+          />
           <Field label="Poste" name="job_title" defaultValue={employee.job_title ?? ""} />
           <div>
             <Label>Service</Label>
@@ -139,17 +157,38 @@ export function EmployeeAdminForm({
 
       <Section title="🪪 Identification">
         <div className="grid md:grid-cols-3 gap-3">
-          <Field label="NRN" name="nrn" defaultValue={employee.nrn ?? ""} placeholder="XX.XX.XX-XXX.XX" />
+          <ValidatedField
+            label="NRN"
+            name="nrn"
+            defaultValue={employee.nrn ?? ""}
+            placeholder="XX.XX.XX-XXX.XX"
+            validator={validateNRN}
+            formatter={formatNRN}
+          />
           <Field label="N° carte d'identité" name="cin_number" defaultValue={employee.cin_number ?? ""} />
           <Field label="Adresse" name="address" defaultValue={employee.address ?? ""} />
-          <Field label="Code postal" name="postal_code" defaultValue={employee.postal_code ?? ""} />
+          <ValidatedField
+            label="Code postal"
+            name="postal_code"
+            defaultValue={employee.postal_code ?? ""}
+            placeholder="1000-9999"
+            validator={validateBelgianPostcode}
+            hint={(v) => regionFromPostcode(v)}
+          />
           <Field label="Ville" name="city" defaultValue={employee.city ?? ""} />
         </div>
       </Section>
 
       <Section title="💳 Banque & transport">
         <div className="grid md:grid-cols-3 gap-3">
-          <Field label="IBAN" name="iban" defaultValue={employee.iban ?? ""} />
+          <ValidatedField
+            label="IBAN"
+            name="iban"
+            defaultValue={employee.iban ?? ""}
+            placeholder="BE68 5390 0754 7034"
+            validator={validateBelgianIBAN}
+            formatter={formatIBAN}
+          />
           <Field label="BIC" name="bic" defaultValue={employee.bic ?? ""} />
           <Field label="Titulaire compte" name="bank_holder" defaultValue={employee.bank_holder ?? ""} />
           <Field label="Type transport" name="transport_type" defaultValue={employee.transport_type ?? ""} />
@@ -279,6 +318,72 @@ function Field({
     <div>
       <Label htmlFor={name}>{label}</Label>
       <Input id={name} name={name} defaultValue={defaultValue} type={type} placeholder={placeholder} />
+    </div>
+  );
+}
+
+function ValidatedField({
+  label, name, defaultValue = "", placeholder,
+  validator, formatter,
+  hint,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  placeholder?: string;
+  validator: (s: string) => ValidationResult;
+  formatter?: (s: string) => string;
+  hint?: (s: string) => string | null;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<boolean>(false);
+
+  function handleBlur() {
+    if (!value) {
+      setError(null);
+      setOk(false);
+      return;
+    }
+    const r = validator(value);
+    if (r.valid) {
+      setError(null);
+      setOk(true);
+      if (r.formatted) setValue(r.formatted);
+    } else {
+      setError(r.error ?? "Format invalide.");
+      setOk(false);
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    setValue(formatter ? formatter(v) : v);
+    if (error) setError(null);
+  }
+
+  const hintText = hint ? hint(value) : null;
+
+  return (
+    <div>
+      <Label htmlFor={name}>{label}</Label>
+      <Input
+        id={name}
+        name={name}
+        value={value}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        className={cn(
+          error ? "border-danger focus-visible:ring-danger" : "",
+          ok ? "border-success" : "",
+        )}
+      />
+      {error ? (
+        <p className="text-[11px] text-danger mt-0.5">{error}</p>
+      ) : hintText ? (
+        <p className="text-[11px] text-ink-3 mt-0.5">{hintText}</p>
+      ) : null}
     </div>
   );
 }

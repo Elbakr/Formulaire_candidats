@@ -19,7 +19,7 @@ export async function loginAction(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   let dest = next || "/";
   if (user) {
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
     dest = next || roleHome(profile?.role ?? "candidate");
   }
 

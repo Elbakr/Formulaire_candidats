@@ -17,6 +17,7 @@ export default async function PlanningTimeOffPage() {
   const { data } = await supabase
     .from("time_off_requests")
     .select(`id, kind, start_date, end_date, reason, status, decided_at, created_at,
+             auto_validated, auto_validation_reason,
              employee:employees(id, full_name, job_title)`)
     .order("created_at", { ascending: false });
 
@@ -29,6 +30,8 @@ export default async function PlanningTimeOffPage() {
     status: "pending" | "approved" | "rejected" | "cancelled";
     decided_at: string | null;
     created_at: string;
+    auto_validated: boolean | null;
+    auto_validation_reason: string | null;
     employee: { id: string; full_name: string; job_title: string | null } | null;
   }>;
 

@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, FileSpreadsheet } from "lucide-react";
+import { downloadXlsx } from "@/lib/xlsx-export";
+import { tenureLabel, seniorTier, seniorTierLabel } from "@/lib/tenure";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +14,60 @@ import {
 } from "@/components/ui/dialog";
 import { createEmployeeAction } from "../actions";
 import { toast } from "sonner";
+
+export type EmployeeForExport = {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  job_title: string | null;
+  contract_type: string | null;
+  weekly_hours: number | null;
+  status: string;
+  start_date: string | null;
+  department: { name: string } | null;
+};
+
+export function ExportEmployeesButton({ employees }: { employees: EmployeeForExport[] }) {
+  function exportXlsx() {
+    downloadXlsx(`employes-${new Date().toISOString().slice(0, 10)}.xlsx`, [
+      {
+        name: "Employés",
+        rows: employees,
+        columns: [
+          { key: "full_name", header: "Nom", width: 25 },
+          { key: "email", header: "Email", width: 30 },
+          { key: "phone", header: "Téléphone", width: 18 },
+          { key: "job_title", header: "Poste", width: 22 },
+          { key: (r) => r.department?.name ?? "", header: "Service", width: 18 },
+          { key: "contract_type", header: "Contrat", width: 12 },
+          { key: "weekly_hours", header: "H/sem", width: 8 },
+          { key: "start_date", header: "Date entrée", width: 12 },
+          {
+            key: (r) => (r.start_date ? tenureLabel(r.start_date) : ""),
+            header: "Ancienneté",
+            width: 16,
+          },
+          {
+            key: (r) =>
+              r.start_date
+                ? seniorTierLabel(seniorTier(r.start_date, r.contract_type))
+                : "",
+            header: "Niveau",
+            width: 12,
+          },
+          { key: "status", header: "Statut", width: 12 },
+        ],
+      },
+    ]);
+  }
+
+  return (
+    <Button variant="outline" onClick={exportXlsx}>
+      <FileSpreadsheet className="h-4 w-4" /> Export Excel
+    </Button>
+  );
+}
 
 export function EmployeesActions({ departments }: { departments: { id: string; name: string }[] }) {
   const router = useRouter();

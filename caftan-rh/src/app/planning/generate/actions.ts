@@ -21,7 +21,14 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
   const monday = startOfWeek(parseISODate(weekISO));
   const { start, end } = weekRange(monday);
 
-  const [{ data: emps }, { data: shifts }, { data: timeOff }, { data: settingsRow }] = await Promise.all([
+  const [
+    { data: emps },
+    { data: shifts },
+    { data: timeOff },
+    { data: settingsRow },
+    { data: blockedHols },
+    { data: closures },
+  ] = await Promise.all([
     supabase
       .from("employees")
       .select(`id, full_name, weekly_hours, status, department_id,
@@ -40,6 +47,21 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
       .select("prayer_pause_enabled, prayer_pause_summer, prayer_pause_winter, prayer_pause_dst_start, prayer_pause_dst_end")
       .eq("id", 1)
       .maybeSingle(),
+    // Fériés critiques (priority >= 2) : on évite d'auto-générer dessus.
+    // Ça englobe légaux belges + Aïd + Mawlid + Ramadan début + journée des
+    // femmes (priorisée). L'admin peut toujours forcer un shift à la main.
+    supabase
+      .from("holidays")
+      .select("date")
+      .eq("is_active", true)
+      .gte("date", start)
+      .lte("date", end)
+      .gte("priority", 2),
+    supabase
+      .from("company_closures")
+      .select("start_date, end_date, department_id")
+      .lte("start_date", end)
+      .gte("end_date", start),
   ]);
 
   const employees = (emps ?? []) as unknown as EmployeeForPlan[];
@@ -58,12 +80,19 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
     dstEnd: s?.prayer_pause_dst_end ?? DEFAULT_PRAYER_PAUSE.dstEnd,
   };
 
+  const blockedDates = ((blockedHols ?? []) as Array<{ date: string }>).map((h) => h.date);
+  const closuresList = ((closures ?? []) as Array<{
+    start_date: string;
+    end_date: string;
+    department_id: string | null;
+  }>);
+
   const result = generateWeekPlan(
     monday,
     employees,
     (shifts ?? []) as unknown as ExistingShift[],
     (timeOff ?? []) as unknown as ApprovedTimeOff[],
-    { prayerPause },
+    { prayerPause, blockedDates, closures: closuresList },
   );
 
   return { ...result, weekStart: start, weekEnd: end };

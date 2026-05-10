@@ -1,3 +1,4 @@
+import { FileText } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -37,7 +38,13 @@ export default async function PayrollPage() {
           <h2 className="font-bold">Historique des exports</h2>
         </div>
         {(!history || history.length === 0) ? (
-          <div className="p-8 text-center text-sm text-ink-3">Aucun export pour l'instant.</div>
+          <div className="p-8 text-center text-sm text-ink-3">
+            <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
+            <p className="font-medium">Aucun export pour l&apos;instant.</p>
+            <p className="text-xs mt-1 max-w-sm mx-auto">
+              Choisis un mois ci-dessus pour générer ton premier export CSV.
+            </p>
+          </div>
         ) : (
           <ul className="divide-y divide-line">
             {history.map((h, i) => {

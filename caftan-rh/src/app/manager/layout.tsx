@@ -22,6 +22,8 @@ const sections: NavSection[] = [
     title: "Pilotage",
     items: [
       { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
+      { href: "/scoring/weekly", label: "Notation hebdo", icon: "Star" },
+      { href: "/manager/performance", label: "Performance magasin", icon: "TrendingUp" },
     ],
   },
 ];

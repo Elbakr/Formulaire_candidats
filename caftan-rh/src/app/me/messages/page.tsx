@@ -3,10 +3,13 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
+import { getLocale } from "@/lib/locale-server";
+import { t } from "@/lib/i18n";
 
 export default async function MyMessagesPage() {
   const { user } = await requireProfile();
   const supabase = await createClient();
+  const locale = await getLocale();
 
   const { data: cands } = await supabase
     .from("candidates")
@@ -42,15 +45,15 @@ export default async function MyMessagesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Messages</h1>
-        <p className="text-sm text-ink-2">Échanges avec l'équipe RH concernant tes candidatures.</p>
+        <h1 className="text-2xl font-bold">{t("messages.title", locale)}</h1>
+        <p className="text-sm text-ink-2">{t("messages.subtitle", locale)}</p>
       </div>
       {messages.length === 0 ? (
         <Card>
           <div className="p-10 text-center">
             <MessageSquare className="h-10 w-10 text-ink-3 mx-auto mb-3" />
-            <p className="text-sm text-ink-2">Aucun message.</p>
-            <p className="text-xs text-ink-3 mt-1">Les emails que tu reçois (accusés, convocations…) apparaîtront ici.</p>
+            <p className="text-sm text-ink-2">{t("messages.empty", locale)}</p>
+            <p className="text-xs text-ink-3 mt-1">{t("messages.empty_hint", locale)}</p>
           </div>
         </Card>
       ) : (
@@ -60,14 +63,14 @@ export default async function MyMessagesPage() {
               <div className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${m.direction === "outbound" ? "bg-info-light text-info" : "bg-success-light text-success"}`}>
-                    {m.direction === "outbound" ? "Reçu" : "Envoyé"}
+                    {m.direction === "outbound" ? t("messages.received", locale) : t("messages.sent", locale)}
                   </span>
                   <span className="text-xs text-ink-3">{formatDateTime(m.created_at)}</span>
                 </div>
                 {m.subject ? <div className="font-bold text-sm mb-1">{m.subject}</div> : null}
                 <div className="text-sm whitespace-pre-wrap text-ink-2">{m.body}</div>
                 {m.application?.job ? (
-                  <div className="text-xs text-ink-3 mt-2">À propos de : {m.application.job.title}</div>
+                  <div className="text-xs text-ink-3 mt-2">{t("messages.about", locale)} {m.application.job.title}</div>
                 ) : null}
               </div>
             </Card>

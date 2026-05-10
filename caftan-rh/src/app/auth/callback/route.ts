@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     if (!error) {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
         return NextResponse.redirect(`${origin}${next || roleHome(profile?.role ?? "candidate")}`);
       }
       return NextResponse.redirect(`${origin}${next}`);

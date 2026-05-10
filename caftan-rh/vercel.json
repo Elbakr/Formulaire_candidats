@@ -9,6 +9,14 @@
     { "path": "/api/cron/anomaly-scan", "schedule": "0 6 * * *" },
     { "path": "/api/cron/auto-execute", "schedule": "* * * * *" },
     { "path": "/api/cron/digest?slot=morning", "schedule": "0 7 * * *" },
-    { "path": "/api/cron/digest?slot=evening", "schedule": "0 18 * * *" }
+    { "path": "/api/cron/digest?slot=evening", "schedule": "0 18 * * *" },
+    { "path": "/api/cron/weekly-rating-reminder", "schedule": "0 17 * * 5" },
+    { "path": "/api/cron/cdd-renewal-scan", "schedule": "0 5 * * *" },
+    { "path": "/api/cron/reinforcement-expire", "schedule": "0 * * * *" },
+    { "path": "/api/cron/auto-plan-weekly", "schedule": "0 6 * * 0" },
+    { "path": "/api/cron/clock-selfie-purge", "schedule": "0 2 * * *" },
+    { "path": "/api/cron/pre-interview-video-purge", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/dimona-reminder", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/vip-birthdays", "schedule": "0 8 * * *" }
   ]
 }

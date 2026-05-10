@@ -3,8 +3,7 @@ import { ArrowRight, Star } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
-import { NameAvatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import { RecomputeButton } from "./recompute-button";
 import { formatDateTime } from "@/lib/utils";
 
@@ -61,34 +60,46 @@ export default async function ScoringHomePage() {
         ) : (
           <div className="divide-y divide-line">
             {rows.map((r, i) => (
-              <Link
+              <div
                 key={r.employee_id}
-                href={`/scoring/${r.employee_id}`}
                 className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors"
               >
-                <div className="w-7 text-center font-mono font-bold text-ink-3">#{i + 1}</div>
-                <NameAvatar name={r.full_name} />
+                <div className="w-7 text-center font-mono font-bold text-ink-3 shrink-0">#{i + 1}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm truncate">{r.full_name}</div>
-                  <div className="text-xs text-ink-3 truncate">{r.job_title} · {r.department_name ?? "—"}</div>
+                  <EmployeeQuickLink
+                    employeeId={r.employee_id}
+                    fullName={r.full_name}
+                    withAvatar
+                    avatarSize="md"
+                    variant="block"
+                    fullWidth
+                    subtitle={<>{r.job_title} · {r.department_name ?? "—"}</>}
+                    primaryHref={`/scoring/${r.employee_id}`}
+                  />
                 </div>
-                <div className="hidden md:flex flex-col items-end text-xs text-ink-2 mr-2">
+                <div className="hidden md:flex flex-col items-end text-xs text-ink-2 mr-2 shrink-0">
                   <span>Fiabilité : <span className="font-mono font-bold">{Number(r.reliability_pct ?? 100).toFixed(0)}%</span></span>
                   <span>Couverture : <span className="font-mono font-bold">{Number(r.coverage_pct ?? 100).toFixed(0)}%</span></span>
                 </div>
                 <ScoreBadge score={Number(r.global_score ?? 0)} />
                 {r.avg_manager_score != null ? (
-                  <div className="hidden lg:flex items-center gap-1 text-xs text-ink-3">
+                  <div className="hidden lg:flex items-center gap-1 text-xs text-ink-3 shrink-0">
                     <Star className="h-3 w-3 fill-gold text-gold" />
                     <span className="font-mono font-bold">{Number(r.avg_manager_score).toFixed(1)}</span>
                     <span>·</span>
                     <span>{r.evals_12m ?? 0} eval{(r.evals_12m ?? 0) > 1 ? "s" : ""}</span>
                   </div>
                 ) : (
-                  <div className="hidden lg:block text-xs text-ink-3">Pas d'éval</div>
+                  <div className="hidden lg:block text-xs text-ink-3 shrink-0">Pas d'éval</div>
                 )}
-                <ArrowRight className="h-4 w-4 text-ink-3 ml-1" />
-              </Link>
+                <Link
+                  href={`/scoring/${r.employee_id}`}
+                  aria-label={`Détails ${r.full_name}`}
+                  className="shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-md text-ink-3 hover:text-gold-dark hover:bg-gold-light"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
             ))}
           </div>
         )}

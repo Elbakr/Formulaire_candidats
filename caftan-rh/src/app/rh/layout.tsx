@@ -13,7 +13,7 @@ const sections: NavSection[] = [
     items: [
       { href: "/rh/candidates", label: "Candidats", icon: "Users" },
       { href: "/rh/pipeline", label: "Pipeline", icon: "KanbanSquare" },
-      { href: "/rh/jobs", label: "Offres", icon: "Briefcase" },
+      { href: "/rh/jobs", label: "Offres d'emploi", icon: "Briefcase" },
       { href: "/rh/agenda", label: "Agenda RDV", icon: "Calendar" },
     ],
   },
@@ -35,7 +35,9 @@ const sections: NavSection[] = [
   {
     title: "Communication",
     items: [
-      { href: "/rh/messages", label: "Messagerie", icon: "Mail" },
+      { href: "/chat", label: "Chat équipe (sites)", icon: "MessageSquare" },
+      { href: "/requests", label: "Demandes équipe", icon: "ShoppingBag" },
+      { href: "/rh/messages", label: "Messagerie email", icon: "Mail" },
       { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
       { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },
       { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },

@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { markAllReadAction } from "./actions";
 import { toast } from "sonner";
+import { t, type Locale } from "@/lib/i18n";
 
-export function MarkAllReadButton() {
+export function MarkAllReadButton({ locale }: { locale: Locale }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   return (
@@ -21,7 +22,9 @@ export function MarkAllReadButton() {
         })
       }
     >
-      {pending ? "…" : "Tout marquer lu"}
+      {pending
+        ? t("common.loading", locale)
+        : t("notifications.mark_all_short", locale)}
     </Button>
   );
 }

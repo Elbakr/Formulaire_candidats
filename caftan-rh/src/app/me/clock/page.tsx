@@ -1,13 +1,23 @@
-import { Clock, AlertCircle } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, Clock, MapPin } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
-import { ClockButton } from "./clock-button";
-import { formatDateTime } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ClockBigButton } from "./big-button";
+import {
+  loadEmployeeSites,
+  loadRecentSessions,
+  pickDefaultSiteId,
+  formatDurationMin,
+} from "@/lib/clock";
+import { getLocale } from "@/lib/locale-server";
+import { t, dateLocaleStr } from "@/lib/i18n";
 
 export default async function MyClockPage() {
   const { user } = await requireProfile();
   const supabase = await createClient();
+  const locale = await getLocale();
 
   const { data: emp } = await supabase
     .from("employees")
@@ -20,11 +30,15 @@ export default async function MyClockPage() {
   if (!employee) {
     return (
       <div className="space-y-4">
-        <div><h1 className="text-2xl font-bold">Pointage</h1></div>
+        <div>
+          <h1 className="text-2xl font-bold">{t("clock.title", locale)}</h1>
+        </div>
         <Card>
           <div className="p-10 text-center">
             <AlertCircle className="h-10 w-10 text-ink-3 mx-auto mb-3" />
-            <p className="text-sm text-ink-2">Tu n'es pas (encore) enregistré comme employé actif.</p>
+            <p className="text-sm text-ink-2">
+              {t("clock.no_employee", locale)}
+            </p>
           </div>
         </Card>
       </div>
@@ -32,103 +46,193 @@ export default async function MyClockPage() {
   }
 
   const today = new Date().toISOString().split("T")[0];
-  const startOfToday = new Date(`${today}T00:00:00`).toISOString();
 
-  const [{ data: shifts }, { data: entries }] = await Promise.all([
-    supabase
-      .from("shifts")
-      .select("id, date, start_time, end_time, position, location, status")
-      .eq("employee_id", employee.id)
-      .eq("date", today)
-      .order("start_time", { ascending: true }),
-    supabase
-      .from("clock_entries")
-      .select("id, kind, occurred_at, shift_id")
-      .eq("employee_id", employee.id)
-      .gte("occurred_at", startOfToday)
-      .order("occurred_at", { ascending: false }),
-  ]);
+  const [{ data: shifts }, { data: lastEntry }, sessions, sites, def, { data: orgRow }] =
+    await Promise.all([
+      supabase
+        .from("shifts")
+        .select("id, date, start_time, end_time, position, location, status, site_id")
+        .eq("employee_id", employee.id)
+        .eq("date", today)
+        .order("start_time", { ascending: true }),
+      supabase
+        .from("clock_entries")
+        .select("id, kind, occurred_at, site_id")
+        .eq("employee_id", employee.id)
+        .order("occurred_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      loadRecentSessions(employee.id, 7),
+      loadEmployeeSites(employee.id),
+      pickDefaultSiteId(employee.id),
+      supabase
+        .from("org_settings")
+        .select("clock_geofence_strict, clock_require_selfie")
+        .eq("id", 1)
+        .maybeSingle(),
+    ]);
+  const orgRowTyped = (orgRow as {
+    clock_geofence_strict?: boolean | null;
+    clock_require_selfie?: boolean | null;
+  } | null) ?? null;
+  const geofenceStrict = orgRowTyped?.clock_geofence_strict !== false;
+  const selfieRequired = orgRowTyped?.clock_require_selfie !== false;
 
   const todayShifts = (shifts ?? []) as unknown as Array<{
-    id: string; date: string; start_time: string; end_time: string;
-    position: string | null; location: string | null; status: string;
+    id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    position: string | null;
+    location: string | null;
+    status: string;
+    site_id: string | null;
   }>;
-  const todayEntries = (entries ?? []) as unknown as Array<{
-    id: string; kind: "in" | "out"; occurred_at: string; shift_id: string | null;
-  }>;
+  const last = lastEntry as
+    | { id: string; kind: "in" | "out"; occurred_at: string; site_id: string | null }
+    | null;
+  const isClockedIn = last?.kind === "in";
 
-  const lastEntry = todayEntries[0];
-  const isClockedIn = lastEntry?.kind === "in";
+  const defaultSite = def.siteId
+    ? sites.find((s) => s.id === def.siteId) ?? null
+    : null;
+
+  const todayShift = todayShifts[0]
+    ? {
+        start: todayShifts[0].start_time.slice(0, 5),
+        end: todayShifts[0].end_time.slice(0, 5),
+      }
+    : null;
+
+  const sessionSiteIds = Array.from(
+    new Set(sessions.map((s) => s.site_id).filter(Boolean) as string[]),
+  );
+  const { data: siteMetaRaw } =
+    sessionSiteIds.length > 0
+      ? await supabase
+          .from("sites")
+          .select("id, code, color")
+          .in("id", sessionSiteIds)
+      : { data: [] };
+  const siteMeta = new Map<string, { code: string; color: string | null }>();
+  for (const s of (siteMetaRaw ?? []) as Array<{
+    id: string;
+    code: string;
+    color: string | null;
+  }>) {
+    siteMeta.set(s.id, { code: s.code, color: s.color });
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-2xl pb-safe">
       <div>
-        <h1 className="text-2xl font-bold">Pointage</h1>
-        <p className="text-sm text-ink-2">Pointe ton arrivée et ton départ. Cela alimente automatiquement le calcul de ta ponctualité.</p>
+        <h1 className="text-2xl font-bold">{t("clock.title", locale)}</h1>
+        <p className="text-sm text-ink-2">{t("clock.subtitle", locale)}</p>
       </div>
 
       <Card>
-        <div className="p-6 flex items-center gap-6 flex-wrap">
-          <div className={`w-24 h-24 rounded-full flex items-center justify-center ${isClockedIn ? "bg-success-light" : "bg-surface-2"}`}>
-            <Clock className={`h-10 w-10 ${isClockedIn ? "text-success" : "text-ink-3"}`} />
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <div className="text-[11px] uppercase font-bold tracking-wider text-ink-3">Statut actuel</div>
-            <div className="text-2xl font-bold mt-1">
-              {isClockedIn ? "Au travail" : todayEntries.length > 0 ? "Sortie effectuée" : "Pas encore arrivé·e"}
-            </div>
-            {lastEntry ? (
-              <div className="text-xs text-ink-3 mt-1">
-                Dernière action : <strong>{lastEntry.kind === "in" ? "Arrivée" : "Départ"}</strong> à {formatDateTime(lastEntry.occurred_at)}
-              </div>
-            ) : null}
-          </div>
-          <ClockButton
-            employeeId={employee.id}
+        <div className="p-5 sm:p-6">
+          <ClockBigButton
             isClockedIn={isClockedIn}
-            todayShiftId={todayShifts[0]?.id ?? null}
+            clockInAt={isClockedIn ? last?.occurred_at ?? null : null}
+            defaultSite={defaultSite}
+            availableSites={sites}
+            todayShift={todayShift}
+            geofenceStrict={geofenceStrict}
+            selfieRequired={selfieRequired}
+            userId={user.id}
+            locale={locale}
           />
         </div>
       </Card>
 
-      <Card>
-        <div className="p-4 border-b border-line">
-          <h2 className="font-bold">Tes shifts d'aujourd'hui</h2>
-        </div>
-        {todayShifts.length === 0 ? (
-          <div className="p-6 text-center text-sm text-ink-3">Aucun shift planifié aujourd'hui.</div>
-        ) : (
-          <ul className="divide-y divide-line">
-            {todayShifts.map((s) => (
-              <li key={s.id} className="p-3 flex items-center gap-3 text-sm">
-                <Clock className="h-4 w-4 text-gold-dark" />
-                <div className="flex-1">
-                  <div className="font-bold">{s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}</div>
-                  <div className="text-xs text-ink-3">{s.position ?? "—"} · {s.location ?? "—"}</div>
-                </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-surface-2 text-ink-2">{s.status}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      {todayShift ? (
+        <Card>
+          <div className="p-3 flex items-center gap-3 text-sm">
+            <Clock className="h-4 w-4 text-gold-dark" />
+            <div className="flex-1">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">
+                {t("clock.shift_planned_today", locale)}
+              </div>
+              <div className="font-bold">
+                {todayShift.start} – {todayShift.end}
+                {todayShifts[0].position ? ` · ${todayShifts[0].position}` : ""}
+              </div>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-surface-2 text-ink-2">
+              {todayShifts[0].status}
+            </span>
+          </div>
+        </Card>
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="border-danger text-danger hover:bg-danger-light"
+        >
+          <Link href="/me/absence">
+            <AlertCircle className="h-3.5 w-3.5" /> {t("clock.report_absence", locale)}
+          </Link>
+        </Button>
+      </div>
 
       <Card>
-        <div className="p-4 border-b border-line">
-          <h2 className="font-bold">Historique du jour</h2>
+        <div className="p-3 border-b border-line">
+          <h2 className="font-bold text-sm">{t("clock.last_7_days", locale)}</h2>
         </div>
-        {todayEntries.length === 0 ? (
-          <div className="p-6 text-center text-sm text-ink-3">Pas encore de pointage aujourd'hui.</div>
+        {sessions.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-3">
+            {t("clock.no_recent", locale)}
+          </div>
         ) : (
           <ul className="divide-y divide-line">
-            {todayEntries.map((e) => (
-              <li key={e.id} className="p-3 flex items-center gap-3 text-sm">
-                <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${e.kind === "in" ? "bg-success-light text-success" : "bg-info-light text-info"}`}>
-                  {e.kind === "in" ? "Arrivée" : "Départ"}
-                </span>
-                <span className="font-mono">{new Date(e.occurred_at).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })}</span>
-              </li>
-            ))}
+            {sessions.slice(0, 14).map((s) => {
+              const meta = s.site_id ? siteMeta.get(s.site_id) ?? null : null;
+              const inDate = new Date(s.clock_in_at);
+              return (
+                <li
+                  key={s.in_entry_id}
+                  className="p-3 flex items-center gap-3 text-sm"
+                >
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 w-12 shrink-0">
+                    {inDate.toLocaleDateString(dateLocaleStr(locale), {
+                      day: "2-digit",
+                      month: "2-digit",
+                    })}
+                  </div>
+                  <div
+                    className="inline-flex items-center justify-center rounded text-white text-[10px] font-bold w-7 h-7 shrink-0"
+                    style={{ backgroundColor: meta?.color ?? "#999" }}
+                    title={meta?.code ?? "—"}
+                  >
+                    {meta?.code ?? <MapPin className="h-3 w-3" />}
+                  </div>
+                  <div className="font-mono text-xs flex-1">
+                    {inDate.toLocaleTimeString(dateLocaleStr(locale), {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {" → "}
+                    {s.clock_out_at ? (
+                      new Date(s.clock_out_at).toLocaleTimeString(dateLocaleStr(locale), {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    ) : (
+                      <span className="text-success font-bold">{t("clock.in_progress_short", locale)}</span>
+                    )}
+                  </div>
+                  <div className="text-xs font-bold tabular-nums">
+                    {s.duration_minutes != null
+                      ? formatDurationMin(s.duration_minutes)
+                      : "—"}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Card>

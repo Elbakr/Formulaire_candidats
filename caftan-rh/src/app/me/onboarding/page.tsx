@@ -3,6 +3,8 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { MyOnboardingPanel } from "./panel";
+import { getLocale } from "@/lib/locale-server";
+import { t } from "@/lib/i18n";
 
 type Run = {
   id: string;
@@ -26,24 +28,31 @@ type Item = {
 export default async function MyOnboardingPage() {
   const { user } = await requireProfile();
   const supabase = await createClient();
+  const locale = await getLocale();
 
   const { data: empData } = await supabase
     .from("employees")
     .select("id, full_name, start_date")
     .eq("profile_id", user.id)
     .maybeSingle();
-  const employee = empData as unknown as { id: string; full_name: string; start_date: string } | null;
+  const employee = empData as unknown as {
+    id: string;
+    full_name: string;
+    start_date: string;
+  } | null;
 
   if (!employee) {
     return (
       <div className="space-y-4">
         <div>
-          <h1 className="text-2xl font-bold">Mon onboarding</h1>
+          <h1 className="text-2xl font-bold">{t("onboarding.title", locale)}</h1>
         </div>
         <Card>
           <div className="p-10 text-center">
             <ClipboardList className="h-10 w-10 text-ink-3 mx-auto mb-3" />
-            <p className="text-sm text-ink-2">Tu n'es pas enregistré comme employé.</p>
+            <p className="text-sm text-ink-2">
+              {t("onboarding.no_employee", locale)}
+            </p>
           </div>
         </Card>
       </div>
@@ -61,29 +70,33 @@ export default async function MyOnboardingPage() {
   if (run) {
     const { data: itemsData } = await supabase
       .from("onboarding_run_items")
-      .select("id, run_id, label, description, category, is_required, responsible_role, position, done_at")
+      .select(
+        "id, run_id, label, description, category, is_required, responsible_role, position, done_at",
+      )
       .eq("run_id", run.id)
       .order("position");
-    allItems = ((itemsData ?? []) as unknown as Item[]);
+    allItems = (itemsData ?? []) as unknown as Item[];
   }
 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Mon onboarding</h1>
+        <h1 className="text-2xl font-bold">{t("onboarding.title", locale)}</h1>
         <p className="text-sm text-ink-2">
-          Bienvenue {employee.full_name}. Voici les démarches à compléter pour ton intégration.
+          {t("onboarding.welcome", locale, { name: employee.full_name })}
         </p>
       </div>
       {!run ? (
         <Card>
           <div className="p-10 text-center">
             <ClipboardList className="h-10 w-10 text-ink-3 mx-auto mb-3" />
-            <p className="text-sm text-ink-2">Pas encore de parcours d'onboarding configuré.</p>
+            <p className="text-sm text-ink-2">
+              {t("onboarding.no_run", locale)}
+            </p>
           </div>
         </Card>
       ) : (
-        <MyOnboardingPanel run={run} items={allItems} />
+        <MyOnboardingPanel run={run} items={allItems} locale={locale} />
       )}
     </div>
   );

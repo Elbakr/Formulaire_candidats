@@ -1,16 +1,20 @@
-// Scoring intelligent candidat (0-100) avec 7 sous-scores détaillés.
+// Scoring intelligent candidat (0-100) avec 8 sous-scores détaillés.
 // Inspiré de l'ancien `calcScore` (recrutement.html section 1.6/1.7).
 //
-// Sous-scores :
+// Sous-scores (somme = 110 max → écrêté à 100) :
 //   - profile_completeness  /20  — champs admin remplis
 //   - motivation_quality    /15  — longueur + signaux qualité
 //   - availability_fit      /15  — available_from + wanted_contract_type + jours dispo
-//   - languages_fit         /20  — FR/AR/NL/EN avec niveaux
+//   - languages_fit         /15  — FR/AR/NL/EN avec niveaux
 //   - cv_present            /10  — CV uploadé
 //   - experience_age        /10  — proxy via âge (ne pas discriminer trop fort)
 //   - urgency               /10  — bonus si récent, malus si vieux sans contact
+//   - distance              /15  — proximité du magasin le plus proche
+// 110 max sommé → écrêté à 100. La distance pèse ~15% effectif.
+// Si la distance n'est pas fournie (postcode null) → score neutre 50% du max.
 
 import { hasFRandAR, inferLangs, levelMeets } from "@/lib/heuristics/languages";
+import { distanceToScore } from "@/lib/distance";
 
 export type CandidateScored = {
   email?: string | null;
@@ -30,6 +34,12 @@ export type CandidateScored = {
   created_at?: string | null;
   /** Pipeline status, used to detect "applied long ago, never contacted". */
   status?: string | null;
+  /**
+   * Distance (km) au magasin le plus proche. À précalculer côté serveur
+   * via `distanceCandidateToSites(postcode, city)` puis injecter ici.
+   * `null` si postcode inconnu / commune introuvable → score neutre 50%.
+   */
+  closest_site_distance_km?: number | null;
 };
 
 export type ScoreBreakdown = {
@@ -40,6 +50,7 @@ export type ScoreBreakdown = {
   cv: number;
   experience: number;
   urgency: number;
+  distance: number;
 };
 
 export type ScoreResult = {
@@ -56,6 +67,7 @@ const MAX = {
   cv: 10,
   experience: 10,
   urgency: 10,
+  distance: 12,
 };
 
 function calcAge(birth?: string | null): number | null {
@@ -151,6 +163,13 @@ export function computeCandidateScoreDetailed(c: CandidateScored): ScoreResult {
     }
   }
 
+  // 8. Distance — 0..MAX.distance selon le scoring linéaire piloté par paliers.
+  // Si la distance n'a pas pu être calculée (postcode null / commune inconnue)
+  // on injecte un score neutre 50% pour ne pas pénaliser le candidat.
+  const distRaw = c.closest_site_distance_km;
+  const distPct = distanceToScore(distRaw); // 0..100
+  const distance = Math.round((distPct / 100) * MAX.distance);
+
   const breakdown: ScoreBreakdown = {
     profile,
     motivation,
@@ -159,11 +178,15 @@ export function computeCandidateScoreDetailed(c: CandidateScored): ScoreResult {
     cv,
     experience,
     urgency,
+    distance,
   };
 
   const total = Math.max(
     0,
-    Math.min(100, profile + motivation + availability + languages + cv + experience + urgency),
+    Math.min(
+      100,
+      profile + motivation + availability + languages + cv + experience + urgency + distance,
+    ),
   );
 
   // Recommandation

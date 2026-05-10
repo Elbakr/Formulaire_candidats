@@ -37,7 +37,7 @@ export async function toggleOnboardingItemAction(itemId: string) {
     .from("onboarding_run_items")
     .select("id, run_id, responsible_role, done_at, done_by, label")
     .eq("id", itemId)
-    .single();
+    .maybeSingle();
   if (itemErr || !itemRaw) return { error: itemErr?.message ?? "Item introuvable." };
   const item = itemRaw as unknown as OnbItemRow;
 
@@ -52,14 +52,14 @@ export async function toggleOnboardingItemAction(itemId: string) {
       .from("onboarding_runs")
       .select("id, employee_id")
       .eq("id", item.run_id)
-      .single();
+      .maybeSingle();
     const run = runRaw as unknown as { id: string; employee_id: string } | null;
     if (!run) return { error: "Run introuvable." };
     const { data: empRaw } = await supabase
       .from("employees")
       .select("id, profile_id")
       .eq("id", run.employee_id)
-      .single();
+      .maybeSingle();
     const emp = empRaw as unknown as { id: string; profile_id: string | null } | null;
     if (!emp || emp.profile_id !== user.id) return { error: "Cet item ne te concerne pas." };
   }
@@ -96,7 +96,7 @@ async function maybeCloseRun(runId: string) {
     .from("onboarding_runs")
     .select("id, completed_at, employee_id")
     .eq("id", runId)
-    .single();
+    .maybeSingle();
   const run = runRaw as unknown as { id: string; completed_at: string | null; employee_id: string } | null;
   if (!run) return;
 
@@ -168,7 +168,7 @@ export async function removeItemAction(itemId: string) {
     .from("onboarding_run_items")
     .select("run_id")
     .eq("id", itemId)
-    .single();
+    .maybeSingle();
   const it = itRaw as unknown as { run_id: string } | null;
 
   const { error } = await supabase.from("onboarding_run_items").delete().eq("id", itemId);
@@ -191,7 +191,7 @@ export async function closeRunAction(runId: string) {
     .from("onboarding_runs")
     .select("id, employee_id, completed_at")
     .eq("id", runId)
-    .single();
+    .maybeSingle();
   const run = runRaw as unknown as OnbRunRow | null;
   if (!run) return { error: "Run introuvable." };
 
@@ -206,7 +206,7 @@ export async function closeRunAction(runId: string) {
     .from("employees")
     .select("id, full_name, profile_id, manager_id")
     .eq("id", run.employee_id)
-    .single();
+    .maybeSingle();
   const emp = empRaw as unknown as EmployeeRow | null;
 
   if (emp?.profile_id) {
@@ -319,7 +319,7 @@ export async function saveTemplateItemAction(formData: FormData) {
       .from("onboarding_template_items")
       .select("position")
       .eq("id", id)
-      .single();
+      .maybeSingle();
     const ex = existRaw as unknown as { position: number } | null;
     position = ex?.position ?? 0;
   } else {
@@ -366,7 +366,7 @@ export async function moveTemplateItemAction(id: string, direction: "up" | "down
     .from("onboarding_template_items")
     .select("id, template_id, position")
     .eq("id", id)
-    .single();
+    .maybeSingle();
   const item = itemRaw as unknown as { id: string; template_id: string; position: number } | null;
   if (!item) return { error: "Item introuvable." };
 

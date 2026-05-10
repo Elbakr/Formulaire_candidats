@@ -154,14 +154,29 @@ function shouldWorkThisWeek(emp: EmployeeForPlan, isoMonday: string): boolean {
   return wk % emp.week_cycle === emp.week_phase;
 }
 
+export type ClosureRange = {
+  start_date: string; // YYYY-MM-DD inclusive
+  end_date: string;   // YYYY-MM-DD inclusive
+  department_id: string | null; // null = global
+};
+
 export function generateWeekPlan(
   monday: Date,
   employees: EmployeeForPlan[],
   existing: ExistingShift[],
   approvedOff: ApprovedTimeOff[],
-  options: { defaultPosition?: string; prayerPause?: PrayerPauseSettings } = {},
+  options: {
+    defaultPosition?: string;
+    prayerPause?: PrayerPauseSettings;
+    /** Dates ISO (YYYY-MM-DD) à ne pas planifier — fériés critiques (Aïd, légaux). */
+    blockedDates?: string[];
+    /** Fermetures boutique chevauchant la semaine, filtrées par département. */
+    closures?: ClosureRange[];
+  } = {},
 ): GenerationResult {
   const prayerPause = options.prayerPause ?? DEFAULT_PRAYER_PAUSE;
+  const blockedDates = new Set(options.blockedDates ?? []);
+  const closures = options.closures ?? [];
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const weekDaysISO = weekDays.map((d) => toISODate(d));
   const isoMonday = weekDaysISO[0];
@@ -186,12 +201,22 @@ export function generateWeekPlan(
     const hasExistingShift = (dateISO: string) =>
       existing.some((s) => s.employee_id === emp.id && s.date === dateISO);
 
+    const isClosed = (dateISO: string) =>
+      closures.some(
+        (c) =>
+          dateISO >= c.start_date &&
+          dateISO <= c.end_date &&
+          (c.department_id === null || c.department_id === emp.department_id),
+      );
+
     const eligibleDays: { dateISO: string; dayIdx: number }[] = [];
     for (let i = 0; i < 7; i++) {
       if (fixedOff.has(i)) continue;
       const dateISO = weekDaysISO[i];
       if (isOnLeave(dateISO)) continue;
       if (hasExistingShift(dateISO)) continue;
+      if (blockedDates.has(dateISO)) continue;
+      if (isClosed(dateISO)) continue;
       eligibleDays.push({ dateISO, dayIdx: i });
     }
 

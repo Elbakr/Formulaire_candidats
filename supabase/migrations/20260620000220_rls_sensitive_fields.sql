@@ -1,0 +1,27 @@
+-- Audit RLS NRN / IBAN — 2026-05-10
+--
+-- Constat : les policies actuelles sur `candidates` et `employees`
+-- (définies dans 20260509000002_rls.sql et 20260509000005_planning.sql)
+-- sont conformes à la règle métier :
+--
+--   • `candidates SELECT` : profile_id = auth.uid() OR is_manager()
+--     → un candidat ne voit que sa propre fiche (y compris son NRN).
+--     → un manager/RH/admin peut lire toutes les fiches candidats.
+--     → un employé lambda (rôle 'candidate' sans profile_id sur candidates)
+--       ne voit RIEN sur la table candidates (NRN protégé).
+--
+--   • `employees SELECT` : profile_id = auth.uid() OR manager_id = auth.uid()
+--     OR is_rh()
+--     → un employé ne voit que sa propre fiche.
+--     → un manager voit son équipe directe.
+--     → RH/admin voient tout.
+--     → un employé ne peut PAS lire le NRN/IBAN d'un collègue.
+--
+-- Test réalisé : démo-employee@caftanfactory.local (rôle 'candidate',
+-- aucun lien sur candidates) → SELECT * FROM candidates retourne 0 row,
+-- SELECT * FROM employees retourne uniquement sa propre fiche.
+--
+-- Aucune policy permissive trouvée. Pas de modification nécessaire.
+-- Migration vide laissée comme trace d'audit.
+
+select 1;
