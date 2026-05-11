@@ -58,6 +58,7 @@ export async function saveEmployeeAdminAction(employeeId: string, formData: Form
     week_phase: NUM(formData.get("week_phase")) ?? 0,
     planning_notes: STR(formData.get("planning_notes")),
     notes_admin: STR(formData.get("notes_admin")),
+    ot_eligible: formData.get("ot_eligible") === "on",
   };
 
   const { error } = await supabase.from("employees").update(payload).eq("id", employeeId);

@@ -33,6 +33,7 @@ type EmployeeRow = {
   weekly_hours: number | null;
   start_date: string | null;
   contract_type: string | null;
+  ot_eligible: boolean | null;
 };
 
 /** Score de séniorité numérique pour le tri (haut = plus senior). */
@@ -231,7 +232,7 @@ async function loadSolverContext(
     supabase
       .from("employees")
       .select(
-        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type",
+        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible",
       )
       .eq("status", "active"),
     // /!\ on charge TOUS les shifts de la semaine, pas seulement ceux du site,
@@ -1284,10 +1285,16 @@ export async function proposeOvertimeCandidatesAction(args: {
       const remainingBase = need.headcount - alreadyCovered;
       if (remainingBase <= 0) continue;
 
+      // OT méritocratique (décision Karim 2026-05-11) : on ne propose que
+      // les employés "ot_eligible" — volontaires, autonomes, ayant déjà
+      // démontré la capacité d'absorber des heures supp. Les autres ne sont
+      // jamais sollicités, par construction.
+      const otEligibleEmployees = allEmployees.filter((e) => e.ot_eligible === true);
+
       // Construit la liste de TOUS les candidats (dispo ou non) pour donner
       // la transparence complète à Karim. Trié par tier puis heures restantes.
       const candidates: OvertimeCandidate[] = [];
-      for (const e of allEmployees) {
+      for (const e of otEligibleEmployees) {
         const tier = (tierByEmp.get(e.id) ?? 3) as 1 | 2 | 3;
         const current = plannedHours.get(e.id) ?? 0;
         const weekly = e.weekly_hours ?? 38;

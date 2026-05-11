@@ -1,5 +1,9 @@
+import Link from "next/link";
+import { Sparkles, ArrowRight } from "lucide-react";
 import { startOfWeek, toISODate, weekRange, parseISODate } from "@/lib/planning";
 import { createClient } from "@/lib/supabase/server";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { WeeklyPlanningBoard } from "./weekly-board";
 
 export default async function PlanningCalendarPage(
@@ -19,6 +23,7 @@ export default async function PlanningCalendarPage(
     { data: closures },
     { data: sites },
     { data: assignments },
+    { data: pendingDraftsRaw },
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -63,6 +68,13 @@ export default async function PlanningCalendarPage(
       .select("employee_id, site_id, is_primary")
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`),
+    // Brouillons auto-generes en attente pour la semaine affichee
+    supabase
+      .from("auto_plan_drafts")
+      .select(`id, site_id, drafts_json, uncovered_json, generated_at,
+               site:sites(code, name, color)`)
+      .eq("status", "pending")
+      .eq("week_monday", toISODate(monday)),
   ]);
 
   // Map empId → siteIds (préférés en tête : is_primary first)
@@ -82,15 +94,70 @@ export default async function PlanningCalendarPage(
     preferred_site_ids: assignsByEmp.get(e.id) ?? [],
   }));
 
+  type PendingDraft = {
+    id: string;
+    site_id: string;
+    drafts_json: Array<unknown> | null;
+    uncovered_json: Array<{ missing?: number }> | null;
+    generated_at: string;
+    site: { code: string; name: string; color: string | null } | null;
+  };
+  const pendingDrafts = ((pendingDraftsRaw ?? []) as unknown as PendingDraft[]);
+  const totalDraftShifts = pendingDrafts.reduce(
+    (a, d) => a + (d.drafts_json?.length ?? 0),
+    0,
+  );
+  const totalUncovered = pendingDrafts.reduce(
+    (a, d) => a + (d.uncovered_json ?? []).reduce((s, u) => s + (u.missing ?? 0), 0),
+    0,
+  );
+
   return (
-    <WeeklyPlanningBoard
-      mondayISO={toISODate(monday)}
-      employees={employeesWithSites as never}
-      shifts={(shifts ?? []) as never}
-      timeOff={(timeOff ?? []) as never}
-      holidays={(holidays ?? []) as never}
-      closures={(closures ?? []) as never}
-      sites={(sites ?? []) as never}
-    />
+    <div className="space-y-3">
+      {pendingDrafts.length > 0 ? (
+        <Card className="border-gold">
+          <div className="p-3 flex items-center gap-3 flex-wrap bg-gold-light/30">
+            <Sparkles className="h-5 w-5 text-gold-dark shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <div className="font-bold text-sm">
+                Planning auto pré-généré pour la semaine du {toISODate(monday)}
+              </div>
+              <div className="text-xs text-ink-2">
+                <span className="font-bold">{totalDraftShifts}</span> shifts proposés sur{" "}
+                <span className="font-bold">{pendingDrafts.length}</span> site
+                {pendingDrafts.length > 1 ? "s" : ""}
+                {totalUncovered > 0 ? (
+                  <>
+                    {" · "}
+                    <span className="text-warn font-bold">{totalUncovered} créneaux non couverts</span>
+                  </>
+                ) : null}{" "}
+                · à valider pour basculer dans le board ci-dessous
+              </div>
+              <div className="text-[10px] text-ink-3 mt-1 truncate">
+                Sites concernés :{" "}
+                {pendingDrafts
+                  .map((d) => d.site?.code ?? "?")
+                  .join(", ")}
+              </div>
+            </div>
+            <Button asChild variant="gold" size="sm">
+              <Link href={`/planning/auto-drafts?week=${toISODate(monday)}`}>
+                Voir + valider <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Link>
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+      <WeeklyPlanningBoard
+        mondayISO={toISODate(monday)}
+        employees={employeesWithSites as never}
+        shifts={(shifts ?? []) as never}
+        timeOff={(timeOff ?? []) as never}
+        holidays={(holidays ?? []) as never}
+        closures={(closures ?? []) as never}
+        sites={(sites ?? []) as never}
+      />
+    </div>
   );
 }

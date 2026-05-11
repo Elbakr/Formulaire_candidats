@@ -63,6 +63,7 @@ type Employee = {
   week_cycle: number | null;
   week_phase: number | null;
   planning_notes: string | null;
+  ot_eligible: boolean | null;
 };
 
 export function EmployeeAdminForm({
@@ -198,6 +199,22 @@ export function EmployeeAdminForm({
 
       <Section title="📅 Contraintes planning (pour génération auto)">
         <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded border border-line bg-surface-2/40">
+            <input
+              type="checkbox"
+              id="ot_eligible"
+              name="ot_eligible"
+              defaultChecked={!!employee.ot_eligible}
+              className="h-4 w-4"
+            />
+            <Label htmlFor="ot_eligible" className="flex-1 cursor-pointer">
+              <span className="font-bold text-sm">🔥 Éligible aux heures supplémentaires</span>
+              <span className="block text-[11px] text-ink-3 font-normal">
+                Coche uniquement les employés volontaires, autonomes, capables d'absorber des h. sup.
+                Seuls les éligibles apparaissent dans le sélecteur OT case-par-case.
+              </span>
+            </Label>
+          </div>
           <div>
             <Label>Jours toujours OFF</Label>
             <div className="flex gap-1.5 flex-wrap mt-1">
