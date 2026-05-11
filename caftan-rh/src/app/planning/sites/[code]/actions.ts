@@ -178,11 +178,17 @@ type SolverContext = {
   unavail: EmpUnavail[];
   blockedDates: Set<string>;
   /**
-   * Jours speciaux (holidays.kind != 'legal') : magasins OUVERTS, force
+   * Jours speciaux (holidays.shops_closed=false) : magasins OUVERTS, force
    * assignation. Le solver IGNORE fixed_off_days sur ces dates, sauf vrai
    * conge (time_off_request) ou indispo declaree.
    */
   specialDates: Set<string>;
+  /**
+   * Multiplicateur d'effectif par date (rush pre-Aid, soldes, etc.). Le solver
+   * multiplie need.headcount par cette valeur les jours concernes (en plus
+   * du multiplier saisonnier classique). Default 1.0.
+   */
+  holidayStaffMultByDate: Map<string, number>;
   closedDates: Set<string>;
 };
 
@@ -254,14 +260,14 @@ async function loadSolverContext(
       .select("start_date, end_date, department_id")
       .lte("start_date", end)
       .gte("end_date", start),
-    // Politique magasins Caftan (decision Karim 2026-05-11) : AUCUN magasin
-    // ne ferme jamais SAUF les 2 Aid annuels (J + J+1) explicitement marques
-    // shops_closed=true. Tous les autres feries (Ascension, Noel, Toussaint,
-    // Aid hors fermeture, Pentecote, etc.) sont OUVERTS avec force-assignation
-    // (fixed_off_days ignore par le solver ces jours-la).
+    // Politique magasins Caftan (Karim 2026-05-11 v3) : seuls les jours J
+    // d'Aid (Aid al-Fitr + Aid al-Adha) sont fermes (shops_closed=true). Le
+    // J+1 d'Aid est ouvert ; le J-1 d'Aid est ouvert avec staff_multiplier
+    // (1.5 normal, 2.0 si coincidence avec autre ferie international). Tous
+    // les autres feries restent ouverts en force-assignation.
     supabase
       .from("holidays")
-      .select("date, priority, kind, shops_closed")
+      .select("date, priority, kind, shops_closed, staff_multiplier")
       .eq("is_active", true)
       .gte("date", start)
       .lte("date", end),
@@ -301,6 +307,7 @@ async function loadSolverContext(
     priority: number | null;
     kind: string | null;
     shops_closed: boolean | null;
+    staff_multiplier: number | string | null;
   }>;
   // shops_closed=true -> magasins fermes (Aid uniquement par defaut).
   // Tous les autres feries actifs -> specialDates (force-assignation, OFF ignore).
@@ -310,6 +317,16 @@ async function loadSolverContext(
   const specialDates = new Set(
     allHolidays.filter((h) => h.shops_closed !== true).map((h) => h.date),
   );
+  // Map des multiplicateurs d'effectif par date (rush pre-Aid, soldes, etc.).
+  // Si plusieurs feries tombent le meme jour, on prend le max (le plus exigeant).
+  const holidayStaffMultByDate = new Map<string, number>();
+  for (const h of allHolidays) {
+    const m = h.staff_multiplier == null ? 1.0 : Number(h.staff_multiplier);
+    if (Number.isFinite(m) && m > 1.0) {
+      const cur = holidayStaffMultByDate.get(h.date) ?? 1.0;
+      if (m > cur) holidayStaffMultByDate.set(h.date, m);
+    }
+  }
   const closedDates = new Set<string>();
   for (const c of (closures ?? []) as Array<{
     start_date: string;
@@ -344,6 +361,7 @@ async function loadSolverContext(
     unavail,
     blockedDates,
     specialDates,
+    holidayStaffMultByDate,
     closedDates,
   };
 }
@@ -440,6 +458,7 @@ export async function previewSitePlanAction(
     unavail,
     blockedDates,
     specialDates,
+    holidayStaffMultByDate,
     closedDates,
   } = ctx;
 
@@ -534,15 +553,21 @@ export async function previewSitePlanAction(
           slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),
       );
 
+    // Multiplicateur d'effectif du au ferie (rush pre-Aid, coincidence ferie
+    // international, etc.). Combine avec le multiplier saisonnier : on prend
+    // le produit, plafonne a 4x pour eviter les explosions.
+    const holidayMult = holidayStaffMultByDate.get(dateISO) ?? 1.0;
+    const combinedMult = Math.min(4.0, seasonalMult * holidayMult);
+
     for (const need of dayNeeds) {
       const need_s = need.start_time.slice(0, 5);
       const need_e = need.end_time.slice(0, 5);
       const slotH = slotHours(need_s, need_e); // brut (sans pause)
-      // Headcount ajusté par la saisonnalité (arrondi sup pour rester
-      // protecteur : Aïd ×2 sur 1 vendeuse → 2 ; ×1.3 sur 2 → 3).
+      // Headcount ajusté par la saisonnalité + ferie rush (arrondi sup pour
+      // rester protecteur : Aïd ×2 sur 1 vendeuse -> 2 ; ×1.3 sur 2 -> 3).
       const seasonalHeadcount = Math.max(
         need.headcount,
-        Math.ceil(need.headcount * seasonalMult),
+        Math.ceil(need.headcount * combinedMult),
       );
 
       // Pool unique des employés éligibles, filtrés sur :
@@ -787,6 +812,7 @@ export async function previewOvertimeFillAction(args: {
     unavail,
     blockedDates,
     specialDates,
+    holidayStaffMultByDate,
     closedDates,
   } = ctx;
 
@@ -1190,6 +1216,7 @@ export async function proposeOvertimeCandidatesAction(args: {
     unavail,
     blockedDates,
     specialDates,
+    holidayStaffMultByDate,
     closedDates,
   } = ctx;
 
@@ -1435,6 +1462,7 @@ export async function commitIndividualOvertimeAction(args: {
     unavail,
     blockedDates,
     specialDates,
+    holidayStaffMultByDate,
     closedDates,
   } = ctx;
 
