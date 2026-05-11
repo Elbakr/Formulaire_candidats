@@ -83,13 +83,13 @@ for (const aid of aidJ) {
   const jMinus1 = new Date(aidDate.getTime() - 86_400_000);
   const jMinus1ISO = jMinus1.toISOString().slice(0, 10);
 
-  // Coincidence avec autre ferie international actif a la meme date J-1 ?
+  // Coincidence avec TOUT autre ferie actif a la meme date J-1 ?
+  // Decision Karim v4 : legal BE, international, religieux -- tout compte.
   const { rows: coincide } = await c.query(
     `select id, label, kind from holidays
      where date::text = $1
        and id != $2
-       and is_active = true
-       and (kind = 'international' or priority >= 2)`,
+       and is_active = true`,
     [jMinus1ISO, aid.id],
   );
   const multiplier = coincide.length > 0 ? 2.0 : 1.5;
