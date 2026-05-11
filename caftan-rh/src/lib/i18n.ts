@@ -189,6 +189,15 @@ const FR = {
     "Photo selfie requise pour pointer. Réessaie ou autorise la caméra.",
   "clock.selfie_unavailable":
     "Selfie indisponible sur ce navigateur — pointage flagué pour audit.",
+  "clock.selfie_overlay_title": "Photo selfie de pointage",
+  "clock.selfie_overlay_hint": "Regarde l'objectif. Capture automatique dans…",
+  "clock.selfie_overlay_starting": "Activation de la caméra…",
+  "clock.selfie_overlay_captured": "Pointage enregistré",
+  "clock.selfie_overlay_cancel": "Annuler",
+  "clock.selfie_overlay_denied_title": "Caméra refusée",
+  "clock.selfie_overlay_denied_body":
+    "Tu dois autoriser la caméra dans les réglages de ton navigateur (Safari → Réglages → Caméra) pour pouvoir pointer.",
+  "clock.selfie_overlay_help_ios": "Voir l'aide iOS",
   "clock.no_site_detected": "Aucun site auto-détecté",
   "clock.change_site": "Changer",
   "clock.my_sites": "Mes sites",
@@ -822,6 +831,15 @@ const NL: Record<TranslationKey, string> = {
     "Een selfie is vereist om in te klokken. Probeer opnieuw of geef camera toegang.",
   "clock.selfie_unavailable":
     "Selfie niet beschikbaar in deze browser — prikking gemarkeerd voor controle.",
+  "clock.selfie_overlay_title": "Selfie voor prikklok",
+  "clock.selfie_overlay_hint": "Kijk in de lens. Automatische opname over…",
+  "clock.selfie_overlay_starting": "Camera activeren…",
+  "clock.selfie_overlay_captured": "Prikking geregistreerd",
+  "clock.selfie_overlay_cancel": "Annuleren",
+  "clock.selfie_overlay_denied_title": "Camera geweigerd",
+  "clock.selfie_overlay_denied_body":
+    "Je moet camera-toegang inschakelen in de instellingen van je browser (Safari → Instellingen → Camera) om in te klokken.",
+  "clock.selfie_overlay_help_ios": "iOS-hulp bekijken",
   "clock.no_site_detected": "Geen vestiging automatisch gedetecteerd",
   "clock.change_site": "Wijzigen",
   "clock.my_sites": "Mijn vestigingen",

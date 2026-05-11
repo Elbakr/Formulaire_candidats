@@ -8,6 +8,77 @@ import {
   describeAutoReason,
 } from "@/lib/leave-auto-validation";
 import { sendPushToProfile } from "@/lib/push-notify";
+import { shiftHours, startOfWeek, addDays, toISODate } from "@/lib/planning";
+
+/**
+ * Calcule les heures déjà planifiées (hors OT) pour un employé sur la semaine
+ * ISO contenant `dateISO` (Lundi–Dimanche), en EXCLUANT le shift `excludeId`.
+ * Renvoie aussi le `weekly_hours` contractuel pour comparaison côté UI.
+ */
+export async function getEmployeeWeeklyHoursAction(
+  employeeId: string,
+  dateISO: string,
+  excludeShiftId?: string | null,
+): Promise<{
+  weeklyTarget: number;
+  contractualHoursThisWeek: number;
+  overtimeHoursThisWeek: number;
+  weekStart: string;
+  weekEnd: string;
+}> {
+  await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+
+  const monday = startOfWeek(new Date(dateISO + "T00:00:00"));
+  const sunday = addDays(monday, 6);
+  const weekStart = toISODate(monday);
+  const weekEnd = toISODate(sunday);
+
+  const [{ data: emp }, { data: shiftsRaw }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("weekly_hours")
+      .eq("id", employeeId)
+      .maybeSingle(),
+    supabase
+      .from("shifts")
+      .select("id, start_time, end_time, break_minutes, is_overtime")
+      .eq("employee_id", employeeId)
+      .gte("date", weekStart)
+      .lte("date", weekEnd),
+  ]);
+
+  const weeklyTarget =
+    (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
+  const shifts = (shiftsRaw ?? []) as Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean | null;
+  }>;
+
+  let contractualHoursThisWeek = 0;
+  let overtimeHoursThisWeek = 0;
+  for (const s of shifts) {
+    if (excludeShiftId && s.id === excludeShiftId) continue;
+    const h = shiftHours(
+      s.start_time.slice(0, 5),
+      s.end_time.slice(0, 5),
+      s.break_minutes ?? 0,
+    );
+    if (s.is_overtime) overtimeHoursThisWeek += h;
+    else contractualHoursThisWeek += h;
+  }
+
+  return {
+    weeklyTarget,
+    contractualHoursThisWeek,
+    overtimeHoursThisWeek,
+    weekStart,
+    weekEnd,
+  };
+}
 
 export async function upsertShiftAction(formData: FormData) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
@@ -22,6 +93,11 @@ export async function upsertShiftAction(formData: FormData) {
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const siteIdRaw = String(formData.get("site_id") ?? "").trim();
   const siteId = siteIdRaw && siteIdRaw !== "none" ? siteIdRaw : null;
+  const isOvertime = String(formData.get("is_overtime") ?? "") === "on";
+  const overtimeMultiplierRaw = String(formData.get("overtime_multiplier") ?? "");
+  const overtimeMultiplier = isOvertime
+    ? Number(overtimeMultiplierRaw) || 1.5
+    : null;
 
   if (!employeeId || !date || !start || !end) return { error: "Employé, date et horaires requis." };
   if (start >= end) return { error: "L'heure de fin doit être après l'heure de début." };
@@ -56,6 +132,59 @@ export async function upsertShiftAction(formData: FormData) {
     };
   }
 
+  // ── Validation contrat hebdo : si le shift est marqué "contractuel"
+  // (is_overtime=false) et qu'il fait dépasser weekly_hours pour la semaine,
+  // on bloque avec un message demandant explicitement is_overtime=true.
+  // On exclut le shift en cours d'édition pour ne pas le compter deux fois.
+  if (!isOvertime) {
+    const monday = startOfWeek(new Date(date + "T00:00:00"));
+    const sunday = addDays(monday, 6);
+    const weekStart = toISODate(monday);
+    const weekEnd = toISODate(sunday);
+
+    const [{ data: emp }, { data: weekShiftsRaw }] = await Promise.all([
+      supabase
+        .from("employees")
+        .select("weekly_hours")
+        .eq("id", employeeId)
+        .maybeSingle(),
+      supabase
+        .from("shifts")
+        .select("id, start_time, end_time, break_minutes, is_overtime")
+        .eq("employee_id", employeeId)
+        .gte("date", weekStart)
+        .lte("date", weekEnd),
+    ]);
+
+    const weeklyTarget =
+      (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
+    const weekShifts = (weekShiftsRaw ?? []) as Array<{
+      id: string;
+      start_time: string;
+      end_time: string;
+      break_minutes: number;
+      is_overtime: boolean | null;
+    }>;
+    let contractualBefore = 0;
+    for (const s of weekShifts) {
+      if (id && s.id === id) continue;
+      if (s.is_overtime) continue;
+      contractualBefore += shiftHours(
+        s.start_time.slice(0, 5),
+        s.end_time.slice(0, 5),
+        s.break_minutes ?? 0,
+      );
+    }
+    const thisShiftHours = shiftHours(newStart, newEnd, breakMinutes);
+    const projected = contractualBefore + thisShiftHours;
+    if (projected > weeklyTarget + 0.01) {
+      const overBy = +(projected - weeklyTarget).toFixed(2);
+      return {
+        error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). Active la case "Heures sup" ou réduis le shift.`,
+      };
+    }
+  }
+
   const payload = {
     employee_id: employeeId,
     date,
@@ -66,6 +195,8 @@ export async function upsertShiftAction(formData: FormData) {
     location,
     site_id: siteId,
     notes,
+    is_overtime: isOvertime,
+    overtime_multiplier: overtimeMultiplier,
     created_by: profile.id,
   };
 

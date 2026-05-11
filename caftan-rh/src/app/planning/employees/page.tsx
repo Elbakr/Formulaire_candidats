@@ -10,10 +10,15 @@ export default async function EmployeesPage() {
   const supabase = await createClient();
 
   const todayISO = new Date().toISOString().slice(0, 10);
-  const [{ data: emps }, { data: depts }, { data: assignsRaw }] = await Promise.all([
+  const [
+    { data: emps },
+    { data: depts },
+    { data: assignsRaw },
+    { data: currentlyInRaw },
+  ] = await Promise.all([
     supabase
       .from("employees")
-      .select(`id, full_name, email, phone, job_title, weekly_hours, contract_type, status, start_date,
+      .select(`id, full_name, email, phone, job_title, weekly_hours, contract_type, status, start_date, profile_id,
                department:departments(id, name)`)
       .order("status", { ascending: true })
       .order("full_name"),
@@ -26,6 +31,12 @@ export default async function EmployeesPage() {
       )
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`),
+    // Présence temps réel : vue clock_currently_in (clock_in_at IS NOT NULL
+    // AND clock_out_at IS NULL). On ne charge que les colonnes nécessaires
+    // pour le voyant + tooltip.
+    supabase
+      .from("clock_currently_in")
+      .select("employee_id, clock_in_at"),
   ]);
 
   type AssignRow = {
@@ -55,8 +66,21 @@ export default async function EmployeesPage() {
     contract_type: string | null;
     status: "active" | "on_leave" | "archived";
     start_date: string;
+    profile_id: string | null;
     department: { id: string; name: string } | null;
   }>;
+
+  // Map empId -> { in_at } pour le voyant présence côté client.
+  const presenceRows = (currentlyInRaw ?? []) as Array<{
+    employee_id: string;
+    clock_in_at: string;
+  }>;
+  const presenceByEmp: Record<string, { in_at: string }> = {};
+  for (const p of presenceRows) {
+    if (p.employee_id && p.clock_in_at) {
+      presenceByEmp[p.employee_id] = { in_at: p.clock_in_at };
+    }
+  }
 
   const active = employees.filter((e) => e.status === "active");
   const archived = employees.filter((e) => e.status !== "active");
@@ -75,7 +99,12 @@ export default async function EmployeesPage() {
         </div>
       </div>
 
-      <EmployeesList employees={employees} sitesByEmp={sitesByEmp} isAdmin={isAdmin} />
+      <EmployeesList
+        employees={employees}
+        sitesByEmp={sitesByEmp}
+        isAdmin={isAdmin}
+        presenceByEmp={presenceByEmp}
+      />
     </div>
   );
 }

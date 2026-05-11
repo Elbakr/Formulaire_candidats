@@ -28,6 +28,8 @@ const sections: NavSection[] = [
       { href: "/admin/digest", label: "Digest IA", icon: "Sparkles" },
       { href: "/admin/holidays", label: "Jours fériés & fermetures", icon: "Calendar" },
       { href: "/admin/seasonal", label: "Saisonnalités", icon: "Sparkles" },
+      { href: "/admin/overtime-audit", label: "Audit heures sup", icon: "Activity" },
+      { href: "/admin/help/planning", label: "Aide planning", icon: "FileText" },
       { href: "/admin/bonus", label: "Primes & concours", icon: "Star" },
       { href: "/admin/vip-clients", label: "Clientes VIP", icon: "Users" },
     ],

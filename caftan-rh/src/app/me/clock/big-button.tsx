@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { LogIn, LogOut, MapPin, ChevronDown, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { clockInAction, clockOutAction } from "./actions";
-import { createClient } from "@/lib/supabase/client";
 import { t, dateLocaleStr, type Locale } from "@/lib/i18n";
+import { SelfieOverlay, type SelfieResult } from "./selfie-overlay";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -98,66 +98,6 @@ function formatElapsed(start: Date, now: Date, locale: Locale): string {
   return `${h}${hSuffix}${m.toString().padStart(2, "0")}`;
 }
 
-/**
- * Capture un selfie via getUserMedia : ouvre une vidéo cachée, snap la 1re
- * frame stable, downscale en JPEG ≤ 800x800 (qualité 0.7), upload Storage.
- * Renvoie le path Storage ou throw une erreur explicative.
- */
-async function captureAndUploadSelfie(userId: string): Promise<string> {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error("getUserMedia non supporté sur ce navigateur");
-  }
-
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 800 }, height: { ideal: 800 } },
-      audio: false,
-    });
-  } catch (e) {
-    throw new Error(
-      `Caméra refusée ou indisponible: ${(e as Error).message ?? "permission denied"}`,
-    );
-  }
-
-  try {
-    // On laisse 200ms à la caméra pour exposer correctement.
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    await video.play();
-    await new Promise((r) => setTimeout(r, 250));
-
-    const w = Math.min(800, video.videoWidth || 640);
-    const h = Math.min(800, video.videoHeight || 480);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("canvas 2D context indisponible");
-    ctx.drawImage(video, 0, 0, w, h);
-
-    const blob: Blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("canvas.toBlob a échoué"))),
-        "image/jpeg",
-        0.7,
-      );
-    });
-
-    const supabase = createClient();
-    const path = `${userId}/${Date.now()}.jpg`;
-    const { error } = await supabase.storage
-      .from("clock-selfies")
-      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
-    if (error) throw new Error(`upload Storage: ${error.message}`);
-    return path;
-  } finally {
-    stream.getTracks().forEach((t) => t.stop());
-  }
-}
-
 export function ClockBigButton({
   isClockedIn,
   clockInAt,
@@ -182,6 +122,10 @@ export function ClockBigButton({
   >({ kind: "idle" });
   const inFlight = useRef(false);
 
+  // Géoloc capturée avant ouverture overlay caméra — réutilisée à l'envoi.
+  const pendingGeoRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
+  const [selfieOpen, setSelfieOpen] = useState(false);
+
   // Tick chaque minute pour mettre à jour la durée écoulée.
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -191,63 +135,18 @@ export function ClockBigButton({
   const chosenSite =
     availableSites.find((s) => s.id === chosenSiteId) ?? defaultSite;
 
-  function handle() {
-    if (inFlight.current) return;
-    inFlight.current = true;
+  /** Finalise le clock-in : appelle l'action serveur puis route refresh. */
+  function finalizeClockIn(args: {
+    selfieStoragePath: string | null;
+    selfieFailureReason: string | null;
+  }) {
     startTransition(async () => {
       try {
-        // Vibration tactile (best-effort).
-        if (typeof navigator !== "undefined" && navigator.vibrate) {
-          try { navigator.vibrate(50); } catch { /* noop */ }
-        }
-        const geo = await tryGeo(geofenceStrict && !isClockedIn);
-        if (isClockedIn) {
-          const r = await clockOutAction({ geo: geo ?? undefined });
-          if (r.error) toast.error(r.error);
-          else {
-            toast.success(`${t("clock.bye", locale)} \u{1F44B}`);
-            router.refresh();
-          }
-          return;
-        }
-
-        // === Clock-IN : checks géoloc + selfie =================================
-        if (geofenceStrict && !geo) {
-          setGeoStatus({
-            kind: "blocked",
-            reason: t("clock.geo_required_strict", locale),
-          });
-          toast.error(t("clock.geo_required_toast", locale));
-          return;
-        }
-
-        // Capture selfie (best-effort si non requis, bloquant si requis).
-        let selfiePath: string | null = null;
-        let selfieFailure: string | null = null;
-        if (selfieRequired) {
-          try {
-            selfiePath = await captureAndUploadSelfie(userId);
-          } catch (e) {
-            selfieFailure = (e as Error).message ?? "selfie capture failed";
-            console.warn("[clock] selfie failed:", selfieFailure);
-            // Si getUserMedia n'existe pas (vieux navigateur) → on autorise
-            // mais on flag is_anomalous côté serveur. Karim a explicitement
-            // demandé ce fallback dans le brief.
-            const noApi = /non supporté|getUserMedia/i.test(selfieFailure);
-            if (!noApi) {
-              toast.error(t("clock.selfie_required_toast", locale));
-              return;
-            }
-            // Sinon on continue : le serveur tag is_anomalous=true.
-            toast.warning(t("clock.selfie_unavailable", locale));
-          }
-        }
-
         const r = await clockInAction({
           siteId: chosenSiteId ?? undefined,
-          geo: geo ?? undefined,
-          selfieStoragePath: selfiePath,
-          selfieFailureReason: selfieFailure,
+          geo: pendingGeoRef.current ?? undefined,
+          selfieStoragePath: args.selfieStoragePath,
+          selfieFailureReason: args.selfieFailureReason,
         });
         if (r.error) {
           setGeoStatus({ kind: "blocked", reason: r.error });
@@ -258,8 +157,101 @@ export function ClockBigButton({
           router.refresh();
         }
       } finally {
+        pendingGeoRef.current = null;
         inFlight.current = false;
       }
+    });
+  }
+
+  /** Handler du résultat de l'overlay selfie. */
+  function handleSelfieResult(r: SelfieResult) {
+    setSelfieOpen(false);
+    if (r.kind === "cancelled") {
+      // L'utilisateur a annulé : on n'enregistre pas le clock-in.
+      inFlight.current = false;
+      pendingGeoRef.current = null;
+      return;
+    }
+    if (r.kind === "denied") {
+      // Permission denied : pas de fallback, on bloque.
+      toast.error(t("clock.selfie_required_toast", locale));
+      console.warn("[clock] selfie denied:", r.reason);
+      inFlight.current = false;
+      pendingGeoRef.current = null;
+      return;
+    }
+    if (r.kind === "no_api") {
+      // Vieux navigateur : on continue mais le serveur tag is_anomalous=true.
+      toast.warning(t("clock.selfie_unavailable", locale));
+      finalizeClockIn({
+        selfieStoragePath: null,
+        selfieFailureReason: r.reason,
+      });
+      return;
+    }
+    if (r.kind === "error") {
+      toast.error(t("clock.selfie_required_toast", locale));
+      console.warn("[clock] selfie error:", r.reason);
+      inFlight.current = false;
+      pendingGeoRef.current = null;
+      return;
+    }
+    // kind === "ok" : on a un selfie uploadé.
+    finalizeClockIn({
+      selfieStoragePath: r.storagePath,
+      selfieFailureReason: null,
+    });
+  }
+
+  function handle() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    startTransition(async () => {
+      // Vibration tactile (best-effort).
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch { /* noop */ }
+      }
+      const geo = await tryGeo(geofenceStrict && !isClockedIn);
+
+      if (isClockedIn) {
+        try {
+          const r = await clockOutAction({ geo: geo ?? undefined });
+          if (r.error) toast.error(r.error);
+          else {
+            toast.success(`${t("clock.bye", locale)} \u{1F44B}`);
+            router.refresh();
+          }
+        } finally {
+          inFlight.current = false;
+        }
+        return;
+      }
+
+      // === Clock-IN : checks géoloc + selfie =================================
+      if (geofenceStrict && !geo) {
+        setGeoStatus({
+          kind: "blocked",
+          reason: t("clock.geo_required_strict", locale),
+        });
+        toast.error(t("clock.geo_required_toast", locale));
+        inFlight.current = false;
+        return;
+      }
+
+      // On garde la géoloc pour `finalizeClockIn` (après overlay).
+      pendingGeoRef.current = geo ?? null;
+
+      if (selfieRequired) {
+        // Ouvre l'overlay : capture + upload se font dedans. Le résultat
+        // remonte via handleSelfieResult qui finalise.
+        setSelfieOpen(true);
+        // NOTE : inFlight reste true pendant l'overlay. handleSelfieResult
+        // ou la fermeture overlay le reset.
+        return;
+      }
+
+      // Pas de selfie requis : on enchaîne direct.
+      finalizeClockIn({ selfieStoragePath: null, selfieFailureReason: null });
     });
   }
 
@@ -417,6 +409,14 @@ export function ClockBigButton({
               : t("clock.on_time", locale)}
         </div>
       ) : null}
+
+      {/* Overlay caméra selfie (clock-in uniquement, mount conditionnel) */}
+      <SelfieOverlay
+        open={selfieOpen}
+        userId={userId}
+        onResult={handleSelfieResult}
+        locale={locale}
+      />
     </div>
   );
 }
