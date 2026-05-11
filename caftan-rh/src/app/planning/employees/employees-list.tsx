@@ -30,7 +30,15 @@ type Employee = {
   department: { id: string; name: string } | null;
 };
 
-type PresenceMap = Record<string, { in_at: string }>;
+type PresenceMap = Record<
+  string,
+  {
+    in_at: string;
+    site_code?: string | null;
+    site_name?: string | null;
+    site_color?: string | null;
+  }
+>;
 
 /**
  * Calcule la durée depuis `inAt` en format compact "Xh YY" / "YY min".
@@ -59,7 +67,7 @@ function PresenceDot({
   now,
 }: {
   employee: Employee;
-  presence: { in_at: string } | undefined;
+  presence: PresenceMap[string] | undefined;
   now: number;
 }) {
   if (!employee.profile_id) {
@@ -74,16 +82,30 @@ function PresenceDot({
   if (presence) {
     const time = formatTimeHHMM(presence.in_at);
     const elapsed = formatElapsed(presence.in_at, now);
-    const label = `Présent depuis ${time} (${elapsed})`;
+    const siteLabel = presence.site_name
+      ? ` à ${presence.site_name}${presence.site_code ? ` (${presence.site_code})` : ""}`
+      : "";
+    const label = `Présent${siteLabel} depuis ${time} (${elapsed})`;
     return (
-      <span
-        title={label}
-        aria-label={label}
-        className="relative inline-flex w-2.5 h-2.5 shrink-0"
-      >
-        {/* halo pulse pour l'effet "live" */}
-        <span className="absolute inline-flex h-full w-full rounded-full bg-success/60 animate-ping" />
-        <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-success" />
+      <span className="inline-flex items-center gap-1 shrink-0">
+        <span
+          title={label}
+          aria-label={label}
+          className="relative inline-flex w-2.5 h-2.5 shrink-0"
+        >
+          {/* halo pulse pour l'effet "live" */}
+          <span className="absolute inline-flex h-full w-full rounded-full bg-success/60 animate-ping" />
+          <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-success" />
+        </span>
+        {presence.site_code ? (
+          <span
+            title={presence.site_name ?? presence.site_code}
+            className="inline-flex items-center justify-center px-1 rounded text-white font-bold text-[9px]"
+            style={{ backgroundColor: presence.site_color ?? "#16a34a" }}
+          >
+            {presence.site_code}
+          </span>
+        ) : null}
       </span>
     );
   }

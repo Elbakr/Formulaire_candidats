@@ -1,5 +1,8 @@
+import Link from "next/link";
+import { Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 import { EmployeesActions, ExportEmployeesButton } from "./employees-actions";
 import { EmployeesList } from "./employees-list";
 
@@ -36,7 +39,7 @@ export default async function EmployeesPage() {
     // pour le voyant + tooltip.
     supabase
       .from("clock_currently_in")
-      .select("employee_id, clock_in_at"),
+      .select("employee_id, clock_in_at, site_code, site_name, site_color"),
   ]);
 
   type AssignRow = {
@@ -70,15 +73,27 @@ export default async function EmployeesPage() {
     department: { id: string; name: string } | null;
   }>;
 
-  // Map empId -> { in_at } pour le voyant présence côté client.
+  // Map empId -> { in_at, site* } pour le voyant présence côté client.
+  // L'admin doit voir non seulement *qui* est present mais aussi *où*.
   const presenceRows = (currentlyInRaw ?? []) as Array<{
     employee_id: string;
     clock_in_at: string;
+    site_code: string | null;
+    site_name: string | null;
+    site_color: string | null;
   }>;
-  const presenceByEmp: Record<string, { in_at: string }> = {};
+  const presenceByEmp: Record<
+    string,
+    { in_at: string; site_code: string | null; site_name: string | null; site_color: string | null }
+  > = {};
   for (const p of presenceRows) {
     if (p.employee_id && p.clock_in_at) {
-      presenceByEmp[p.employee_id] = { in_at: p.clock_in_at };
+      presenceByEmp[p.employee_id] = {
+        in_at: p.clock_in_at,
+        site_code: p.site_code,
+        site_name: p.site_name,
+        site_color: p.site_color,
+      };
     }
   }
 
@@ -91,9 +106,21 @@ export default async function EmployeesPage() {
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Employés</h1>
-          <p className="text-sm text-ink-2">{active.length} actif·ve·s · {archived.length} archivé·e·s</p>
+          <p className="text-sm text-ink-2">
+            {active.length} actif·ve·s · {archived.length} archivé·e·s ·{" "}
+            <span className="text-success font-bold">
+              {Object.keys(presenceByEmp).length} présent·e·s
+            </span>{" "}
+            en ce moment
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button asChild variant="outline" size="sm" className="border-success text-success hover:bg-success-light">
+            <Link href="/admin/presence" title="Vue détaillée : qui est où en direct">
+              <Radio className="h-3.5 w-3.5 mr-1 animate-pulse" />
+              Qui est où ?
+            </Link>
+          </Button>
           <ExportEmployeesButton employees={employees} />
           <EmployeesActions departments={depts ?? []} />
         </div>

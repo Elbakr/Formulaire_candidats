@@ -109,6 +109,11 @@ export function WeeklyPlanningBoard({
   useRealtime("shifts", () => router.refresh());
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [mondayISO]);
+  const siteById = useMemo(() => {
+    const m = new Map<string, SiteOption>();
+    for (const s of sites) m.set(s.id, s);
+    return m;
+  }, [sites]);
 
   function shiftsFor(empId: string, dateISO: string) {
     return shifts.filter((s) => s.employee_id === empId && s.date === dateISO);
@@ -385,28 +390,40 @@ export function WeeklyPlanningBoard({
                                   </div>
                                 ) : null}
                                 <div className="space-y-1">
-                                  {dayShifts.map((s) => (
+                                  {dayShifts.map((s) => {
+                                    const site = s.site_id ? siteById.get(s.site_id) : null;
+                                    return (
                                     <button
                                       key={s.id}
                                       onClick={() => setEditing({ employeeId: e.id, date: dateISO, shift: s })}
-                                      className={`w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-colors ${
+                                      className={`relative w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-colors ${
                                         s.is_overtime
                                           ? "bg-orange-100 text-orange-800 border border-dashed border-orange-400 hover:bg-orange-200"
                                           : "bg-gold-light text-gold-dark hover:bg-gold hover:text-white"
                                       }`}
-                                      title={s.is_overtime ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : undefined}
+                                      style={site?.color ? { boxShadow: `inset 3px 0 0 ${site.color}` } : undefined}
+                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""}`}
                                     >
                                       <div className="font-bold flex items-center gap-1">
                                         <span>{s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}</span>
+                                        {site ? (
+                                          <span
+                                            className="ml-auto text-[9px] font-bold tracking-wider px-1 py-px rounded text-white"
+                                            style={{ backgroundColor: site.color ?? "#666" }}
+                                          >
+                                            {site.code}
+                                          </span>
+                                        ) : null}
                                         {s.is_overtime ? (
-                                          <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-200 text-orange-700">
+                                          <span className={`${site ? "" : "ml-auto"} text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-200 text-orange-700`}>
                                             H. sup
                                           </span>
                                         ) : null}
                                       </div>
                                       {s.position ? <div className="text-[10px] truncate">{s.position}</div> : null}
                                     </button>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                                 <button
                                   onClick={() => setEditing({ employeeId: e.id, date: dateISO })}
