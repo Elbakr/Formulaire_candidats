@@ -104,33 +104,13 @@ export async function upsertShiftAction(formData: FormData) {
 
   const supabase = await createClient();
 
-  // Anti-chevauchement : on charge les shifts existants pour cet employé sur
-  // cette date et on vérifie qu'aucun autre shift ne se croise avec celui que
-  // l'on est en train d'insérer / modifier. Les shifts qui se *touchent* au
-  // point exact sont autorisés (10h-14h + 14h-20h OK).
-  const { data: existingRaw } = await supabase
-    .from("shifts")
-    .select("id, start_time, end_time")
-    .eq("employee_id", employeeId)
-    .eq("date", date);
-  const existing = (existingRaw ?? []) as Array<{
-    id: string;
-    start_time: string;
-    end_time: string;
-  }>;
+  // Chevauchements autorisés (décision Karim 2026-05-11) : un même employé
+  // peut avoir plusieurs shifts qui se chevauchent dans la journée — utile
+  // pour couvrir un besoin critique 14:30-17:30 *à l'intérieur* d'un shift
+  // contractuel 10:00-19:30. On n'envoie plus aucun bloc anti-overlap ici ;
+  // la responsabilité revient au RH de ne pas dupliquer un même créneau.
   const newStart = start.slice(0, 5);
   const newEnd = end.slice(0, 5);
-  const conflict = existing.find((s) => {
-    if (id && s.id === id) return false; // on ignore le shift en cours d'édition
-    const s2 = s.start_time.slice(0, 5);
-    const e2 = s.end_time.slice(0, 5);
-    return shiftOverlaps(newStart, newEnd, s2, e2);
-  });
-  if (conflict) {
-    return {
-      error: `Ce shift chevauche un autre shift existant pour cet employé : ${conflict.start_time.slice(0, 5)}-${conflict.end_time.slice(0, 5)}. Modifie ou supprime l'autre d'abord.`,
-    };
-  }
 
   // ── Validation contrat hebdo : si le shift est marqué "contractuel"
   // (is_overtime=false) et qu'il fait dépasser weekly_hours pour la semaine,
@@ -183,6 +163,53 @@ export async function upsertShiftAction(formData: FormData) {
         error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). Active la case "Heures sup" ou réduis le shift.`,
       };
     }
+  } else {
+    // is_overtime === true : on n'autorise l'OT que si le quota contractuel
+    // hebdo est saturé. Sinon ce serait gaspiller du budget OT.
+    const monday = startOfWeek(new Date(date + "T00:00:00"));
+    const sunday = addDays(monday, 6);
+    const weekStart = toISODate(monday);
+    const weekEnd = toISODate(sunday);
+
+    const [{ data: emp }, { data: weekShiftsRaw }] = await Promise.all([
+      supabase
+        .from("employees")
+        .select("weekly_hours, full_name")
+        .eq("id", employeeId)
+        .maybeSingle(),
+      supabase
+        .from("shifts")
+        .select("id, start_time, end_time, break_minutes, is_overtime")
+        .eq("employee_id", employeeId)
+        .gte("date", weekStart)
+        .lte("date", weekEnd),
+    ]);
+
+    const weeklyTarget =
+      (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
+    const weekShifts = (weekShiftsRaw ?? []) as Array<{
+      id: string;
+      start_time: string;
+      end_time: string;
+      break_minutes: number;
+      is_overtime: boolean | null;
+    }>;
+    let contractualBefore = 0;
+    for (const s of weekShifts) {
+      if (id && s.id === id) continue;
+      if (s.is_overtime) continue;
+      contractualBefore += shiftHours(
+        s.start_time.slice(0, 5),
+        s.end_time.slice(0, 5),
+        s.break_minutes ?? 0,
+      );
+    }
+    if (contractualBefore + 0.0001 < weeklyTarget) {
+      const reste = (weeklyTarget - contractualBefore).toFixed(1);
+      return {
+        error: `Heures sup interdites tant que le contrat hebdo n'est pas saturé : ${contractualBefore.toFixed(1)}h contractuelles sur la semaine (cible ${weeklyTarget}h, reste ${reste}h). Ajoute d'abord des shifts contractuels.`,
+      };
+    }
   }
 
   const payload = {
@@ -210,11 +237,6 @@ export async function upsertShiftAction(formData: FormData) {
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
   return { ok: true };
-}
-
-/** Test si [s1,e1] et [s2,e2] se chevauchent strictement (le toucher exact OK). */
-function shiftOverlaps(s1: string, e1: string, s2: string, e2: string): boolean {
-  return s1 < e2 && e1 > s2;
 }
 
 export async function deleteShiftAction(id: string) {

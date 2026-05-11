@@ -21,6 +21,7 @@ type SiteNeed = {
   end_time: string;
   headcount: number;
   role: string | null;
+  is_critical: number; // 0=normal, 1=critique, 2=ultra-critique
 };
 
 type EmployeeRow = {
@@ -175,6 +176,12 @@ type SolverContext = {
   offs: Off[];
   unavail: EmpUnavail[];
   blockedDates: Set<string>;
+  /**
+   * Jours speciaux (holidays.kind != 'legal') : magasins OUVERTS, force
+   * assignation. Le solver IGNORE fixed_off_days sur ces dates, sauf vrai
+   * conge (time_off_request) ou indispo declaree.
+   */
+  specialDates: Set<string>;
   closedDates: Set<string>;
 };
 
@@ -207,8 +214,12 @@ async function loadSolverContext(
   ] = await Promise.all([
     supabase
       .from("site_needs")
-      .select("id, day_of_week, start_time, end_time, headcount, role")
+      .select("id, day_of_week, start_time, end_time, headcount, role, is_critical")
       .eq("site_id", siteId)
+      // Les besoins ultra-critiques (is_critical=2) sont traités en premier,
+      // puis les critiques (1), puis les normaux (0). Permet au solver de
+      // garantir la couverture des creneaux indispensables avant le reste.
+      .order("is_critical", { ascending: false })
       .order("day_of_week")
       .order("start_time"),
     supabase
@@ -242,13 +253,16 @@ async function loadSolverContext(
       .select("start_date, end_date, department_id")
       .lte("start_date", end)
       .gte("end_date", start),
+    // On charge TOUS les holidays actifs de la semaine.
+    // - kind='legal' (Ascension, Toussaint, etc.) -> blockedDates (magasins fermes)
+    // - kind autre (religious, international, event_other, ...) -> specialDates :
+    //     magasins OUVERTS, force assignation (fixed_off_days ignore).
     supabase
       .from("holidays")
-      .select("date, priority")
+      .select("date, priority, kind")
       .eq("is_active", true)
       .gte("date", start)
-      .lte("date", end)
-      .gte("priority", 2),
+      .lte("date", end),
     // Indispos déclarées par les employés (récurrentes + ponctuelles sur la
     // semaine). Ces contraintes sont consommées par le solver dans isAvailable.
     supabase
@@ -280,8 +294,17 @@ async function loadSolverContext(
 
   const existing = (shiftsRaw ?? []) as ExistingShift[];
   const offs = (offRaw ?? []) as Off[];
+  const allHolidays = (holidays ?? []) as Array<{
+    date: string;
+    priority: number | null;
+    kind: string | null;
+  }>;
+  // legal -> magasins fermes ; tout le reste -> jours speciaux (force-on)
   const blockedDates = new Set(
-    ((holidays ?? []) as Array<{ date: string }>).map((h) => h.date),
+    allHolidays.filter((h) => h.kind === "legal").map((h) => h.date),
+  );
+  const specialDates = new Set(
+    allHolidays.filter((h) => h.kind !== "legal").map((h) => h.date),
   );
   const closedDates = new Set<string>();
   for (const c of (closures ?? []) as Array<{
@@ -316,6 +339,7 @@ async function loadSolverContext(
     offs,
     unavail,
     blockedDates,
+    specialDates,
     closedDates,
   };
 }
@@ -327,10 +351,14 @@ function isOffOrLeave(
   dateISO: string,
   dayJsDow: number,
   offs: Off[],
+  specialDates?: Set<string>,
 ): boolean {
   // Convention employees.fixed_off_days : 0=Lun..6=Dim ; Date.getDay() = 0=Dim.
   const isoDow = dayJsDow === 0 ? 6 : dayJsDow - 1;
-  if ((e.fixed_off_days ?? []).includes(isoDow)) return true;
+  // Force-assignation jours speciaux (Aid, Ramadan, Soldes, ...) : on ignore
+  // l'OFF hebdo, le travailleur est presume disponible sauf vrai conge.
+  const isSpecial = specialDates?.has(dateISO) ?? false;
+  if (!isSpecial && (e.fixed_off_days ?? []).includes(isoDow)) return true;
   return offs.some(
     (o) =>
       o.employee_id === e.id &&
@@ -407,6 +435,7 @@ export async function previewSitePlanAction(
     offs,
     unavail,
     blockedDates,
+    specialDates,
     closedDates,
   } = ctx;
 
@@ -522,7 +551,7 @@ export async function previewSitePlanAction(
       let countCapped = 0;
       let countAvailable = 0;
       for (const e of allEmployees) {
-        if (isOffOrLeave(e, dateISO, dayJsDow, offs)) {
+        if (isOffOrLeave(e, dateISO, dayJsDow, offs, specialDates)) {
           countOff += 1;
           continue;
         }
@@ -745,6 +774,7 @@ export async function previewOvertimeFillAction(args: {
     offs,
     unavail,
     blockedDates,
+    specialDates,
     closedDates,
   } = ctx;
 
@@ -878,7 +908,7 @@ export async function previewOvertimeFillAction(args: {
       let countBusy = 0;
       let countCapped = 0;
       for (const e of allEmployees) {
-        if (isOffOrLeave(e, dateISO, dayJsDow, offs)) {
+        if (isOffOrLeave(e, dateISO, dayJsDow, offs, specialDates)) {
           countOff += 1;
           continue;
         }
@@ -1147,6 +1177,7 @@ export async function proposeOvertimeCandidatesAction(args: {
     offs,
     unavail,
     blockedDates,
+    specialDates,
     closedDates,
   } = ctx;
 
@@ -1257,7 +1288,7 @@ export async function proposeOvertimeCandidatesAction(args: {
         let reason: string | undefined;
         let available = true;
 
-        if (isOffOrLeave(e, dateISO, dayJsDow, offs)) {
+        if (isOffOrLeave(e, dateISO, dayJsDow, offs, specialDates)) {
           // Discrimine off-day vs leave (congé approuvé) pour l'UI.
           const isoDow = dayJsDow === 0 ? 6 : dayJsDow - 1;
           if ((e.fixed_off_days ?? []).includes(isoDow)) reason = "off_day";
@@ -1385,6 +1416,7 @@ export async function commitIndividualOvertimeAction(args: {
     offs,
     unavail,
     blockedDates,
+    specialDates,
     closedDates,
   } = ctx;
 
@@ -1488,7 +1520,7 @@ export async function commitIndividualOvertimeAction(args: {
     const need_e = need.end_time.slice(0, 5);
 
     // Re-vérifie off / congé / indispo à l'instant T.
-    if (isOffOrLeave(emp, dateISO, dayJsDow, offs)) {
+    if (isOffOrLeave(emp, dateISO, dayJsDow, offs, specialDates)) {
       return {
         error: `${emp.full_name} est off ou en congé le ${dateISO} — autorisation refusée.`,
       };
