@@ -254,13 +254,14 @@ async function loadSolverContext(
       .select("start_date, end_date, department_id")
       .lte("start_date", end)
       .gte("end_date", start),
-    // On charge TOUS les holidays actifs de la semaine.
-    // - kind='legal' (Ascension, Toussaint, etc.) -> blockedDates (magasins fermes)
-    // - kind autre (religious, international, event_other, ...) -> specialDates :
-    //     magasins OUVERTS, force assignation (fixed_off_days ignore).
+    // Politique magasins Caftan (decision Karim 2026-05-11) : AUCUN magasin
+    // ne ferme jamais SAUF les 2 Aid annuels (J + J+1) explicitement marques
+    // shops_closed=true. Tous les autres feries (Ascension, Noel, Toussaint,
+    // Aid hors fermeture, Pentecote, etc.) sont OUVERTS avec force-assignation
+    // (fixed_off_days ignore par le solver ces jours-la).
     supabase
       .from("holidays")
-      .select("date, priority, kind")
+      .select("date, priority, kind, shops_closed")
       .eq("is_active", true)
       .gte("date", start)
       .lte("date", end),
@@ -299,13 +300,15 @@ async function loadSolverContext(
     date: string;
     priority: number | null;
     kind: string | null;
+    shops_closed: boolean | null;
   }>;
-  // legal -> magasins fermes ; tout le reste -> jours speciaux (force-on)
+  // shops_closed=true -> magasins fermes (Aid uniquement par defaut).
+  // Tous les autres feries actifs -> specialDates (force-assignation, OFF ignore).
   const blockedDates = new Set(
-    allHolidays.filter((h) => h.kind === "legal").map((h) => h.date),
+    allHolidays.filter((h) => h.shops_closed === true).map((h) => h.date),
   );
   const specialDates = new Set(
-    allHolidays.filter((h) => h.kind !== "legal").map((h) => h.date),
+    allHolidays.filter((h) => h.shops_closed !== true).map((h) => h.date),
   );
   const closedDates = new Set<string>();
   for (const c of (closures ?? []) as Array<{
