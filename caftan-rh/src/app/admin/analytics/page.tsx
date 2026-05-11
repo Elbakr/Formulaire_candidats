@@ -4,12 +4,12 @@
 // Period selector lives in `analytics-filters.tsx` (client) and writes to the URL.
 
 import Link from "next/link";
-import { ArrowRight, ArrowDown, ArrowUp, AlertTriangle, Sparkles, Users } from "lucide-react";
+import { ArrowRight, ArrowDown, ArrowUp, AlertTriangle, Sparkles, Users, Siren, Flame, FileWarning, UserMinus, Radio } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { startOfWeek, addDays, toISODate } from "@/lib/planning";
+import { startOfWeek, addDays, toISODate, shiftHours } from "@/lib/planning";
 import {
   computeFunnel,
   conversionRates,
@@ -26,6 +26,12 @@ import {
   type EmployeeRow,
   type ShiftRow,
 } from "@/lib/analytics/coverage";
+import {
+  computeSiteNeedsCoverage,
+  type SiteNeedRow,
+  type SiteShiftRow,
+  type SiteRow,
+} from "@/lib/analytics/site-needs-coverage";
 import { computeSources, topPerformingSource, type CandidateRow, type ApplicationRow } from "@/lib/analytics/sources";
 import { AnalyticsFilters, type PeriodKey } from "./analytics-filters";
 
@@ -123,6 +129,9 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
   // Next 30d for scheduled hours
   const d30Forward = addDays(now, 30);
 
+  // Date d'echeance pour CDD a renouveler (14j)
+  const cddDeadline = toISODate(addDays(now, 14));
+
   const [
     appsAllRes,
     candidatesAllRes,
@@ -140,6 +149,11 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
     messages7dRes,
     documents7dRes,
     hires7dRes,
+    sitesRes,
+    siteNeedsRes,
+    shiftsCurWeekSiteRes,
+    cddEndingRes,
+    presenceNowRes,
   ] = await Promise.all([
     // Pull everything in this year so we can slice client-side for several windows.
     // .range(0, 49999) lifts the default 1000-row cap from PostgREST.
@@ -220,6 +234,29 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
       .select("id", { count: "exact", head: true })
       .eq("status", "hired")
       .gte("updated_at", d7Start.toISOString()),
+    // Sites + besoins + shifts site pour la couverture besoins/planifie
+    supabase.from("sites").select("id, code, name, color").order("code"),
+    supabase
+      .from("site_needs")
+      .select("site_id, day_of_week, start_time, end_time, headcount"),
+    supabase
+      .from("shifts")
+      .select("site_id, date, start_time, end_time, break_minutes, is_overtime")
+      .gte("date", curWeekStart)
+      .lte("date", curWeekEnd),
+    // CDD se terminant dans les 14j (besoin d'action RH)
+    supabase
+      .from("contracts")
+      .select("id, employee_id, end_date, employee:employees(id, full_name, status)")
+      .eq("contract_type", "CDD")
+      .not("end_date", "is", null)
+      .lte("end_date", cddDeadline)
+      .gte("end_date", toISODate(now))
+      .limit(20),
+    // Présence en direct (effectifs au moment T)
+    supabase
+      .from("clock_currently_in")
+      .select("employee_id, site_code", { count: "exact" }),
   ]);
 
   const appsAll = (appsAllRes.data ?? []) as unknown as Array<AppStatusRow & { candidate_id: string; updated_at: string | null }>;
@@ -258,9 +295,81 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
   const sourceMetrics = computeSources(candPeriod, appsPeriod as unknown as ApplicationRow[]);
   const topSrc = topPerformingSource(sourceMetrics);
 
-  // Coverage
+  // Coverage par département (legacy)
   const coverageThisWeek = computeCoverage(departments, employees, shiftsCurWeek);
   const coverageNextWeek = computeCoverage(departments, employees, shiftsNextWeek);
+
+  // Coverage par site basée sur site_needs vs shifts effectifs
+  const sites = (sitesRes.data ?? []) as SiteRow[];
+  const siteNeeds = (siteNeedsRes.data ?? []) as SiteNeedRow[];
+  const shiftsCurWeekBySite = (shiftsCurWeekSiteRes.data ?? []) as SiteShiftRow[];
+  const siteCoverage = computeSiteNeedsCoverage(
+    sites,
+    siteNeeds,
+    shiftsCurWeekBySite,
+    curWeekStart,
+  );
+
+  // Dépassements de quota contractuel cette semaine (alerte critique)
+  type QuotaOver = { employee_id: string; full_name: string; planned: number; target: number };
+  const empById = new Map<string, EmployeeRow & { full_name: string }>(
+    employees.map((e) => [e.id, e]),
+  );
+  const plannedByEmp = new Map<string, number>();
+  for (const s of shiftsCurWeek) {
+    plannedByEmp.set(
+      s.employee_id,
+      (plannedByEmp.get(s.employee_id) ?? 0) +
+        shiftHours(s.start_time, s.end_time, s.break_minutes),
+    );
+  }
+  const quotaOvershoot: QuotaOver[] = [];
+  for (const [eid, planned] of plannedByEmp) {
+    const e = empById.get(eid);
+    if (!e) continue;
+    const target = e.weekly_hours ?? 38;
+    if (planned > target + 0.1) {
+      quotaOvershoot.push({ employee_id: eid, full_name: e.full_name, planned, target });
+    }
+  }
+  quotaOvershoot.sort((a, b) => b.planned - b.target - (a.planned - a.target));
+
+  // CDD à renouveler
+  type CddEnding = {
+    id: string;
+    end_date: string;
+    employee: { id: string; full_name: string; status: string } | null;
+  };
+  const cddEndingRaw = (cddEndingRes.data ?? []) as unknown as Array<{
+    id: string;
+    employee_id: string;
+    end_date: string;
+    employee:
+      | { id: string; full_name: string; status: string }
+      | Array<{ id: string; full_name: string; status: string }>
+      | null;
+  }>;
+  const cddEnding: CddEnding[] = cddEndingRaw
+    .map((r) => ({
+      id: r.id,
+      end_date: r.end_date,
+      employee: Array.isArray(r.employee) ? (r.employee[0] ?? null) : r.employee,
+    }))
+    .filter((c) => c.employee && c.employee.status === "active");
+
+  // Présence en direct
+  const presenceCount = presenceNowRes.count ?? 0;
+
+  // Sites en déficit critique
+  const sitesDanger = siteCoverage.filter((s) => s.band === "danger");
+  const sitesWarn = siteCoverage.filter((s) => s.band === "warn");
+
+  // Total alertes ultra-prioritaires
+  const criticalAlertCount =
+    sitesDanger.length +
+    quotaOvershoot.length +
+    (activeAnomaliesRes.count ?? 0) +
+    cddEnding.length;
 
   // KPIs
   const totalActive = employees.length;
@@ -280,13 +389,241 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Analytics</h1>
+          <h1 className="text-2xl font-bold">Analytics — centre de décision</h1>
           <p className="text-sm text-ink-2">
-            {fmtDate(pStart)} — {fmtDate(pEnd)} · funnel, couverture, sources, KPIs.
+            {fmtDate(pStart)} — {fmtDate(pEnd)} · alertes, besoins, funnel, couverture.
           </p>
         </div>
         <AnalyticsFilters period={period} from={sp.from ?? ""} to={sp.to ?? ""} />
       </div>
+
+      {/* ============== 0. ALERTES PRIORITAIRES ============== */}
+      {criticalAlertCount === 0 ? (
+        <Card className="border-success bg-success-light/30">
+          <div className="p-4 flex items-center gap-3">
+            <Sparkles className="h-5 w-5 text-success" />
+            <div>
+              <h2 className="font-bold text-success">Tout est sous contrôle</h2>
+              <p className="text-xs text-ink-2">
+                Aucun site en déficit critique, aucun dépassement de quota, pas d'anomalie active, pas de CDD à renouveler dans les 14 jours.
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card className="border-danger">
+          <div className="p-4 border-b border-danger/40 bg-danger-light/50 flex items-center gap-3">
+            <Siren className="h-5 w-5 text-danger animate-pulse" />
+            <div className="flex-1">
+              <h2 className="font-bold text-danger">
+                {criticalAlertCount} alerte{criticalAlertCount > 1 ? "s" : ""} prioritaire{criticalAlertCount > 1 ? "s" : ""} à traiter
+              </h2>
+              <p className="text-xs text-ink-2">
+                Action requise pour éviter sous-staffing, dépassement légal de quota ou incident RH.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-success inline-flex items-center gap-1">
+              <Radio className="h-3 w-3 animate-pulse" /> {presenceCount} en poste
+            </span>
+          </div>
+          <div className="divide-y divide-line">
+            {sitesDanger.map((s) => (
+              <Link
+                key={`d-${s.site_id}`}
+                href={`/planning/sites/${s.site_code}`}
+                className="flex items-center gap-3 p-3 hover:bg-surface-2"
+              >
+                <UserMinus className="h-4 w-4 text-danger shrink-0" />
+                <span
+                  className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-white font-bold text-[10px]"
+                  style={{ backgroundColor: s.site_color ?? "#666" }}
+                >
+                  {s.site_code}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">
+                    {s.site_name} sous-staffé cette semaine
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    Manque <span className="font-bold text-danger">{s.deficit_hours.toFixed(1)}h</span> · ~{s.missing_shifts_estimate} shift{s.missing_shifts_estimate > 1 ? "s" : ""} à ajouter
+                  </div>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
+              </Link>
+            ))}
+            {quotaOvershoot.slice(0, 5).map((q) => (
+              <Link
+                key={`q-${q.employee_id}`}
+                href={`/planning/employees/${q.employee_id}/calendar`}
+                className="flex items-center gap-3 p-3 hover:bg-surface-2"
+              >
+                <Flame className="h-4 w-4 text-orange-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">
+                    {q.full_name} · dépassement de quota
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    {q.planned.toFixed(1)}h planifiées vs cible {q.target}h ·{" "}
+                    <span className="text-orange-600 font-bold">+{(q.planned - q.target).toFixed(1)}h</span> à reclassifier en h. sup ou supprimer
+                  </div>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
+              </Link>
+            ))}
+            {(activeAnomaliesRes.count ?? 0) > 0 ? (
+              <Link
+                href="/admin/anomalies"
+                className="flex items-center gap-3 p-3 hover:bg-surface-2"
+              >
+                <AlertTriangle className="h-4 w-4 text-warn shrink-0" />
+                <div className="flex-1">
+                  <div className="font-bold text-sm">
+                    {activeAnomaliesRes.count} anomalie{(activeAnomaliesRes.count ?? 0) > 1 ? "s" : ""} active{(activeAnomaliesRes.count ?? 0) > 1 ? "s" : ""}
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    Pointages suspects, no-shows, déclarations manquantes
+                  </div>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
+              </Link>
+            ) : null}
+            {cddEnding.map((c) => (
+              <Link
+                key={`cdd-${c.id}`}
+                href={`/admin/cdd-renewals`}
+                className="flex items-center gap-3 p-3 hover:bg-surface-2"
+              >
+                <FileWarning className="h-4 w-4 text-warn shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate">
+                    {c.employee?.full_name} · CDD se termine le {c.end_date}
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    Décision RH requise : renouveler ou ne pas renouveler
+                  </div>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
+              </Link>
+            ))}
+            {sitesWarn.length > 0 ? (
+              <div className="p-3 bg-warn-light/30 flex items-center gap-2 text-xs text-ink-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-warn" />
+                <span>
+                  <span className="font-bold text-warn">{sitesWarn.length} site{sitesWarn.length > 1 ? "s" : ""}</span> en limite :{" "}
+                  {sitesWarn.map((s) => s.site_code).join(", ")} — surveille la couverture
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      )}
+
+      {/* ============== 0bis. BESOINS vs PLANIFIÉ PAR SITE ============== */}
+      <Card>
+        <div className="p-4 border-b border-line flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h2 className="font-bold flex items-center gap-2">
+              <Users className="h-4 w-4 text-gold-dark" />
+              Besoins par site · semaine du {curWeekStart}
+            </h2>
+            <p className="text-xs text-ink-3 mt-0.5">
+              Heures requises (site_needs) vs planifiées · contractuel et h. sup séparés · effectif moyen requis.
+            </p>
+          </div>
+        </div>
+        {siteCoverage.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-3">
+            Aucun site avec besoins définis. Configure les <Link className="underline" href="/planning/sites">site_needs</Link>.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-surface-2 text-[10px] uppercase tracking-wider text-ink-3">
+                  <Th>Site</Th>
+                  <Th align="right">Requis</Th>
+                  <Th align="right">Planifié</Th>
+                  <Th align="right">dont contrat</Th>
+                  <Th align="right">dont OT</Th>
+                  <Th align="right">Δ heures</Th>
+                  <Th align="right">Effectif/j</Th>
+                  <Th align="right">Statut</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {siteCoverage.map((s) => (
+                  <tr key={s.site_id} className="hover:bg-surface-2">
+                    <Td>
+                      <Link
+                        href={`/planning/sites/${s.site_code}`}
+                        className="inline-flex items-center gap-2 font-bold hover:underline"
+                      >
+                        <span
+                          className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-white text-[10px]"
+                          style={{ backgroundColor: s.site_color ?? "#666" }}
+                        >
+                          {s.site_code}
+                        </span>
+                        <span className="truncate">{s.site_name}</span>
+                      </Link>
+                    </Td>
+                    <Td align="right" mono>{s.required_hours.toFixed(1)}h</Td>
+                    <Td align="right" mono>
+                      <span className={s.planned_hours < s.required_hours ? "text-warn font-bold" : ""}>
+                        {s.planned_hours.toFixed(1)}h
+                      </span>
+                    </Td>
+                    <Td align="right" mono>{s.contractual_hours.toFixed(1)}h</Td>
+                    <Td align="right" mono>
+                      {s.overtime_hours > 0 ? (
+                        <span className="text-orange-600 font-bold">{s.overtime_hours.toFixed(1)}h</span>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
+                    </Td>
+                    <Td align="right" mono>
+                      <span
+                        className={
+                          s.deficit_hours > 0
+                            ? "text-danger font-bold"
+                            : s.deficit_hours < -2
+                              ? "text-gold-dark"
+                              : "text-success"
+                        }
+                      >
+                        {s.deficit_hours > 0 ? "+" : ""}
+                        {(-s.deficit_hours).toFixed(1)}h
+                      </span>
+                    </Td>
+                    <Td align="right" mono>{s.avg_required_headcount_per_day.toFixed(1)}</Td>
+                    <Td align="right">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          s.band === "danger"
+                            ? "bg-danger-light text-danger"
+                            : s.band === "warn"
+                              ? "bg-warn-light text-warn"
+                              : s.band === "over"
+                                ? "bg-gold-light text-gold-dark"
+                                : "bg-success-light text-success"
+                        }`}
+                      >
+                        {s.band === "danger"
+                          ? "Manque"
+                          : s.band === "warn"
+                            ? "Limite"
+                            : s.band === "over"
+                              ? "Surplus"
+                              : "OK"}
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       {/* ============== A. Funnel recrutement ============== */}
       <Card>
