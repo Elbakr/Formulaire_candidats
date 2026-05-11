@@ -239,6 +239,65 @@ export async function upsertShiftAction(formData: FormData) {
   return { ok: true };
 }
 
+/**
+ * Charge les besoins is_enabled=true du site pour le jour de la semaine
+ * correspondant a `dateISO`, et calcule l'heure d'ouverture du magasin ce
+ * jour-la (= min start_time parmi les creneaux actifs). Utilise par le
+ * ShiftDialog pour proposer des creneaux pre-remplis et appliquer
+ * l'alignement d'office (snap a l'ouverture si <= 30 min apres).
+ */
+export async function loadSiteNeedsForDayAction(
+  siteId: string,
+  dateISO: string,
+): Promise<{
+  needs: Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    headcount: number;
+    role: string | null;
+    is_critical: number | null;
+  }>;
+  open_time: string | null;
+  close_time: string | null;
+}> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (!siteId || siteId === "none") {
+    return { needs: [], open_time: null, close_time: null };
+  }
+  const d = new Date(dateISO + "T00:00:00");
+  const dow = d.getDay(); // 0=Dim..6=Sam
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("site_needs")
+    .select("id, start_time, end_time, headcount, role, is_critical")
+    .eq("site_id", siteId)
+    .eq("day_of_week", dow)
+    .eq("is_enabled", true)
+    .order("start_time");
+  const needs = (data ?? []) as Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    headcount: number;
+    role: string | null;
+    is_critical: number | null;
+  }>;
+  if (needs.length === 0) {
+    return { needs: [], open_time: null, close_time: null };
+  }
+  const open = needs.reduce(
+    (acc, n) => (acc < n.start_time.slice(0, 5) ? acc : n.start_time.slice(0, 5)),
+    needs[0].start_time.slice(0, 5),
+  );
+  const close = needs.reduce(
+    (acc, n) => (acc > n.end_time.slice(0, 5) ? acc : n.end_time.slice(0, 5)),
+    needs[0].end_time.slice(0, 5),
+  );
+  return { needs, open_time: open, close_time: close };
+}
+
 export async function deleteShiftAction(id: string) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();

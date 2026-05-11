@@ -18,7 +18,17 @@ import {
   upsertShiftAction,
   deleteShiftAction,
   getEmployeeWeeklyHoursAction,
+  loadSiteNeedsForDayAction,
 } from "../actions";
+
+type DaySuggestion = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  headcount: number;
+  role: string | null;
+  is_critical: number | null;
+};
 import { shiftHours } from "@/lib/planning";
 import { toast } from "sonner";
 
@@ -97,6 +107,12 @@ export function ShiftDialog({
     overtimeHoursThisWeek: number;
   } | null>(null);
 
+  // Suggestions de creneaux du jour pour le site selectionne + heure d'ouverture
+  // (= min start_time des creneaux is_enabled). Sert au snap d'alignement (30 min).
+  const [daySuggestions, setDaySuggestions] = useState<DaySuggestion[]>([]);
+  const [openTime, setOpenTime] = useState<string | null>(null);
+  const [closeTime, setCloseTime] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -120,6 +136,51 @@ export function ShiftDialog({
       cancelled = true;
     };
   }, [open, employeeId, date, shift?.id]);
+
+  // Charge les creneaux suggeres + open/close du site quand le site ou la date change.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (!siteId || siteId === "none") {
+      setDaySuggestions([]);
+      setOpenTime(null);
+      setCloseTime(null);
+      return;
+    }
+    (async () => {
+      const r = await loadSiteNeedsForDayAction(siteId, date);
+      if (cancelled) return;
+      setDaySuggestions(r.needs);
+      setOpenTime(r.open_time);
+      setCloseTime(r.close_time);
+    })().catch(() => {
+      /* noop */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, siteId, date]);
+
+  /**
+   * Applique l'alignement d'office (decision Karim 2026-05-11) : si l'heure
+   * de debut tombe dans les 30 min apres l'ouverture du magasin, snap a
+   * l'heure d'ouverture pile. Pas d'alignement si openTime inconnu.
+   */
+  function snapToOpening(t: string): string {
+    if (!openTime) return t;
+    const [oH, oM] = openTime.split(":").map(Number);
+    const [tH, tM] = t.split(":").map(Number);
+    const openMin = oH * 60 + oM;
+    const tMin = tH * 60 + tM;
+    if (tMin >= openMin && tMin <= openMin + 30) return openTime;
+    return t;
+  }
+
+  function pickSuggestion(need: DaySuggestion) {
+    const snapped = snapToOpening(need.start_time.slice(0, 5));
+    setStartTime(snapped);
+    setEndTime(need.end_time.slice(0, 5));
+  }
 
   // Sites triés : préférés d'abord, puis le reste, alpha.
   const orderedSites = [...sites].sort((a, b) => {
@@ -196,6 +257,10 @@ export function ShiftDialog({
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
+                onBlur={(e) => {
+                  const snapped = snapToOpening(e.target.value);
+                  if (snapped !== e.target.value) setStartTime(snapped);
+                }}
                 required
               />
             </div>
@@ -254,6 +319,57 @@ export function ShiftDialog({
                   );
                 })}
               </select>
+              {siteId !== "none" && (openTime || daySuggestions.length > 0) ? (
+                <div className="mt-2 rounded-md border border-line bg-surface-2/40 p-2 space-y-1.5">
+                  {openTime ? (
+                    <div className="text-[11px] text-ink-2">
+                      Magasin ouvert ce jour :{" "}
+                      <span className="font-mono font-bold">{openTime}</span>
+                      {closeTime ? <> – <span className="font-mono font-bold">{closeTime}</span></> : null}.
+                      Choisir un créneau commençant dans les 30 min après{" "}
+                      <span className="font-mono">{openTime}</span> aligne automatiquement à l'ouverture.
+                    </div>
+                  ) : null}
+                  {daySuggestions.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {daySuggestions.map((s) => {
+                        const startHHMM = s.start_time.slice(0, 5);
+                        const endHHMM = s.end_time.slice(0, 5);
+                        const snapped = snapToOpening(startHHMM);
+                        const snapping = snapped !== startHHMM;
+                        const crit = Number(s.is_critical ?? 0);
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => pickSuggestion(s)}
+                            title={
+                              snapping
+                                ? `Alignement d'office : ${startHHMM} → ${snapped} (tolérance 30 min)`
+                                : `Pré-remplir ${startHHMM} – ${endHHMM}`
+                            }
+                            className={`text-[11px] font-mono px-2 py-1 rounded border transition-colors ${
+                              crit === 2
+                                ? "border-danger/40 bg-danger-light/40 text-danger hover:bg-danger-light"
+                                : crit === 1
+                                  ? "border-warn/40 bg-warn-light/40 text-warn hover:bg-warn-light"
+                                  : "border-line bg-surface hover:border-gold hover:bg-gold-light/30"
+                            }`}
+                          >
+                            {snapping ? snapped : startHHMM}–{endHHMM}
+                            {s.role ? <span className="text-ink-3 ml-1">· {s.role}</span> : null}
+                            {snapping ? <span className="ml-1 text-success">⇲</span> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-ink-3 italic">
+                      Aucun besoin défini pour ce jour sur ce site.
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
