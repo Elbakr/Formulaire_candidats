@@ -611,13 +611,21 @@ export async function previewSitePlanAction(
         ? calcSlotRushIntensity(rushSegments, need_s, need_e)
         : 0;
       const isPeakSlot = rushIntensity >= RUSH_INTENSITY_PEAK_THRESHOLD;
+      // Boost priorite (decision Karim 2026-05-11) : on prend les seniors
+      // d'office sur les creneaux a haute exigence client.
+      const isWeekend = dayJsDow === 0 || dayJsDow === 6;
+      const isThuAtE = dayJsDow === 4 && siteCode.toUpperCase() === "E";
+      const isSpecialDay = specialDates.has(dateISO);
+      const isCriticalNeed = (need.is_critical ?? 0) > 0;
+      const requireSenior =
+        isPeakSlot || isWeekend || isThuAtE || isSpecialDay || isCriticalNeed;
 
       eligible.sort((a, b) => {
         const ta = tierByEmp.get(a.id) ?? 3;
         const tb = tierByEmp.get(b.id) ?? 3;
         if (ta !== tb) return ta - tb;
-        if (isPeakSlot) {
-          // Sur les pics : senior d'abord (lead/senior > confirme/junior).
+        if (requireSenior) {
+          // Creneau a forte exigence : senior d'abord (lead/senior > confirme/junior).
           const sa = seniorScore(a);
           const sb = seniorScore(b);
           if (sa !== sb) return sb - sa;

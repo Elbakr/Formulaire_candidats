@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LiveDuration } from "./live-duration";
 import { PushEnableButton } from "@/components/push-enable-button";
+import { SpecialDaysAlert } from "@/components/special-days-alert";
 import { getPublicVapidKey } from "@/lib/push-notify";
 import { getLocale } from "@/lib/locale-server";
 import { t, dateLocaleStr, type Locale } from "@/lib/i18n";
@@ -160,7 +161,7 @@ export default async function MyTodayPage() {
 
   const { data: empRaw } = await supabase
     .from("employees")
-    .select("id, full_name, weekly_hours, paid_holidays_days, manager_id")
+    .select("id, full_name, weekly_hours, paid_holidays_days, manager_id, fixed_off_days")
     .eq("profile_id", user.id)
     .eq("status", "active")
     .maybeSingle();
@@ -171,6 +172,7 @@ export default async function MyTodayPage() {
         weekly_hours: number | null;
         paid_holidays_days?: number | null;
         manager_id: string | null;
+        fixed_off_days: number[] | null;
       }
     | null;
 
@@ -482,6 +484,12 @@ export default async function MyTodayPage() {
         </h1>
         <p className="text-sm text-ink-2 mt-1">{contextLine(locale)}</p>
       </div>
+
+      {/* Alerte jours speciaux : OFF habituel ignore (force-assignation) */}
+      <SpecialDaysAlert
+        employeeId={employee.id}
+        fixedOffDays={employee.fixed_off_days}
+      />
 
       {/* CTA Pointage */}
       <Card>
