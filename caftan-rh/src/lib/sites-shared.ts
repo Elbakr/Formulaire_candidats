@@ -24,6 +24,8 @@ export type SiteNeed = {
   role: string | null;
   is_friday_morning: boolean;
   is_friday_afternoon: boolean;
+  is_critical: number | null;
+  is_enabled: boolean | null;
 };
 
 export const DAY_LABELS_FR_FROM_SUNDAY = [

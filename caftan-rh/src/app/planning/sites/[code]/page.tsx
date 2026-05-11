@@ -240,6 +240,8 @@ export default async function SiteDetailPage(props: {
 
       <SummaryRow needs={needs} shifts={shifts} />
 
+      <OpeningHoursCard needs={needs} />
+
       <NeedsEditor siteId={site.id} needs={needs} />
 
       <MembersSection siteId={site.id} members={members} eligible={eligible} />
@@ -285,6 +287,65 @@ function SummaryRow({
             {ratio.toFixed(0)}%
           </div>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Amplitude horaire derivee des besoins is_enabled : pour chaque jour de la
+ * semaine, l'horaire d'ouverture du magasin = min(start_time) - max(end_time)
+ * parmi les creneaux actifs. Si tous les creneaux d'un jour sont eteints,
+ * on affiche "Fermé".
+ */
+function OpeningHoursCard({ needs }: { needs: Awaited<ReturnType<typeof loadSiteNeeds>> }) {
+  const DAYS = [
+    { dow: 1, short: "Lun" },
+    { dow: 2, short: "Mar" },
+    { dow: 3, short: "Mer" },
+    { dow: 4, short: "Jeu" },
+    { dow: 5, short: "Ven" },
+    { dow: 6, short: "Sam" },
+    { dow: 0, short: "Dim" },
+  ];
+  const byDow = new Map<number, { start: string; end: string }[]>();
+  for (const n of needs) {
+    if (n.is_enabled === false) continue;
+    const arr = byDow.get(n.day_of_week) ?? [];
+    arr.push({ start: n.start_time.slice(0, 5), end: n.end_time.slice(0, 5) });
+    byDow.set(n.day_of_week, arr);
+  }
+  function ampl(dow: number): string {
+    const arr = byDow.get(dow);
+    if (!arr || arr.length === 0) return "Fermé";
+    const min = arr.reduce((a, b) => (a.start < b.start ? a : b)).start;
+    const max = arr.reduce((a, b) => (a.end > b.end ? a : b)).end;
+    return `${min} – ${max}`;
+  }
+  return (
+    <Card>
+      <div className="p-3 border-b border-line flex items-center justify-between gap-2">
+        <div>
+          <h2 className="font-bold text-sm">Heures d'ouverture du magasin</h2>
+          <p className="text-[11px] text-ink-3 mt-0.5">
+            Déduites automatiquement des besoins actifs ci-dessous. Édite les créneaux pour les ajuster.
+          </p>
+        </div>
+      </div>
+      <div className="p-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        {DAYS.map((d) => {
+          const a = ampl(d.dow);
+          const closed = a === "Fermé";
+          return (
+            <div
+              key={d.dow}
+              className={`rounded border p-2 text-xs ${closed ? "border-dashed border-line/60 bg-surface-2/50" : "border-line bg-surface"}`}
+            >
+              <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">{d.short}</div>
+              <div className={`font-mono font-bold ${closed ? "text-ink-3 italic" : ""}`}>{a}</div>
+            </div>
+          );
+        })}
       </div>
     </Card>
   );

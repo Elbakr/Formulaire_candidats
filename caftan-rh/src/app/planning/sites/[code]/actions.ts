@@ -22,6 +22,7 @@ type SiteNeed = {
   headcount: number;
   role: string | null;
   is_critical: number; // 0=normal, 1=critique, 2=ultra-critique
+  is_enabled: boolean; // false = creneau eteint, ignore par le solver
 };
 
 type EmployeeRow = {
@@ -221,8 +222,11 @@ async function loadSolverContext(
   ] = await Promise.all([
     supabase
       .from("site_needs")
-      .select("id, day_of_week, start_time, end_time, headcount, role, is_critical")
+      .select("id, day_of_week, start_time, end_time, headcount, role, is_critical, is_enabled")
       .eq("site_id", siteId)
+      // Le solver ignore les creneaux eteints (is_enabled=false). RH peut les
+      // rallumer ponctuellement via /planning/sites/[code] besoins-editor.
+      .eq("is_enabled", true)
       // Les besoins ultra-critiques (is_critical=2) sont traités en premier,
       // puis les critiques (1), puis les normaux (0). Permet au solver de
       // garantir la couverture des creneaux indispensables avant le reste.

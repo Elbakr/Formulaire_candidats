@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarOff, ChevronRight, MapPin, Sliders, Bell } from "lucide-react";
+import { CalendarOff, ChevronRight, MapPin, Sliders, Bell, Store, CalendarHeart, Snowflake } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -53,6 +53,60 @@ export default async function AdminSettingsPage() {
       )}
 
       <Card>
+        <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2">
+          Rubriques liées (édition dans l'onglet concerné)
+        </div>
+        <Link
+          href="/planning/sites"
+          className="flex items-center gap-3 p-4 hover:bg-surface-2 transition-colors border-b border-line"
+        >
+          <div className="h-9 w-9 rounded-md bg-gold-light flex items-center justify-center text-gold-dark shrink-0">
+            <Store className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">Magasins · besoins · horaires d'ouverture</div>
+            <div className="text-xs text-ink-3">
+              Édite les créneaux par site (besoins hebdo, on/off, critique). Les horaires d'ouverture du magasin se déduisent des besoins.
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-ink-3" />
+        </Link>
+        <Link
+          href="/admin/holidays"
+          className="flex items-center gap-3 p-4 hover:bg-surface-2 transition-colors border-b border-line"
+        >
+          <div className="h-9 w-9 rounded-md bg-gold-light flex items-center justify-center text-gold-dark shrink-0">
+            <CalendarHeart className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">Jours fériés · politique magasins · effectif</div>
+            <div className="text-xs text-ink-3">
+              Magasin fermé/ouvert par jour, multiplicateur d'effectif (rush Aïd, soldes).
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-ink-3" />
+        </Link>
+        <Link
+          href="/admin/seasonal"
+          className="flex items-center gap-3 p-4 hover:bg-surface-2 transition-colors"
+        >
+          <div className="h-9 w-9 rounded-md bg-gold-light flex items-center justify-center text-gold-dark shrink-0">
+            <Snowflake className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">Périodes saisonnières · rush</div>
+            <div className="text-xs text-ink-3">
+              Ramadan, soldes, fin d'année — multiplicateurs et exigences spécifiques.
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-ink-3" />
+        </Link>
+      </Card>
+
+      <Card>
+        <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2">
+          Réglages centralisés
+        </div>
         <Link
           href="/admin/settings/leave-rules"
           className="flex items-center gap-3 p-4 hover:bg-surface-2 transition-colors border-b border-line"

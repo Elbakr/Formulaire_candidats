@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, Power, PowerOff } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
 import {
   addSiteNeedAction,
   deleteSiteNeedAction,
+  toggleSiteNeedAction,
   updateSiteNeedAction,
 } from "./needs-actions";
 
@@ -32,6 +33,8 @@ type Need = {
   role: string | null;
   is_friday_morning: boolean;
   is_friday_afternoon: boolean;
+  is_critical?: number | null;
+  is_enabled?: boolean | null;
 };
 
 // L'UI affiche Lun..Dim ; nos colonnes contiennent l'index `dow` (0=Dim..6=Sam)
@@ -79,6 +82,17 @@ export function NeedsEditor({
     });
   }
 
+  function handleToggle(id: string, enabled: boolean) {
+    startTransition(async () => {
+      const r = await toggleSiteNeedAction(id, enabled);
+      if (r?.error) toast.error(r.error);
+      else {
+        toast.success(enabled ? "Créneau allumé." : "Créneau éteint — le solver l'ignore.");
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <Card>
       <div className="p-4 border-b border-line flex items-center justify-between flex-wrap gap-2">
@@ -102,16 +116,37 @@ export function NeedsEditor({
                 {list.length === 0 ? (
                   <div className="text-[11px] italic text-ink-3 px-1 py-2">Aucun créneau.</div>
                 ) : (
-                  list.map((n) => (
+                  list.map((n) => {
+                    const enabled = n.is_enabled !== false;
+                    const crit = Number(n.is_critical ?? 0);
+                    return (
                     <div
                       key={n.id}
-                      className="rounded border border-line p-1.5 bg-surface text-xs space-y-0.5"
+                      className={`rounded border p-1.5 text-xs space-y-0.5 transition-opacity ${
+                        enabled
+                          ? "border-line bg-surface"
+                          : "border-dashed border-line/60 bg-surface-2/60 opacity-50"
+                      } ${crit === 2 ? "ring-1 ring-danger/40" : crit === 1 ? "ring-1 ring-warn/30" : ""}`}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <div className="font-mono font-bold">
+                        <div className={`font-mono font-bold ${enabled ? "" : "line-through"}`}>
                           {n.start_time.slice(0, 5)}–{n.end_time.slice(0, 5)}
                         </div>
                         <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() => handleToggle(n.id, !enabled)}
+                            className={`h-7 w-7 inline-flex items-center justify-center rounded transition-colors ${
+                              enabled
+                                ? "hover:bg-surface-2 text-success hover:text-success"
+                                : "hover:bg-success-light text-ink-3 hover:text-success"
+                            }`}
+                            aria-label={enabled ? "Éteindre" : "Rallumer"}
+                            title={enabled ? "Éteindre ce créneau (le solver l'ignorera)" : "Rallumer ce créneau"}
+                          >
+                            {enabled ? <Power className="h-3 w-3" /> : <PowerOff className="h-3 w-3" />}
+                          </button>
                           <button
                             type="button"
                             onClick={() => setEditor({ mode: "edit", need: n })}
@@ -131,8 +166,16 @@ export function NeedsEditor({
                           </button>
                         </div>
                       </div>
-                      <div className="text-[10px] text-ink-3">
-                        {n.headcount} × {n.role ?? "—"}
+                      <div className="text-[10px] text-ink-3 flex items-center gap-1 flex-wrap">
+                        <span>{n.headcount} × {n.role ?? "—"}</span>
+                        {crit === 2 ? (
+                          <span className="text-[9px] uppercase tracking-wider px-1 rounded bg-danger-light text-danger font-bold">Ultra-critique</span>
+                        ) : crit === 1 ? (
+                          <span className="text-[9px] uppercase tracking-wider px-1 rounded bg-warn-light text-warn font-bold">Critique</span>
+                        ) : null}
+                        {!enabled ? (
+                          <span className="text-[9px] uppercase tracking-wider px-1 rounded bg-ink/10 text-ink-3 font-bold">Éteint</span>
+                        ) : null}
                       </div>
                       {dow === 5 && (n.is_friday_morning || n.is_friday_afternoon) ? (
                         <div className="text-[9px] uppercase tracking-wider text-gold-dark font-bold">
@@ -142,7 +185,8 @@ export function NeedsEditor({
                         </div>
                       ) : null}
                     </div>
-                  ))
+                    );
+                  })
                 )}
                 <button
                   type="button"

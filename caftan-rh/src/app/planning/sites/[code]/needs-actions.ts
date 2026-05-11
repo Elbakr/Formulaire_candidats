@@ -75,3 +75,20 @@ export async function deleteSiteNeedAction(id: string) {
   revalidatePath("/planning/sites", "layout");
   return { ok: true };
 }
+
+/**
+ * Eteint/rallume un creneau sans le supprimer. Le solver ignore les creneaux
+ * is_enabled=false. Permet au RH de desactiver un besoin ponctuellement (par
+ * ex. fermeture exceptionnelle d'une apres-midi) sans devoir le recreer.
+ */
+export async function toggleSiteNeedAction(id: string, enabled: boolean) {
+  await requireRole(["admin", "rh"]);
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("site_needs")
+    .update({ is_enabled: enabled })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/planning/sites", "layout");
+  return { ok: true };
+}
