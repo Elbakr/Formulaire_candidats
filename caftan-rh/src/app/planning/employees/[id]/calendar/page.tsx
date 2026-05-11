@@ -14,8 +14,14 @@ import {
 } from "@/lib/planning";
 import { ViewSwitcher, PrintMenu } from "./view-switcher";
 import { ShareButton } from "./share-button";
+import { FilterTabs, type ShiftFilter } from "./filter-tabs";
+import { WeekBoard } from "./week-board";
 
 type View = "week" | "month" | "year";
+
+function parseFilter(s: string | undefined): ShiftFilter {
+  return s === "contract" || s === "overtime" ? s : "all";
+}
 
 type Shift = {
   id: string;
@@ -36,7 +42,7 @@ function parseView(s: string | undefined): View {
 
 export default async function EmployeeCalendarPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string; date?: string }>;
+  searchParams: Promise<{ view?: string; date?: string; filter?: string }>;
 }) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   // Le manager peut consulter le calendrier mais NE doit PAS imprimer la vue
@@ -44,8 +50,10 @@ export default async function EmployeeCalendarPage(props: {
   // l'option "Vue admin (avec h. sup)" dans le PrintMenu.
   const canSeeOvertime = profile.role === "admin" || profile.role === "rh";
   const { id } = await props.params;
-  const { view: vStr, date: dateStr } = await props.searchParams;
+  const { view: vStr, date: dateStr, filter: fStr } = await props.searchParams;
   const view = parseView(vStr);
+  // Manager ne voit que la vue contractuelle (pas accès aux OT).
+  const filter: ShiftFilter = canSeeOvertime ? parseFilter(fStr) : "contract";
   const today = dateStr ? parseISODate(dateStr) : new Date();
 
   const supabase = await createClient();
@@ -78,23 +86,47 @@ export default async function EmployeeCalendarPage(props: {
     rangeEnd = new Date(today.getFullYear(), 11, 31);
   }
 
-  const { data: shiftsRaw } = await supabase
-    .from("shifts")
-    .select(
-      `id, date, start_time, end_time, break_minutes, position, location, is_overtime, overtime_multiplier,
-       site:sites(code, name, color)`,
-    )
-    .eq("employee_id", employee.id)
-    .gte("date", toISODate(rangeStart))
-    .lte("date", toISODate(rangeEnd))
-    .order("date")
-    .order("start_time");
-  const shifts = (shiftsRaw ?? []) as unknown as Shift[];
+  const todayISO = toISODate(new Date());
+  const [{ data: shiftsRaw }, { data: sitesRaw }, { data: assignsRaw }] = await Promise.all([
+    supabase
+      .from("shifts")
+      .select(
+        `id, date, start_time, end_time, break_minutes, position, location, is_overtime, overtime_multiplier,
+         site_id, notes,
+         site:sites(code, name, color)`,
+      )
+      .eq("employee_id", employee.id)
+      .gte("date", toISODate(rangeStart))
+      .lte("date", toISODate(rangeEnd))
+      .order("date")
+      .order("start_time"),
+    supabase.from("sites").select("id, code, name, color").order("code"),
+    supabase
+      .from("site_assignments")
+      .select("site_id")
+      .eq("employee_id", employee.id)
+      .lte("start_date", todayISO)
+      .or(`end_date.is.null,end_date.gte.${todayISO}`),
+  ]);
+  const sites = ((sitesRaw ?? []) as Array<{ id: string; code: string; name: string; color: string | null }>);
+  const preferredSiteIds = ((assignsRaw ?? []) as Array<{ site_id: string }>).map((a) => a.site_id);
+  const shiftsAll = (shiftsRaw ?? []) as unknown as Shift[];
+  const shifts =
+    filter === "contract"
+      ? shiftsAll.filter((s) => !s.is_overtime)
+      : filter === "overtime"
+        ? shiftsAll.filter((s) => !!s.is_overtime)
+        : shiftsAll;
 
-  const totalHours = shifts.reduce(
-    (acc, s) => acc + shiftHours(s.start_time, s.end_time, s.break_minutes),
-    0,
-  );
+  const contractHours = shiftsAll
+    .filter((s) => !s.is_overtime)
+    .reduce((a, s) => a + shiftHours(s.start_time, s.end_time, s.break_minutes), 0);
+  const otHours = shiftsAll
+    .filter((s) => !!s.is_overtime)
+    .reduce((a, s) => a + shiftHours(s.start_time, s.end_time, s.break_minutes), 0);
+  const totalHours = contractHours + otHours;
+  const visibleHours =
+    filter === "contract" ? contractHours : filter === "overtime" ? otHours : totalHours;
 
   // Navigation prev/next
   const navPrev = (() => {
@@ -129,6 +161,7 @@ export default async function EmployeeCalendarPage(props: {
           </p>
         </div>
         <div className="flex flex-wrap gap-1 items-center">
+          {canSeeOvertime ? <FilterTabs current={filter} /> : null}
           <ViewSwitcher current={view} dateISO={toISODate(today)} />
           <PrintMenu employeeId={employee.id} canSeeOvertime={canSeeOvertime} />
           <ShareButton
@@ -153,112 +186,64 @@ export default async function EmployeeCalendarPage(props: {
         </div>
       </div>
 
-      <div className="text-sm text-ink-2">
-        {view === "week" ? (
+      <div className="text-sm text-ink-2 flex items-center gap-2 flex-wrap">
+        <span>
+          {view === "week" ? (
+            <>
+              Semaine du{" "}
+              {rangeStart.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+            </>
+          ) : view === "month" ? (
+            <>{today.toLocaleDateString("fr-BE", { month: "long", year: "numeric" })}</>
+          ) : (
+            <>Année {today.getFullYear()}</>
+          )}{" "}
+          · <span className="font-bold">{visibleHours.toFixed(1)}h</span> ·{" "}
+          {shifts.length} shift{shifts.length > 1 ? "s" : ""}
+        </span>
+        {canSeeOvertime && filter === "all" ? (
           <>
-            Semaine du{" "}
-            {rangeStart.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+            <span className="text-ink-3">·</span>
+            <span className="inline-flex items-center gap-1 rounded bg-gold-light/60 text-gold-dark px-1.5 py-0.5 text-[11px] font-bold">
+              Contractuel {contractHours.toFixed(1)}h
+            </span>
+            {otHours > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded bg-orange-100 text-orange-700 px-1.5 py-0.5 text-[11px] font-bold">
+                H. sup {otHours.toFixed(1)}h
+              </span>
+            ) : null}
           </>
-        ) : view === "month" ? (
-          <>
-            {today.toLocaleDateString("fr-BE", { month: "long", year: "numeric" })}
-          </>
-        ) : (
-          <>Année {today.getFullYear()}</>
-        )}{" "}
-        · <span className="font-bold">{totalHours.toFixed(1)}h planifiées</span> ·{" "}
-        {shifts.length} shift{shifts.length > 1 ? "s" : ""}
+        ) : null}
+        {filter === "contract" && employee.weekly_hours && view === "week" ? (
+          <span
+            className={`text-[11px] font-bold ${
+              contractHours > employee.weekly_hours
+                ? "text-warn"
+                : contractHours < employee.weekly_hours
+                  ? "text-ink-3"
+                  : "text-success"
+            }`}
+          >
+            cible {employee.weekly_hours}h
+          </span>
+        ) : null}
       </div>
 
       {view === "week" ? (
-        <WeekView monday={rangeStart} shifts={shifts} />
+        <WeekBoard
+          monday={rangeStart}
+          shifts={shifts}
+          employeeId={employee.id}
+          employeeName={employee.full_name}
+          sites={sites}
+          preferredSiteIds={preferredSiteIds}
+          canEdit={canSeeOvertime}
+        />
       ) : view === "month" ? (
         <MonthView monthStart={rangeStart} shifts={shifts} />
       ) : (
         <YearView year={today.getFullYear()} shifts={shifts} />
       )}
-    </div>
-  );
-}
-
-function WeekView({ monday, shifts }: { monday: Date; shifts: Shift[] }) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-  const byDate = new Map<string, Shift[]>();
-  for (const s of shifts) {
-    const arr = byDate.get(s.date) ?? [];
-    arr.push(s);
-    byDate.set(s.date, arr);
-  }
-  return (
-    <div className="overflow-x-auto scroll-smooth-touch -mx-2 px-2 pb-2">
-      <div className="grid grid-flow-col auto-cols-[minmax(170px,1fr)] lg:grid-flow-row lg:grid-cols-7 lg:auto-cols-auto gap-2">
-      {days.map((d, i) => {
-        const dISO = toISODate(d);
-        const dShifts = byDate.get(dISO) ?? [];
-        const dh = dShifts.reduce(
-          (acc, s) => acc + shiftHours(s.start_time, s.end_time, s.break_minutes),
-          0,
-        );
-        return (
-          <Card key={i}>
-            <div className="px-3 py-2 border-b border-line">
-              <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold">
-                {d.toLocaleDateString("fr-BE", { weekday: "short" })}
-              </div>
-              <div className="font-bold">
-                {d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
-              </div>
-              {dh > 0 ? (
-                <div className="text-[10px] text-ink-3 font-mono">{dh.toFixed(1)}h</div>
-              ) : null}
-            </div>
-            <div className="p-2 space-y-1">
-              {dShifts.length === 0 ? (
-                <div className="text-[11px] text-ink-3 italic text-center py-2">—</div>
-              ) : (
-                dShifts.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`rounded px-2 py-1 text-xs ${
-                      s.is_overtime ? "border border-dashed border-orange-400" : ""
-                    }`}
-                    style={{
-                      backgroundColor: s.is_overtime
-                        ? "rgb(255 237 213 / 0.7)"
-                        : s.site?.color
-                          ? `${s.site.color}20`
-                          : "rgb(245 235 200 / 0.5)",
-                      borderLeft: s.is_overtime
-                        ? "3px solid #f97316"
-                        : `3px solid ${s.site?.color ?? "#c9a34d"}`,
-                    }}
-                    title={
-                      s.is_overtime
-                        ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}`
-                        : undefined
-                    }
-                  >
-                    <div className="font-bold font-mono flex items-center gap-1">
-                      <span>{s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}</span>
-                      {s.is_overtime ? (
-                        <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700">
-                          H. sup
-                        </span>
-                      ) : null}
-                    </div>
-                    {s.site ? (
-                      <div className="text-[10px] truncate">{s.site.code} · {s.site.name}</div>
-                    ) : s.location ? (
-                      <div className="text-[10px] text-ink-3 truncate">{s.location}</div>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        );
-      })}
-      </div>
     </div>
   );
 }
