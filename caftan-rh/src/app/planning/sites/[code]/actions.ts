@@ -51,6 +51,7 @@ type ExistingShift = {
   start_time: string;
   end_time: string;
   break_minutes: number;
+  is_overtime: boolean;
 };
 
 type Off = {
@@ -227,7 +228,7 @@ async function loadSolverContext(
     // shifts de l'employé (y.c. autres sites).
     supabase
       .from("shifts")
-      .select("employee_id, date, start_time, end_time, break_minutes")
+      .select("employee_id, date, start_time, end_time, break_minutes, is_overtime")
       .gte("date", start)
       .lte("date", end),
     supabase
@@ -1400,6 +1401,19 @@ export async function commitIndividualOvertimeAction(args: {
   const empById = new Map(allEmployees.map((e) => [e.id, e]));
   const needById = new Map(needs.map((n) => [n.id, n]));
 
+  // Heures contractuelles déjà planifiées sur la semaine, par employé.
+  // Sert à refuser une autorisation OT tant que le quota hebdo contractuel
+  // n'est pas saturé (sinon on tague à tort un shift comme "heure sup").
+  const contractHoursByEmp = new Map<string, number>();
+  for (const s of existing) {
+    if (s.is_overtime) continue;
+    const dur = (timeToMin(s.end_time) - timeToMin(s.start_time) - (s.break_minutes ?? 0)) / 60;
+    contractHoursByEmp.set(
+      s.employee_id,
+      (contractHoursByEmp.get(s.employee_id) ?? 0) + dur,
+    );
+  }
+
   // Index dynamique des shifts existants (pour conflit + pause minimale). On
   // y ajoute les nouveaux drafts au fil de l'eau.
   const allShifts: Array<{
@@ -1520,6 +1534,15 @@ export async function commitIndividualOvertimeAction(args: {
     if (hasConflict(emp.id, dateISO, finalStart, finalEnd, allShifts)) {
       return {
         error: `Conflit horaire détecté pour ${emp.full_name} le ${dateISO} ${finalStart}-${finalEnd}.`,
+      };
+    }
+
+    const target = emp.weekly_hours ?? 38;
+    const alreadyContract = contractHoursByEmp.get(emp.id) ?? 0;
+    if (alreadyContract + 0.0001 < target) {
+      const reste = (target - alreadyContract).toFixed(1);
+      return {
+        error: `${emp.full_name} n'a que ${alreadyContract.toFixed(1)}h contractuelles sur la semaine (cible ${target}h, reste ${reste}h). Ajoute d'abord les heures contractuelles manquantes — l'OT ne s'autorise qu'au-delà du quota hebdo.`,
       };
     }
 
