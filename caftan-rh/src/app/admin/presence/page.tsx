@@ -1,17 +1,13 @@
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { Activity, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { loadCurrentlyIn } from "@/lib/clock";
 import { haversineKm } from "@/lib/distance";
 import { PresenceLiveTable } from "./presence-table";
-
-// Leaflet est strictement client-side (utilise window). Dynamic import + ssr:false.
-const PresenceMap = dynamic(
-  () => import("./presence-map").then((m) => m.PresenceMap),
-  { ssr: false, loading: () => <div className="h-[420px] rounded-md border border-line bg-surface-2 flex items-center justify-center text-sm text-ink-3">Chargement de la carte...</div> },
-);
+// Next.js 16 interdit ssr:false dans un Server Component -> on passe par un
+// wrapper Client Component qui fait le dynamic import.
+import { PresenceMapLoader } from "./presence-map-loader";
 
 export default async function AdminPresencePage() {
   const supabase = await createClient();
@@ -198,7 +194,7 @@ export default async function AdminPresencePage() {
               Cercle = rayon géofence. Pin rouge clignotant = employé hors zone.
             </div>
           </div>
-          <PresenceMap sites={sitesForMap} employees={employeesForMap} />
+          <PresenceMapLoader sites={sitesForMap} employees={employeesForMap} />
         </Card>
       ) : null}
 
