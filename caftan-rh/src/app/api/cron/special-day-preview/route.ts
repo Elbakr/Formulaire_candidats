@@ -30,12 +30,16 @@ export async function GET(request: NextRequest) {
     .toISOString()
     .slice(0, 10);
 
-  // 1) Holidays speciaux dans les 7 jours
+  // 1) Holidays "speciaux" dans les 7 jours = magasin OUVERT (shops_closed=false).
+  // Karim 2026-05-11 : aucun magasin ne ferme jamais sauf les Aid (J), donc
+  // tous les autres feries (Ascension, Pentecote, Toussaint, etc.) sont
+  // ouverts et l'employe OFF habituel est force-assigne -- on le previent
+  // 7j a l'avance.
   const { data: holsRaw } = await admin
     .from("holidays")
     .select("date, label, kind, priority, tradition")
     .eq("is_active", true)
-    .neq("kind", "legal")
+    .eq("shops_closed", false)
     .gte("date", todayISO)
     .lte("date", horizonISO)
     .order("date", { ascending: true });

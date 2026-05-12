@@ -10,6 +10,11 @@ const PUBLIC_ROUTES = [
   "/api/postuler",
   "/upload",
   "/api/documents/upload",
+  // Routes cron : Vercel Cron Scheduler les appelle SANS cookie utilisateur.
+  // Chaque route verifie son propre Bearer ${CRON_SECRET} cote handler.
+  "/api/cron",
+  // Routes push web : web-push ne peut pas porter de cookie utilisateur.
+  "/api/push",
 ];
 
 function isPublic(pathname: string) {
