@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WeeklyPlanningBoard } from "./weekly-board";
+import { WeekActionsBar } from "./week-actions-bar";
 
 export default async function PlanningCalendarPage(
   props: { searchParams: Promise<{ week?: string }> },
@@ -77,6 +78,18 @@ export default async function PlanningCalendarPage(
       .eq("week_monday", toISODate(monday)),
   ]);
 
+  // Drafts approuves dans les dernieres 24h sur cette semaine = rollback dispo
+  const cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const { data: recentApplied } = await supabase
+    .from("auto_plan_drafts")
+    .select("id")
+    .eq("week_monday", toISODate(monday))
+    .eq("status", "approved")
+    .is("rolled_back_at", null)
+    .gte("applied_at", cutoff24h)
+    .limit(1);
+  const hasRollbackAvailable = (recentApplied ?? []).length > 0;
+
   // Map empId → siteIds (préférés en tête : is_primary first)
   const assignsByEmp = new Map<string, string[]>();
   for (const a of (assignments ?? []) as Array<{
@@ -112,8 +125,22 @@ export default async function PlanningCalendarPage(
     0,
   );
 
+  const sitesForActions = ((sites ?? []) as Array<{
+    id: string;
+    code: string;
+    name: string;
+    color: string | null;
+  }>);
+
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <WeekActionsBar
+          sites={sitesForActions}
+          mondayISO={toISODate(monday)}
+          hasRollbackAvailable={hasRollbackAvailable}
+        />
+      </div>
       {pendingDrafts.length > 0 ? (
         <Card className="border-gold">
           <div className="p-3 flex items-center gap-3 flex-wrap bg-gold-light/30">

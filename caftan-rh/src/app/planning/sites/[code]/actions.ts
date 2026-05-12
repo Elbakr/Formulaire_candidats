@@ -1105,7 +1105,7 @@ export async function previewOvertimeFillAction(args: {
 
 export async function commitSitePlanAction(
   drafts: SitePlanPreview["drafts"],
-): Promise<{ ok?: boolean; error?: string; created?: number }> {
+): Promise<{ ok?: boolean; error?: string; created?: number; new_shift_ids?: string[] }> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   if (!Array.isArray(drafts) || drafts.length === 0)
     return { error: "Aucun shift à créer." };
@@ -1126,12 +1126,14 @@ export async function commitSitePlanAction(
     overtime_multiplier: d.is_overtime ? d.overtime_multiplier : null,
   }));
 
-  const { error } = await supabase.from("shifts").insert(rows);
+  // .select() pour recuperer les ids inseres (rollback ulterieur).
+  const { data, error } = await supabase.from("shifts").insert(rows).select("id");
   if (error) return { error: error.message };
+  const ids = ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, created: rows.length };
+  return { ok: true, created: rows.length, new_shift_ids: ids };
 }
 
 // --- phase 2bis : overtime case-par-case (workflow 2026-05-11 v2) --------

@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { commitSitePlanAction, type SitePlanPreview } from "@/app/planning/sites/[code]/actions";
+import {
+  commitSitePlanAction,
+  previewSitePlanAction,
+  type SitePlanPreview,
+} from "@/app/planning/sites/[code]/actions";
 
 export async function approveAutoDraftAction(
   draftId: string,
@@ -12,11 +16,17 @@ export async function approveAutoDraftAction(
   const supabase = await createClient();
   const { data: row } = await supabase
     .from("auto_plan_drafts")
-    .select("id, status, drafts_json")
+    .select("id, status, drafts_json, site_id, week_monday")
     .eq("id", draftId)
     .maybeSingle();
   if (!row) return { error: "Draft introuvable." };
-  const r = row as { id: string; status: string; drafts_json: unknown };
+  const r = row as {
+    id: string;
+    status: string;
+    drafts_json: unknown;
+    site_id: string;
+    week_monday: string;
+  };
   if (r.status !== "pending") {
     return { error: `Statut non valide (${r.status}).` };
   }
@@ -24,6 +34,23 @@ export async function approveAutoDraftAction(
   if (!Array.isArray(drafts) || drafts.length === 0) {
     return { error: "Aucun shift à créer dans ce draft." };
   }
+
+  // Snapshot AVANT insert : on liste les shifts existants du site sur la
+  // semaine pour pouvoir restaurer en cas de rollback. Les nouveaux ids
+  // arrivent apres commitSitePlanAction.
+  const weekEnd = (() => {
+    const d = new Date(r.week_monday + "T00:00:00");
+    d.setDate(d.getDate() + 6);
+    return d.toISOString().slice(0, 10);
+  })();
+  const { data: existing } = await supabase
+    .from("shifts")
+    .select("id")
+    .eq("site_id", r.site_id)
+    .gte("date", r.week_monday)
+    .lte("date", weekEnd);
+  const existingIds = ((existing ?? []) as Array<{ id: string }>).map((x) => x.id);
+
   const commit = await commitSitePlanAction(drafts);
   if (commit.error) return { error: commit.error };
 
@@ -33,11 +60,197 @@ export async function approveAutoDraftAction(
       status: "approved",
       decided_by: profile.id,
       decided_at: new Date().toISOString(),
+      applied_at: new Date().toISOString(),
+      applied_snapshot_json: {
+        new_shift_ids: commit.new_shift_ids ?? [],
+        existing_shift_ids: existingIds,
+      },
     })
     .eq("id", draftId);
   revalidatePath("/planning/auto-drafts");
   revalidatePath("/planning/calendar");
   return { ok: true, created: commit.created };
+}
+
+/**
+ * Rollback en 1 clic des shifts crees par approveAutoDraftAction.
+ * Lit applied_snapshot_json.new_shift_ids, supprime ces shifts, marque le
+ * draft rolled_back. Disponible 24h apres l'application (UI), pas de limite
+ * cote serveur. Decision Karim 2026-05-12 (auto-planning multi-sites).
+ */
+export async function rollbackAutoDraftAction(
+  draftId: string,
+): Promise<{ ok?: boolean; error?: string; removed?: number }> {
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("auto_plan_drafts")
+    .select("id, status, applied_snapshot_json, rolled_back_at")
+    .eq("id", draftId)
+    .maybeSingle();
+  if (!row) return { error: "Draft introuvable." };
+  const r = row as {
+    id: string;
+    status: string;
+    applied_snapshot_json: { new_shift_ids?: string[] } | null;
+    rolled_back_at: string | null;
+  };
+  if (r.rolled_back_at) return { error: "Déjà rollback." };
+  if (r.status !== "approved") return { error: `Statut non valide (${r.status}).` };
+  const ids = r.applied_snapshot_json?.new_shift_ids ?? [];
+  if (ids.length === 0) {
+    // Marque quand meme rolled_back pour cacher le bouton
+    await supabase
+      .from("auto_plan_drafts")
+      .update({ rolled_back_at: new Date().toISOString() })
+      .eq("id", draftId);
+    return { ok: true, removed: 0 };
+  }
+  const { error, count } = await supabase
+    .from("shifts")
+    .delete({ count: "exact" })
+    .in("id", ids);
+  if (error) return { error: error.message };
+
+  await supabase
+    .from("auto_plan_drafts")
+    .update({
+      rolled_back_at: new Date().toISOString(),
+      decided_by: profile.id,
+    })
+    .eq("id", draftId);
+  revalidatePath("/planning/auto-drafts");
+  revalidatePath("/planning/calendar");
+  return { ok: true, removed: count ?? ids.length };
+}
+
+/**
+ * Genere des previews de planning pour N sites en parallele (decision Karim
+ * 2026-05-12 : auto-planning multi-sites en 1 clic). N'ecrit rien : retourne
+ * juste les previews. L'application est faite par commitMultiSitePlanAction.
+ */
+export async function previewMultiSitePlanAction(
+  siteCodes: string[],
+  weekISO: string,
+): Promise<{
+  items: Array<{
+    site_code: string;
+    preview?: SitePlanPreview;
+    error?: string;
+  }>;
+}> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (siteCodes.length === 0) return { items: [] };
+  const results = await Promise.all(
+    siteCodes.map(async (code) => {
+      const r = await previewSitePlanAction(code, weekISO);
+      if ("error" in r) return { site_code: code, error: r.error };
+      return { site_code: code, preview: r };
+    }),
+  );
+  return { items: results };
+}
+
+/**
+ * Applique un batch de previews multi-sites. Pour chaque preview :
+ *   1. INSERT dans auto_plan_drafts (status='pending')
+ *   2. Appelle approveAutoDraftAction qui basculera dans shifts + stockera
+ *      le snapshot pour rollback.
+ * Retourne par site le draft_id + count cree (ou error).
+ */
+export async function commitMultiSitePlanAction(
+  items: Array<{
+    site_id: string;
+    site_code: string;
+    week_monday: string;
+    drafts: SitePlanPreview["drafts"];
+    uncovered: SitePlanPreview["uncovered"];
+    contract_usage?: SitePlanPreview["contract_usage"];
+  }>,
+): Promise<{
+  results: Array<{
+    site_code: string;
+    ok?: boolean;
+    draft_id?: string;
+    created?: number;
+    error?: string;
+  }>;
+}> {
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const results: Array<{
+    site_code: string;
+    ok?: boolean;
+    draft_id?: string;
+    created?: number;
+    error?: string;
+  }> = [];
+
+  for (const item of items) {
+    if (item.drafts.length === 0) {
+      results.push({ site_code: item.site_code, ok: true, created: 0 });
+      continue;
+    }
+    const { data: inserted, error: insErr } = await supabase
+      .from("auto_plan_drafts")
+      .insert({
+        site_id: item.site_id,
+        week_monday: item.week_monday,
+        status: "pending",
+        drafts_json: item.drafts,
+        uncovered_json: item.uncovered,
+        contract_usage_json: item.contract_usage ?? null,
+        generated_at: new Date().toISOString(),
+        generated_by: profile.id,
+      })
+      .select("id")
+      .single();
+    if (insErr || !inserted) {
+      results.push({ site_code: item.site_code, error: insErr?.message ?? "Insert draft failed" });
+      continue;
+    }
+    const r = await approveAutoDraftAction((inserted as { id: string }).id);
+    if (r.error) {
+      results.push({ site_code: item.site_code, error: r.error });
+      continue;
+    }
+    results.push({
+      site_code: item.site_code,
+      ok: true,
+      draft_id: (inserted as { id: string }).id,
+      created: r.created,
+    });
+  }
+  revalidatePath("/planning", "layout");
+  return { results };
+}
+
+/**
+ * Rollback tous les drafts approuves sur une semaine donnee dans les
+ * dernieres 24h. Permet d'annuler une generation multi-sites en 1 clic.
+ */
+export async function rollbackRecentDraftsAction(
+  weekISO: string,
+): Promise<{ ok?: boolean; error?: string; rolled_back?: number; removed?: number }> {
+  await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const { data: drafts } = await supabase
+    .from("auto_plan_drafts")
+    .select("id")
+    .eq("week_monday", weekISO)
+    .eq("status", "approved")
+    .is("rolled_back_at", null)
+    .gte("applied_at", cutoff);
+  const rows = (drafts ?? []) as Array<{ id: string }>;
+  if (rows.length === 0) return { ok: true, rolled_back: 0, removed: 0 };
+
+  let removed = 0;
+  for (const d of rows) {
+    const r = await rollbackAutoDraftAction(d.id);
+    if (r.ok) removed += r.removed ?? 0;
+  }
+  return { ok: true, rolled_back: rows.length, removed };
 }
 
 export async function rejectAutoDraftAction(
