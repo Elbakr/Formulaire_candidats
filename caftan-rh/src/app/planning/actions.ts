@@ -298,6 +298,58 @@ export async function loadSiteNeedsForDayAction(
   return { needs, open_time: open, close_time: close };
 }
 
+/**
+ * Charge les indispos declarees par un employe qui MATCHENT une date donnee
+ * (recurrence par day_of_week OU date_specific). Utilise par ShiftDialog
+ * pour afficher un warning souple si l'horaire saisi chevauche une indispo.
+ * Decision Karim 2026-05-12 : warning, pas blocage.
+ */
+export async function loadEmployeeUnavailabilitiesForDayAction(
+  employeeId: string,
+  dateISO: string,
+): Promise<{
+  items: Array<{
+    id: string;
+    start_time: string | null;
+    end_time: string | null;
+    day_of_week: number | null;
+    date_specific: string | null;
+    notes: string | null;
+  }>;
+}> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (!employeeId || !dateISO) return { items: [] };
+  const d = new Date(dateISO + "T00:00:00");
+  const dow = d.getDay(); // 0=Dim..6=Sam
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("employee_unavailabilities")
+    .select("id, start_time, end_time, day_of_week, date_specific, notes, is_active")
+    .eq("employee_id", employeeId)
+    .eq("is_active", true)
+    .or(`day_of_week.eq.${dow},date_specific.eq.${dateISO}`);
+  const items = ((data ?? []) as Array<{
+    id: string;
+    start_time: string | null;
+    end_time: string | null;
+    day_of_week: number | null;
+    date_specific: string | null;
+    notes: string | null;
+    is_active: boolean;
+  }>)
+    .filter((u) => u.day_of_week === dow || u.date_specific === dateISO)
+    .map((u) => ({
+      id: u.id,
+      start_time: u.start_time,
+      end_time: u.end_time,
+      day_of_week: u.day_of_week,
+      date_specific: u.date_specific,
+      notes: u.notes,
+    }));
+  return { items };
+}
+
 export async function deleteShiftAction(id: string) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();

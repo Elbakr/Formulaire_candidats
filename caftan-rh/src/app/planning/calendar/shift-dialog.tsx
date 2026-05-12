@@ -19,6 +19,7 @@ import {
   deleteShiftAction,
   getEmployeeWeeklyHoursAction,
   loadSiteNeedsForDayAction,
+  loadEmployeeUnavailabilitiesForDayAction,
 } from "../actions";
 
 type DaySuggestion = {
@@ -113,6 +114,17 @@ export function ShiftDialog({
   const [openTime, setOpenTime] = useState<string | null>(null);
   const [closeTime, setCloseTime] = useState<string | null>(null);
 
+  // Indispos declarees par l'employe pour ce jour (warning souple si overlap).
+  type Unavail = {
+    id: string;
+    start_time: string | null;
+    end_time: string | null;
+    day_of_week: number | null;
+    date_specific: string | null;
+    notes: string | null;
+  };
+  const [unavailabilities, setUnavailabilities] = useState<Unavail[]>([]);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -160,6 +172,46 @@ export function ShiftDialog({
       cancelled = true;
     };
   }, [open, siteId, date]);
+
+  // Charge les indispos declarees par l'employe pour ce jour
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const r = await loadEmployeeUnavailabilitiesForDayAction(employeeId, date);
+      if (cancelled) return;
+      setUnavailabilities(r.items);
+    })().catch(() => {
+      /* noop */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, employeeId, date]);
+
+  /**
+   * Indispos qui chevauchent le creneau (startTime, endTime) saisi.
+   * Indispo sans bornes horaires = journee entiere = overlap automatique.
+   */
+  const overlappingUnavail = useMemo(() => {
+    if (!startTime || !endTime || endTime <= startTime) return [];
+    const sMin = (() => {
+      const [h, m] = startTime.split(":").map(Number);
+      return h * 60 + m;
+    })();
+    const eMin = (() => {
+      const [h, m] = endTime.split(":").map(Number);
+      return h * 60 + m;
+    })();
+    return unavailabilities.filter((u) => {
+      if (!u.start_time || !u.end_time) return true; // journee entiere
+      const [uSh, uSm] = u.start_time.split(":").map(Number);
+      const [uEh, uEm] = u.end_time.split(":").map(Number);
+      const uS = uSh * 60 + uSm;
+      const uE = uEh * 60 + uEm;
+      return sMin < uE && eMin > uS;
+    });
+  }, [startTime, endTime, unavailabilities]);
 
   /**
    * Applique l'alignement d'office (decision Karim 2026-05-11) : si l'heure
@@ -370,6 +422,44 @@ export function ShiftDialog({
                   )}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* Warning indispo declaree par l'employe (decision Karim souple, pas blocage) */}
+          {overlappingUnavail.length > 0 ? (
+            <div
+              className="rounded-md border border-warn bg-warn-light/50 p-3 text-xs space-y-1"
+              role="alert"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-warn shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="font-bold text-ink">
+                    {overlappingUnavail.length === 1
+                      ? `${employeeName} a déclaré une indispo qui chevauche ce créneau`
+                      : `${overlappingUnavail.length} indispos de ${employeeName} chevauchent ce créneau`}
+                  </div>
+                  <ul className="text-ink-2 mt-1 space-y-0.5">
+                    {overlappingUnavail.slice(0, 3).map((u) => (
+                      <li key={u.id}>
+                        •{" "}
+                        {u.start_time && u.end_time ? (
+                          <span className="font-mono">
+                            {u.start_time.slice(0, 5)}–{u.end_time.slice(0, 5)}
+                          </span>
+                        ) : (
+                          <span className="italic">journée entière</span>
+                        )}
+                        {u.date_specific ? " (date précise)" : " (récurrente)"}
+                        {u.notes ? <> · <span className="text-ink-3">{u.notes}</span></> : null}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="text-[10px] text-ink-3 italic mt-1">
+                    Tu peux valider quand même, mais préviens-la·le si possible.
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
 
