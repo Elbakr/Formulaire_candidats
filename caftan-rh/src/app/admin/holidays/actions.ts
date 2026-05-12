@@ -54,6 +54,35 @@ export async function toggleHolidayActiveAction(id: string, isActive: boolean) {
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/admin/holidays");
+  revalidatePath("/planning", "layout");
+  return { ok: true };
+}
+
+/**
+ * Edite la politique magasin d'un jour ferie : magasin ferme (shops_closed)
+ * et/ou multiplicateur d'effectif (staff_multiplier 1.0 a 4.0, pas 0.25).
+ * Le solver lit ces 2 colonnes -- la modif impacte les preview de planning
+ * a la prochaine generation. On revalidate /planning pour propager.
+ */
+export async function updateHolidayPolicyAction(
+  id: string,
+  policy: { shops_closed?: boolean; staff_multiplier?: number },
+) {
+  await requireRole(["admin", "rh"]);
+  const supabase = await createClient();
+  const patch: Record<string, unknown> = {};
+  if (typeof policy.shops_closed === "boolean") {
+    patch.shops_closed = policy.shops_closed;
+  }
+  if (typeof policy.staff_multiplier === "number") {
+    const m = Math.max(1.0, Math.min(4.0, policy.staff_multiplier));
+    patch.staff_multiplier = m;
+  }
+  if (Object.keys(patch).length === 0) return { error: "Aucun champ a modifier." };
+  const { error } = await supabase.from("holidays").update(patch).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/admin/holidays");
+  revalidatePath("/planning", "layout");
   return { ok: true };
 }
 

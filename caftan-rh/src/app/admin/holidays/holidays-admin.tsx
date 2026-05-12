@@ -45,6 +45,7 @@ import {
   addHolidayAction,
   deleteHolidayAction,
   toggleHolidayActiveAction,
+  updateHolidayPolicyAction,
   reseedBelgianHolidaysAction,
   addSchoolBreakAction,
   deleteSchoolBreakAction,
@@ -62,6 +63,8 @@ type Holiday = {
   recurring_yearly: boolean | null;
   is_active: boolean | null;
   notes: string | null;
+  shops_closed: boolean | null;
+  staff_multiplier: number | string | null;
 };
 type SchoolBreak = {
   id: string;
@@ -191,6 +194,25 @@ export function HolidaysAdmin({
   function onToggleActive(id: string, isActive: boolean) {
     startTransition(async () => {
       const r = await toggleHolidayActiveAction(id, isActive);
+      if (r?.error) toast.error(r.error);
+      else refresh();
+    });
+  }
+
+  function onToggleShopsClosed(id: string, closed: boolean) {
+    startTransition(async () => {
+      const r = await updateHolidayPolicyAction(id, { shops_closed: closed });
+      if (r?.error) toast.error(r.error);
+      else {
+        toast.success(closed ? "Magasins fermés ce jour." : "Magasins ouverts ce jour.");
+        refresh();
+      }
+    });
+  }
+
+  function onChangeMultiplier(id: string, value: number) {
+    startTransition(async () => {
+      const r = await updateHolidayPolicyAction(id, { staff_multiplier: value });
       if (r?.error) toast.error(r.error);
       else refresh();
     });
@@ -336,20 +358,55 @@ export function HolidaysAdmin({
                         <th className="p-2 text-left">Date</th>
                         <th className="p-2 text-left">Libellé</th>
                         <th className="p-2 text-left">Type</th>
-                        <th className="p-2 text-left">Région</th>
+                        <th className="p-2 text-center" title="Magasins fermés ce jour : le solver saute la date">Fermé ?</th>
+                        <th className="p-2 text-center" title="Multiplicateur d'effectif : le solver multiplie le headcount par cette valeur (rush pré-Aïd, soldes…)">Effectif</th>
                         <th className="p-2 text-left">Statut</th>
                         <th className="p-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line">
-                      {yearHolidays.map((h) => (
+                      {yearHolidays.map((h) => {
+                        const mult = Number(h.staff_multiplier ?? 1.0);
+                        return (
                         <tr key={h.id} className="hover:bg-surface-2">
                           <td className="p-2 font-mono text-xs">{fmtDate(h.date)}</td>
                           <td className="p-2 font-bold">{h.label}</td>
                           <td className="p-2">
                             <Badge variant="muted" className="text-[10px]">{KIND_LABELS[h.kind]}</Badge>
                           </td>
-                          <td className="p-2 text-xs text-ink-3">{h.region ?? h.country ?? "—"}</td>
+                          <td className="p-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={!!h.shops_closed}
+                              disabled={pending}
+                              onChange={(e) => onToggleShopsClosed(h.id, e.target.checked)}
+                              className="cursor-pointer h-4 w-4"
+                              aria-label={h.shops_closed ? "Magasins fermés" : "Magasins ouverts"}
+                            />
+                            {h.shops_closed ? <span className="ml-1 text-[10px] text-danger font-bold">🚫</span> : null}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="range"
+                                min="1"
+                                max="4"
+                                step="0.25"
+                                value={mult}
+                                disabled={pending || !!h.shops_closed}
+                                onChange={(e) => onChangeMultiplier(h.id, Number(e.target.value))}
+                                className="flex-1 cursor-pointer"
+                                aria-label="Multiplicateur effectif"
+                              />
+                              <span
+                                className={`text-[11px] font-mono font-bold w-10 text-right ${
+                                  mult >= 2 ? "text-danger" : mult > 1 ? "text-warn" : "text-ink-3"
+                                }`}
+                              >
+                                ×{mult.toFixed(2)}
+                              </span>
+                            </div>
+                          </td>
                           <td className="p-2">
                             {h.is_active ? (
                               <Badge variant="hired" className="text-[10px]">Actif</Badge>
@@ -378,7 +435,8 @@ export function HolidaysAdmin({
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

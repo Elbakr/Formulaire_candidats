@@ -20,7 +20,7 @@ export default async function AdminHolidaysPage() {
   ] = await Promise.all([
     supabase
       .from("holidays")
-      .select("id, date, label, kind, country, region, recurring_yearly, is_active, notes")
+      .select("id, date, label, kind, country, region, recurring_yearly, is_active, notes, shops_closed, staff_multiplier")
       .gte("date", yearStart)
       .lte("date", yearEnd)
       .order("date"),
