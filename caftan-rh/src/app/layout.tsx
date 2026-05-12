@@ -3,6 +3,8 @@ import Script from "next/script";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { InstallPrompt } from "@/components/install-prompt";
+import { PushActivationBanner } from "@/components/push-activation-banner";
+import { getPublicVapidKey } from "@/lib/push-notify";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -49,12 +51,14 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const vapidPublic = getPublicVapidKey();
   return (
     <html lang="fr" className={`${dmSans.variable} ${dmMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-canvas text-ink">
         {children}
         <Toaster position="top-right" richColors closeButton />
         <InstallPrompt />
+        <PushActivationBanner publicKey={vapidPublic} />
         <Script id="sw-register" strategy="afterInteractive">
           {`
             if ('serviceWorker' in navigator) {
