@@ -193,7 +193,85 @@ export function SiteWeekBoard({
               {dayNeeds.length === 0 ? (
                 <div className="p-3 text-xs text-ink-3 italic">Site fermé.</div>
               ) : (
-                <div className="p-3 space-y-2">
+                <div className="p-3 space-y-3">
+                  {/* Karim 2026-05-13 : recap par employe (sans repetition) en haut */}
+                  {dayShifts.length > 0 ? (() => {
+                    const byEmp = new Map<string, { name: string; shifts: Shift[] }>();
+                    for (const s of dayShifts) {
+                      const k = s.employee_id;
+                      const existing = byEmp.get(k);
+                      if (existing) existing.shifts.push(s);
+                      else byEmp.set(k, { name: s.employee?.full_name ?? "—", shifts: [s] });
+                    }
+                    const sorted = [...byEmp.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+                    return (
+                      <div className="rounded-md bg-surface-2/60 p-2">
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 mb-1.5">
+                          Équipe du jour ({sorted.length})
+                        </div>
+                        <ul className="space-y-1.5 text-xs">
+                          {sorted.map(([empId, info]) => {
+                            const hasOT = info.shifts.some((sh) => sh.is_overtime);
+                            // Tri par heure de debut + dedup horaires identiques
+                            const sortedShifts = [...info.shifts].sort((a, b) =>
+                              a.start_time.localeCompare(b.start_time),
+                            );
+                            const seenSlots = new Set<string>();
+                            const uniqueShifts = sortedShifts.filter((sh) => {
+                              const key = `${sh.start_time}|${sh.end_time}`;
+                              if (seenSlots.has(key)) return false;
+                              seenSlots.add(key);
+                              return true;
+                            });
+                            return (
+                              <li key={empId} className="flex items-start gap-1.5">
+                                <span
+                                  className={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                                    hasOT ? "bg-orange-500" : "bg-gold-dark"
+                                  }`}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <EmployeeQuickLink
+                                    employeeId={empId}
+                                    fullName={info.name}
+                                    fullWidth
+                                  />
+                                  <div className="flex flex-wrap gap-1 mt-0.5">
+                                    {uniqueShifts.map((sh) => (
+                                      <button
+                                        key={sh.id}
+                                        type="button"
+                                        title={sh.is_overtime ? "Heures sup. (clic pour éditer)" : "Clic pour éditer"}
+                                        onClick={() =>
+                                          setEditing({
+                                            employeeId: empId,
+                                            employeeName: info.name,
+                                            date: sh.date,
+                                            shift: sh,
+                                          })
+                                        }
+                                        className={`text-[10px] font-mono px-1 py-px rounded transition-colors ${
+                                          sh.is_overtime
+                                            ? "bg-orange-100 text-orange-700 hover:bg-orange-200 border border-dashed border-orange-300"
+                                            : "bg-white text-ink-2 hover:bg-gold-light border border-line"
+                                        }`}
+                                      >
+                                        {sh.start_time.slice(0, 5)}–{sh.end_time.slice(0, 5)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })() : null}
+
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">
+                    Couverture des besoins
+                  </div>
                   {dayNeeds.map((n) => {
                     const matching = dayShifts.filter((s) =>
                       shiftOverlaps(
@@ -217,75 +295,21 @@ export function SiteWeekBoard({
                     return (
                       <div
                         key={n.id}
-                        className="rounded-md border border-line p-2 space-y-1"
+                        className={`rounded-md border p-1.5 ${uncovered ? "border-danger/40 bg-danger-light/20" : "border-line"}`}
                       >
-                        <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 text-xs">
                           <div className="font-mono font-bold">
                             {n.start_time.slice(0, 5)}–{n.end_time.slice(0, 5)}
                           </div>
+                          {n.role ? (
+                            <span className="text-[10px] text-ink-3 truncate">{n.role}</span>
+                          ) : null}
                           <span
-                            className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full ${tone}`}
+                            className={`ml-auto text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full shrink-0 ${tone}`}
                           >
                             {cov}/{n.headcount}
                           </span>
                         </div>
-                        {n.role ? (
-                          <div className="text-[10px] text-ink-3">{n.role}</div>
-                        ) : null}
-                        {matching.length > 0 ? (
-                          <ul className="text-xs space-y-0.5">
-                            {matching.map((s) => (
-                              <li
-                                key={s.id}
-                                className={`flex items-center gap-1 rounded px-1 py-1 hover:bg-gold-light/60 transition-colors ${
-                                  s.is_overtime
-                                    ? "bg-orange-50 border border-dashed border-orange-300"
-                                    : ""
-                                }`}
-                              >
-                                <span
-                                  className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-                                    s.is_overtime ? "bg-orange-500" : "bg-gold-dark"
-                                  }`}
-                                />
-                                <span className="flex-1 min-w-0">
-                                  <EmployeeQuickLink
-                                    employeeId={s.employee_id}
-                                    fullName={s.employee?.full_name ?? "—"}
-                                    fullWidth
-                                  />
-                                </span>
-                                {s.is_overtime ? (
-                                  <span
-                                    title={`Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}`}
-                                    className="text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700"
-                                  >
-                                    H. sup
-                                  </span>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  title="Modifier ce shift"
-                                  onClick={() =>
-                                    setEditing({
-                                      employeeId: s.employee_id,
-                                      employeeName: s.employee?.full_name ?? "—",
-                                      date: s.date,
-                                      shift: s,
-                                    })
-                                  }
-                                  className="text-ink-3 hover:text-gold-dark font-mono text-[10px] px-1 py-0.5 rounded hover:bg-gold-light min-h-[28px]"
-                                >
-                                  {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="text-[10px] text-danger italic">
-                            Aucun shift n'a couvert ce créneau
-                          </div>
-                        )}
                         {uncovered ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
