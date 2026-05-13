@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useRealtime } from "@/hooks/use-realtime";
 import { addDays, parseISODate, toISODate, DAY_LABELS, shiftHours } from "@/lib/planning";
+import { moveShiftAction } from "@/app/planning/actions";
+import { toast } from "sonner";
 import { ShiftDialog } from "./shift-dialog";
 import { GenerateWeekButton } from "./generate-button";
 import { BroadcastScheduleButton } from "./broadcast-button";
@@ -105,8 +107,24 @@ export function WeeklyPlanningBoard({
   const router = useRouter();
   const monday = parseISODate(mondayISO);
   const [editing, setEditing] = useState<{ employeeId: string; date: string; shift?: Shift } | null>(null);
+  // Drag & drop : id du shift en cours de drag, pour styler la cible
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropHover, setDropHover] = useState<string | null>(null);
 
   useRealtime("shifts", () => router.refresh());
+
+  function onDropShift(shiftId: string, toEmpId: string, toDate: string) {
+    setDraggingId(null);
+    setDropHover(null);
+    (async () => {
+      const r = await moveShiftAction({ shiftId, toEmployeeId: toEmpId, toDate });
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success("Shift déplacé.");
+        router.refresh();
+      }
+    })();
+  }
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [mondayISO]);
   const siteById = useMemo(() => {
@@ -354,10 +372,25 @@ export function WeeklyPlanningBoard({
                             : cl
                               ? "bg-gold-light/50"
                               : "";
+                        const cellKey = `${e.id}|${dateISO}`;
+                        const isDropHover = dropHover === cellKey;
                         return (
                           <td
                             key={i}
-                            className={`p-1 align-top border-l border-line min-h-[48px] md:min-h-[64px] ${cellBg}`}
+                            className={`p-1 align-top border-l border-line min-h-[48px] md:min-h-[64px] transition-colors ${cellBg} ${isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""}`}
+                            onDragOver={(ev) => {
+                              if (!draggingId) return;
+                              ev.preventDefault();
+                              setDropHover(cellKey);
+                            }}
+                            onDragLeave={() => {
+                              if (dropHover === cellKey) setDropHover(null);
+                            }}
+                            onDrop={(ev) => {
+                              ev.preventDefault();
+                              const id = ev.dataTransfer.getData("text/plain");
+                              if (id) onDropShift(id, e.id, dateISO);
+                            }}
                           >
                             {off ? (
                               <div className="text-[10px] uppercase font-bold text-violet text-center py-3">Congé</div>
@@ -396,13 +429,25 @@ export function WeeklyPlanningBoard({
                                     <button
                                       key={s.id}
                                       onClick={() => setEditing({ employeeId: e.id, date: dateISO, shift: s })}
-                                      className={`relative w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-colors ${
+                                      draggable
+                                      onDragStart={(ev) => {
+                                        ev.dataTransfer.setData("text/plain", s.id);
+                                        ev.dataTransfer.effectAllowed = "move";
+                                        setDraggingId(s.id);
+                                      }}
+                                      onDragEnd={() => {
+                                        setDraggingId(null);
+                                        setDropHover(null);
+                                      }}
+                                      className={`relative w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-colors cursor-grab active:cursor-grabbing ${
+                                        draggingId === s.id ? "opacity-40" : ""
+                                      } ${
                                         s.is_overtime
                                           ? "bg-orange-100 text-orange-800 border border-dashed border-orange-400 hover:bg-orange-200"
                                           : "bg-gold-light text-gold-dark hover:bg-gold hover:text-white"
                                       }`}
                                       style={site?.color ? { boxShadow: `inset 3px 0 0 ${site.color}` } : undefined}
-                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""}`}
+                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""} — glisser-déposer pour déplacer`}
                                     >
                                       <div className="font-bold flex items-center gap-1">
                                         <span>{s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}</span>

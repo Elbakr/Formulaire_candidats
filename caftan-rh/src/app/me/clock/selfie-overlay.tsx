@@ -284,17 +284,20 @@ export function SelfieOverlay({
           </div>
         ) : null}
         {phase.kind === "countdown" ? (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          // Karim 2026-05-13 : countdown discret, en haut a droite, petit.
+          // Plus de chiffre geant centre + plus de cercle de flash.
+          <div className="absolute top-3 right-3 pointer-events-none">
             <span
               key={phase.n}
-              className="text-white text-[120px] leading-none font-bold drop-shadow-[0_4px_24px_rgba(0,0,0,0.6)] animate-[pulse_0.9s_ease-in-out]"
+              className="text-white/90 text-sm font-mono font-bold bg-black/40 rounded px-2 py-0.5"
             >
               {phase.n}
             </span>
           </div>
         ) : null}
         {phase.kind === "flash" ? (
-          <div className="absolute inset-0 rounded-full bg-white" />
+          // Flash subtil : bordure blanche brève au lieu de remplir tout l'écran
+          <div className="absolute inset-0 ring-2 ring-white/80 rounded" />
         ) : null}
         {phase.kind === "done" ? (
           <div className="absolute inset-x-0 -bottom-2 flex justify-center">

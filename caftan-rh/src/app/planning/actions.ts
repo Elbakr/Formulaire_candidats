@@ -435,6 +435,70 @@ export async function reclassifyExcessAsOvertimeAction(args: {
   return { ok: true, reclassified: toReclassify.length, hoursReclassified };
 }
 
+/**
+ * Deplace un shift d'un employe/date a un autre (drag & drop dans le board).
+ * Karim 2026-05-13 : le RH doit pouvoir glisser-deposer dans la vue d'ensemble.
+ * - Conserve start_time/end_time/site/role/notes/is_overtime
+ * - Refuse de deplacer sur date < J+1 (regle fondamentale realisme)
+ * - Anti-double-booking : si l'employe cible a deja un shift overlap, on bloque.
+ */
+export async function moveShiftAction(args: {
+  shiftId: string;
+  toEmployeeId: string;
+  toDate: string;
+}): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole(["admin", "rh", "manager"]);
+  const { shiftId, toEmployeeId, toDate } = args;
+  if (!shiftId || !toEmployeeId || !toDate) return { error: "Param requis." };
+
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
+  if (toDate < tomorrowISO) {
+    return { error: `Déplacement impossible sur ${toDate} (date passée ou aujourd'hui).` };
+  }
+
+  const supabase = await createClient();
+  const { data: src } = await supabase
+    .from("shifts")
+    .select("id, employee_id, date, start_time, end_time, break_minutes, is_overtime")
+    .eq("id", shiftId)
+    .maybeSingle();
+  if (!src) return { error: "Shift introuvable." };
+  const s = src as {
+    id: string;
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean | null;
+  };
+
+  // No-op si meme empId + meme date
+  if (s.employee_id === toEmployeeId && s.date === toDate) return { ok: true };
+
+  // Anti-double-booking : check overlap sur la nouvelle position
+  const { data: conflicts } = await supabase
+    .from("shifts")
+    .select("id, start_time, end_time")
+    .eq("employee_id", toEmployeeId)
+    .eq("date", toDate)
+    .neq("id", shiftId);
+  const overlap = ((conflicts ?? []) as Array<{ id: string; start_time: string; end_time: string }>).some(
+    (c) => s.start_time < c.end_time && s.end_time > c.start_time,
+  );
+  if (overlap) {
+    return { error: `Conflit horaire sur ${toDate} pour cet employé (déjà un shift sur ce créneau).` };
+  }
+
+  const { error } = await supabase
+    .from("shifts")
+    .update({ employee_id: toEmployeeId, date: toDate })
+    .eq("id", shiftId);
+  if (error) return { error: error.message };
+  revalidatePath("/planning", "layout");
+  return { ok: true };
+}
+
 export async function deleteShiftAction(id: string) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
