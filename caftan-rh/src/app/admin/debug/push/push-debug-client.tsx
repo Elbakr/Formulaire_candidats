@@ -108,19 +108,23 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
     setBusy(true);
     setTrace([]);
     logTrace("▶ start");
-    const watchdog = setTimeout(() => {
-      logTrace("✗ TIMEOUT 30s -- l'etape ci-dessus n'a pas repondu");
-      setBusy(false);
-      toast.error("Activation trop longue (30s).");
-    }, 30_000);
+    // Pas de watchdog tant que l'user n'a pas repondu a la popup iOS Notifications
+    // (peut prendre plusieurs minutes). On le demarre apres step 1.
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
     try {
-      logTrace("step 1/4 -- demande permission notifications");
+      logTrace("step 1/4 -- demande permission notifications (clique 'Autoriser' dans la popup iOS)");
       const perm = await Notification.requestPermission();
       logTrace(`step 1/4 OK -- permission = ${perm}`);
       if (perm !== "granted") {
-        toast.error(`Permission refusée (${perm}). Va dans Réglages iPhone > CaftanRH > Notifications.`);
+        toast.error(`Permission refusée (${perm}). Va dans Réglages iPhone > Notifications > CaftanRH.`);
         return;
       }
+      // Watchdog pour les etapes techniques (60s, plus genereux)
+      watchdog = setTimeout(() => {
+        logTrace("✗ TIMEOUT 60s -- l'etape ci-dessus n'a pas repondu");
+        setBusy(false);
+        toast.error("Activation trop longue (60s).");
+      }, 60_000);
       logTrace("step 2/4 -- attend service worker pret");
       const reg = await navigator.serviceWorker.ready;
       logTrace(`step 2/4 OK -- SW scope=${reg.scope}`);
@@ -161,7 +165,7 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
       logTrace(`✗ ERREUR : ${(err as Error).message}`);
       toast.error(`Activation échouée : ${(err as Error).message}`);
     } finally {
-      clearTimeout(watchdog);
+      if (watchdog) clearTimeout(watchdog);
       setBusy(false);
     }
   }
