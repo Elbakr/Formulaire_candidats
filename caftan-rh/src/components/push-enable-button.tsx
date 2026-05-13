@@ -117,16 +117,28 @@ export function PushEnableButton({ publicKey, compact }: Props) {
   if (!supported || !publicKey) return null;
 
   async function activate() {
+    console.log("[push-btn] clicked, working=", working);
+    toast.info("Activation en cours…");
     if (working) return;
     setWorking(true);
+    // Watchdog 30s : evite spinner infini si iOS bloque silencieusement
+    const watchdog = setTimeout(() => {
+      console.warn("[push-btn] timeout 30s");
+      setWorking(false);
+      toast.error("Activation trop longue. Vérifie /admin/debug/push pour diag.");
+    }, 30_000);
     try {
+      console.log("[push-btn] requestPermission");
       const perm = await Notification.requestPermission();
+      console.log("[push-btn] permission=", perm);
       setPermission(perm);
       if (perm !== "granted") {
-        toast.error("Permission refusée. Active les notifications dans les réglages du navigateur.");
+        toast.error(`Permission refusée (${perm}). Active dans les réglages du navigateur.`);
         return;
       }
+      console.log("[push-btn] sw.ready");
       const reg = await navigator.serviceWorker.ready;
+      console.log("[push-btn] subscribe?");
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         sub = await reg.pushManager.subscribe({
@@ -155,9 +167,10 @@ export function PushEnableButton({ publicKey, compact }: Props) {
       setSubscribed(true);
       toast.success("Notifications activées. On t'écrit pour les renforts et absences.");
     } catch (err) {
-      console.error(err);
-      toast.error("Activation échouée. Réessaie.");
+      console.error("[push-btn] error", err);
+      toast.error(`Activation échouée : ${(err as Error).message}`);
     } finally {
+      clearTimeout(watchdog);
       setWorking(false);
     }
   }

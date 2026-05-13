@@ -100,7 +100,16 @@ export function PushActivationBanner({ publicKey }: { publicKey: string | null }
   }
 
   async function activate() {
-    if (working || !publicKey) return;
+    console.log("[push-banner] click Activer recu, working=", working, "publicKey=", publicKey ? "OK" : "MISSING");
+    toast.info("Activation en cours…");
+    if (working) {
+      console.log("[push-banner] deja en cours, ignore");
+      return;
+    }
+    if (!publicKey) {
+      toast.error("VAPID public key absente côté serveur. Va sur /admin/debug/push pour diagnostiquer.");
+      return;
+    }
     setWorking(true);
     // Timeout global pour ne pas hang indefiniment (iOS Safari Push peut
     // ne pas resoudre certaines promesses si conditions non remplies).

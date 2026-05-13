@@ -78,17 +78,22 @@ export default async function PlanningCalendarPage(
       .eq("week_monday", toISODate(monday)),
   ]);
 
-  // Drafts approuves dans les dernieres 24h sur cette semaine = rollback dispo
+  // Drafts approuves dans les dernieres 24h (toutes semaines) = rollback dispo.
+  // Karim 2026-05-13 : le bouton doit etre visible meme si le user regarde une
+  // autre semaine que celle qu'il vient de generer.
   const cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { data: recentApplied } = await supabase
     .from("auto_plan_drafts")
-    .select("id")
-    .eq("week_monday", toISODate(monday))
+    .select("id, week_monday")
     .eq("status", "approved")
     .is("rolled_back_at", null)
     .gte("applied_at", cutoff24h)
-    .limit(1);
-  const hasRollbackAvailable = (recentApplied ?? []).length > 0;
+    .order("applied_at", { ascending: false })
+    .limit(10);
+  const recentDrafts = (recentApplied ?? []) as Array<{ id: string; week_monday: string }>;
+  const hasRollbackAvailable = recentDrafts.length > 0;
+  // Semaine la plus recente generee (pour l'action rollback)
+  const lastBatchWeek = recentDrafts[0]?.week_monday ?? toISODate(monday);
 
   // Map empId → siteIds (préférés en tête : is_primary first)
   const assignsByEmp = new Map<string, string[]>();
@@ -139,6 +144,7 @@ export default async function PlanningCalendarPage(
           sites={sitesForActions}
           mondayISO={toISODate(monday)}
           hasRollbackAvailable={hasRollbackAvailable}
+          rollbackTargetWeek={lastBatchWeek}
         />
       </div>
       {pendingDrafts.length > 0 ? (

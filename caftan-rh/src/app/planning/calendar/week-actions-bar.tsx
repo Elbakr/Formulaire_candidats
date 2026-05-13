@@ -14,19 +14,22 @@ export function WeekActionsBar({
   sites,
   mondayISO,
   hasRollbackAvailable,
+  rollbackTargetWeek,
 }: {
   sites: SiteOption[];
   mondayISO: string;
   hasRollbackAvailable: boolean;
+  rollbackTargetWeek?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function onRollback() {
-    if (!confirm("Annuler la dernière génération de planning (supprime les shifts créés) ?")) return;
+    const week = rollbackTargetWeek ?? mondayISO;
+    if (!confirm(`Annuler la dernière génération de planning (semaine du ${week}) ? Cela supprime les shifts créés.`)) return;
     startTransition(async () => {
-      const r = await rollbackRecentDraftsAction(mondayISO);
+      const r = await rollbackRecentDraftsAction(week);
       if (r.error) {
         toast.error(r.error);
       } else {
