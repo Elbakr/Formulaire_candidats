@@ -330,6 +330,99 @@ export async function loadEmployeeUnavailabilitiesForDayAction(
   return { items };
 }
 
+/**
+ * Reclasse les heures excedentaires d'un employe sur une semaine donnee :
+ * pour les shifts contractuels qui depassent weekly_hours, on bascule en OT
+ * les plus recents (par created_at DESC) jusqu'a ce que le contractuel
+ * passe sous le quota. Decision Karim 2026-05-13 :
+ *  - Action en 1 clic depuis la fiche employe calendar
+ *  - Multiplier OT par defaut = 1.5 (loi BE samedi/dimanche).
+ */
+export async function reclassifyExcessAsOvertimeAction(args: {
+  employeeId: string;
+  weekISO: string;
+  multiplier?: number;
+}): Promise<{ ok?: boolean; error?: string; reclassified?: number; hoursReclassified?: number }> {
+  await requireRole(["admin", "rh"]);
+  const supabase = await createClient();
+  const { employeeId, weekISO } = args;
+  const multiplier = args.multiplier ?? 1.5;
+  if (!employeeId || !weekISO) return { error: "Param requis." };
+
+  const monday = startOfWeek(new Date(weekISO + "T00:00:00"));
+  const sunday = addDays(monday, 6);
+  const weekStart = toISODate(monday);
+  const weekEnd = toISODate(sunday);
+
+  const [{ data: emp }, { data: shiftsRaw }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("weekly_hours, full_name")
+      .eq("id", employeeId)
+      .maybeSingle(),
+    supabase
+      .from("shifts")
+      .select("id, start_time, end_time, break_minutes, is_overtime, created_at")
+      .eq("employee_id", employeeId)
+      .gte("date", weekStart)
+      .lte("date", weekEnd)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const weeklyTarget =
+    (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
+  const allShifts = (shiftsRaw ?? []) as Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean | null;
+    created_at: string;
+  }>;
+  const contractShifts = allShifts.filter((s) => !s.is_overtime);
+  let totalContract = 0;
+  for (const s of contractShifts) {
+    totalContract += shiftHours(
+      s.start_time.slice(0, 5),
+      s.end_time.slice(0, 5),
+      s.break_minutes ?? 0,
+    );
+  }
+  if (totalContract <= weeklyTarget + 0.01) {
+    return { ok: true, reclassified: 0, hoursReclassified: 0 };
+  }
+
+  // On reclasse les plus recents (deja tries DESC) jusqu'a passer sous le quota.
+  const toReclassify: string[] = [];
+  let hoursReclassified = 0;
+  let remaining = totalContract;
+  for (const s of contractShifts) {
+    if (remaining <= weeklyTarget + 0.01) break;
+    const h = shiftHours(
+      s.start_time.slice(0, 5),
+      s.end_time.slice(0, 5),
+      s.break_minutes ?? 0,
+    );
+    toReclassify.push(s.id);
+    hoursReclassified += h;
+    remaining -= h;
+  }
+
+  if (toReclassify.length === 0) {
+    return { ok: true, reclassified: 0, hoursReclassified: 0 };
+  }
+
+  const { error } = await supabase
+    .from("shifts")
+    .update({ is_overtime: true, overtime_multiplier: multiplier })
+    .in("id", toReclassify);
+  if (error) return { error: error.message };
+
+  revalidatePath("/planning", "layout");
+  revalidatePath(`/planning/employees/${employeeId}`);
+  return { ok: true, reclassified: toReclassify.length, hoursReclassified };
+}
+
 export async function deleteShiftAction(id: string) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();

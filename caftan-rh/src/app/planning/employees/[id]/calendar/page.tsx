@@ -16,6 +16,7 @@ import { ViewSwitcher, PrintMenu } from "./view-switcher";
 import { ShareButton } from "./share-button";
 import { FilterTabs, type ShiftFilter } from "./filter-tabs";
 import { WeekBoard } from "./week-board";
+import { QuotaOverrunBanner } from "./quota-overrun-banner";
 
 type View = "week" | "month" | "year";
 
@@ -228,6 +229,16 @@ export default async function EmployeeCalendarPage(props: {
           </span>
         ) : null}
       </div>
+
+      {view === "week" && canSeeOvertime && employee.weekly_hours ? (
+        <QuotaOverrunBanner
+          employeeId={employee.id}
+          employeeName={employee.full_name}
+          weekISO={toISODate(rangeStart)}
+          contractHours={contractHours}
+          weeklyTarget={employee.weekly_hours}
+        />
+      ) : null}
 
       {view === "week" ? (
         <WeekBoard

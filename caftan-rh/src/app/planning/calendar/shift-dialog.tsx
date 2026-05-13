@@ -511,19 +511,34 @@ export function ShiftDialog({
             </div>
           ) : null}
 
-          {/* Bloc heures sup */}
-          <div className="rounded-md border border-line p-2.5 space-y-2 bg-surface-2/40">
+          {/* Bloc heures sup -- ressort visuellement quand projected.isOver */}
+          <div
+            className={`rounded-md border p-2.5 space-y-2 transition-colors ${
+              isOvertime
+                ? "border-orange-400 bg-orange-50"
+                : projection?.isOver
+                  ? "border-warn bg-warn-light/40"
+                  : "border-line bg-surface-2/40"
+            }`}
+          >
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={isOvertime}
                 onChange={(e) => setIsOvertime(e.target.checked)}
-                className="cursor-pointer"
+                className="cursor-pointer h-4 w-4"
               />
-              <span className="font-bold">Marquer en heures sup</span>
+              <span className={`font-bold ${isOvertime ? "text-orange-700" : projection?.isOver ? "text-warn" : ""}`}>
+                🔥 Marquer en heures sup
+              </span>
               <span className="text-[11px] text-ink-3">
                 (au-delà du contrat hebdo)
               </span>
+              {projection?.isOver && !isOvertime ? (
+                <span className="ml-auto text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-warn text-white">
+                  Conseillé
+                </span>
+              ) : null}
             </label>
             {isOvertime ? (
               <div className="flex items-center gap-2 pl-6 text-xs">
