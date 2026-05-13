@@ -38,9 +38,9 @@ export function WeekActionsBar({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Button variant="gold" size="sm" onClick={() => setOpen(true)}>
-        <Sparkles className="h-3.5 w-3.5 mr-1" />
-        Générer la semaine
+      <Button variant="gold" onClick={() => setOpen(true)} title="Génère le planning pour plusieurs sites et plusieurs semaines en 1 clic. Choix mémorisés.">
+        <Sparkles className="h-4 w-4 mr-1" />
+        Générer le planning · multi-sites
       </Button>
       {hasRollbackAvailable ? (
         <Button
