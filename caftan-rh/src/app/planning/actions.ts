@@ -163,54 +163,14 @@ export async function upsertShiftAction(formData: FormData) {
         error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). Active la case "Heures sup" ou réduis le shift.`,
       };
     }
-  } else {
-    // is_overtime === true : on n'autorise l'OT que si le quota contractuel
-    // hebdo est saturé. Sinon ce serait gaspiller du budget OT.
-    const monday = startOfWeek(new Date(date + "T00:00:00"));
-    const sunday = addDays(monday, 6);
-    const weekStart = toISODate(monday);
-    const weekEnd = toISODate(sunday);
-
-    const [{ data: emp }, { data: weekShiftsRaw }] = await Promise.all([
-      supabase
-        .from("employees")
-        .select("weekly_hours, full_name")
-        .eq("id", employeeId)
-        .maybeSingle(),
-      supabase
-        .from("shifts")
-        .select("id, start_time, end_time, break_minutes, is_overtime")
-        .eq("employee_id", employeeId)
-        .gte("date", weekStart)
-        .lte("date", weekEnd),
-    ]);
-
-    const weeklyTarget =
-      (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
-    const weekShifts = (weekShiftsRaw ?? []) as Array<{
-      id: string;
-      start_time: string;
-      end_time: string;
-      break_minutes: number;
-      is_overtime: boolean | null;
-    }>;
-    let contractualBefore = 0;
-    for (const s of weekShifts) {
-      if (id && s.id === id) continue;
-      if (s.is_overtime) continue;
-      contractualBefore += shiftHours(
-        s.start_time.slice(0, 5),
-        s.end_time.slice(0, 5),
-        s.break_minutes ?? 0,
-      );
-    }
-    if (contractualBefore + 0.0001 < weeklyTarget) {
-      const reste = (weeklyTarget - contractualBefore).toFixed(1);
-      return {
-        error: `Heures sup interdites tant que le contrat hebdo n'est pas saturé : ${contractualBefore.toFixed(1)}h contractuelles sur la semaine (cible ${weeklyTarget}h, reste ${reste}h). Ajoute d'abord des shifts contractuels.`,
-      };
-    }
   }
+  // Note (Karim 2026-05-13) : la garde anti-OT-prematuree etait trop stricte
+  // en creation manuelle. Si l'admin coche explicitement "Heures sup" dans
+  // le ShiftDialog, sa decision RH prime -- on laisse passer meme si le
+  // quota contractuel n'est pas encore sature. La garde reste active dans
+  // commitIndividualOvertimeAction (workflow auto OT case-par-case) ou elle
+  // a du sens (eviter de proposer de l'OT a des employes qui pourraient
+  // encore prendre du contractuel).
 
   const payload = {
     employee_id: employeeId,
