@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, AlertTriangle, Check, Loader2 } from "lucide-react";
+import { Bell, AlertTriangle, Check, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { sendTestPushToSelfAction } from "./test-actions";
 
 function urlBase64ToBuffer(base64: string): ArrayBuffer {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -96,15 +97,25 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
       return;
     }
     setBusy(true);
+    const watchdog = setTimeout(() => {
+      console.warn("[push-debug] activation timeout 30s");
+      setBusy(false);
+      toast.error("Activation trop longue (30s). Vérifie la console navigateur (F12).");
+    }, 30_000);
     try {
+      console.log("[push-debug] requestPermission");
       const perm = await Notification.requestPermission();
+      console.log("[push-debug] permission =", perm);
       if (perm !== "granted") {
         toast.error(`Permission refusée (${perm}).`);
         return;
       }
+      console.log("[push-debug] sw.ready");
       const reg = await navigator.serviceWorker.ready;
+      console.log("[push-debug] getSubscription");
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
+        console.log("[push-debug] subscribe");
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToBuffer(publicKey),
@@ -114,6 +125,7 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
         endpoint?: string;
         keys?: { p256dh?: string; auth?: string };
       };
+      console.log("[push-debug] POST /api/push/subscribe");
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,8 +142,25 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
       toast.success("Abonnement enregistré 🎉");
       await probe();
     } catch (err) {
-      console.error(err);
+      console.error("[push-debug] activation error", err);
       toast.error(`Activation échouée : ${(err as Error).message}`);
+    } finally {
+      clearTimeout(watchdog);
+      setBusy(false);
+    }
+  }
+
+  async function sendTestPush() {
+    setBusy(true);
+    try {
+      const r = await sendTestPushToSelfAction();
+      if (r.error) {
+        toast.error(r.error);
+      } else {
+        toast.success(
+          `Push envoyé : ${r.sent}/${r.active_subs} subscriptions. Vérifie ton iPhone (notif lock screen).`,
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -229,6 +258,16 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
                 <Bell className="h-4 w-4 mr-1" />
               )}
               Activer maintenant
+            </Button>
+          ) : null}
+          {info.subscribed ? (
+            <Button onClick={sendTestPush} variant="gold" disabled={busy}>
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <Send className="h-4 w-4 mr-1" />
+              )}
+              M'envoyer un push test
             </Button>
           ) : null}
           <Button onClick={probe} variant="outline" size="sm">

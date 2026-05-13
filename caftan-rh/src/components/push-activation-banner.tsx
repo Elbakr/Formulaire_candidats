@@ -102,20 +102,34 @@ export function PushActivationBanner({ publicKey }: { publicKey: string | null }
   async function activate() {
     if (working || !publicKey) return;
     setWorking(true);
+    // Timeout global pour ne pas hang indefiniment (iOS Safari Push peut
+    // ne pas resoudre certaines promesses si conditions non remplies).
+    const watchdog = setTimeout(() => {
+      console.warn("[push] activation timeout 30s, forcage state");
+      setWorking(false);
+      toast.error("Activation trop longue (30s). Va sur /admin/debug/push pour diagnostiquer.");
+    }, 30_000);
     try {
+      console.log("[push] step 1 -- requestPermission");
       const perm = await Notification.requestPermission();
+      console.log("[push] permission =", perm);
       if (perm !== "granted") {
-        toast.error("Permission refusée. Active les notifs dans les réglages du navigateur.");
+        toast.error(`Permission refusée (${perm}). Va dans réglages du navigateur pour réactiver.`);
         return;
       }
+      console.log("[push] step 2 -- serviceWorker.ready");
       const reg = await navigator.serviceWorker.ready;
+      console.log("[push] SW ready, scope=", reg.scope);
+      console.log("[push] step 3 -- getSubscription");
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
+        console.log("[push] step 3b -- pushManager.subscribe");
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToBuffer(publicKey),
         });
       }
+      console.log("[push] step 4 -- POST /api/push/subscribe");
       const json = sub.toJSON() as {
         endpoint?: string;
         keys?: { p256dh?: string; auth?: string };
@@ -129,13 +143,17 @@ export function PushActivationBanner({ publicKey }: { publicKey: string | null }
           userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
         }),
       });
-      if (!res.ok) throw new Error("Échec serveur");
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`Échec serveur HTTP ${res.status} ${errBody.slice(0, 100)}`);
+      }
       toast.success("Notifications activées 🎉");
       setVisible(false);
     } catch (err) {
-      console.error(err);
-      toast.error("Activation échouée. Réessaie.");
+      console.error("[push] activation error:", err);
+      toast.error(`Activation échouée : ${(err as Error).message}`);
     } finally {
+      clearTimeout(watchdog);
       setWorking(false);
     }
   }
