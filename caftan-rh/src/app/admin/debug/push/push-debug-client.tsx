@@ -126,18 +126,31 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
         toast.error("Activation trop longue (60s).");
       }, 60_000);
       logTrace("step 2/4 -- attend service worker pret");
-      const reg = await navigator.serviceWorker.ready;
-      logTrace(`step 2/4 OK -- SW scope=${reg.scope}`);
-      logTrace("step 3/4 -- pushManager.subscribe (appel APNs Apple)");
+      // Wrap avec timeout dedie 15s
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<ServiceWorkerRegistration>((_, rej) =>
+          setTimeout(() => rej(new Error("SW.ready timeout 15s")), 15_000),
+        ),
+      ]);
+      logTrace(`step 2/4 OK -- SW scope=${reg.scope}, state=${reg.active?.state ?? "?"}`);
+      logTrace("step 3a/4 -- check existing subscription");
       let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToBuffer(publicKey),
-        });
-        logTrace(`step 3/4 OK -- subscription creee`);
+      if (sub) {
+        logTrace(`step 3/4 OK -- subscription existante (${sub.endpoint.slice(0, 60)}...)`);
       } else {
-        logTrace(`step 3/4 OK -- subscription existante reutilisee`);
+        logTrace("step 3b/4 -- appel pushManager.subscribe (Apple APNs)");
+        // Timeout 30s sur subscribe (le plus risque sur iOS PWA + tunnel)
+        sub = await Promise.race([
+          reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToBuffer(publicKey),
+          }),
+          new Promise<PushSubscription>((_, rej) =>
+            setTimeout(() => rej(new Error("APNs subscribe timeout 30s -- Apple a probablement bloque le tunnel")), 30_000),
+          ),
+        ]);
+        logTrace(`step 3/4 OK -- nouvelle subscription cree`);
       }
       const json = sub.toJSON() as {
         endpoint?: string;

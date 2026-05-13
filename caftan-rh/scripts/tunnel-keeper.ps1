@@ -34,7 +34,7 @@ function Get-Url {
 function Start-Tunnel {
     Write-Host "[keeper] starting cloudflared"
     if (Test-Path $LogPath) { Remove-Item $LogPath -Force -ErrorAction SilentlyContinue }
-    Start-Process -FilePath $Cloudflared -ArgumentList @("tunnel", "--url", "http://localhost:$LocalPort") -RedirectStandardError $LogPath -WindowStyle Hidden
+    Start-Process -FilePath $Cloudflared -ArgumentList @("tunnel", "--protocol", "http2", "--url", "http://localhost:$LocalPort") -RedirectStandardError $LogPath -WindowStyle Hidden
     Start-Sleep -Seconds 8
     for ($i = 0; $i -lt 10; $i++) {
         $u = Get-Url
