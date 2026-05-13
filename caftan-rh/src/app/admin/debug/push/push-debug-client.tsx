@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, AlertTriangle, Check, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -31,6 +31,15 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
     subEndpoint: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Trace visible dans l'UI (utile iPhone PWA -- impossible d'ouvrir la console)
+  const [trace, setTrace] = useState<string[]>([]);
+  const traceRef = useRef<HTMLDivElement>(null);
+  function logTrace(line: string) {
+    const ts = new Date().toLocaleTimeString("fr-BE", { hour12: false });
+    setTrace((t) => [...t, `${ts} ${line}`]);
+    console.log("[push-debug]", line);
+    setTimeout(() => traceRef.current?.scrollIntoView({ block: "end" }), 50);
+  }
 
   async function probe() {
     if (typeof window === "undefined") return;
@@ -97,35 +106,40 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
       return;
     }
     setBusy(true);
+    setTrace([]);
+    logTrace("▶ start");
     const watchdog = setTimeout(() => {
-      console.warn("[push-debug] activation timeout 30s");
+      logTrace("✗ TIMEOUT 30s -- l'etape ci-dessus n'a pas repondu");
       setBusy(false);
-      toast.error("Activation trop longue (30s). Vérifie la console navigateur (F12).");
+      toast.error("Activation trop longue (30s).");
     }, 30_000);
     try {
-      console.log("[push-debug] requestPermission");
+      logTrace("step 1/4 -- demande permission notifications");
       const perm = await Notification.requestPermission();
-      console.log("[push-debug] permission =", perm);
+      logTrace(`step 1/4 OK -- permission = ${perm}`);
       if (perm !== "granted") {
-        toast.error(`Permission refusée (${perm}).`);
+        toast.error(`Permission refusée (${perm}). Va dans Réglages iPhone > CaftanRH > Notifications.`);
         return;
       }
-      console.log("[push-debug] sw.ready");
+      logTrace("step 2/4 -- attend service worker pret");
       const reg = await navigator.serviceWorker.ready;
-      console.log("[push-debug] getSubscription");
+      logTrace(`step 2/4 OK -- SW scope=${reg.scope}`);
+      logTrace("step 3/4 -- pushManager.subscribe (appel APNs Apple)");
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
-        console.log("[push-debug] subscribe");
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToBuffer(publicKey),
         });
+        logTrace(`step 3/4 OK -- subscription creee`);
+      } else {
+        logTrace(`step 3/4 OK -- subscription existante reutilisee`);
       }
       const json = sub.toJSON() as {
         endpoint?: string;
         keys?: { p256dh?: string; auth?: string };
       };
-      console.log("[push-debug] POST /api/push/subscribe");
+      logTrace("step 4/4 -- POST /api/push/subscribe");
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,14 +149,16 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
           userAgent: navigator.userAgent,
         }),
       });
+      logTrace(`step 4/4 -- HTTP ${res.status}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err?.error ?? `HTTP ${res.status}`);
       }
+      logTrace("✓ abonnement enregistre en DB");
       toast.success("Abonnement enregistré 🎉");
       await probe();
     } catch (err) {
-      console.error("[push-debug] activation error", err);
+      logTrace(`✗ ERREUR : ${(err as Error).message}`);
       toast.error(`Activation échouée : ${(err as Error).message}`);
     } finally {
       clearTimeout(watchdog);
@@ -293,6 +309,22 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
             </Button>
           ) : null}
         </div>
+
+        {trace.length > 0 ? (
+          <div className="mt-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 mb-1">
+              Trace activation (visible iPhone)
+            </div>
+            <div className="rounded bg-ink text-success font-mono text-[11px] p-2 max-h-48 overflow-auto">
+              {trace.map((line, i) => (
+                <div key={i} className={line.includes("✗") ? "text-danger" : line.includes("✓") ? "text-success" : "text-white/80"}>
+                  {line}
+                </div>
+              ))}
+              <div ref={traceRef} />
+            </div>
+          </div>
+        ) : null}
       </div>
     </Card>
   );
