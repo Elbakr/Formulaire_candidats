@@ -42,9 +42,15 @@ type PreviewRow = {
 };
 
 function addDaysISO(iso: string, days: number): string {
+  // BUG fix 2026-05-13 : toISOString() decale en UTC -> en TZ +2,
+  // 2026-05-18T00:00:00 local devient 2026-05-17T22:00:00Z -> slice donne
+  // "2026-05-17" au lieu de "2026-05-18". On reste en local.
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function GenerateWeekDialog({
