@@ -15,6 +15,8 @@ const PUBLIC_ROUTES = [
   "/api/cron",
   // Routes push web : web-push ne peut pas porter de cookie utilisateur.
   "/api/push",
+  // Endpoints de debug RH : auth verifie par requireRole dans le handler.
+  "/api/debug",
 ];
 
 function isPublic(pathname: string) {
