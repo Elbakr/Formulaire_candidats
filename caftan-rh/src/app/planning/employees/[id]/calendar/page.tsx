@@ -17,6 +17,7 @@ import { ShareButton } from "./share-button";
 import { FilterTabs, type ShiftFilter } from "./filter-tabs";
 import { WeekBoard } from "./week-board";
 import { QuotaOverrunBanner } from "./quota-overrun-banner";
+import { GenerateEmployeePlanButton } from "./generate-employee-plan-button";
 
 type View = "week" | "month" | "year";
 
@@ -162,6 +163,12 @@ export default async function EmployeeCalendarPage(props: {
           </p>
         </div>
         <div className="flex flex-wrap gap-1 items-center">
+          {canSeeOvertime && view === "week" ? (
+            <GenerateEmployeePlanButton
+              employeeId={employee.id}
+              weekISO={toISODate(rangeStart)}
+            />
+          ) : null}
           {canSeeOvertime ? <FilterTabs current={filter} /> : null}
           <ViewSwitcher current={view} dateISO={toISODate(today)} />
           <PrintMenu employeeId={employee.id} canSeeOvertime={canSeeOvertime} />
