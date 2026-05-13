@@ -84,19 +84,15 @@ export default async function EmployeePrintPage(props: {
   };
   const allShifts = (shiftsRaw ?? []) as unknown as Shift[];
   // En audience='employee' : on FILTRE strictement les shifts overtime.
-  // En audience='admin' : on garde tout, on les sépare en 2 sections.
+  // En audience='admin' : planning GLOBAL unique (decision Karim 2026-05-13) --
+  // contractuel + OT dans le meme calendrier, sans mention textuelle "heures sup",
+  // juste une differentiation visuelle (fond raye/colore).
   const contractualShifts = allShifts.filter((s) => !s.is_overtime);
-  const overtimeShifts = allShifts.filter((s) => !!s.is_overtime);
-  const shifts = audience === "employee" ? contractualShifts : contractualShifts;
-  const shiftsForAdminOvertime = audience === "admin" ? overtimeShifts : [];
+  const shifts = audience === "employee" ? contractualShifts : allShifts;
   const orgName = (org as { org_name?: string } | null)?.org_name ?? "CaftanRH";
 
   const weeks = Array.from({ length: nbWeeks }, (_, i) => addDays(monday, i * 7));
   const totalHours = shifts.reduce(
-    (acc, s) => acc + shiftHours(s.start_time, s.end_time, s.break_minutes),
-    0,
-  );
-  const overtimeHoursTotal = shiftsForAdminOvertime.reduce(
     (acc, s) => acc + shiftHours(s.start_time, s.end_time, s.break_minutes),
     0,
   );
@@ -218,27 +214,41 @@ export default async function EmployeePrintPage(props: {
                         {dShifts.length === 0 ? (
                           <div className="text-center text-gray-300">—</div>
                         ) : (
-                          dShifts.map((s) => (
-                            <div key={s.id} className="mb-1">
-                              <div className="font-bold">
-                                {s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}
+                          dShifts.map((s) => {
+                            // Differentiation visuelle OT vs contractuel SANS
+                            // mention textuelle (decision Karim 2026-05-13).
+                            // OT = fond legerement raye + bordure gauche grise.
+                            const isOT = !!s.is_overtime;
+                            const style: React.CSSProperties = isOT
+                              ? {
+                                  backgroundImage:
+                                    "repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 6px)",
+                                  borderLeft: "2px solid #9ca3af",
+                                  paddingLeft: "3px",
+                                }
+                              : {};
+                            return (
+                              <div key={s.id} className="mb-1 rounded-sm px-0.5 py-0.5" style={style}>
+                                <div className="font-bold">
+                                  {s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}
+                                </div>
+                                {s.site ? (
+                                  <div className="text-[9px] font-bold">
+                                    {s.site.code} · {s.site.name}
+                                  </div>
+                                ) : s.location ? (
+                                  <div className="text-[9px] text-gray-600">
+                                    {s.location}
+                                  </div>
+                                ) : null}
+                                {s.position ? (
+                                  <div className="text-[9px] text-gray-600">
+                                    {s.position}
+                                  </div>
+                                ) : null}
                               </div>
-                              {s.site ? (
-                                <div className="text-[9px] font-bold">
-                                  {s.site.code} · {s.site.name}
-                                </div>
-                              ) : s.location ? (
-                                <div className="text-[9px] text-gray-600">
-                                  {s.location}
-                                </div>
-                              ) : null}
-                              {s.position ? (
-                                <div className="text-[9px] text-gray-600">
-                                  {s.position}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </td>
                     );
@@ -250,86 +260,6 @@ export default async function EmployeePrintPage(props: {
         );
       })}
 
-      {audience === "admin" && shiftsForAdminOvertime.length > 0 ? (
-        // Page 2 réservée aux heures sup — saut de page CSS pour clarté légale
-        // (règle Karim 2026-05-11). Cette section n'est JAMAIS rendue en
-        // audience='employee', l'employé ne voit pas ses overtime ici.
-        <section className="print:break-before-page mt-6 pt-4 border-t-2 border-orange-400">
-          <header className="mb-3">
-            <div className="text-[10px] uppercase tracking-wider text-orange-600">
-              {orgName} — Document interne admin/RH
-            </div>
-            <h2 className="text-lg font-bold uppercase tracking-wider text-orange-700">
-              Heures supplémentaires — {employee.full_name}
-            </h2>
-            <p className="text-xs text-gray-700">
-              {weeks.length} semaine{weeks.length > 1 ? "s" : ""} · Total :{" "}
-              <span className="font-bold font-mono">
-                {overtimeHoursTotal.toFixed(1)}h
-              </span>
-            </p>
-          </header>
-
-          <table className="w-full border-collapse text-[11px]">
-            <thead>
-              <tr className="bg-orange-100 text-orange-800">
-                <th className="border border-orange-300 px-2 py-1 text-left">Date</th>
-                <th className="border border-orange-300 px-2 py-1 text-left">Horaire</th>
-                <th className="border border-orange-300 px-2 py-1 text-left">Site</th>
-                <th className="border border-orange-300 px-2 py-1 text-left">Poste</th>
-                <th className="border border-orange-300 px-2 py-1 text-center">×</th>
-                <th className="border border-orange-300 px-2 py-1 text-center">Heures</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shiftsForAdminOvertime.map((s) => (
-                <tr key={s.id} className="break-inside-avoid">
-                  <td className="border border-orange-300 px-2 py-1 font-mono">
-                    {parseISODate(s.date).toLocaleDateString("fr-BE", {
-                      weekday: "short",
-                      day: "2-digit",
-                      month: "short",
-                    })}
-                  </td>
-                  <td className="border border-orange-300 px-2 py-1 font-mono">
-                    {s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}
-                  </td>
-                  <td className="border border-orange-300 px-2 py-1">
-                    {s.site ? `${s.site.code} · ${s.site.name}` : (s.location ?? "—")}
-                  </td>
-                  <td className="border border-orange-300 px-2 py-1">
-                    {s.position ?? "—"}
-                  </td>
-                  <td className="border border-orange-300 px-2 py-1 text-center font-mono">
-                    {s.overtime_multiplier
-                      ? `×${Number(s.overtime_multiplier).toFixed(2).replace(/\.?0+$/, "")}`
-                      : "—"}
-                  </td>
-                  <td className="border border-orange-300 px-2 py-1 text-center font-mono font-bold">
-                    {shiftHours(s.start_time, s.end_time, s.break_minutes).toFixed(2)}h
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-orange-50 font-bold">
-                <td colSpan={5} className="border border-orange-300 px-2 py-1 text-right">
-                  Total heures sup.
-                </td>
-                <td className="border border-orange-300 px-2 py-1 text-center font-mono">
-                  {overtimeHoursTotal.toFixed(2)}h
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-
-          <p className="mt-3 text-[10px] text-gray-600 italic">
-            Document interne — ne pas remettre tel quel à l'employé. Voir
-            page&nbsp;1 pour le récap contractuel partageable.
-          </p>
-        </section>
-      ) : null}
-
       <footer className="mt-4 flex justify-between items-end text-[9px] text-gray-500">
         <div>
           Édité le{" "}
@@ -337,11 +267,7 @@ export default async function EmployeePrintPage(props: {
             day: "2-digit",
             month: "long",
             year: "numeric",
-          })}{" "}
-          · Audience :{" "}
-          <span className="font-bold uppercase">
-            {audience === "admin" ? "admin/RH" : "employé"}
-          </span>
+          })}
         </div>
         <div className="text-right">
           <div>Signature employé&nbsp;:</div>
