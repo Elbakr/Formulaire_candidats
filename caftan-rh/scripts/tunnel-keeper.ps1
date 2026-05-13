@@ -5,8 +5,22 @@ $Cloudflared = "$env:USERPROFILE\cloudflared.exe"
 $Git = "C:\Users\KElba\PortableGit\cmd\git.exe"
 $RepoDir = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats"
 $LocalPort = 3000
+$LockFile = "$env:USERPROFILE\tunnel-keeper.lock"
 
-Write-Host "[keeper] start $(Get-Date)"
+# Anti-doublon : un seul keeper a la fois. Si un autre tourne deja, on exit.
+if (Test-Path $LockFile) {
+    $oldPid = Get-Content $LockFile -ErrorAction SilentlyContinue
+    if ($oldPid) {
+        $other = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+        if ($other) {
+            Write-Host "[keeper] another keeper already running (PID $oldPid), exiting."
+            exit 0
+        }
+    }
+}
+$PID | Out-File $LockFile -Encoding ASCII -Force
+
+Write-Host "[keeper] start $(Get-Date) PID=$PID"
 
 function Get-Url {
     if (-not (Test-Path $LogPath)) { return $null }
