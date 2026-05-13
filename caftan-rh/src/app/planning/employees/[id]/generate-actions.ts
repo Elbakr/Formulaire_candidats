@@ -206,6 +206,14 @@ export async function generateEmployeeWeekPlanAction(args: {
     end_date: string | null;
   }>;
   const primarySiteId = assigns[0]?.site_id ?? null;
+  if (!primarySiteId) {
+    // Karim 2026-05-13 : refus de generer un shift sans site. Sans site,
+    // les shifts sont orphelins (n'apparaissent pas sur /planning/sites/[code]
+    // ni dans la couverture par site). L'admin doit d'abord assigner.
+    return {
+      error: `${emp.full_name} n'a aucun site assigné. Affecte-la·le d'abord à un site depuis le dashboard /admin (carte "Employés sans site"), puis relance la génération.`,
+    };
+  }
 
   // Boucle 7 jours : determine quels jours sont dispo
   type DayCandidate = { dateISO: string; jsDow: number };
