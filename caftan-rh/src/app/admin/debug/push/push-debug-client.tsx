@@ -250,8 +250,22 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
         ) : null}
 
         <div className="flex flex-wrap gap-2">
-          {!info.subscribed && info.pushSupported && info.notifSupported ? (
-            <Button onClick={activate} disabled={busy} variant="gold">
+          {!info.subscribed ? (
+            <Button
+              onClick={() => {
+                if (info.isIos && !info.isStandalone) {
+                  toast.error("Installe d'abord l'app en PWA (Partager > Sur l'écran d'accueil), puis rouvre depuis l'icône.");
+                  return;
+                }
+                if (!info.pushSupported || !info.notifSupported) {
+                  toast.error("Ton navigateur ne supporte pas les push notifications. Essaie Chrome/Edge/Safari à jour.");
+                  return;
+                }
+                activate();
+              }}
+              disabled={busy}
+              variant="gold"
+            >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />
               ) : (
