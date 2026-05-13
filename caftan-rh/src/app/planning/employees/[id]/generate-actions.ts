@@ -77,6 +77,9 @@ export async function generateEmployeeWeekPlanAction(args: {
   const weekStart = toISODate(monday);
   const weekEnd = toISODate(sunday);
   const todayISO = toISODate(new Date());
+  // Regle fondamentale Karim 2026-05-13 : aucune generation sur date passee
+  // ou aujourd'hui. On planifie a partir de J+1 (demain) uniquement.
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
 
   const [
     { data: empRaw },
@@ -212,6 +215,8 @@ export async function generateEmployeeWeekPlanAction(args: {
     const d = addDays(monday, i);
     const dateISO = toISODate(d);
     const jsDow = d.getDay();
+    // Regle fondamentale Karim : pas de planification < J+1 (passe ou aujourd'hui).
+    if (dateISO < tomorrowISO) continue;
     if (dayClosed(dateISO)) continue;
     if (dayOffByFixed(jsDow)) continue;
     if (dayInLeave(dateISO)) continue;

@@ -102,6 +102,18 @@ export async function upsertShiftAction(formData: FormData) {
   if (!employeeId || !date || !start || !end) return { error: "Employé, date et horaires requis." };
   if (start >= end) return { error: "L'heure de fin doit être après l'heure de début." };
 
+  // Regle fondamentale Karim 2026-05-13 : aucune CREATION d'un nouveau shift
+  // < J+1. Une MODIF d'un shift existant (passe ou present) reste autorisee
+  // (rectification d'historique). La regle s'applique uniquement aux insertions.
+  if (!id) {
+    const tomorrowISO = toISODate(addDays(new Date(), 1));
+    if (date < tomorrowISO) {
+      return {
+        error: `Création impossible le ${date} : la planification commence à partir de J+1 (${tomorrowISO}). Pour rattraper un shift passé, modifie un shift existant ou contacte l'admin.`,
+      };
+    }
+  }
+
   const supabase = await createClient();
 
   // Chevauchements autorisés (décision Karim 2026-05-11) : un même employé

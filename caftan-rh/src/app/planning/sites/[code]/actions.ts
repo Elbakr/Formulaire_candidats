@@ -526,6 +526,9 @@ export async function previewSitePlanAction(
   // Itère du lundi au dimanche, dans l'ordre des jours pour étaler
   // naturellement les heures contractuelles en début de semaine quand on a
   // beaucoup de monde (le tri "moins de jours planifiés" force la répartition).
+  // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1 (passe ou jour courant).
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
+
   for (let dow = 0; dow < 7; dow++) {
     const dayDate = (() => {
       const offset = dow === 0 ? 6 : dow - 1;
@@ -534,6 +537,7 @@ export async function previewSitePlanAction(
     const dateISO = toISODate(dayDate);
     const dayJsDow = dayDate.getDay();
 
+    if (dateISO < tomorrowISO) continue;
     if (blockedDates.has(dateISO) || closedDates.has(dateISO)) continue;
 
     // Multiplier saisonnier (peak) — gonfle headcount sur les jours du pic.
@@ -903,6 +907,9 @@ export async function previewOvertimeFillAction(args: {
   const otDrafts: SitePlanPreview["drafts"] = [];
   const uncovered: SitePlanPreview["uncovered"] = [];
 
+  // Regle fondamentale Karim 2026-05-13 : on ne propose pas d'OT pour le passe.
+  const tomorrowISOphase2a = toISODate(addDays(new Date(), 1));
+
   for (let dow = 0; dow < 7; dow++) {
     const dayDate = (() => {
       const offset = dow === 0 ? 6 : dow - 1;
@@ -911,6 +918,7 @@ export async function previewOvertimeFillAction(args: {
     const dateISO = toISODate(dayDate);
     const dayJsDow = dayDate.getDay();
 
+    if (dateISO < tomorrowISOphase2a) continue;
     if (blockedDates.has(dateISO) || closedDates.has(dateISO)) continue;
 
     const dayNeeds = needs
@@ -1291,6 +1299,9 @@ export async function proposeOvertimeCandidatesAction(args: {
 
   const slots: UncoveredSlotWithCandidates[] = [];
 
+  // Regle fondamentale Karim 2026-05-13 : ne propose pas d'OT < J+1.
+  const tomorrowISOphase2b = toISODate(addDays(new Date(), 1));
+
   for (let dow = 0; dow < 7; dow++) {
     const dayDate = (() => {
       const offset = dow === 0 ? 6 : dow - 1;
@@ -1299,6 +1310,7 @@ export async function proposeOvertimeCandidatesAction(args: {
     const dateISO = toISODate(dayDate);
     const dayJsDow = dayDate.getDay();
 
+    if (dateISO < tomorrowISOphase2b) continue;
     if (blockedDates.has(dateISO) || closedDates.has(dateISO)) continue;
 
     const dayNeeds = needs
@@ -1562,6 +1574,13 @@ export async function commitIndividualOvertimeAction(args: {
     const dateISO = toISODate(dayDate);
     const dayJsDow = dayDate.getDay();
 
+    // Regle fondamentale Karim 2026-05-13 : on ne cree pas d'OT < J+1.
+    const tomorrowISOcommit = toISODate(addDays(new Date(), 1));
+    if (dateISO < tomorrowISOcommit) {
+      return {
+        error: `Le ${dateISO} est passé ou aujourd'hui — autorisation OT impossible (planification à partir de J+1).`,
+      };
+    }
     if (blockedDates.has(dateISO) || closedDates.has(dateISO)) {
       return {
         error: `Le ${dateISO} est fermé/férié — autorisation impossible pour ${emp.full_name}.`,
