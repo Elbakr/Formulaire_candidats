@@ -125,9 +125,11 @@ export async function rollbackAutoDraftAction(
 }
 
 /**
- * Genere des previews de planning pour N sites en parallele (decision Karim
- * 2026-05-12 : auto-planning multi-sites en 1 clic). N'ecrit rien : retourne
- * juste les previews. L'application est faite par commitMultiSitePlanAction.
+ * Genere des previews de planning pour N sites (decision Karim 2026-05-12
+ * pour le multi-sites + 2026-05-13 pour l'anti-double-booking) : N'ecrit
+ * rien en DB mais traite les sites SEQUENTIELLEMENT et FILTRE les drafts
+ * de chaque site qui chevauchent les drafts deja proposes pour un site
+ * precedent. Un employe ne peut pas etre a 2 endroits en meme temps.
  */
 export async function previewMultiSitePlanAction(
   siteCodes: string[],
@@ -141,13 +143,52 @@ export async function previewMultiSitePlanAction(
 }> {
   await requireRole(["admin", "rh", "manager"]);
   if (siteCodes.length === 0) return { items: [] };
-  const results = await Promise.all(
-    siteCodes.map(async (code) => {
-      const r = await previewSitePlanAction(code, weekISO);
-      if ("error" in r) return { site_code: code, error: r.error };
-      return { site_code: code, preview: r };
-    }),
-  );
+  const results: Array<{ site_code: string; preview?: SitePlanPreview; error?: string }> = [];
+  // Map des creneaux deja pris par employe/date au cours de ce preview batch
+  const takenByEmpDate = new Map<string, Array<{ start: string; end: string }>>();
+
+  for (const code of siteCodes) {
+    const r = await previewSitePlanAction(code, weekISO);
+    if ("error" in r) {
+      results.push({ site_code: code, error: r.error });
+      continue;
+    }
+    // Filtre les drafts qui chevauchent ce qui a deja ete propose pour un
+    // autre site dans ce meme batch.
+    const kept: typeof r.drafts = [];
+    const blocked: typeof r.drafts = [];
+    for (const d of r.drafts) {
+      const k = `${d.employee_id}|${d.date}`;
+      const existing = takenByEmpDate.get(k) ?? [];
+      const overlap = existing.some((e) => d.start_time < e.end && d.end_time > e.start);
+      if (overlap) {
+        blocked.push(d);
+        continue;
+      }
+      kept.push(d);
+      existing.push({ start: d.start_time, end: d.end_time });
+      takenByEmpDate.set(k, existing);
+    }
+    // Les drafts bloques deviennent des "uncovered" (effectif manquant) sur
+    // leur creneau original pour ce site, afin que Karim voit la realite.
+    const additionalUncovered: SitePlanPreview["uncovered"] = blocked.map((d) => ({
+      date: d.date,
+      day_label: new Date(d.date + "T00:00:00").toLocaleDateString("fr-BE", { weekday: "short" }),
+      start_time: d.start_time,
+      end_time: d.end_time,
+      role: d.position ?? null,
+      missing: 1,
+      reason: `${d.employee_name} déjà programmé(e) sur un autre site ce jour-là`,
+    }));
+    results.push({
+      site_code: code,
+      preview: {
+        ...r,
+        drafts: kept,
+        uncovered: [...r.uncovered, ...additionalUncovered],
+      },
+    });
+  }
   return { items: results };
 }
 

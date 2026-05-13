@@ -1113,13 +1113,72 @@ export async function previewOvertimeFillAction(args: {
 
 export async function commitSitePlanAction(
   drafts: SitePlanPreview["drafts"],
-): Promise<{ ok?: boolean; error?: string; created?: number; new_shift_ids?: string[] }> {
+): Promise<{
+  ok?: boolean;
+  error?: string;
+  created?: number;
+  skipped?: number;
+  new_shift_ids?: string[];
+}> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   if (!Array.isArray(drafts) || drafts.length === 0)
     return { error: "Aucun shift à créer." };
   const supabase = await createClient();
 
-  const rows = drafts.map((d) => ({
+  // ANTI-DOUBLE-BOOKING (Karim 2026-05-13) : un employe ne peut pas etre a
+  // 2 endroits en meme temps. Le solver par site calcule chaque site
+  // independamment. Au commit (sequentiel multi-sites), on charge tous les
+  // shifts existants des employes concernes sur les dates concernees, et
+  // on SKIP les drafts qui chevauchent un shift deja en DB.
+  const empIds = Array.from(new Set(drafts.map((d) => d.employee_id)));
+  const dates = drafts.map((d) => d.date).sort();
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+
+  const { data: existingRaw } = await supabase
+    .from("shifts")
+    .select("employee_id, date, start_time, end_time")
+    .in("employee_id", empIds)
+    .gte("date", minDate)
+    .lte("date", maxDate);
+  const existing = (existingRaw ?? []) as Array<{
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+  }>;
+  const byEmpDate = new Map<string, Array<{ start: string; end: string }>>();
+  for (const s of existing) {
+    const k = `${s.employee_id}|${s.date}`;
+    const arr = byEmpDate.get(k) ?? [];
+    arr.push({ start: s.start_time, end: s.end_time });
+    byEmpDate.set(k, arr);
+  }
+
+  const accepted: typeof drafts = [];
+  let skipped = 0;
+  for (const d of drafts) {
+    const k = `${d.employee_id}|${d.date}`;
+    const existingForKey = byEmpDate.get(k) ?? [];
+    const hasOverlap = existingForKey.some((e) => d.start_time < e.end && d.end_time > e.start);
+    if (hasOverlap) {
+      skipped += 1;
+      continue;
+    }
+    accepted.push(d);
+    // Marque ce draft comme "deja pris" pour les drafts suivants du meme batch
+    existingForKey.push({ start: d.start_time, end: d.end_time });
+    byEmpDate.set(k, existingForKey);
+  }
+
+  if (accepted.length === 0) {
+    return {
+      error: `Tous les drafts (${drafts.length}) chevauchent des shifts deja existants. Probable double-booking entre sites. Re-genere la preview.`,
+      skipped,
+    };
+  }
+
+  const rows = accepted.map((d) => ({
     employee_id: d.employee_id,
     site_id: d.site_id,
     date: d.date,
@@ -1141,7 +1200,7 @@ export async function commitSitePlanAction(
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, created: rows.length, new_shift_ids: ids };
+  return { ok: true, created: rows.length, skipped, new_shift_ids: ids };
 }
 
 // --- phase 2bis : overtime case-par-case (workflow 2026-05-11 v2) --------
