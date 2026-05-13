@@ -17,6 +17,14 @@ const PUBLIC_ROUTES = [
   "/api/push",
   // Endpoints de debug RH : auth verifie par requireRole dans le handler.
   "/api/debug",
+  // Assets PWA : iOS Safari lit le manifest AVANT le login pour decider de
+  // mode standalone vs raccourci. Si on redirige vers /login, l'app n'est
+  // pas detectee comme PWA et reste en mode navigateur (barre d'adresse).
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/icons",
+  "/favicon.ico",
+  "/apple-touch-icon.png",
 ];
 
 function isPublic(pathname: string) {
