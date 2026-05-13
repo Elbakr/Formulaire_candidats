@@ -364,12 +364,25 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
   const sitesDanger = siteCoverage.filter((s) => s.band === "danger");
   const sitesWarn = siteCoverage.filter((s) => s.band === "warn");
 
+  // Employés actifs sans site_assignments actif aujourd'hui
+  const todayISO = toISODate(new Date());
+  const { data: activeAssignsRaw } = await supabase
+    .from("site_assignments")
+    .select("employee_id")
+    .lte("start_date", todayISO)
+    .or(`end_date.is.null,end_date.gte.${todayISO}`);
+  const assignedEmpIds = new Set(
+    ((activeAssignsRaw ?? []) as Array<{ employee_id: string }>).map((a) => a.employee_id),
+  );
+  const unassignedActiveEmps = employees.filter((e) => !assignedEmpIds.has(e.id));
+
   // Total alertes ultra-prioritaires
   const criticalAlertCount =
     sitesDanger.length +
     quotaOvershoot.length +
     (activeAnomaliesRes.count ?? 0) +
-    cddEnding.length;
+    cddEnding.length +
+    unassignedActiveEmps.length;
 
   // KPIs
   const totalActive = employees.length;
@@ -505,6 +518,25 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
                 <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
               </Link>
             ))}
+            {unassignedActiveEmps.length > 0 ? (
+              <Link
+                href="/admin"
+                className="flex items-center gap-3 p-3 hover:bg-surface-2"
+              >
+                <Users className="h-4 w-4 text-warn shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm">
+                    {unassignedActiveEmps.length} employé{unassignedActiveEmps.length > 1 ? "s" : ""} sans site affecté
+                  </div>
+                  <div className="text-xs text-ink-3 truncate">
+                    {unassignedActiveEmps.slice(0, 4).map((e) => e.full_name).join(", ")}
+                    {unassignedActiveEmps.length > 4 ? ` +${unassignedActiveEmps.length - 4}` : ""}
+                    {" — "}affecte-les depuis le dashboard admin
+                  </div>
+                </div>
+                <ArrowRight className="h-3.5 w-3.5 text-ink-3 shrink-0" />
+              </Link>
+            ) : null}
             {sitesWarn.length > 0 ? (
               <div className="p-3 bg-warn-light/30 flex items-center gap-2 text-xs text-ink-2">
                 <AlertTriangle className="h-3.5 w-3.5 text-warn" />

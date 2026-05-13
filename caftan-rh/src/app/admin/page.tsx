@@ -4,12 +4,21 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, Briefcase, Building2, Radio } from "lucide-react";
+import { UnassignedEmployeesCard } from "@/components/unassigned-employees-card";
+import { computeSiteNeedsCoverage, type SiteNeedRow, type SiteShiftRow, type SiteRow } from "@/lib/analytics/site-needs-coverage";
+import { startOfWeek, toISODate, addDays } from "@/lib/planning";
 
 export default async function AdminPage() {
   await requireRole(["admin"]);
   const supabase = await createClient();
 
-  const [usersRes, jobsRes, deptsRes, appsRes, presenceRes] = await Promise.all([
+  const today = new Date();
+  const todayISO = today.toISOString().slice(0, 10);
+  const monday = startOfWeek(today);
+  const curWeekStart = toISODate(monday);
+  const curWeekEnd = toISODate(addDays(monday, 6));
+
+  const [usersRes, jobsRes, deptsRes, appsRes, presenceRes, unassignedRes, sitesRes, siteNeedsRes, weekShiftsRes] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
     supabase.from("jobs").select("id", { count: "exact", head: true }),
     supabase.from("departments").select("id", { count: "exact", head: true }),
@@ -17,7 +26,51 @@ export default async function AdminPage() {
     supabase
       .from("clock_currently_in")
       .select("employee_id, site_code, site_color, site_name, full_name, clock_in_at"),
+    // Employes actifs sans site_assignments actif a aujourd'hui (left join via .rpc not available -- on fait 2 queries)
+    supabase
+      .from("employees")
+      .select("id, full_name, contract_type, weekly_hours, status")
+      .eq("status", "active"),
+    supabase.from("sites").select("id, code, name, color").eq("is_active", true),
+    supabase.from("site_needs").select("site_id, day_of_week, start_time, end_time, headcount").eq("is_enabled", true),
+    supabase
+      .from("shifts")
+      .select("site_id, date, start_time, end_time, break_minutes, is_overtime")
+      .gte("date", curWeekStart)
+      .lte("date", curWeekEnd),
   ]);
+
+  // 2e requete pour les site_assignments actifs aujourd'hui
+  const { data: assignsRaw } = await supabase
+    .from("site_assignments")
+    .select("employee_id")
+    .lte("start_date", todayISO)
+    .or(`end_date.is.null,end_date.gte.${todayISO}`);
+  const assignedEmpIds = new Set(
+    ((assignsRaw ?? []) as Array<{ employee_id: string }>).map((a) => a.employee_id),
+  );
+  const allActive = (unassignedRes.data ?? []) as Array<{
+    id: string;
+    full_name: string;
+    contract_type: string | null;
+    weekly_hours: number | null;
+    status: string;
+  }>;
+  const unassignedEmployees = allActive.filter((e) => !assignedEmpIds.has(e.id));
+
+  // Sites en deficit cette semaine
+  const sites = (sitesRes.data ?? []) as SiteRow[];
+  const siteNeeds = (siteNeedsRes.data ?? []) as SiteNeedRow[];
+  const weekShifts = (weekShiftsRes.data ?? []) as SiteShiftRow[];
+  const siteCoverage = computeSiteNeedsCoverage(sites, siteNeeds, weekShifts, curWeekStart);
+  const sitesInDeficit = siteCoverage.map((s) => ({
+    id: s.site_id,
+    code: s.site_code,
+    name: s.site_name,
+    color: s.site_color,
+    deficit_hours: s.deficit_hours,
+    band: s.band,
+  }));
   const presence = (presenceRes.data ?? []) as Array<{
     employee_id: string;
     site_code: string | null;
@@ -43,6 +96,10 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-4">
+      <UnassignedEmployeesCard
+        employees={unassignedEmployees}
+        sitesInDeficit={sitesInDeficit}
+      />
       <div>
         <h1 className="text-2xl font-bold">Administration</h1>
         <p className="text-sm text-ink-2">Vue d'ensemble + gestion utilisateurs et paramètres.</p>
