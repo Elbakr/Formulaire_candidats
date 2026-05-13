@@ -146,8 +146,20 @@ export async function upsertShiftAction(formData: FormData) {
       is_overtime: boolean | null;
     }>;
     let contractualBefore = 0;
+    let oldShiftHours = 0;
     for (const s of weekShifts) {
-      if (id && s.id === id) continue;
+      if (id && s.id === id) {
+        // Shift en cours d'edition : on retient sa duree avant modif pour
+        // comparer "ancien total" vs "nouveau total".
+        if (!s.is_overtime) {
+          oldShiftHours = shiftHours(
+            s.start_time.slice(0, 5),
+            s.end_time.slice(0, 5),
+            s.break_minutes ?? 0,
+          );
+        }
+        continue;
+      }
       if (s.is_overtime) continue;
       contractualBefore += shiftHours(
         s.start_time.slice(0, 5),
@@ -157,10 +169,18 @@ export async function upsertShiftAction(formData: FormData) {
     }
     const thisShiftHours = shiftHours(newStart, newEnd, breakMinutes);
     const projected = contractualBefore + thisShiftHours;
-    if (projected > weeklyTarget + 0.01) {
+
+    // Karim 2026-05-13 : on ne bloque QUE si la modif AGGRAVE le depassement.
+    // Si la semaine etait deja au-dessus du quota (cas historique) et que
+    // l'admin modifie un shift sans augmenter sa duree (changement d'horaire,
+    // de site, de poste), on laisse passer. Bloquer seulement quand thisShiftHours
+    // > oldShiftHours (cas creation = oldShiftHours=0, cas modif qui augmente).
+    if (projected > weeklyTarget + 0.01 && thisShiftHours > oldShiftHours + 0.01) {
       const overBy = +(projected - weeklyTarget).toFixed(2);
+      const delta = +(thisShiftHours - oldShiftHours).toFixed(2);
+      const action = id ? "Cette modif ajoute" : "Ce shift ajoute";
       return {
-        error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). Active la case "Heures sup" ou réduis le shift.`,
+        error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). ${action} ${delta}h. Active la case "Heures sup" ou réduis le shift.`,
       };
     }
   }
