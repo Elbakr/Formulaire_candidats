@@ -1,14 +1,3 @@
-# Tunnel keeper — maintient un tunnel Cloudflare quick en vie 24/7 et publie
-# l'URL active dans caftan-rh/TUNNEL_URL.txt (committé+pushé sur GitHub).
-#
-# Karim peut bookmarker en permanence :
-#   https://raw.githubusercontent.com/Elbakr/Formulaire_candidats/caftan-rh-v2-prod/caftan-rh/TUNNEL_URL.txt
-# qui contient toujours l'URL active. Il l'ouvre sur iPhone, copie, navigue.
-#
-# Usage : ouvrir un PowerShell admin et lancer
-#   pwsh -File scripts\tunnel-keeper.ps1
-# (ou tâche planifiée Windows pour démarrer au boot)
-
 $ErrorActionPreference = "Continue"
 $LogPath = "$env:USERPROFILE\cloudflared-tunnel.log"
 $UrlFile = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats\caftan-rh\TUNNEL_URL.txt"
@@ -17,63 +6,56 @@ $Git = "C:\Users\KElba\PortableGit\cmd\git.exe"
 $RepoDir = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats"
 $LocalPort = 3000
 
-Write-Host "[tunnel-keeper] Demarre — $(Get-Date)"
+Write-Host "[keeper] start $(Get-Date)"
 
-function Get-CloudflaredProcess {
-    Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Select-Object -First 1
-}
-
-function Get-TunnelUrlFromLog {
+function Get-Url {
     if (-not (Test-Path $LogPath)) { return $null }
-    $content = Get-Content $LogPath -Raw -ErrorAction SilentlyContinue
-    if (-not $content) { return $null }
-    $m = [regex]::Match($content, "https://[a-z0-9-]+\.trycloudflare\.com")
+    $c = Get-Content $LogPath -Raw -ErrorAction SilentlyContinue
+    if (-not $c) { return $null }
+    $m = [regex]::Match($c, "https://[a-z0-9-]+\.trycloudflare\.com")
     if ($m.Success) { return $m.Value }
     return $null
 }
 
 function Start-Tunnel {
-    Write-Host "[tunnel-keeper] Lance cloudflared..."
+    Write-Host "[keeper] starting cloudflared"
     if (Test-Path $LogPath) { Remove-Item $LogPath -Force -ErrorAction SilentlyContinue }
-    Start-Process -FilePath $Cloudflared `
-        -ArgumentList @("tunnel", "--url", "http://localhost:$LocalPort") `
-        -RedirectStandardError $LogPath `
-        -WindowStyle Hidden
+    Start-Process -FilePath $Cloudflared -ArgumentList @("tunnel", "--url", "http://localhost:$LocalPort") -RedirectStandardError $LogPath -WindowStyle Hidden
     Start-Sleep -Seconds 8
     for ($i = 0; $i -lt 10; $i++) {
-        $url = Get-TunnelUrlFromLog
-        if ($url) { return $url }
+        $u = Get-Url
+        if ($u) { return $u }
         Start-Sleep -Seconds 2
     }
     return $null
 }
 
-function Publish-Url {
+function Publish {
     param([string]$Url)
-    $current = if (Test-Path $UrlFile) { (Get-Content $UrlFile -Raw -ErrorAction SilentlyContinue).Trim() } else { "" }
-    if ($current -eq $Url) { return }
-    Write-Host "[tunnel-keeper] URL change : $current -> $Url"
-    $payload = @"
-$Url
-
-Tunnel actif depuis $(Get-Date -Format "yyyy-MM-dd HH:mm").
-Ce fichier est mis a jour automatiquement par scripts/tunnel-keeper.ps1.
-Bookmark cette page sur ton iPhone, l'URL ici est toujours la bonne.
-"@
-    Set-Content -Path $UrlFile -Value $payload -Encoding UTF8
+    $existing = ""
+    if (Test-Path $UrlFile) {
+        $first = Get-Content $UrlFile -First 1 -ErrorAction SilentlyContinue
+        if ($first) { $existing = $first.Trim() }
+    }
+    if ($existing -eq $Url) { return }
+    Write-Host "[keeper] URL change to $Url"
+    $stamp = (Get-Date -Format "yyyy-MM-dd HH:mm")
+    $lines = @($Url, "", "Tunnel actif depuis $stamp.", "Mis a jour automatiquement par scripts/tunnel-keeper.ps1.", "Bookmark cette page, l URL ici est toujours la bonne.")
+    Set-Content -Path $UrlFile -Value $lines -Encoding UTF8
     Push-Location $RepoDir
     try {
         & $Git add caftan-rh/TUNNEL_URL.txt 2>&1 | Out-Null
-        & $Git commit -m "chore(tunnel): publish active URL $($Url.Substring(8, [Math]::Min(32, $Url.Length - 8)))" 2>&1 | Out-Null
+        $shortUrl = $Url.Substring(8, [Math]::Min(32, $Url.Length - 8))
+        & $Git commit -m "chore(tunnel): publish $shortUrl" 2>&1 | Out-Null
         & $Git push origin caftan-rh-v2-prod:caftan-rh-v2-prod 2>&1 | Out-Null
-        Write-Host "[tunnel-keeper] Push GitHub OK"
+        Write-Host "[keeper] pushed"
     } catch {
-        Write-Host "[tunnel-keeper] Push echoue : $_"
+        Write-Host "[keeper] push failed"
     }
     Pop-Location
 }
 
-function Test-TunnelAlive {
+function Test-Alive {
     param([string]$Url)
     if (-not $Url) { return $false }
     try {
@@ -84,26 +66,24 @@ function Test-TunnelAlive {
     }
 }
 
-# Boucle de surveillance principale
 $currentUrl = $null
 while ($true) {
-    $proc = Get-CloudflaredProcess
+    $proc = Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $proc) {
         $currentUrl = Start-Tunnel
-        if ($currentUrl) { Publish-Url -Url $currentUrl }
+        if ($currentUrl) { Publish -Url $currentUrl }
     } else {
-        $url = Get-TunnelUrlFromLog
-        if ($url -and $url -ne $currentUrl) {
-            $currentUrl = $url
-            Publish-Url -Url $currentUrl
+        $u = Get-Url
+        if ($u -and $u -ne $currentUrl) {
+            $currentUrl = $u
+            Publish -Url $currentUrl
         }
-        # Healthcheck : si le tunnel ne repond plus depuis 2 min, on le tue
-        if (-not (Test-TunnelAlive -Url $currentUrl)) {
-            Write-Host "[tunnel-keeper] Healthcheck KO, kill+restart"
+        if (-not (Test-Alive -Url $currentUrl)) {
+            Write-Host "[keeper] healthcheck KO, restart"
             Stop-Process -Name "cloudflared" -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
             $currentUrl = Start-Tunnel
-            if ($currentUrl) { Publish-Url -Url $currentUrl }
+            if ($currentUrl) { Publish -Url $currentUrl }
         }
     }
     Start-Sleep -Seconds 60
