@@ -70,10 +70,12 @@ export function EmployeeAdminForm({
   employee,
   departments,
   managers,
+  sites,
 }: {
   employee: Employee;
   departments: { id: string; name: string }[];
   managers: { id: string; full_name: string | null }[];
+  sites: { id: string; code: string; name: string; color: string | null }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -238,41 +240,55 @@ export function EmployeeAdminForm({
 
           <div className="grid md:grid-cols-2 gap-3">
             <div>
-              <Label>Sites préférés</Label>
+              <Label>Sites préférés (magasins)</Label>
               <div className="flex gap-1 flex-wrap mt-1">
-                {departments.map((d) => (
+                {sites.map((s) => (
                   <button
-                    key={d.id}
+                    key={s.id}
                     type="button"
-                    onClick={() => toggleSite(preferredSites, setPreferredSites, d.id)}
+                    onClick={() => toggleSite(preferredSites, setPreferredSites, s.id)}
+                    title={s.name}
                     className={cn(
-                      "px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold transition",
-                      preferredSites.has(d.id)
+                      "px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold transition inline-flex items-center gap-1.5",
+                      preferredSites.has(s.id)
                         ? "bg-success-light border-success text-success"
                         : "bg-surface border-line text-ink-3 hover:border-success",
                     )}
                   >
-                    {d.name}
+                    <span
+                      className="inline-flex items-center justify-center px-1 rounded text-white font-bold text-[9px]"
+                      style={{ backgroundColor: s.color ?? "#666" }}
+                    >
+                      {s.code}
+                    </span>
+                    {s.name}
                   </button>
                 ))}
               </div>
             </div>
             <div>
-              <Label>Sites indisponibles</Label>
+              <Label>Sites indisponibles (magasins)</Label>
               <div className="flex gap-1 flex-wrap mt-1">
-                {departments.map((d) => (
+                {sites.map((s) => (
                   <button
-                    key={d.id}
+                    key={s.id}
                     type="button"
-                    onClick={() => toggleSite(unavailSites, setUnavailSites, d.id)}
+                    onClick={() => toggleSite(unavailSites, setUnavailSites, s.id)}
+                    title={s.name}
                     className={cn(
-                      "px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold transition",
-                      unavailSites.has(d.id)
+                      "px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold transition inline-flex items-center gap-1.5",
+                      unavailSites.has(s.id)
                         ? "bg-danger-light border-danger text-danger"
                         : "bg-surface border-line text-ink-3 hover:border-danger",
                     )}
                   >
-                    {d.name}
+                    <span
+                      className="inline-flex items-center justify-center px-1 rounded text-white font-bold text-[9px]"
+                      style={{ backgroundColor: s.color ?? "#666" }}
+                    >
+                      {s.code}
+                    </span>
+                    {s.name}
                   </button>
                 ))}
               </div>

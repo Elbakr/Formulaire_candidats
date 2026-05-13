@@ -150,9 +150,11 @@ export async function previewMultiSitePlanAction(
   for (const code of siteCodes) {
     const r = await previewSitePlanAction(code, weekISO);
     if ("error" in r) {
+      console.log(`[previewMultiSite] ${code} ${weekISO} ERROR: ${r.error}`);
       results.push({ site_code: code, error: r.error });
       continue;
     }
+    console.log(`[previewMultiSite] ${code} ${weekISO} : ${r.drafts.length} drafts initiaux, ${r.uncovered.length} uncovered initiaux`);
     // Filtre les drafts qui chevauchent ce qui a deja ete propose pour un
     // autre site dans ce meme batch.
     const kept: typeof r.drafts = [];
@@ -169,6 +171,7 @@ export async function previewMultiSitePlanAction(
       existing.push({ start: d.start_time, end: d.end_time });
       takenByEmpDate.set(k, existing);
     }
+    console.log(`[previewMultiSite] ${code} ${weekISO} : ${kept.length} kept, ${blocked.length} bloques par double-booking`);
     // Les drafts bloques deviennent des "uncovered" (effectif manquant) sur
     // leur creneau original pour ce site, afin que Karim voit la realite.
     const additionalUncovered: SitePlanPreview["uncovered"] = blocked.map((d) => ({

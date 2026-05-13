@@ -187,6 +187,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             employee={emp as never}
             departments={depts ?? []}
             managers={managers ?? []}
+            sites={sites}
           />
         </div>
       </Card>

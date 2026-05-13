@@ -283,6 +283,20 @@ export function GenerateWeekDialog({
           </div>
         ) : (
           <div className="space-y-3 max-h-96 overflow-auto">
+            {previews && previews.every((p) => !p.preview || p.preview.drafts.length === 0) ? (
+              <div className="rounded-md border border-warn bg-warn-light/40 p-3 text-xs space-y-1">
+                <div className="font-bold text-warn flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Aucun shift proposé sur cette période
+                </div>
+                <ul className="text-ink-2 ml-4 list-disc space-y-0.5">
+                  <li>La semaine est peut-être déjà entamée (règle J+1 : pas de planif &lt; demain)</li>
+                  <li>Le pool d&apos;employés est saturé par les besoins du 1er site (les suivants ne voient personne libre)</li>
+                  <li>Trop d&apos;employés OFF ou en congé ces jours-là</li>
+                  <li>Essaie de générer pour la <strong>semaine prochaine</strong> ou augmente la période à 2-4 semaines</li>
+                </ul>
+              </div>
+            ) : null}
             {(() => {
               if (!previews) return null;
               // Regroupe par semaine
