@@ -50,6 +50,7 @@ const sections: NavSection[] = [
   },
   {
     items: [
+      { href: "/admin/debug/push", label: "Diagnostic Push", icon: "Stethoscope" },
       { href: "/admin/settings", label: "Paramètres", icon: "Sliders" },
     ],
   },

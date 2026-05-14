@@ -31,14 +31,45 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
     subEndpoint: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  // Trace visible dans l'UI (utile iPhone PWA -- impossible d'ouvrir la console)
+  // Trace visible dans l'UI (utile iPhone PWA -- impossible d'ouvrir la console).
+  // Persistee en localStorage : si l'utilisateur quitte la page apres avoir
+  // accorde la permission iOS, il peut revenir et voir ce qui s'est passe.
+  const TRACE_KEY = "caftanrh-push-trace-v1";
   const [trace, setTrace] = useState<string[]>([]);
   const traceRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(TRACE_KEY);
+      if (stored) setTrace(JSON.parse(stored) as string[]);
+    } catch {
+      /* noop */
+    }
+  }, []);
+  function persistTrace(lines: string[]) {
+    try {
+      window.localStorage.setItem(TRACE_KEY, JSON.stringify(lines.slice(-200)));
+    } catch {
+      /* noop */
+    }
+  }
   function logTrace(line: string) {
     const ts = new Date().toLocaleTimeString("fr-BE", { hour12: false });
-    setTrace((t) => [...t, `${ts} ${line}`]);
+    setTrace((t) => {
+      const next = [...t, `${ts} ${line}`];
+      persistTrace(next);
+      return next;
+    });
     console.log("[push-debug]", line);
     setTimeout(() => traceRef.current?.scrollIntoView({ block: "end" }), 50);
+  }
+  function clearTrace() {
+    setTrace([]);
+    try {
+      window.localStorage.removeItem(TRACE_KEY);
+    } catch {
+      /* noop */
+    }
   }
 
   async function probe() {
@@ -106,7 +137,7 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
       return;
     }
     setBusy(true);
-    setTrace([]);
+    clearTrace();
     logTrace("▶ start");
     // Pas de watchdog tant que l'user n'a pas repondu a la popup iOS Notifications
     // (peut prendre plusieurs minutes). On le demarre apres step 1.
@@ -329,8 +360,17 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
 
         {trace.length > 0 ? (
           <div className="mt-3">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 mb-1">
-              Trace activation (visible iPhone)
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">
+                Trace activation (visible iPhone, persistee)
+              </div>
+              <button
+                type="button"
+                onClick={clearTrace}
+                className="text-[10px] text-ink-3 hover:text-ink underline"
+              >
+                vider
+              </button>
             </div>
             <div className="rounded bg-ink text-success font-mono text-[11px] p-2 max-h-48 overflow-auto">
               {trace.map((line, i) => (
