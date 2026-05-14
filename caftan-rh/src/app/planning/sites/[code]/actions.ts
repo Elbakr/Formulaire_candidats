@@ -837,28 +837,38 @@ export async function previewOvertimeFillAction(args: {
       ?.overtime_min_pause_minutes ?? 15;
 
   // Compteurs initialisés depuis l'EXISTANT (autres sites + ce site déjà commités).
+  // plannedHours = total des heures productives (regulier + OT).
+  // contractualHours = heures REGULIERES uniquement (utilise pour decider du
+  // fractionnement automatique en phase 2 -- Karim 2026-05-14).
   const plannedHours = new Map<string, number>();
+  const contractualHours = new Map<string, number>();
   const plannedDays = new Map<string, Set<string>>();
   for (const e of allEmployees) {
     plannedHours.set(e.id, 0);
+    contractualHours.set(e.id, 0);
     plannedDays.set(e.id, new Set());
   }
   for (const s of existing) {
-    plannedHours.set(
-      s.employee_id,
-      (plannedHours.get(s.employee_id) ?? 0) +
-        netShiftHours(s.start_time, s.end_time, s.break_minutes ?? 0),
-    );
+    const h = netShiftHours(s.start_time, s.end_time, s.break_minutes ?? 0);
+    plannedHours.set(s.employee_id, (plannedHours.get(s.employee_id) ?? 0) + h);
+    if (!s.is_overtime) {
+      contractualHours.set(
+        s.employee_id,
+        (contractualHours.get(s.employee_id) ?? 0) + h,
+      );
+    }
     const set = plannedDays.get(s.employee_id) ?? new Set<string>();
     set.add(s.date);
     plannedDays.set(s.employee_id, set);
   }
-  // Ajoute les baseDrafts (phase 1) au compteur — ils sont notre point de départ.
+  // Ajoute les baseDrafts (phase 1) au compteur — ils sont notre point de
+  // depart. Tous les baseDrafts sont reguliers par construction.
   for (const d of baseDrafts) {
-    plannedHours.set(
+    const h = slotHours(d.start_time, d.end_time);
+    plannedHours.set(d.employee_id, (plannedHours.get(d.employee_id) ?? 0) + h);
+    contractualHours.set(
       d.employee_id,
-      (plannedHours.get(d.employee_id) ?? 0) +
-        slotHours(d.start_time, d.end_time),
+      (contractualHours.get(d.employee_id) ?? 0) + h,
     );
     const set = plannedDays.get(d.employee_id) ?? new Set<string>();
     set.add(d.date);
@@ -1018,35 +1028,97 @@ export async function previewOvertimeFillAction(args: {
       for (const c of candidates) {
         if (remaining <= 0) break;
         const tier = (tierByEmp.get(c.emp.id) ?? 3) as 1 | 2 | 3;
-        otDrafts.push({
+
+        // Fractionnement automatique (Karim 2026-05-14) : si l employe a
+        // encore de la reserve contractuelle, on l epuise d abord puis on
+        // bascule en OT au-dela. Voir splitShiftForQuota() pour la regle.
+        const empWeekly = c.emp.weekly_hours ?? 38;
+        const contractualUsed = contractualHours.get(c.emp.id) ?? 0;
+        const remainingContract = Math.max(0, empWeekly - contractualUsed);
+
+        const otStartMin = timeToMin(c.otStart);
+
+        // Decoupage : on prend min(slot, reserve) en contractuel, le reste en OT.
+        // Pas de pause sur les segments OT (pause deja consommee avant via
+        // otStartMin = lastEnd + otMinPause).
+        const baseShiftFields = {
           employee_id: c.emp.id,
           employee_name: c.emp.full_name,
           date: dateISO,
-          start_time: c.otStart,
-          end_time: c.otEnd,
-          break_minutes: c.emp.default_pause_minutes ?? 30,
+          break_minutes: 0,
           position: need.role,
           site_id: siteId,
           need_id: need.id,
           is_renfort: tier === 3,
-          pool_tier: tier,
-          is_overtime: true,
-          overtime_multiplier: multiplier,
-        });
-        plannedHours.set(
-          c.emp.id,
-          (plannedHours.get(c.emp.id) ?? 0) + c.otHours,
-        );
+          pool_tier: tier as 1 | 2 | 3,
+        };
+
+        if (remainingContract >= c.otHours - 0.001) {
+          // Tout le slot tient dans le contractuel : 1 shift regulier
+          otDrafts.push({
+            ...baseShiftFields,
+            start_time: c.otStart,
+            end_time: c.otEnd,
+            is_overtime: false,
+            overtime_multiplier: null,
+          });
+          contractualHours.set(c.emp.id, contractualUsed + c.otHours);
+          allShiftsForConflict.push({
+            employee_id: c.emp.id,
+            date: dateISO,
+            start_time: c.otStart,
+            end_time: c.otEnd,
+          });
+          noteEnd(c.emp.id, dateISO, c.otEnd);
+        } else if (remainingContract > 0.001) {
+          // Split : segment 1 contractuel, segment 2 OT
+          const splitMin = otStartMin + Math.round(remainingContract * 60);
+          const splitHHMM = minToHHMM(splitMin);
+          otDrafts.push({
+            ...baseShiftFields,
+            start_time: c.otStart,
+            end_time: splitHHMM,
+            is_overtime: false,
+            overtime_multiplier: null,
+          });
+          otDrafts.push({
+            ...baseShiftFields,
+            start_time: splitHHMM,
+            end_time: c.otEnd,
+            is_overtime: true,
+            overtime_multiplier: multiplier,
+          });
+          contractualHours.set(c.emp.id, contractualUsed + remainingContract);
+          allShiftsForConflict.push({
+            employee_id: c.emp.id,
+            date: dateISO,
+            start_time: c.otStart,
+            end_time: c.otEnd,
+          });
+          noteEnd(c.emp.id, dateISO, c.otEnd);
+        } else {
+          // Aucune reserve : 1 shift full OT (comportement historique)
+          otDrafts.push({
+            ...baseShiftFields,
+            start_time: c.otStart,
+            end_time: c.otEnd,
+            break_minutes: c.emp.default_pause_minutes ?? 30,
+            is_overtime: true,
+            overtime_multiplier: multiplier,
+          });
+          allShiftsForConflict.push({
+            employee_id: c.emp.id,
+            date: dateISO,
+            start_time: c.otStart,
+            end_time: c.otEnd,
+          });
+          noteEnd(c.emp.id, dateISO, c.otEnd);
+        }
+
+        plannedHours.set(c.emp.id, (plannedHours.get(c.emp.id) ?? 0) + c.otHours);
         const set = plannedDays.get(c.emp.id) ?? new Set<string>();
         set.add(dateISO);
         plannedDays.set(c.emp.id, set);
-        allShiftsForConflict.push({
-          employee_id: c.emp.id,
-          date: dateISO,
-          start_time: c.otStart,
-          end_time: c.otEnd,
-        });
-        noteEnd(c.emp.id, dateISO, c.otEnd);
         remaining -= 1;
       }
 
