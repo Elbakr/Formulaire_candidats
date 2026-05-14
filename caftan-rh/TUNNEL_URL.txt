@@ -1,5 +1,6 @@
-﻿https://estates-soma-generous-competing.trycloudflare.com
+https://ruling-houston-explains-pushed.trycloudflare.com
 
-Tunnel actif depuis 2026-05-13 19:53.
-Mis a jour automatiquement par scripts/tunnel-keeper.ps1.
-Bookmark cette page, l URL ici est toujours la bonne.
+Tunnel cloudflared HTTP2 actif depuis 2026-05-14.
+URL aleatoire -- change a chaque restart du tunnel.
+Bookmark le RAW de ce fichier pour avoir toujours l URL a jour :
+https://raw.githubusercontent.com/Elbakr/Formulaire_candidats/caftan-rh-v2-prod/caftan-rh/TUNNEL_URL.txt
