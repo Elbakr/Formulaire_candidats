@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, Star } from "lucide-react";
+import { ArrowRight, Star, Clock } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import { RecomputeButton } from "./recompute-button";
 import { formatDateTime } from "@/lib/utils";
+import { loadPunctualityForEmployees } from "@/lib/scoring/punctuality";
 
 type Row = {
   employee_id: string;
@@ -36,6 +37,14 @@ export default async function ScoringHomePage() {
   const rows = (data ?? []) as unknown as Row[];
 
   const lastUpdate = rows.find((r) => r.metrics_updated_at)?.metrics_updated_at;
+
+  // Ponctualite : computed TS-side a partir de clock_entries vs shifts (3 mois).
+  // Karim 14/05/2026 : rendu visible dans le scoring pour rendre tangible la
+  // rigueur observee, en attendant migration DB pour integrer au global_score.
+  const punctualityByEmp = await loadPunctualityForEmployees(
+    rows.map((r) => r.employee_id),
+    3,
+  );
 
   return (
     <div className="space-y-4">
@@ -80,6 +89,31 @@ export default async function ScoringHomePage() {
                 <div className="hidden md:flex flex-col items-end text-xs text-ink-2 mr-2 shrink-0">
                   <span>Fiabilité : <span className="font-mono font-bold">{Number(r.reliability_pct ?? 100).toFixed(0)}%</span></span>
                   <span>Couverture : <span className="font-mono font-bold">{Number(r.coverage_pct ?? 100).toFixed(0)}%</span></span>
+                  {(() => {
+                    const p = punctualityByEmp.get(r.employee_id);
+                    if (!p || p.samples === 0) {
+                      return (
+                        <span className="text-ink-3 italic">Ponctualité : —</span>
+                      );
+                    }
+                    const tone =
+                      p.band === "exemplary"
+                        ? "text-success"
+                        : p.band === "ok"
+                          ? "text-ink-2"
+                          : p.band === "attention"
+                            ? "text-warn"
+                            : "text-danger";
+                    return (
+                      <span
+                        title={`${p.samples} shifts evalues sur 3 mois. Ponctuels : ${p.punctual_pct.toFixed(0)}%, retards 5-15 min : ${p.late_pct.toFixed(0)}%, >15 min : ${p.very_late_pct.toFixed(0)}%. Retard moyen : ${p.avg_late_minutes.toFixed(1)} min.`}
+                        className={`inline-flex items-center gap-1 ${tone}`}
+                      >
+                        <Clock className="h-3 w-3" />
+                        Ponctualité : <span className="font-mono font-bold">{p.rigor_score.toFixed(0)}%</span>
+                      </span>
+                    );
+                  })()}
                 </div>
                 <ScoreBadge score={Number(r.global_score ?? 0)} />
                 {r.avg_manager_score != null ? (
