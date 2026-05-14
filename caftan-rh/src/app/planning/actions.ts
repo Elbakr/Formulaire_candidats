@@ -9,6 +9,7 @@ import {
 } from "@/lib/leave-auto-validation";
 import { sendPushToProfile } from "@/lib/push-notify";
 import { shiftHours, startOfWeek, addDays, toISODate } from "@/lib/planning";
+import { splitShiftForQuota } from "@/lib/split-overtime";
 
 /**
  * Calcule les heures déjà planifiées (hors OT) pour un employé sur la semaine
@@ -121,114 +122,134 @@ export async function upsertShiftAction(formData: FormData) {
   // pour couvrir un besoin critique 14:30-17:30 *à l'intérieur* d'un shift
   // contractuel 10:00-19:30. On n'envoie plus aucun bloc anti-overlap ici ;
   // la responsabilité revient au RH de ne pas dupliquer un même créneau.
-  const newStart = start.slice(0, 5);
-  const newEnd = end.slice(0, 5);
 
-  // ── Validation contrat hebdo : si le shift est marqué "contractuel"
-  // (is_overtime=false) et qu'il fait dépasser weekly_hours pour la semaine,
-  // on bloque avec un message demandant explicitement is_overtime=true.
-  // On exclut le shift en cours d'édition pour ne pas le compter deux fois.
-  if (!isOvertime) {
-    const monday = startOfWeek(new Date(date + "T00:00:00"));
-    const sunday = addDays(monday, 6);
-    const weekStart = toISODate(monday);
-    const weekEnd = toISODate(sunday);
+  // ── Fractionnement automatique au seuil du quota hebdo (Karim 2026-05-14)
+  // Plus de blocage "Dépassement de contrat" — si le shift fait dépasser
+  // weekly_hours, on l'epuise d'abord en contractuel puis on bascule en OT
+  // au point exact d'epuisement. Le segment OT garde le break=0 (la pause
+  // est rattachee au segment contractuel, en pratique pause repas avant
+  // l'overtime).
+  const monday = startOfWeek(new Date(date + "T00:00:00"));
+  const sunday = addDays(monday, 6);
+  const weekStart = toISODate(monday);
+  const weekEnd = toISODate(sunday);
 
-    const [{ data: emp }, { data: weekShiftsRaw }] = await Promise.all([
-      supabase
-        .from("employees")
-        .select("weekly_hours")
-        .eq("id", employeeId)
-        .maybeSingle(),
-      supabase
-        .from("shifts")
-        .select("id, start_time, end_time, break_minutes, is_overtime")
-        .eq("employee_id", employeeId)
-        .gte("date", weekStart)
-        .lte("date", weekEnd),
-    ]);
+  const [{ data: emp }, { data: weekShiftsRaw }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("weekly_hours")
+      .eq("id", employeeId)
+      .maybeSingle(),
+    supabase
+      .from("shifts")
+      .select("id, start_time, end_time, break_minutes, is_overtime")
+      .eq("employee_id", employeeId)
+      .gte("date", weekStart)
+      .lte("date", weekEnd),
+  ]);
 
-    const weeklyTarget =
-      (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
-    const weekShifts = (weekShiftsRaw ?? []) as Array<{
-      id: string;
-      start_time: string;
-      end_time: string;
-      break_minutes: number;
-      is_overtime: boolean | null;
-    }>;
-    let contractualBefore = 0;
-    let oldShiftHours = 0;
-    for (const s of weekShifts) {
-      if (id && s.id === id) {
-        // Shift en cours d'edition : on retient sa duree avant modif pour
-        // comparer "ancien total" vs "nouveau total".
-        if (!s.is_overtime) {
-          oldShiftHours = shiftHours(
-            s.start_time.slice(0, 5),
-            s.end_time.slice(0, 5),
-            s.break_minutes ?? 0,
-          );
-        }
-        continue;
-      }
-      if (s.is_overtime) continue;
-      contractualBefore += shiftHours(
-        s.start_time.slice(0, 5),
-        s.end_time.slice(0, 5),
-        s.break_minutes ?? 0,
-      );
-    }
-    const thisShiftHours = shiftHours(newStart, newEnd, breakMinutes);
-    const projected = contractualBefore + thisShiftHours;
+  const weeklyTarget =
+    (emp as { weekly_hours: number | null } | null)?.weekly_hours ?? 38;
+  const weekShifts = (weekShiftsRaw ?? []) as Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean | null;
+  }>;
 
-    // Karim 2026-05-13 : on ne bloque QUE si la modif AGGRAVE le depassement.
-    // Si la semaine etait deja au-dessus du quota (cas historique) et que
-    // l'admin modifie un shift sans augmenter sa duree (changement d'horaire,
-    // de site, de poste), on laisse passer. Bloquer seulement quand thisShiftHours
-    // > oldShiftHours (cas creation = oldShiftHours=0, cas modif qui augmente).
-    if (projected > weeklyTarget + 0.01 && thisShiftHours > oldShiftHours + 0.01) {
-      const overBy = +(projected - weeklyTarget).toFixed(2);
-      const delta = +(thisShiftHours - oldShiftHours).toFixed(2);
-      const action = id ? "Cette modif ajoute" : "Ce shift ajoute";
-      return {
-        error: `Dépassement de contrat (${weeklyTarget}h/sem) sans autorisation OT : ${projected.toFixed(1)}h projetés (+${overBy}h). ${action} ${delta}h. Active la case "Heures sup" ou réduis le shift.`,
-      };
-    }
+  // Heures contractuelles deja consommees cette semaine, hors shift en cours
+  // d'edition (et hors ses eventuels split-partners dans le meme shiftgroup).
+  let contractualBefore = 0;
+  for (const s of weekShifts) {
+    if (id && s.id === id) continue;
+    if (s.is_overtime) continue;
+    contractualBefore += shiftHours(
+      s.start_time.slice(0, 5),
+      s.end_time.slice(0, 5),
+      s.break_minutes ?? 0,
+    );
   }
-  // Note (Karim 2026-05-13) : la garde anti-OT-prematuree etait trop stricte
-  // en creation manuelle. Si l'admin coche explicitement "Heures sup" dans
-  // le ShiftDialog, sa decision RH prime -- on laisse passer meme si le
-  // quota contractuel n'est pas encore sature. La garde reste active dans
-  // commitIndividualOvertimeAction (workflow auto OT case-par-case) ou elle
-  // a du sens (eviter de proposer de l'OT a des employes qui pourraient
-  // encore prendre du contractuel).
 
-  const payload = {
-    employee_id: employeeId,
-    date,
-    start_time: start,
-    end_time: end,
-    break_minutes: breakMinutes,
-    position,
-    location,
-    site_id: siteId,
-    notes,
-    is_overtime: isOvertime,
-    overtime_multiplier: overtimeMultiplier,
-    created_by: profile.id,
-  };
+  // Multiplicateur OT : utilise la valeur du formulaire si fournie, sinon 1.5.
+  const otMultiplierForSplit = overtimeMultiplier ?? (isOvertime ? 1.5 : 1.5);
+
+  const split = splitShiftForQuota({
+    startTime: start.slice(0, 5),
+    endTime: end.slice(0, 5),
+    breakMinutes: breakMinutes,
+    alreadyContractualHours: contractualBefore,
+    weeklyTargetHours: weeklyTarget,
+    otMultiplier: otMultiplierForSplit,
+  });
+
+  if (split.totalProductiveHours <= 0) {
+    return { error: "Shift trop court (duree productive nulle apres pause)." };
+  }
+
+  // Helper : construit un payload de shift pour le DB.
+  function payloadFor(seg: {
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean;
+    overtime_multiplier: number | null;
+  }) {
+    return {
+      employee_id: employeeId,
+      date,
+      start_time: seg.start_time,
+      end_time: seg.end_time,
+      break_minutes: seg.break_minutes,
+      position,
+      location,
+      site_id: siteId,
+      notes,
+      is_overtime: seg.is_overtime,
+      overtime_multiplier: seg.overtime_multiplier,
+      created_by: profile.id,
+    };
+  }
 
   if (id) {
-    const { error } = await supabase.from("shifts").update(payload).eq("id", id);
-    if (error) return { error: error.message };
+    // UPDATE : l'existant devient le premier segment present (regular si split,
+    // sinon le segment unique). Si on a split, on INSERT le second segment.
+    const primary = split.regular ?? split.overtime;
+    if (!primary) return { error: "Aucun segment a sauvegarder." };
+    const { error: errUpd } = await supabase
+      .from("shifts")
+      .update(payloadFor(primary))
+      .eq("id", id);
+    if (errUpd) return { error: errUpd.message };
+    if (split.regular && split.overtime) {
+      const { error: errIns } = await supabase
+        .from("shifts")
+        .insert(payloadFor(split.overtime));
+      if (errIns) return { error: errIns.message };
+    }
   } else {
-    const { error } = await supabase.from("shifts").insert(payload);
+    // CREATE : insertion de 1 ou 2 segments selon le split.
+    const rows: ReturnType<typeof payloadFor>[] = [];
+    if (split.regular) rows.push(payloadFor(split.regular));
+    if (split.overtime) rows.push(payloadFor(split.overtime));
+    if (rows.length === 0) return { error: "Aucun segment a sauvegarder." };
+    const { error } = await supabase.from("shifts").insert(rows);
     if (error) return { error: error.message };
   }
+
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true };
+  return {
+    ok: true,
+    split:
+      split.regular && split.overtime
+        ? {
+            regular_hours: +split.regularHours.toFixed(2),
+            overtime_hours: +split.overtimeHours.toFixed(2),
+            split_at: split.regular.end_time,
+          }
+        : null,
+  };
 }
 
 /**

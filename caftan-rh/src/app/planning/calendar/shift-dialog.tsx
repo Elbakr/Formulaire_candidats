@@ -293,7 +293,14 @@ export function ShiftDialog({
               const r = await upsertShiftAction(fd);
               if (r?.error) toast.error(r.error);
               else {
-                toast.success(shift ? "Shift mis à jour." : "Shift créé.");
+                if (r?.split) {
+                  toast.success(
+                    `Shift fractionné : ${r.split.regular_hours}h contractuel + ${r.split.overtime_hours}h heures sup (split à ${r.split.split_at}).`,
+                    { duration: 6000 },
+                  );
+                } else {
+                  toast.success(shift ? "Shift mis à jour." : "Shift créé.");
+                }
                 onOpenChange(false);
               }
             });
