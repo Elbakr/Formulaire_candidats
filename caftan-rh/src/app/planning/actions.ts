@@ -444,12 +444,13 @@ export async function reclassifyExcessAsOvertimeAction(args: {
  */
 export async function moveShiftAction(args: {
   shiftId: string;
-  toEmployeeId: string;
+  toEmployeeId?: string;
   toDate: string;
+  toSiteId?: string | null;
 }): Promise<{ ok?: boolean; error?: string }> {
   await requireRole(["admin", "rh", "manager"]);
-  const { shiftId, toEmployeeId, toDate } = args;
-  if (!shiftId || !toEmployeeId || !toDate) return { error: "Param requis." };
+  const { shiftId, toDate } = args;
+  if (!shiftId || !toDate) return { error: "Param requis." };
 
   const tomorrowISO = toISODate(addDays(new Date(), 1));
   if (toDate < tomorrowISO) {
@@ -459,7 +460,7 @@ export async function moveShiftAction(args: {
   const supabase = await createClient();
   const { data: src } = await supabase
     .from("shifts")
-    .select("id, employee_id, date, start_time, end_time, break_minutes, is_overtime")
+    .select("id, employee_id, date, start_time, end_time, break_minutes, is_overtime, site_id")
     .eq("id", shiftId)
     .maybeSingle();
   if (!src) return { error: "Shift introuvable." };
@@ -471,16 +472,23 @@ export async function moveShiftAction(args: {
     end_time: string;
     break_minutes: number;
     is_overtime: boolean | null;
+    site_id: string | null;
   };
 
-  // No-op si meme empId + meme date
-  if (s.employee_id === toEmployeeId && s.date === toDate) return { ok: true };
+  // toEmployeeId / toSiteId optionnels : par defaut on garde la valeur courante.
+  const newEmpId = args.toEmployeeId ?? s.employee_id;
+  const newSiteId = args.toSiteId !== undefined ? args.toSiteId : s.site_id;
 
-  // Anti-double-booking : check overlap sur la nouvelle position
+  // No-op si rien ne change
+  if (newEmpId === s.employee_id && toDate === s.date && newSiteId === s.site_id) {
+    return { ok: true };
+  }
+
+  // Anti-double-booking : check overlap sur la nouvelle position (employe + date)
   const { data: conflicts } = await supabase
     .from("shifts")
     .select("id, start_time, end_time")
-    .eq("employee_id", toEmployeeId)
+    .eq("employee_id", newEmpId)
     .eq("date", toDate)
     .neq("id", shiftId);
   const overlap = ((conflicts ?? []) as Array<{ id: string; start_time: string; end_time: string }>).some(
@@ -490,9 +498,15 @@ export async function moveShiftAction(args: {
     return { error: `Conflit horaire sur ${toDate} pour cet employé (déjà un shift sur ce créneau).` };
   }
 
+  const update: { employee_id: string; date: string; site_id?: string | null } = {
+    employee_id: newEmpId,
+    date: toDate,
+  };
+  if (newSiteId !== s.site_id) update.site_id = newSiteId;
+
   const { error } = await supabase
     .from("shifts")
-    .update({ employee_id: toEmployeeId, date: toDate })
+    .update(update)
     .eq("id", shiftId);
   if (error) return { error: error.message };
   revalidatePath("/planning", "layout");

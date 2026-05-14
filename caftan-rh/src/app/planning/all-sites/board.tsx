@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Printer, Filter } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import { addDays, parseISODate, toISODate, DAY_LABELS } from "@/lib/planning";
+import { moveShiftAction } from "@/app/planning/actions";
 
 export type AllSitesSite = {
   id: string;
@@ -55,7 +58,24 @@ export function AllSitesBoard({
   shifts: AllSitesShift[];
   initialFilter?: string;
 }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<string>(initialFilter ?? "all");
+  // Drag & drop : id du shift en cours de drag + cellule survolee
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropHover, setDropHover] = useState<string | null>(null);
+
+  function onDropShift(shiftId: string, toSiteId: string, toDate: string) {
+    setDraggingId(null);
+    setDropHover(null);
+    (async () => {
+      const r = await moveShiftAction({ shiftId, toSiteId, toDate });
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success("Shift déplacé.");
+        router.refresh();
+      }
+    })();
+  }
   const [activeDay, setActiveDay] = useState<number>(() => {
     // Sur mobile : par défaut on affiche le jour d'aujourd'hui s'il fait
     // partie de la semaine, sinon lundi.
@@ -125,11 +145,15 @@ export function AllSitesBoard({
 
       {sites.length === 0 ? (
         <Card>
-          <div className="p-10 text-center text-sm text-ink-3">
-            Aucun magasin actif.{" "}
-            <Link href="/admin/sites" className="text-gold-dark font-bold hover:underline">
-              Configurer les sites
-            </Link>
+          <div className="p-10 text-center text-sm text-ink-3 space-y-2">
+            <div>Aucun planning généré pour cette semaine.</div>
+            <div className="text-[12px]">
+              Va sur{" "}
+              <Link href="/planning/calendar" className="text-gold-dark font-bold hover:underline">
+                Planning hebdo
+              </Link>{" "}
+              → « Générer la semaine », coche les sites concernés, puis reviens ici.
+            </div>
           </div>
         </Card>
       ) : (
@@ -209,10 +233,27 @@ export function AllSitesBoard({
                     </div>
                     {sites.map((site) => {
                       const cellShifts = shiftsFor(site.id, dISO);
+                      const cellKey = `${site.id}|${dISO}`;
+                      const isDropHover = dropHover === cellKey;
                       return (
                         <Card
                           key={`${dayIdx}-${site.id}`}
-                          className="overflow-hidden"
+                          className={`overflow-hidden transition-colors ${
+                            isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""
+                          }`}
+                          onDragOver={(ev) => {
+                            if (!draggingId) return;
+                            ev.preventDefault();
+                            setDropHover(cellKey);
+                          }}
+                          onDragLeave={() => {
+                            if (dropHover === cellKey) setDropHover(null);
+                          }}
+                          onDrop={(ev) => {
+                            ev.preventDefault();
+                            const id = ev.dataTransfer.getData("text/plain");
+                            if (id) onDropShift(id, site.id, dISO);
+                          }}
                         >
                           <div className="p-2 space-y-1">
                             {cellShifts.length === 0 ? (
@@ -223,11 +264,21 @@ export function AllSitesBoard({
                               cellShifts.map((s) => (
                                 <div
                                   key={s.id}
-                                  className={`rounded px-1.5 py-1 text-xs ${
+                                  draggable
+                                  onDragStart={(ev) => {
+                                    ev.dataTransfer.setData("text/plain", s.id);
+                                    ev.dataTransfer.effectAllowed = "move";
+                                    setDraggingId(s.id);
+                                  }}
+                                  onDragEnd={() => {
+                                    setDraggingId(null);
+                                    setDropHover(null);
+                                  }}
+                                  className={`rounded px-1.5 py-1 text-xs cursor-grab active:cursor-grabbing ${
                                     s.is_overtime
                                       ? "border border-dashed border-orange-400"
                                       : ""
-                                  }`}
+                                  } ${draggingId === s.id ? "opacity-40" : ""}`}
                                   style={{
                                     backgroundColor: s.is_overtime
                                       ? "rgb(255 237 213 / 0.7)"
@@ -241,7 +292,7 @@ export function AllSitesBoard({
                                   title={
                                     s.is_overtime
                                       ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}`
-                                      : undefined
+                                      : "Glisse-deplace pour changer de site ou de jour"
                                   }
                                 >
                                   <div className="font-mono font-bold flex items-center gap-1">

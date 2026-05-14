@@ -40,8 +40,16 @@ export default async function AllSitesPage(props: {
       .order("start_time"),
   ]);
 
-  const sites = (sitesRaw ?? []) as AllSitesSite[];
+  const allSites = (sitesRaw ?? []) as AllSitesSite[];
   const shifts = (shiftsRaw ?? []) as unknown as AllSitesShift[];
+
+  // Karim 14/05/2026 : ne montrer que les sites pour lesquels le planning a
+  // ete genere cette semaine (proxy : sites qui ont >=1 shift sur la fenetre).
+  // Les sites sans shift cette semaine sont caches pour eviter le bruit visuel.
+  const sitesWithShifts = new Set(
+    shifts.map((s) => s.site_id).filter((v): v is string => Boolean(v)),
+  );
+  const sites = allSites.filter((s) => sitesWithShifts.has(s.id));
 
   const prevWeek = toISODate(addDays(monday, -7));
   const nextWeek = toISODate(addDays(monday, 7));
