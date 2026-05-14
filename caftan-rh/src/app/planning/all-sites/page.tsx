@@ -10,7 +10,7 @@ import {
   toISODate,
   weekRange,
 } from "@/lib/planning";
-import { AllSitesBoard, type AllSitesShift, type AllSitesSite } from "./board";
+import { AllSitesBoard, type AllSitesShift, type AllSitesSite, type SiteDayNeedRow } from "./board";
 
 export default async function AllSitesPage(props: {
   searchParams: Promise<{ week?: string; filter?: string }>;
@@ -22,7 +22,7 @@ export default async function AllSitesPage(props: {
   const { start, end } = weekRange(monday);
 
   const supabase = await createClient();
-  const [{ data: sitesRaw }, { data: shiftsRaw }] = await Promise.all([
+  const [{ data: sitesRaw }, { data: shiftsRaw }, { data: needsRaw }] = await Promise.all([
     supabase
       .from("sites")
       .select("id, code, name, color, light_color, abbr")
@@ -38,10 +38,15 @@ export default async function AllSitesPage(props: {
       .lte("date", end)
       .order("date")
       .order("start_time"),
+    supabase
+      .from("site_needs")
+      .select("site_id, day_of_week, start_time, end_time, headcount, role, is_critical, is_enabled")
+      .eq("is_enabled", true),
   ]);
 
   const allSites = (sitesRaw ?? []) as AllSitesSite[];
   const shifts = (shiftsRaw ?? []) as unknown as AllSitesShift[];
+  const needs = (needsRaw ?? []) as SiteDayNeedRow[];
 
   // Karim 14/05/2026 : ne montrer que les sites pour lesquels le planning a
   // ete genere cette semaine (proxy : sites qui ont >=1 shift sur la fenetre).
@@ -94,6 +99,7 @@ export default async function AllSitesPage(props: {
         mondayISO={toISODate(monday)}
         sites={sites}
         shifts={shifts}
+        needs={needs}
         initialFilter={filterValue}
       />
     </div>

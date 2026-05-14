@@ -34,6 +34,17 @@ export type AllSitesShift = {
   employee: { id: string; full_name: string; job_title: string | null } | null;
 };
 
+export type SiteDayNeedRow = {
+  site_id: string;
+  day_of_week: number; // 0=Dim..6=Sam
+  start_time: string;
+  end_time: string;
+  headcount: number;
+  role: string | null;
+  is_critical: number | null;
+  is_enabled: boolean | null;
+};
+
 const FILTERS = [
   { value: "all", label: "Tous" },
   { value: "vendeur", label: "Vendeurs" },
@@ -51,11 +62,13 @@ export function AllSitesBoard({
   mondayISO,
   sites,
   shifts,
+  needs = [],
   initialFilter,
 }: {
   mondayISO: string;
   sites: AllSitesSite[];
   shifts: AllSitesShift[];
+  needs?: SiteDayNeedRow[];
   initialFilter?: string;
 }) {
   const router = useRouter();
@@ -133,6 +146,36 @@ export function AllSitesBoard({
 
   function shiftsFor(siteId: string, dISO: string): AllSitesShift[] {
     return grid.get(`${siteId}|${dISO}`) ?? [];
+  }
+
+  // Couverture des site_needs par (site, day_of_week).
+  // requiredByCell.get(`${siteId}|${dow}`) = { headcount: number, maxCritical: 0|1|2 }
+  const requiredByCell = useMemo(() => {
+    const m = new Map<string, { headcount: number; maxCritical: number }>();
+    for (const n of needs) {
+      if (n.is_enabled === false) continue;
+      const key = `${n.site_id}|${n.day_of_week}`;
+      const cur = m.get(key) ?? { headcount: 0, maxCritical: 0 };
+      cur.headcount += n.headcount;
+      if ((n.is_critical ?? 0) > cur.maxCritical) cur.maxCritical = n.is_critical ?? 0;
+      m.set(key, cur);
+    }
+    return m;
+  }, [needs]);
+
+  function coverageFor(siteId: string, dISO: string, dayJsDow: number) {
+    const req = requiredByCell.get(`${siteId}|${dayJsDow}`);
+    const requiredHeadcount = req?.headcount ?? 0;
+    const maxCritical = req?.maxCritical ?? 0;
+    const actualHeadcount = shiftsFor(siteId, dISO).length;
+    const missing = Math.max(0, requiredHeadcount - actualHeadcount);
+    const surplus = Math.max(0, actualHeadcount - requiredHeadcount);
+    let band: "covered" | "partial" | "empty" | "no-need" | "over" = "no-need";
+    if (requiredHeadcount === 0) band = actualHeadcount > 0 ? "over" : "no-need";
+    else if (actualHeadcount === 0) band = "empty";
+    else if (actualHeadcount >= requiredHeadcount) band = surplus > 0 ? "over" : "covered";
+    else band = "partial";
+    return { requiredHeadcount, actualHeadcount, missing, surplus, band, maxCritical };
   }
 
   function doPrint() {
@@ -266,6 +309,8 @@ export function AllSitesBoard({
                       const isMoveTarget = !!selectedId;
                       const isSourceCell =
                         selectedShift?.site_id === site.id && selectedShift?.date === dISO;
+                      const dayJsDow = d.getDay();
+                      const cov = coverageFor(site.id, dISO, dayJsDow);
                       return (
                         <Card
                           key={`${dayIdx}-${site.id}`}
@@ -297,6 +342,43 @@ export function AllSitesBoard({
                             if (id) moveTo(id, site.id, dISO);
                           }}
                         >
+                          {/* Badge couverture : besoins covered / partial / empty / over.
+                              Karim 14/05 -- aider la direction a reperer les manques en un coup d oeil. */}
+                          {cov.band !== "no-need" ? (
+                            <div
+                              className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between gap-1 border-b ${
+                                cov.band === "empty"
+                                  ? "bg-danger-light text-danger border-danger/30"
+                                  : cov.band === "partial"
+                                    ? cov.maxCritical >= 2
+                                      ? "bg-orange-100 text-orange-800 border-orange-300"
+                                      : "bg-warn-light text-warn border-warn/30"
+                                    : cov.band === "over"
+                                      ? "bg-violet-100 text-violet-800 border-violet-300"
+                                      : "bg-success-light text-success border-success/30"
+                              }`}
+                              title={
+                                cov.band === "empty"
+                                  ? `Aucun shift planifie sur ce site/jour, besoin ${cov.requiredHeadcount}`
+                                  : cov.band === "partial"
+                                    ? `Manque ${cov.missing} effectif${cov.missing > 1 ? "s" : ""}${cov.maxCritical >= 2 ? " (besoin ultra-critique)" : cov.maxCritical >= 1 ? " (besoin critique)" : ""}`
+                                    : cov.band === "over"
+                                      ? `Surplus de ${cov.surplus}`
+                                      : `Couverture OK ${cov.actualHeadcount}/${cov.requiredHeadcount}`
+                              }
+                            >
+                              <span>
+                                {cov.actualHeadcount}/{cov.requiredHeadcount}
+                              </span>
+                              {cov.band === "empty" || cov.band === "partial" ? (
+                                <span>−{cov.missing}</span>
+                              ) : cov.band === "over" ? (
+                                <span>+{cov.surplus}</span>
+                              ) : (
+                                <span>OK</span>
+                              )}
+                            </div>
+                          ) : null}
                           <div className="p-2 space-y-1">
                             {cellShifts.length === 0 ? (
                               <div className="text-[11px] text-ink-3 italic text-center py-2">
