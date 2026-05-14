@@ -197,8 +197,11 @@ export function PresenceLiveTable({
                   size="sm"
                   onClick={() => handleForceOut(p)}
                   disabled={pending}
+                  className="shrink-0"
+                  title="Forcer le clock-out"
                 >
-                  <LogOut className="h-3.5 w-3.5" /> Sortir
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Sortir</span>
                 </Button>
               </li>
             ))}
@@ -259,8 +262,11 @@ export function PresenceLiveTable({
                   size="sm"
                   onClick={() => handleForceOut(p)}
                   disabled={pending}
+                  className="shrink-0"
+                  title="Forcer le clock-out"
                 >
-                  <LogOut className="h-3.5 w-3.5" /> Sortir
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Sortir</span>
                 </Button>
               </li>
             ))}

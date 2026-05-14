@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Printer, Filter } from "lucide-react";
+import { Printer, Filter, X, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,13 +60,26 @@ export function AllSitesBoard({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(initialFilter ?? "all");
-  // Drag & drop : id du shift en cours de drag + cellule survolee
+  // Drag & drop (desktop) : id du shift en cours de drag + cellule survolee
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHover, setDropHover] = useState<string | null>(null);
+  // Tap-to-move (mobile + desktop) : tap sur un shift pour le selectionner,
+  // puis tap sur une cellule destination pour le deplacer. Sur iPhone le drag
+  // HTML5 ne marche pas, ce mode prend le relais.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  function onDropShift(shiftId: string, toSiteId: string, toDate: string) {
+  const shiftById = useMemo(() => {
+    const m = new Map<string, AllSitesShift>();
+    for (const s of shifts) m.set(s.id, s);
+    return m;
+  }, [shifts]);
+
+  const selectedShift = selectedId ? shiftById.get(selectedId) ?? null : null;
+
+  function moveTo(shiftId: string, toSiteId: string, toDate: string) {
     setDraggingId(null);
     setDropHover(null);
+    setSelectedId(null);
     (async () => {
       const r = await moveShiftAction({ shiftId, toSiteId, toDate });
       if (r.error) toast.error(r.error);
@@ -76,9 +89,17 @@ export function AllSitesBoard({
       }
     })();
   }
+
+  function onShiftClick(shiftId: string) {
+    setSelectedId((cur) => (cur === shiftId ? null : shiftId));
+  }
+
+  function onCellClick(siteId: string, dISO: string) {
+    if (!selectedId) return;
+    moveTo(selectedId, siteId, dISO);
+  }
+
   const [activeDay, setActiveDay] = useState<number>(() => {
-    // Sur mobile : par défaut on affiche le jour d'aujourd'hui s'il fait
-    // partie de la semaine, sinon lundi.
     const todayISO = toISODate(new Date());
     const monday = parseISODate(mondayISO);
     for (let i = 0; i < 7; i++) {
@@ -98,7 +119,6 @@ export function AllSitesBoard({
     [shifts, filter],
   );
 
-  // Index : Map<`${siteId}|${dateISO}`, AllSitesShift[]>
   const grid = useMemo(() => {
     const m = new Map<string, AllSitesShift[]>();
     for (const s of filteredShifts) {
@@ -119,8 +139,14 @@ export function AllSitesBoard({
     window.print();
   }
 
+  const siteById = useMemo(() => {
+    const m = new Map<string, AllSitesSite>();
+    for (const s of sites) m.set(s.id, s);
+    return m;
+  }, [sites]);
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-24 md:pb-3">
       <div className="flex items-center gap-3 flex-wrap print:hidden">
         <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface text-xs">
           <Filter className="h-3 w-3 ml-2 text-ink-3" />
@@ -141,6 +167,12 @@ export function AllSitesBoard({
         <Button variant="outline" size="sm" onClick={doPrint}>
           <Printer className="h-3.5 w-3.5" /> Imprimer la vue
         </Button>
+        <span className="text-[11px] text-ink-3 hidden md:inline">
+          Glisse-depose un shift OU tape pour selectionner puis tape la cellule cible.
+        </span>
+        <span className="text-[11px] text-ink-3 md:hidden">
+          Tape un shift pour le selectionner, puis tape la cellule cible.
+        </span>
       </div>
 
       {sites.length === 0 ? (
@@ -174,8 +206,6 @@ export function AllSitesBoard({
             ))}
           </div>
 
-          {/* Desktop : grille fixe sites × jours. Mobile : 1 colonne par site, 1 ligne (le jour actif).
-              `overscroll-x-contain` pour ne pas voler le scroll vertical de la page (bug souris/clavier). */}
           <div className="overflow-x-auto overscroll-x-contain -mx-2 px-2 pb-2">
             <div
               className="grid gap-2"
@@ -183,7 +213,6 @@ export function AllSitesBoard({
                 gridTemplateColumns: `120px repeat(${sites.length}, minmax(220px, 1fr))`,
               }}
             >
-              {/* Header : "Jour" + 1 cellule par site */}
               <div className="hidden md:flex items-end px-2 pb-2 text-[10px] uppercase tracking-wider font-bold text-ink-3">
                 Jour
               </div>
@@ -208,7 +237,6 @@ export function AllSitesBoard({
                 </div>
               ))}
 
-              {/* Lignes : 1 par jour (sauf mobile = seulement le jour actif) */}
               {days.map((d, dayIdx) => {
                 const dISO = toISODate(d);
                 const isToday = dISO === toISODate(new Date());
@@ -235,11 +263,25 @@ export function AllSitesBoard({
                       const cellShifts = shiftsFor(site.id, dISO);
                       const cellKey = `${site.id}|${dISO}`;
                       const isDropHover = dropHover === cellKey;
+                      const isMoveTarget = !!selectedId;
+                      const isSourceCell =
+                        selectedShift?.site_id === site.id && selectedShift?.date === dISO;
                       return (
                         <Card
                           key={`${dayIdx}-${site.id}`}
+                          role={isMoveTarget && !isSourceCell ? "button" : undefined}
+                          aria-label={
+                            isMoveTarget && !isSourceCell
+                              ? `Deplacer le shift selectionne ici (${site.name} ${dISO})`
+                              : undefined
+                          }
+                          onClick={() => onCellClick(site.id, dISO)}
                           className={`overflow-hidden transition-colors ${
                             isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""
+                          } ${
+                            isMoveTarget && !isSourceCell
+                              ? "cursor-pointer hover:ring-2 hover:ring-gold/60 hover:bg-gold-light/20"
+                              : ""
                           }`}
                           onDragOver={(ev) => {
                             if (!draggingId) return;
@@ -252,73 +294,84 @@ export function AllSitesBoard({
                           onDrop={(ev) => {
                             ev.preventDefault();
                             const id = ev.dataTransfer.getData("text/plain");
-                            if (id) onDropShift(id, site.id, dISO);
+                            if (id) moveTo(id, site.id, dISO);
                           }}
                         >
                           <div className="p-2 space-y-1">
                             {cellShifts.length === 0 ? (
                               <div className="text-[11px] text-ink-3 italic text-center py-2">
-                                —
+                                {isMoveTarget && !isSourceCell ? "Tape ici pour deplacer" : "—"}
                               </div>
                             ) : (
-                              cellShifts.map((s) => (
-                                <div
-                                  key={s.id}
-                                  draggable
-                                  onDragStart={(ev) => {
-                                    ev.dataTransfer.setData("text/plain", s.id);
-                                    ev.dataTransfer.effectAllowed = "move";
-                                    setDraggingId(s.id);
-                                  }}
-                                  onDragEnd={() => {
-                                    setDraggingId(null);
-                                    setDropHover(null);
-                                  }}
-                                  className={`rounded px-1.5 py-1 text-xs cursor-grab active:cursor-grabbing ${
-                                    s.is_overtime
-                                      ? "border border-dashed border-orange-400"
-                                      : ""
-                                  } ${draggingId === s.id ? "opacity-40" : ""}`}
-                                  style={{
-                                    backgroundColor: s.is_overtime
-                                      ? "rgb(255 237 213 / 0.7)"
-                                      : site.color
-                                        ? `${site.color}18`
-                                        : "rgb(245 235 200 / 0.5)",
-                                    borderLeft: s.is_overtime
-                                      ? "3px solid #f97316"
-                                      : `3px solid ${site.color ?? "#c9a34d"}`,
-                                  }}
-                                  title={
-                                    s.is_overtime
-                                      ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}`
-                                      : "Glisse-deplace pour changer de site ou de jour"
-                                  }
-                                >
-                                  <div className="font-mono font-bold flex items-center gap-1">
-                                    <span>
-                                      {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                                    </span>
-                                    {s.is_overtime ? (
-                                      <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700">
-                                        H. sup
+                              cellShifts.map((s) => {
+                                const isSelected = selectedId === s.id;
+                                return (
+                                  <div
+                                    key={s.id}
+                                    draggable
+                                    onDragStart={(ev) => {
+                                      ev.dataTransfer.setData("text/plain", s.id);
+                                      ev.dataTransfer.effectAllowed = "move";
+                                      setDraggingId(s.id);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggingId(null);
+                                      setDropHover(null);
+                                    }}
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      onShiftClick(s.id);
+                                    }}
+                                    className={`rounded px-1.5 py-1 text-xs cursor-pointer select-none ${
+                                      s.is_overtime
+                                        ? "border border-dashed border-orange-400"
+                                        : ""
+                                    } ${draggingId === s.id ? "opacity-40" : ""} ${
+                                      isSelected
+                                        ? "ring-2 ring-gold ring-offset-1 ring-offset-white shadow-md scale-[1.02]"
+                                        : ""
+                                    }`}
+                                    style={{
+                                      backgroundColor: s.is_overtime
+                                        ? "rgb(255 237 213 / 0.7)"
+                                        : site.color
+                                          ? `${site.color}18`
+                                          : "rgb(245 235 200 / 0.5)",
+                                      borderLeft: s.is_overtime
+                                        ? "3px solid #f97316"
+                                        : `3px solid ${site.color ?? "#c9a34d"}`,
+                                    }}
+                                    title={
+                                      s.is_overtime
+                                        ? `Heures sup.${s.overtime_multiplier ? ` x${s.overtime_multiplier}` : ""}`
+                                        : "Tape ou glisse-depose pour deplacer"
+                                    }
+                                  >
+                                    <div className="font-mono font-bold flex items-center gap-1">
+                                      <span>
+                                        {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
                                       </span>
+                                      {s.is_overtime ? (
+                                        <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700">
+                                          H. sup
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="text-[11px] mt-0.5" onClick={(e) => e.stopPropagation()}>
+                                      <EmployeeQuickLink
+                                        employeeId={s.employee_id}
+                                        fullName={s.employee?.full_name ?? "—"}
+                                        fullWidth
+                                      />
+                                    </div>
+                                    {s.position ? (
+                                      <div className="text-[10px] text-ink-3 truncate">
+                                        {s.position}
+                                      </div>
                                     ) : null}
                                   </div>
-                                  <div className="text-[11px] mt-0.5">
-                                    <EmployeeQuickLink
-                                      employeeId={s.employee_id}
-                                      fullName={s.employee?.full_name ?? "—"}
-                                      fullWidth
-                                    />
-                                  </div>
-                                  {s.position ? (
-                                    <div className="text-[10px] text-ink-3 truncate">
-                                      {s.position}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ))
+                                );
+                              })
                             )}
                           </div>
                         </Card>
@@ -331,6 +384,38 @@ export function AllSitesBoard({
           </div>
         </>
       )}
+
+      {/* Bottom bar contextuel : visible quand un shift est selectionne.
+          Sticky en bas d ecran. Affiche le shift selectionne + bouton annuler. */}
+      {selectedShift ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 print:hidden">
+          <div className="mx-auto max-w-3xl m-2 rounded-lg bg-ink text-white shadow-2xl border border-gold/40">
+            <div className="flex items-center gap-3 p-3">
+              <ArrowRight className="h-4 w-4 text-gold shrink-0" />
+              <div className="flex-1 text-xs leading-tight">
+                <div className="font-bold">
+                  {selectedShift.employee?.full_name ?? "Shift"} —{" "}
+                  {selectedShift.start_time.slice(0, 5)}-{selectedShift.end_time.slice(0, 5)}
+                </div>
+                <div className="text-white/70">
+                  Actuellement : {siteById.get(selectedShift.site_id ?? "")?.name ?? "?"} • {selectedShift.date}
+                </div>
+                <div className="text-gold text-[11px] mt-0.5">
+                  Tape une cellule cible pour deplacer.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                aria-label="Annuler la selection"
+                className="rounded-md p-1.5 hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

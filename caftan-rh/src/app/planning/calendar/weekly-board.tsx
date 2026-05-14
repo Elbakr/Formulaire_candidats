@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, CalendarOff, Printer, LifeBuoy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarOff, Printer, LifeBuoy, X, ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmployeeQuickLink } from "@/components/employee-quick-link";
@@ -110,12 +110,20 @@ export function WeeklyPlanningBoard({
   // Drag & drop : id du shift en cours de drag, pour styler la cible
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHover, setDropHover] = useState<string | null>(null);
+  // Tap-to-move (iOS) : long-press sur un shift pour entrer en mode "deplacer",
+  // puis tap sur la cellule destination. Tap court = ouvre la dialog d edition
+  // (comportement actuel). Sur desktop, le drag-drop continue de marcher.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useRealtime("shifts", () => router.refresh());
 
-  function onDropShift(shiftId: string, toEmpId: string, toDate: string) {
+  function moveTo(shiftId: string, toEmpId: string, toDate: string) {
     setDraggingId(null);
     setDropHover(null);
+    setSelectedId(null);
     (async () => {
       const r = await moveShiftAction({ shiftId, toEmployeeId: toEmpId, toDate });
       if (r.error) toast.error(r.error);
@@ -126,12 +134,56 @@ export function WeeklyPlanningBoard({
     })();
   }
 
+  function onShiftTouchStart(shiftId: string, ev: React.TouchEvent) {
+    const t = ev.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+    longPressFiredRef.current = false;
+    longPressRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      try { navigator.vibrate?.(40); } catch { /* noop */ }
+      setSelectedId(shiftId);
+    }, 500);
+  }
+  function onShiftTouchMove(ev: React.TouchEvent) {
+    const t = ev.touches[0];
+    const start = touchStartRef.current;
+    if (!start) return;
+    const dx = Math.abs(t.clientX - start.x);
+    const dy = Math.abs(t.clientY - start.y);
+    if (dx > 8 || dy > 8) {
+      // Mouvement = scroll, on annule le long-press
+      if (longPressRef.current) {
+        clearTimeout(longPressRef.current);
+        longPressRef.current = null;
+      }
+    }
+  }
+  function onShiftTouchEnd() {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+    touchStartRef.current = null;
+  }
+
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [mondayISO]);
   const siteById = useMemo(() => {
     const m = new Map<string, SiteOption>();
     for (const s of sites) m.set(s.id, s);
     return m;
   }, [sites]);
+
+  const empById = useMemo(() => {
+    const m = new Map<string, Employee>();
+    for (const e of employees) m.set(e.id, e);
+    return m;
+  }, [employees]);
+  const shiftById = useMemo(() => {
+    const m = new Map<string, Shift>();
+    for (const s of shifts) m.set(s.id, s);
+    return m;
+  }, [shifts]);
+  const selectedShift = selectedId ? shiftById.get(selectedId) ?? null : null;
 
   function shiftsFor(empId: string, dateISO: string) {
     return shifts.filter((s) => s.employee_id === empId && s.date === dateISO);
@@ -374,10 +426,20 @@ export function WeeklyPlanningBoard({
                               : "";
                         const cellKey = `${e.id}|${dateISO}`;
                         const isDropHover = dropHover === cellKey;
+                        const isSelectMode = !!selectedId;
+                        const isSourceCell =
+                          selectedShift?.employee_id === e.id && selectedShift?.date === dateISO;
                         return (
                           <td
                             key={i}
-                            className={`p-1 align-top border-l border-line min-h-[48px] md:min-h-[64px] transition-colors ${cellBg} ${isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""}`}
+                            className={`p-1 align-top border-l border-line min-h-[48px] md:min-h-[64px] transition-colors ${cellBg} ${isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""} ${
+                              isSelectMode && !isSourceCell ? "cursor-pointer hover:ring-2 hover:ring-gold/60 hover:bg-gold-light/20" : ""
+                            }`}
+                            onClick={() => {
+                              if (isSelectMode && !isSourceCell) {
+                                moveTo(selectedId, e.id, dateISO);
+                              }
+                            }}
                             onDragOver={(ev) => {
                               if (!draggingId) return;
                               ev.preventDefault();
@@ -389,7 +451,7 @@ export function WeeklyPlanningBoard({
                             onDrop={(ev) => {
                               ev.preventDefault();
                               const id = ev.dataTransfer.getData("text/plain");
-                              if (id) onDropShift(id, e.id, dateISO);
+                              if (id) moveTo(id, e.id, dateISO);
                             }}
                           >
                             {off ? (
@@ -425,10 +487,35 @@ export function WeeklyPlanningBoard({
                                 <div className="space-y-1">
                                   {dayShifts.map((s) => {
                                     const site = s.site_id ? siteById.get(s.site_id) : null;
+                                    const isSelected = selectedId === s.id;
                                     return (
                                     <button
                                       key={s.id}
-                                      onClick={() => setEditing({ employeeId: e.id, date: dateISO, shift: s })}
+                                      onClick={(ev) => {
+                                        // Si long-press a deja arme la selection, ne pas ouvrir le dialog
+                                        if (longPressFiredRef.current) {
+                                          longPressFiredRef.current = false;
+                                          ev.stopPropagation();
+                                          return;
+                                        }
+                                        // Si on est en mode select, un tap sur un autre shift bascule la selection
+                                        if (selectedId && selectedId !== s.id) {
+                                          ev.stopPropagation();
+                                          setSelectedId(s.id);
+                                          return;
+                                        }
+                                        // Si on retape le shift selectionne, on annule la selection
+                                        if (selectedId === s.id) {
+                                          ev.stopPropagation();
+                                          setSelectedId(null);
+                                          return;
+                                        }
+                                        setEditing({ employeeId: e.id, date: dateISO, shift: s });
+                                      }}
+                                      onTouchStart={(ev) => onShiftTouchStart(s.id, ev)}
+                                      onTouchMove={onShiftTouchMove}
+                                      onTouchEnd={onShiftTouchEnd}
+                                      onTouchCancel={onShiftTouchEnd}
                                       draggable
                                       onDragStart={(ev) => {
                                         ev.dataTransfer.setData("text/plain", s.id);
@@ -439,15 +526,19 @@ export function WeeklyPlanningBoard({
                                         setDraggingId(null);
                                         setDropHover(null);
                                       }}
-                                      className={`relative w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-colors cursor-grab active:cursor-grabbing ${
+                                      className={`relative w-full text-left rounded px-1.5 py-2 md:py-1 min-h-[44px] md:min-h-0 transition-all cursor-grab active:cursor-grabbing ${
                                         draggingId === s.id ? "opacity-40" : ""
+                                      } ${
+                                        isSelected
+                                          ? "ring-2 ring-gold ring-offset-1 ring-offset-white shadow-md scale-[1.02]"
+                                          : ""
                                       } ${
                                         s.is_overtime
                                           ? "bg-orange-100 text-orange-800 border border-dashed border-orange-400 hover:bg-orange-200"
                                           : "bg-gold-light text-gold-dark hover:bg-gold hover:text-white"
                                       }`}
                                       style={site?.color ? { boxShadow: `inset 3px 0 0 ${site.color}` } : undefined}
-                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""} — glisser-déposer pour déplacer`}
+                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""} — tap pour editer, long-press (mobile) ou drag (desktop) pour deplacer`}
                                     >
                                       <div className="font-bold flex items-center gap-1">
                                         <span>{s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}</span>
@@ -509,6 +600,40 @@ export function WeeklyPlanningBoard({
             employees.find((e) => e.id === editing.employeeId)?.preferred_site_ids ?? []
           }
         />
+      ) : null}
+
+      {/* Bottom bar de deplacement -- visible quand un shift est en mode "selectionne".
+          Sur iOS PWA : long-press (500ms) sur un shift -> ce bandeau apparait ->
+          tape une cellule employe/jour cible pour deplacer. */}
+      {selectedShift ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 print:hidden">
+          <div className="mx-auto max-w-3xl m-2 rounded-lg bg-ink text-white shadow-2xl border border-gold/40">
+            <div className="flex items-center gap-3 p-3">
+              <ArrowRight className="h-4 w-4 text-gold shrink-0" />
+              <div className="flex-1 text-xs leading-tight">
+                <div className="font-bold">
+                  {empById.get(selectedShift.employee_id)?.full_name ?? "Shift"} —{" "}
+                  {selectedShift.start_time.slice(0, 5)}-{selectedShift.end_time.slice(0, 5)}
+                </div>
+                <div className="text-white/70">
+                  Actuellement : {selectedShift.date}
+                  {selectedShift.site_id ? ` • ${siteById.get(selectedShift.site_id)?.name ?? "?"}` : ""}
+                </div>
+                <div className="text-gold text-[11px] mt-0.5">
+                  Tape une cellule (employe, jour) cible pour deplacer.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                aria-label="Annuler la selection"
+                className="rounded-md p-1.5 hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
