@@ -13,6 +13,10 @@ import {
 } from "@/lib/rush-profile";
 import { seniorTier } from "@/lib/tenure";
 import { loadSeasonalEvents, pickPeakMultiplierForDay } from "@/lib/seasonal";
+import {
+  computeCrescendoMultiplier,
+  dayPriorityScore,
+} from "@/lib/holidays-crescendo";
 
 type SiteNeed = {
   id: string;
@@ -190,6 +194,17 @@ type SolverContext = {
    * du multiplier saisonnier classique). Default 1.0.
    */
   holidayStaffMultByDate: Map<string, number>;
+  /**
+   * Liste brute des feries de la fenetre (utilise pour le crescendo J-7 avant
+   * les 2 prochaines fetes -- Karim 14/05/2026).
+   */
+  allHolidays: Array<{
+    date: string;
+    priority: number | null;
+    kind: string | null;
+    shops_closed: boolean | null;
+    staff_multiplier: number | string | null;
+  }>;
   closedDates: Set<string>;
 };
 
@@ -366,6 +381,7 @@ async function loadSolverContext(
     blockedDates,
     specialDates,
     holidayStaffMultByDate,
+    allHolidays,
     closedDates,
   };
 }
@@ -463,6 +479,7 @@ export async function previewSitePlanAction(
     blockedDates,
     specialDates,
     holidayStaffMultByDate,
+    allHolidays,
     closedDates,
   } = ctx;
 
@@ -523,20 +540,34 @@ export async function previewSitePlanAction(
   const drafts: SitePlanPreview["drafts"] = [];
   const uncovered: SitePlanPreview["uncovered"] = [];
 
-  // Itère du lundi au dimanche, dans l'ordre des jours pour étaler
-  // naturellement les heures contractuelles en début de semaine quand on a
-  // beaucoup de monde (le tri "moins de jours planifiés" force la répartition).
-  // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1 (passe ou jour courant).
+  // Itère sur les 7 jours de la semaine TRIÉS par priorité décroissante.
+  // Karim 14/05 : "priorisant toujours les jours speciaux (feries
+  // internationaux et samedis puis dimanches, mais aussi les 7 derniers
+  // jours avant les 2 fetes avec effet crescendo)". On traite les jours
+  // critiques d abord pour s assurer qu ils sont couverts (le solver fait
+  // ensuite "moins de jours planifies" pour les autres jours).
+  // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1.
   const tomorrowISO = toISODate(addDays(new Date(), 1));
 
-  for (let dow = 0; dow < 7; dow++) {
-    const dayDate = (() => {
-      const offset = dow === 0 ? 6 : dow - 1;
-      return addDays(monday, offset);
-    })();
+  const allHolidaysForCrescendo = allHolidays.map((h) => ({
+    date: h.date,
+    priority: h.priority,
+    kind: h.kind,
+    shops_closed: h.shops_closed,
+    staff_multiplier: h.staff_multiplier,
+  }));
+
+  const daysOrder: Array<{ dateISO: string; dayJsDow: number; priority: number }> = [];
+  for (let i = 0; i < 7; i++) {
+    const dayDate = addDays(monday, i);
     const dateISO = toISODate(dayDate);
     const dayJsDow = dayDate.getDay();
+    const priority = dayPriorityScore(dateISO, allHolidaysForCrescendo);
+    daysOrder.push({ dateISO, dayJsDow, priority });
+  }
+  daysOrder.sort((a, b) => b.priority - a.priority);
 
+  for (const { dateISO, dayJsDow } of daysOrder) {
     if (dateISO < tomorrowISO) continue;
     if (blockedDates.has(dateISO) || closedDates.has(dateISO)) continue;
 
@@ -551,9 +582,7 @@ export async function previewSitePlanAction(
       else seasonalDaysCount.set(seasonalEvt.id, { event: seasonalEvt, days: 1 });
     }
 
-    // Trie les besoins du jour par durée décroissante : on traite les
-    // créneaux longs (donc plus difficiles à couvrir) en premier pour
-    // sécuriser leur staffing avant les besoins faciles.
+    // Trie les besoins du jour par durée décroissante.
     const dayNeeds = needs
       .filter((n) => n.day_of_week === dayJsDow)
       .sort(
@@ -561,11 +590,15 @@ export async function previewSitePlanAction(
           slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),
       );
 
-    // Multiplicateur d'effectif du au ferie (rush pre-Aid, coincidence ferie
-    // international, etc.). Combine avec le multiplier saisonnier : on prend
-    // le produit, plafonne a 4x pour eviter les explosions.
+    // Multiplicateur d'effectif final = seasonal × holiday × crescendo.
+    // Crescendo gonfle les J-7..J-1 avant les 2 prochaines fetes majeures
+    // (max 3x pour la 1ere, 1.5x pour la 2eme). Plafond combiné 4x.
     const holidayMult = holidayStaffMultByDate.get(dateISO) ?? 1.0;
-    const combinedMult = Math.min(4.0, seasonalMult * holidayMult);
+    const crescendo = computeCrescendoMultiplier(dateISO, allHolidaysForCrescendo);
+    const combinedMult = Math.min(
+      4.0,
+      seasonalMult * holidayMult * crescendo.multiplier,
+    );
 
     for (const need of dayNeeds) {
       const need_s = need.start_time.slice(0, 5);
