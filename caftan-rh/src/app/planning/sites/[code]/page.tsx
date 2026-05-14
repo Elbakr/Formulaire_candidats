@@ -13,13 +13,14 @@ import {
   weekRange,
   shiftHours,
 } from "@/lib/planning";
-import { loadSiteByCode, loadSiteNeeds } from "@/lib/sites";
+import { loadSiteByCode, loadSiteNeeds, loadSites } from "@/lib/sites";
 import { MembersSection } from "./members-section";
 import { SitePresenceStrip } from "./presence-strip";
 import { GenerateSitePlanButton } from "./generate-button";
 import { ClearWeekButton } from "../../calendar/clear-week-button";
 import { NeedsEditor } from "./needs-editor";
 import { SiteWeekBoard } from "./site-week-board";
+import { SiteNavigator } from "./site-navigator";
 import { loadCurrentlyIn } from "@/lib/clock";
 
 type Shift = {
@@ -49,7 +50,10 @@ export default async function SiteDetailPage(props: {
   const site = await loadSiteByCode(code.toUpperCase());
   if (!site) notFound();
 
-  const needs = await loadSiteNeeds(site.id);
+  const [needs, allSites] = await Promise.all([
+    loadSiteNeeds(site.id),
+    loadSites(),
+  ]);
   const presents = await loadCurrentlyIn({ siteId: site.id });
   const presentsForStrip = presents.map((p) => ({
     employee_id: p.employee_id,
@@ -148,15 +152,25 @@ export default async function SiteDetailPage(props: {
 
   return (
     <div className="space-y-4">
+      {/* Navigateur de sites : strip horizontal, scrollable sur mobile,
+          permet de basculer d un site a un autre sans repasser par la liste.
+          Karim 14/05/2026. */}
+      <SiteNavigator
+        sites={allSites.map((s) => ({
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          abbr: s.abbr,
+          color: s.color,
+          light_color: s.light_color,
+        }))}
+        currentCode={site.code}
+        weekISO={toISODate(monday)}
+      />
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <Link
-            href="/planning/sites"
-            className="text-xs text-ink-3 hover:text-gold-dark inline-flex items-center gap-1"
-          >
-            <ChevronLeft className="h-3 w-3" /> Tous les sites
-          </Link>
-          <h1 className="text-2xl font-bold flex items-center gap-2 mt-1">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
             <span
               className="inline-flex items-center justify-center w-9 h-9 rounded-md text-white font-bold"
               style={{ backgroundColor: site.color ?? "#666" }}
