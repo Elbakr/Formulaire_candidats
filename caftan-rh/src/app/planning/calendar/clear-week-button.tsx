@@ -27,11 +27,17 @@ import { clearWeekAction, countWeekShiftsAction } from "./bulk-actions";
 export function ClearWeekButton({
   weekISO,
   siteId,
+  employeeId,
   className,
+  scopeLabel,
 }: {
   weekISO: string;
   siteId?: string | null;
+  /** Karim 15/05 : scope par employe quand utilise sur la fiche /planning/employees/[id]/calendar */
+  employeeId?: string | null;
   className?: string;
+  /** Mention textuelle ajoutee dans le dialog : "sur ce site" / "pour cet employe" / "" */
+  scopeLabel?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -44,7 +50,11 @@ export function ClearWeekButton({
   useEffect(() => {
     let cancelled = false;
     setLoadingCount(true);
-    countWeekShiftsAction({ weekISO, siteId: siteId ?? null }).then((r) => {
+    countWeekShiftsAction({
+      weekISO,
+      siteId: siteId ?? null,
+      employeeId: employeeId ?? null,
+    }).then((r) => {
       if (cancelled) return;
       setLoadingCount(false);
       if ("count" in r && typeof r.count === "number") setCount(r.count);
@@ -52,7 +62,7 @@ export function ClearWeekButton({
     return () => {
       cancelled = true;
     };
-  }, [weekISO, siteId]);
+  }, [weekISO, siteId, employeeId]);
 
   const monday = parseISODate(weekISO);
   const sunday = addDays(monday, 6);
@@ -63,7 +73,11 @@ export function ClearWeekButton({
 
   function clear() {
     startTransition(async () => {
-      const r = await clearWeekAction({ weekISO, siteId: siteId ?? null });
+      const r = await clearWeekAction({
+        weekISO,
+        siteId: siteId ?? null,
+        employeeId: employeeId ?? null,
+      });
       if (r?.error) {
         toast.error(r.error);
         return;
@@ -93,7 +107,7 @@ export function ClearWeekButton({
           <DialogHeader>
             <DialogTitle>Vider la semaine</DialogTitle>
             <DialogDescription>
-              {`Vider tous les shifts de la semaine ${range}${siteId ? " sur ce site" : ""} ? Cette action est irréversible.`}
+              {`Vider tous les shifts de la semaine ${range}${scopeLabel ? ` ${scopeLabel}` : siteId ? " sur ce site" : employeeId ? " pour cet employé" : ""} ? Cette action est irréversible.`}
             </DialogDescription>
           </DialogHeader>
           <div className="px-5 py-3 text-sm text-ink-2">

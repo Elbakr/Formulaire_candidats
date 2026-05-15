@@ -141,9 +141,13 @@ export async function copyWeekToNextAction({
 export async function clearWeekAction({
   weekISO,
   siteId,
+  employeeId,
 }: {
   weekISO: string;
   siteId?: string | null;
+  /** Karim 15/05 : permet de vider la semaine d un seul employe (depuis la
+   * fiche /planning/employees/[id]/calendar par exemple). */
+  employeeId?: string | null;
 }) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -155,9 +159,38 @@ export async function clearWeekAction({
     .delete({ count: "exact" })
     .gte("date", r.start)
     .lte("date", r.end);
-  if (siteId) {
-    query = query.eq("site_id", siteId);
-  }
+  if (siteId) query = query.eq("site_id", siteId);
+  if (employeeId) query = query.eq("employee_id", employeeId);
+  const { error, count } = await query;
+  if (error) return { error: error.message };
+
+  revalidatePath("/planning", "layout");
+  revalidatePath("/me/planning");
+  return { ok: true, deleted: count ?? 0 };
+}
+
+/**
+ * Vide TOUT (a partir de demain, regle J+1). Optionnellement scope par site
+ * ou par employe. Pour les cas "je recommence a zero" -- gros impact, demande
+ * confirmation forte cote UI.
+ */
+export async function clearAllFutureShiftsAction({
+  siteId,
+  employeeId,
+}: {
+  siteId?: string | null;
+  employeeId?: string | null;
+} = {}) {
+  await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
+
+  let query = supabase
+    .from("shifts")
+    .delete({ count: "exact" })
+    .gte("date", tomorrowISO);
+  if (siteId) query = query.eq("site_id", siteId);
+  if (employeeId) query = query.eq("employee_id", employeeId);
   const { error, count } = await query;
   if (error) return { error: error.message };
 
@@ -174,9 +207,11 @@ export async function clearWeekAction({
 export async function countWeekShiftsAction({
   weekISO,
   siteId,
+  employeeId,
 }: {
   weekISO: string;
   siteId?: string | null;
+  employeeId?: string | null;
 }) {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -188,9 +223,30 @@ export async function countWeekShiftsAction({
     .select("id", { count: "exact", head: true })
     .gte("date", r.start)
     .lte("date", r.end);
-  if (siteId) {
-    query = query.eq("site_id", siteId);
-  }
+  if (siteId) query = query.eq("site_id", siteId);
+  if (employeeId) query = query.eq("employee_id", employeeId);
+  const { count, error } = await query;
+  if (error) return { error: error.message };
+  return { ok: true, count: count ?? 0 };
+}
+
+/** Compteur pour clearAllFutureShiftsAction (= shifts a venir a partir de J+1). */
+export async function countFutureShiftsAction({
+  siteId,
+  employeeId,
+}: {
+  siteId?: string | null;
+  employeeId?: string | null;
+} = {}) {
+  await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
+  let query = supabase
+    .from("shifts")
+    .select("id", { count: "exact", head: true })
+    .gte("date", tomorrowISO);
+  if (siteId) query = query.eq("site_id", siteId);
+  if (employeeId) query = query.eq("employee_id", employeeId);
   const { count, error } = await query;
   if (error) return { error: error.message };
   return { ok: true, count: count ?? 0 };
