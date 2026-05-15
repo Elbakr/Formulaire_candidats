@@ -23,6 +23,8 @@ export type EmpRow = {
   default_pause_minutes: number | null;
   ot_eligible: boolean | null;
   ot_max_multiplier: number | null;
+  is_manager: boolean | null;
+  is_site_manager: boolean | null;
   fixed_off_days: number[] | null;
   preferred_site_ids: string[] | null;
   unavailable_site_ids: string[] | null;
@@ -51,6 +53,8 @@ type Edits = {
   default_pause_minutes?: number | null;
   ot_eligible?: boolean;
   ot_max_multiplier?: number;
+  is_manager?: boolean;
+  is_site_manager?: boolean;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -91,6 +95,8 @@ export function BulkEditTable({
       case "default_pause_minutes": return emp.default_pause_minutes as Edits[K];
       case "ot_eligible": return (emp.ot_eligible ?? false) as Edits[K];
       case "ot_max_multiplier": return (emp.ot_max_multiplier ?? 1.0) as Edits[K];
+      case "is_manager": return (emp.is_manager ?? false) as Edits[K];
+      case "is_site_manager": return (emp.is_site_manager ?? false) as Edits[K];
       case "fixed_off_days": return (emp.fixed_off_days ?? []) as Edits[K];
       case "preferred_site_ids": return (emp.preferred_site_ids ?? []) as Edits[K];
       case "unavailable_site_ids": return (emp.unavailable_site_ids ?? []) as Edits[K];
@@ -182,8 +188,11 @@ export function BulkEditTable({
               <th className="text-right px-2 py-2">Wk h</th>
               <th className="text-center px-2 py-2">Contrat</th>
               <th className="text-right px-2 py-2">Pause</th>
-              <th className="text-center px-2 py-2 min-w-[180px]" title="Coefficient OT max (1.0 = pas d OT, 2.0 = double).">
+              <th className="text-center px-2 py-2 min-w-[180px]" title="Coefficient OT max (1.0 = pas d OT, 2.5 = responsable magasin).">
                 Niveau OT (×)
+              </th>
+              <th className="text-center px-2 py-2 min-w-[100px]" title="Manager (priorise + cap min x2.0) / Resp. Magasin (priorise + cap min x2.5)">
+                Rôle
               </th>
               <th className="text-center px-3 py-2 min-w-[140px]">Jours OFF fixes</th>
               <th className="text-center px-3 py-2 min-w-[200px]">Sites préférés</th>
@@ -199,6 +208,8 @@ export function BulkEditTable({
               const ct = getValue(emp, "contract_type");
               const pause = getValue(emp, "default_pause_minutes");
               const otMult = getValue(emp, "ot_max_multiplier") ?? 1.0;
+              const isMgr = getValue(emp, "is_manager") ?? false;
+              const isSiteMgr = getValue(emp, "is_site_manager") ?? false;
               const offDays = getValue(emp, "fixed_off_days") ?? [];
               const prefSites = getValue(emp, "preferred_site_ids") ?? [];
               const blockSites = getValue(emp, "unavailable_site_ids") ?? [];
@@ -258,6 +269,37 @@ export function BulkEditTable({
                       onChange={(v) => setField(emp.id, "ot_max_multiplier", v)}
                       aria-label={`Niveau OT ${emp.full_name}`}
                     />
+                  </td>
+                  <td className="text-center px-2 py-2">
+                    <div className="flex flex-col gap-1 items-stretch">
+                      <label className="text-[10px] flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isMgr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setField(emp.id, "is_manager", v);
+                            // Si on coche manager et que OT mult < 2.0, on le push.
+                            if (v && (otMult ?? 1.0) < 2.0) setField(emp.id, "ot_max_multiplier", 2.0);
+                          }}
+                          className="cursor-pointer"
+                        />
+                        <span className={isMgr ? "font-bold text-gold-dark" : ""}>Manager</span>
+                      </label>
+                      <label className="text-[10px] flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSiteMgr}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setField(emp.id, "is_site_manager", v);
+                            if (v && (otMult ?? 1.0) < 2.5) setField(emp.id, "ot_max_multiplier", 2.5);
+                          }}
+                          className="cursor-pointer"
+                        />
+                        <span className={isSiteMgr ? "font-bold text-orange-700" : ""}>Resp. mag.</span>
+                      </label>
+                    </div>
                   </td>
                   <td className="text-center px-3 py-2">
                     <div className="inline-flex gap-0.5">

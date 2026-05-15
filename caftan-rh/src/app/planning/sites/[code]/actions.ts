@@ -40,6 +40,8 @@ type EmployeeRow = {
   contract_type: string | null;
   ot_eligible: boolean | null;
   ot_max_multiplier: number | null;
+  is_manager: boolean | null;
+  is_site_manager: boolean | null;
 };
 
 /** Score de séniorité numérique pour le tri (haut = plus senior). */
@@ -258,7 +260,7 @@ async function loadSolverContext(
     supabase
       .from("employees")
       .select(
-        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible, ot_max_multiplier",
+        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible, ot_max_multiplier, is_manager, is_site_manager",
       )
       .eq("status", "active"),
     // /!\ on charge TOUS les shifts de la semaine, pas seulement ceux du site,
@@ -691,7 +693,14 @@ export async function previewSitePlanAction(
       const requireSenior =
         isPeakSlot || isWeekend || isThuAtE || isSpecialDay || isCriticalNeed;
 
+      // Karim 15/05 v2 : managers/site_managers priorises EN PREMIER pour
+      // l epuisement de leur reserve contractuelle (avant les autres).
       eligible.sort((a, b) => {
+        const rRank = (e: EmployeeRow) =>
+          e.is_site_manager ? 0 : e.is_manager ? 1 : 2;
+        const ra = rRank(a);
+        const rb = rRank(b);
+        if (ra !== rb) return ra - rb;
         const ta = tierByEmp.get(a.id) ?? 3;
         const tb = tierByEmp.get(b.id) ?? 3;
         if (ta !== tb) return ta - tb;
@@ -1035,10 +1044,14 @@ export async function previewOvertimeFillAction(args: {
           continue;
         }
         const otH = (need_eMin - otStartMin) / 60;
-        // Karim 15/05 : cap personnel = min(multiplier slot autorise,
-        // ot_max_multiplier de l employe). Si l employe a ot_max=1.25
-        // et le slot est autorise a 1.5, on plafonne a 1.25 (son niveau).
-        const personalMaxMult = Math.max(1.0, e.ot_max_multiplier ?? 1.0);
+        // Karim 15/05 : cap personnel boosté par flags manager/site_manager.
+        // Site manager : cap min x2.5 (extreme besoin, "tout pouvoir")
+        // Manager : cap min x2.0
+        // Sinon : ot_max_multiplier de l employe.
+        // Le cap effectif = min(multiplier slot autorise, personal_max).
+        const baseMax = Math.max(1.0, e.ot_max_multiplier ?? 1.0);
+        const roleBoost = e.is_site_manager ? 2.5 : e.is_manager ? 2.0 : 1.0;
+        const personalMaxMult = Math.max(baseMax, roleBoost);
         const effectiveMult = Math.min(multiplier, personalMaxMult);
         const cap = (e.weekly_hours ?? 38) * effectiveMult;
         const used = plannedHours.get(e.id) ?? 0;
@@ -1049,9 +1062,19 @@ export async function previewOvertimeFillAction(args: {
         candidates.push({ emp: e, otStart, otEnd, otHours: otH });
       }
 
-      // Tri : étalement (moins de jours), puis moins d'heures cumulées,
-      // puis priorité tier 1 → 2 → 3 (renfort cross-site = dernier recours).
+      // Tri : Karim 15/05 v2 : priorite manager/site_manager EN PREMIER
+      // (ils doivent absorber l overload en cas de besoin extreme), PUIS
+      // etalement, puis moins d heures cumulees, puis tier.
+      // roleRank : 0=site_manager, 1=manager, 2=normal.
+      function roleRank(e: EmployeeRow): number {
+        if (e.is_site_manager) return 0;
+        if (e.is_manager) return 1;
+        return 2;
+      }
       candidates.sort((a, b) => {
+        const ra = roleRank(a.emp);
+        const rb = roleRank(b.emp);
+        if (ra !== rb) return ra - rb;
         const da = plannedDays.get(a.emp.id)?.size ?? 0;
         const db = plannedDays.get(b.emp.id)?.size ?? 0;
         if (da !== db) return da - db;

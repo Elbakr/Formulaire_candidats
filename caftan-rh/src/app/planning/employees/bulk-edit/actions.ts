@@ -17,6 +17,10 @@ export type EmployeeBulkPatch = {
   /** Karim 15/05 : niveau OT max par employe (1.0 = pas d OT, 2.0 = double).
    *  Si > 1.0, ot_eligible est setted a true via trigger DB. */
   ot_max_multiplier?: number;
+  /** Karim 15/05 : roles fonctionnels qui forcent priorisation solver
+   *  + cap OT eleve (manager x2.0, responsable magasin x2.5). */
+  is_manager?: boolean;
+  is_site_manager?: boolean;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -29,6 +33,8 @@ const ALLOWED_FIELDS = new Set<keyof EmployeeBulkPatch>([
   "default_pause_minutes",
   "ot_eligible",
   "ot_max_multiplier",
+  "is_manager",
+  "is_site_manager",
   "fixed_off_days",
   "preferred_site_ids",
   "unavailable_site_ids",
