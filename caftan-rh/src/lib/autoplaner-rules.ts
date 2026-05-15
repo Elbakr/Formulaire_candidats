@@ -105,7 +105,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Applique le champ holidays.staff_multiplier les jours de férié (ex: Aïd ×2, soldes ×1.5). Désactiver fige tous les jours à ×1.",
     category: "multipliers",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "crescendo_before_holidays",
@@ -150,7 +150,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Périodes saisonnières (Ramadan, soldes, fin d'année — table seasonal_events) ajustent l'effectif sur leur fenêtre peak/low/closed.",
     category: "multipliers",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
 
   // ─── Priority ───────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Employés is_manager=true placés en tête du tri pour phase 1 (contractuel) et phase 2 (OT). Leur réserve est consommée en premier.",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "site_manager_priority",
@@ -170,7 +170,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "is_site_manager=true placés avant les managers. Absorbent l'overflow final.",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "manager_ot_boost_2x",
@@ -179,7 +179,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Manager peut faire jusqu'à weekly_hours × 2.0 même si son ot_max_multiplier perso est inférieur. Trigger DB ajuste automatiquement.",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "site_manager_ot_boost_2_5x",
@@ -188,7 +188,7 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Responsable Magasin peut faire jusqu'à weekly_hours × 2.5. Cas d'extrême besoin (samedi de soldes + Aïd).",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "critical_needs_weight",
@@ -197,16 +197,16 @@ export const AUTOPLANER_RULES: AutoplanerRule[] = [
       "Besoins ultra-critiques (is_critical=2) pèsent 3× dans le scoring de criticité site (vs 2× pour critique=1, 1× pour normal).",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
   {
     id: "senior_first_on_demanding_slots",
     label: "Senior en priorité sur créneaux exigeants",
     description:
-      "Sur les jours pic (weekends, jeudi @ E, jour spécial, critique), les seniors (lead/senior) sont priorisés par rapport aux confirmé/junior.",
+      "Sur les jours pic (weekends, jeudi @ E, jour spécial, critique), les seniors (lead/senior) sont priorisés par rapport aux confirmé/junior. (Plumbed dans previewSitePlanAction.)",
     category: "priority",
     defaultEnabled: true,
-    wired: false,
+    wired: true,
   },
 
   // ─── Multi-site ─────────────────────────────────────────────────────

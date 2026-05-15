@@ -601,9 +601,14 @@ export async function previewSitePlanAction(
       );
 
     // Multiplicateur d'effectif final = seasonal × holiday × crescendo × pont.
-    // Karim 15/05 v5 : chaque facteur respecte sa rule org_settings.autoplaner_rules.
+    // Karim 15/05 v5 : chaque facteur respecte sa rule autoplaner_rules.
     // Plafond combiné 4x.
-    const holidayMult = holidayStaffMultByDate.get(dateISO) ?? 1.0;
+    const holidayStaffMultEnabled = isRuleEnabled(rulesCfg, "holiday_staff_multiplier");
+    const holidayMult = holidayStaffMultEnabled
+      ? (holidayStaffMultByDate.get(dateISO) ?? 1.0)
+      : 1.0;
+    const seasonalEnabled = isRuleEnabled(rulesCfg, "seasonal_peak_multiplier");
+    const effectiveSeasonalMult = seasonalEnabled ? seasonalMult : 1.0;
     const crescendoEnabled = isRuleEnabled(rulesCfg, "crescendo_before_holidays");
     const crescendo = crescendoEnabled
       ? computeCrescendoMultiplier(dateISO, allHolidaysForCrescendo)
@@ -623,7 +628,7 @@ export async function previewSitePlanAction(
     }
     const combinedMult = Math.min(
       4.0,
-      seasonalMult * holidayMult * crescendo.multiplier * pontMult,
+      effectiveSeasonalMult * holidayMult * crescendo.multiplier * pontMult,
     );
 
     for (const need of dayNeeds) {
@@ -717,17 +722,23 @@ export async function previewSitePlanAction(
         isPeakSlot || isWeekend || isThuAtE || isSpecialDay || isCriticalNeed;
 
       // Karim 15/05 v2 : managers/site_managers priorises EN PREMIER pour
-      // l epuisement de leur reserve contractuelle (avant les autres).
+      // l epuisement de leur reserve contractuelle. Respecte rules toggles
+      // manager_priority + site_manager_priority.
+      const mgrPriorityEnabled = isRuleEnabled(rulesCfg, "manager_priority");
+      const siteMgrPriorityEnabled = isRuleEnabled(rulesCfg, "site_manager_priority");
       eligible.sort((a, b) => {
-        const rRank = (e: EmployeeRow) =>
-          e.is_site_manager ? 0 : e.is_manager ? 1 : 2;
+        const rRank = (e: EmployeeRow) => {
+          if (siteMgrPriorityEnabled && e.is_site_manager) return 0;
+          if (mgrPriorityEnabled && e.is_manager) return 1;
+          return 2;
+        };
         const ra = rRank(a);
         const rb = rRank(b);
         if (ra !== rb) return ra - rb;
         const ta = tierByEmp.get(a.id) ?? 3;
         const tb = tierByEmp.get(b.id) ?? 3;
         if (ta !== tb) return ta - tb;
-        if (requireSenior) {
+        if (requireSenior && isRuleEnabled(rulesCfg, "senior_first_on_demanding_slots")) {
           // Creneau a forte exigence : senior d'abord (lead/senior > confirme/junior).
           const sa = seniorScore(a);
           const sb = seniorScore(b);
@@ -895,12 +906,16 @@ export async function previewOvertimeFillAction(args: {
   const supabase = await createClient();
   const { data: orgRow } = await supabase
     .from("org_settings")
-    .select("overtime_min_pause_minutes")
+    .select("overtime_min_pause_minutes, autoplaner_rules")
     .eq("id", 1)
     .maybeSingle();
   const otMinPause =
     (orgRow as { overtime_min_pause_minutes?: number | null } | null)
       ?.overtime_min_pause_minutes ?? 15;
+  const rulesCfg = mergeWithDefaults(
+    (orgRow as { autoplaner_rules?: Record<string, unknown> | null } | null)
+      ?.autoplaner_rules ?? null,
+  );
 
   // Compteurs initialisés depuis l'EXISTANT (autres sites + ce site déjà commités).
   // plannedHours = total des heures productives (regulier + OT).
@@ -1068,12 +1083,18 @@ export async function previewOvertimeFillAction(args: {
         }
         const otH = (need_eMin - otStartMin) / 60;
         // Karim 15/05 : cap personnel boosté par flags manager/site_manager.
-        // Site manager : cap min x2.5 (extreme besoin, "tout pouvoir")
-        // Manager : cap min x2.0
-        // Sinon : ot_max_multiplier de l employe.
-        // Le cap effectif = min(multiplier slot autorise, personal_max).
+        // Respecte rules toggles : si manager_ot_boost_2x ou
+        // site_manager_ot_boost_2_5x OFF, le boost de role est neutralise
+        // (1.0) et seul ot_max_multiplier personnel s applique.
         const baseMax = Math.max(1.0, e.ot_max_multiplier ?? 1.0);
-        const roleBoost = e.is_site_manager ? 2.5 : e.is_manager ? 2.0 : 1.0;
+        const siteMgrBoostOn = isRuleEnabled(rulesCfg, "site_manager_ot_boost_2_5x");
+        const mgrBoostOn = isRuleEnabled(rulesCfg, "manager_ot_boost_2x");
+        const roleBoost =
+          siteMgrBoostOn && e.is_site_manager
+            ? 2.5
+            : mgrBoostOn && e.is_manager
+              ? 2.0
+              : 1.0;
         const personalMaxMult = Math.max(baseMax, roleBoost);
         const effectiveMult = Math.min(multiplier, personalMaxMult);
         const cap = (e.weekly_hours ?? 38) * effectiveMult;
@@ -1089,9 +1110,12 @@ export async function previewOvertimeFillAction(args: {
       // (ils doivent absorber l overload en cas de besoin extreme), PUIS
       // etalement, puis moins d heures cumulees, puis tier.
       // roleRank : 0=site_manager, 1=manager, 2=normal.
+      // Respecte rules toggles.
+      const mgrPriorityEnabledOT = isRuleEnabled(rulesCfg, "manager_priority");
+      const siteMgrPriorityEnabledOT = isRuleEnabled(rulesCfg, "site_manager_priority");
       function roleRank(e: EmployeeRow): number {
-        if (e.is_site_manager) return 0;
-        if (e.is_manager) return 1;
+        if (siteMgrPriorityEnabledOT && e.is_site_manager) return 0;
+        if (mgrPriorityEnabledOT && e.is_manager) return 1;
         return 2;
       }
       candidates.sort((a, b) => {

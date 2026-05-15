@@ -10,6 +10,7 @@ import {
 import { sendPushToProfile } from "@/lib/push-notify";
 import { shiftHours, startOfWeek, addDays, toISODate } from "@/lib/planning";
 import { splitShiftForQuota } from "@/lib/split-overtime";
+import { isRuleEnabled, mergeWithDefaults } from "@/lib/autoplaner-rules";
 
 /**
  * Calcule les heures déjà planifiées (hors OT) pour un employé sur la semaine
@@ -128,7 +129,19 @@ export async function upsertShiftAction(formData: FormData) {
   // (l existing position/notes peuvent tagguer le creneau couvert).
   const newStart = start.slice(0, 5);
   const newEnd = end.slice(0, 5);
-  {
+  // Karim 15/05 : check anti-overlap respecte org_settings.autoplaner_rules.
+  // Si la regle anti_overlap_same_employee est OFF, on saute le check
+  // (revient au comportement legacy "overlaps OK").
+  const { data: orgRulesRow } = await supabase
+    .from("org_settings")
+    .select("autoplaner_rules")
+    .eq("id", 1)
+    .maybeSingle();
+  const rulesCfg = mergeWithDefaults(
+    (orgRulesRow as { autoplaner_rules: Record<string, unknown> | null } | null)
+      ?.autoplaner_rules ?? null,
+  );
+  if (isRuleEnabled(rulesCfg, "anti_overlap_same_employee")) {
     const { data: sameDayRaw } = await supabase
       .from("shifts")
       .select("id, start_time, end_time, is_overtime")
