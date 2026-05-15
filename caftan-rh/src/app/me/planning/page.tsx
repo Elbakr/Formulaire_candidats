@@ -6,6 +6,7 @@ import { startOfWeek, weekRange, toISODate } from "@/lib/planning";
 import { MyPlanningClient } from "./client";
 import { getLocale } from "@/lib/locale-server";
 import { t } from "@/lib/i18n";
+import { EmployeeValidationBanner, type EmployeeValidationRun } from "./validation-banner";
 
 export default async function MyPlanningPage() {
   const { user } = await requireProfile();
@@ -49,7 +50,7 @@ export default async function MyPlanningPage() {
   const monday = startOfWeek(today);
   const { start: weekStart, end: weekEnd } = weekRange(monday);
 
-  const [{ data: upcoming }, { data: weekShifts }] = await Promise.all([
+  const [{ data: upcoming }, { data: weekShifts }, { data: runsRaw }] = await Promise.all([
     supabase
       .from("shifts")
       .select("id, date, start_time, end_time, break_minutes, position, location, notes, site:sites(code, name, color)")
@@ -67,21 +68,61 @@ export default async function MyPlanningPage() {
       .lte("date", weekEnd)
       .order("date")
       .order("start_time"),
+    // Karim 15/05/2026 : validation workflow. Cherche un run pending sur la
+    // semaine courante (ou en bypass actif). Joint la response de l employe.
+    supabase
+      .from("planning_validation_runs")
+      .select(
+        `id, week_iso, was_mandatory, was_bypassed, obligation_reason, deadline_at,
+         responses:planning_validation_responses!planning_validation_responses_run_id_fkey(employee_id, response, cancelled_after_validation)`,
+      )
+      .eq("week_iso", weekStart)
+      .eq("status", "pending"),
   ]);
 
+  // Construit le banner si run actif pour cet employe.
+  const runs = (runsRaw ?? []) as Array<{
+    id: string;
+    week_iso: string;
+    was_mandatory: boolean;
+    was_bypassed: boolean;
+    obligation_reason: string | null;
+    deadline_at: string | null;
+    responses: Array<{ employee_id: string; response: string | null; cancelled_after_validation: boolean }> | null;
+  }>;
+  let activeRun: EmployeeValidationRun | null = null;
+  if (runs.length > 0) {
+    const run = runs[0];
+    const myResp = (run.responses ?? []).find((r) => r.employee_id === employee.id);
+    activeRun = {
+      run_id: run.id,
+      week_iso: run.week_iso,
+      was_mandatory: run.was_mandatory,
+      was_bypassed: run.was_bypassed,
+      obligation_reason: run.obligation_reason,
+      deadline_at: run.deadline_at,
+      response: (myResp?.response as "accepted" | "refused" | "no_response" | null) ?? null,
+      cancelled_after_validation: myResp?.cancelled_after_validation ?? false,
+      employee_id: employee.id,
+    };
+  }
+
   return (
-    <MyPlanningClient
-      employee={{
-        id: employee.id,
-        full_name: employee.full_name,
-        job_title: employee.job_title,
-        weekly_hours: employee.weekly_hours,
-        department_name: employee.department?.name ?? null,
-      }}
-      mondayISO={toISODate(monday)}
-      upcoming={(upcoming ?? []) as never}
-      weekShifts={(weekShifts ?? []) as never}
-      locale={locale}
-    />
+    <div className="space-y-4">
+      {activeRun ? <EmployeeValidationBanner run={activeRun} /> : null}
+      <MyPlanningClient
+        employee={{
+          id: employee.id,
+          full_name: employee.full_name,
+          job_title: employee.job_title,
+          weekly_hours: employee.weekly_hours,
+          department_name: employee.department?.name ?? null,
+        }}
+        mondayISO={toISODate(monday)}
+        upcoming={(upcoming ?? []) as never}
+        weekShifts={(weekShifts ?? []) as never}
+        locale={locale}
+      />
+    </div>
   );
 }

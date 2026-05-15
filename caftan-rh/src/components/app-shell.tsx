@@ -9,7 +9,7 @@ import {
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
-  Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope,
+  Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ const ICONS: Record<string, LucideIcon> = {
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
-  Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope,
+  Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
 };
 
 export type NavIconName = keyof typeof ICONS;

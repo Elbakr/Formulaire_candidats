@@ -11,6 +11,7 @@ const sections: NavSection[] = [
       { href: "/planning/sites", label: "Sites", icon: "Building2" },
       { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
       { href: "/planning/quotas", label: "Quotas", icon: "Activity" },
+      { href: "/planning/validation", label: "Validation employés", icon: "ShieldCheck" },
       { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
       { href: "/planning/swaps", label: "Échanges shifts", icon: "ArrowRightLeft" },
       { href: "/planning/reinforcement", label: "Renfort", icon: "LifeBuoy" },
