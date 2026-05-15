@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, AlertTriangle, Check, Loader2 } from "lucide-react";
+import { Sparkles, AlertTriangle, Check, Loader2, Eraser, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import {
   type EmpPlanPreview,
 } from "../generate-actions";
 import { updateEmployeeBulkAction } from "@/app/planning/employees/bulk-edit/actions";
+import { clearWeekAction } from "@/app/planning/calendar/bulk-actions";
 
 const FR_DAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 
@@ -62,6 +64,22 @@ export function GenerateEmployeePlanButton({
         return;
       }
       toast.success("Éligibilité aux heures sup activée.");
+      reloadPreview();
+    });
+  }
+
+  /** Vide tous les shifts de la semaine pour CET employe puis recharge le
+   *  preview. Karim 15/05 : action rapide quand quota deja sature et qu on
+   *  veut tout recommencer. */
+  function clearAndReload() {
+    if (!confirm("Vider tous les shifts de cet employé pour cette semaine ?")) return;
+    startTransition(async () => {
+      const r = await clearWeekAction({ weekISO, employeeId });
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`${r.deleted ?? 0} shift(s) supprimé(s). Tu peux régénérer.`);
       reloadPreview();
     });
   }
@@ -150,26 +168,77 @@ export function GenerateEmployeePlanButton({
                   {preview.warnings.map((w, i) => {
                     const isOtEligibleAlert =
                       w.includes("ot_eligible") || w.toLowerCase().includes("non eligible");
+                    const isQuotaSaturatedAlert = w.includes("quota contractuel est déjà atteint");
                     return (
-                      <div key={i} className="flex items-start gap-1.5">
-                        <AlertTriangle className="h-3 w-3 text-warn shrink-0 mt-0.5" />
-                        <span className="flex-1">{w}</span>
-                        {isOtEligibleAlert ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="gold"
-                            onClick={activateOTEligibility}
-                            disabled={pending}
-                            className="shrink-0 h-6 px-2 text-[10px]"
-                          >
-                            {pending ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Check className="h-3 w-3" />
-                            )}
-                            Activer OT
-                          </Button>
+                      <div key={i}>
+                        <div className="flex items-start gap-1.5">
+                          <AlertTriangle className="h-3 w-3 text-warn shrink-0 mt-0.5" />
+                          <span className="flex-1">{w}</span>
+                          {isOtEligibleAlert ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="gold"
+                              onClick={activateOTEligibility}
+                              disabled={pending}
+                              className="shrink-0 h-6 px-2 text-[10px]"
+                            >
+                              {pending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Check className="h-3 w-3" />
+                              )}
+                              Activer OT
+                            </Button>
+                          ) : null}
+                        </div>
+                        {isQuotaSaturatedAlert ? (
+                          <div className="mt-1.5 ml-4 flex flex-wrap gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={clearAndReload}
+                              disabled={pending}
+                              className="h-6 px-2 text-[10px]"
+                              title="Supprime tous les shifts de cet employé sur la semaine et recharge le preview"
+                            >
+                              <Eraser className="h-3 w-3" />
+                              Vider la semaine
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              asChild
+                              className="h-6 px-2 text-[10px]"
+                            >
+                              <Link
+                                href={`/planning/all-sites?week=${weekISO}`}
+                                target="_blank"
+                                title="Voir les besoins non couverts sur la Vue d ensemble (autre onglet)"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Vue d'ensemble
+                              </Link>
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              asChild
+                              className="h-6 px-2 text-[10px]"
+                            >
+                              <Link
+                                href={`/planning/employees/${employeeId}`}
+                                target="_blank"
+                                title="Editer weekly_hours si tu veux augmenter le quota de cet employé"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Fiche employé
+                              </Link>
+                            </Button>
+                          </div>
                         ) : null}
                       </div>
                     );
