@@ -235,6 +235,56 @@ export async function restoreDeletedShiftsAction(
 }
 
 /**
+ * Karim 15/05 : reinit tous les shifts d une PERIODE arbitraire (par ex.
+ * une vue Quotas 4 sem). Optionnel : scope par sites[] ou employe.
+ * Retourne snapshots pour undo Ctrl+Z (max 500 shifts).
+ */
+export async function clearShiftsInPeriodAction({
+  startISO,
+  endISO,
+  siteIds,
+  employeeId,
+}: {
+  startISO: string;
+  endISO: string;
+  siteIds?: string[] | null;
+  employeeId?: string | null;
+}): Promise<{ ok?: boolean; error?: string; deleted?: number; snapshots?: DeletedShiftSnapshot[] }> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (!startISO || !endISO) return { error: "Periode requise." };
+  const supabase = await createClient();
+
+  let selQ = supabase
+    .from("shifts")
+    .select("employee_id, date, start_time, end_time, break_minutes, position, location, site_id, notes, is_overtime, overtime_multiplier, status")
+    .gte("date", startISO)
+    .lte("date", endISO);
+  if (siteIds && siteIds.length > 0) selQ = selQ.in("site_id", siteIds);
+  if (employeeId) selQ = selQ.eq("employee_id", employeeId);
+  const { data: snapsRaw, error: selErr } = await selQ;
+  if (selErr) return { error: selErr.message };
+  const snapshots = (snapsRaw ?? []) as DeletedShiftSnapshot[];
+
+  let delQ = supabase
+    .from("shifts")
+    .delete({ count: "exact" })
+    .gte("date", startISO)
+    .lte("date", endISO);
+  if (siteIds && siteIds.length > 0) delQ = delQ.in("site_id", siteIds);
+  if (employeeId) delQ = delQ.eq("employee_id", employeeId);
+  const { error, count } = await delQ;
+  if (error) return { error: error.message };
+
+  revalidatePath("/planning", "layout");
+  revalidatePath("/me/planning");
+  return {
+    ok: true,
+    deleted: count ?? 0,
+    snapshots: snapshots.length <= 500 ? snapshots : [],
+  };
+}
+
+/**
  * Vide TOUT (a partir de demain, regle J+1). Optionnellement scope par site
  * ou par employe. Pour les cas "je recommence a zero" -- gros impact, demande
  * confirmation forte cote UI.

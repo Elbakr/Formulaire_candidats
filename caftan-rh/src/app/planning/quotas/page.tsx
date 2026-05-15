@@ -9,6 +9,7 @@ import {
   type EmployeePeriodRow,
 } from "@/lib/quotas-period";
 import { PeriodSelector } from "./period-selector";
+import { ResetPeriodButton } from "./reset-period-button";
 
 const VALID_PERIODS: PeriodKey[] = ["this_week", "next_week", "4w", "12w", "this_month"];
 
@@ -61,7 +62,15 @@ export default async function QuotasPage(props: {
             Vue {periodLabel(period)} ({data.startISO} → {data.endISO}, {data.weeksInPeriod.toFixed(1)} sem)
           </p>
         </div>
-        <PeriodSelector current={period} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <ResetPeriodButton
+            startISO={data.startISO}
+            endISO={data.endISO}
+            siteIds={data.sites.map((s) => s.site_id)}
+            visibleSitesCount={data.sites.length}
+          />
+          <PeriodSelector current={period} />
+        </div>
       </div>
 
       {/* KPI direction : 4 cards horizontales en tete. */}
