@@ -29,6 +29,7 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
     { data: settingsRow },
     { data: blockedHols },
     { data: closures },
+    { data: unavailRaw },
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -63,6 +64,15 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
       .select("start_date, end_date, department_id")
       .lte("start_date", end)
       .gte("end_date", start),
+    // Karim 15/05 : indispos declarees par les employes (recurrentes ou
+    // ponctuelles). Le solver legacy ne les considerait pas -> shifts crees
+    // sur des creneaux d indispo. Fix : on charge tout et on le passe au
+    // generator qui pousse le start_time si chevauchement.
+    supabase
+      .from("employee_unavailabilities")
+      .select("employee_id, day_of_week, date_specific, start_time, end_time, is_active")
+      .eq("is_active", true)
+      .or(`date_specific.is.null,and(date_specific.gte.${start},date_specific.lte.${end})`),
   ]);
 
   const employees = (emps ?? []) as unknown as EmployeeForPlan[];
@@ -88,12 +98,24 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
     department_id: string | null;
   }>);
 
+  const unavailabilities = ((unavailRaw ?? []) as Array<{
+    employee_id: string;
+    day_of_week: number | null;
+    date_specific: string | null;
+    start_time: string | null;
+    end_time: string | null;
+  }>).filter(
+    (u) =>
+      u.day_of_week !== null ||
+      (u.date_specific !== null && u.date_specific >= start && u.date_specific <= end),
+  );
+
   const result = generateWeekPlan(
     monday,
     employees,
     (shifts ?? []) as unknown as ExistingShift[],
     (timeOff ?? []) as unknown as ApprovedTimeOff[],
-    { prayerPause, blockedDates, closures: closuresList },
+    { prayerPause, blockedDates, closures: closuresList, unavailabilities },
   );
 
   return { ...result, weekStart: start, weekEnd: end };

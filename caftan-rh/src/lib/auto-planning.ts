@@ -105,6 +105,17 @@ export type ApprovedTimeOff = {
   end_date: string;
 };
 
+/** Karim 15/05 : indispos declarees (recurrentes ou ponctuelles) consommees
+ *  par le solver legacy /planning/calendar pour exclure les jours bloques
+ *  entiers OU pousser le start_time hors d une indispo partielle. */
+export type EmpUnavailForPlan = {
+  employee_id: string;
+  day_of_week: number | null; // 0=Dim..6=Sam (JS convention)
+  date_specific: string | null;
+  start_time: string | null; // null = journee entiere
+  end_time: string | null;
+};
+
 export type ShiftDraft = {
   employee_id: string;
   employee_name: string;
@@ -166,6 +177,9 @@ export function generateWeekPlan(
   existing: ExistingShift[],
   approvedOff: ApprovedTimeOff[],
   options: {
+    /** Karim 15/05 : indispos declarees a respecter (full-day = skip jour,
+     *  partielles = push start_time apres la fin de l indispo). */
+    unavailabilities?: EmpUnavailForPlan[];
     defaultPosition?: string;
     prayerPause?: PrayerPauseSettings;
     /** Dates ISO (YYYY-MM-DD) à ne pas planifier — fériés critiques (Aïd, légaux). */
@@ -209,7 +223,32 @@ export function generateWeekPlan(
           (c.department_id === null || c.department_id === emp.department_id),
       );
 
-    const eligibleDays: { dateISO: string; dayIdx: number }[] = [];
+    // Karim 15/05 : indispos declarees par l employe (recurrentes ou
+    // ponctuelles). Full-day = skip jour ; partielle = push start_time
+    // apres la fin de l indispo dans la boucle d affectation ci-dessous.
+    const empUnavail = (options.unavailabilities ?? []).filter(
+      (u) => u.employee_id === emp.id,
+    );
+    function fullDayUnavail(jsDow: number, dateISO: string): boolean {
+      return empUnavail.some((u) => {
+        const matchDay = u.day_of_week === jsDow || u.date_specific === dateISO;
+        if (!matchDay) return false;
+        return !u.start_time || !u.end_time;
+      });
+    }
+    function partialUnavailsForDay(
+      jsDow: number,
+      dateISO: string,
+    ): Array<{ s: string; e: string }> {
+      return empUnavail
+        .filter((u) => {
+          const matchDay = u.day_of_week === jsDow || u.date_specific === dateISO;
+          return matchDay && u.start_time && u.end_time;
+        })
+        .map((u) => ({ s: u.start_time as string, e: u.end_time as string }));
+    }
+
+    const eligibleDays: { dateISO: string; dayIdx: number; jsDow: number }[] = [];
     for (let i = 0; i < 7; i++) {
       if (fixedOff.has(i)) continue;
       const dateISO = weekDaysISO[i];
@@ -217,7 +256,9 @@ export function generateWeekPlan(
       if (hasExistingShift(dateISO)) continue;
       if (blockedDates.has(dateISO)) continue;
       if (isClosed(dateISO)) continue;
-      eligibleDays.push({ dateISO, dayIdx: i });
+      const jsDow = parseISODate(dateISO).getDay();
+      if (fullDayUnavail(jsDow, dateISO)) continue;
+      eligibleDays.push({ dateISO, dayIdx: i, jsDow });
     }
 
     // Skip if no slots
@@ -231,15 +272,31 @@ export function generateWeekPlan(
     const totalAssigned = chosen.length * shiftHours;
     const missing = Math.max(0, emp.weekly_hours - totalAssigned);
 
-    for (const { dateISO } of chosen) {
-      const endTime = addHoursToTime(startTime, shiftHours, breakMin);
+    for (const { dateISO, jsDow } of chosen) {
+      // Karim 15/05 : ajuste start_time si une indispo PARTIELLE chevauche.
+      const partials = partialUnavailsForDay(jsDow, dateISO);
+      let effStartMin = timeToMinutes(startTime);
+      const propEndMin = effStartMin + Math.round(shiftHours * 60) + breakMin;
+      for (const p of partials) {
+        const pS = timeToMinutes(p.s.slice(0, 5));
+        const pE = timeToMinutes(p.e.slice(0, 5));
+        if (propEndMin > pS && effStartMin < pE) {
+          effStartMin = Math.max(effStartMin, pE);
+        }
+      }
+      const effStartTime = minutesToTime(effStartMin);
+      const endTime = addHoursToTime(effStartTime, shiftHours, breakMin);
+      // Si le shift deborde minuit (= indispo trop tardive), skip ce jour
+      if (timeToMinutes(endTime) >= 24 * 60 || effStartMin + Math.round(shiftHours * 60) + breakMin >= 24 * 60) {
+        continue;
+      }
 
       // Pause prière vendredi : si le shift chevauche, on découpe en 2 segments
       // (matin avant pause + après-midi après pause). Si trop court, on saute.
       const dayDate = parseISODate(dateISO);
       const pause = prayerPauseFor(dayDate, prayerPause);
-      if (pause && shiftOverlapsPause(startTime, endTime, pause)) {
-        const sS = timeToMinutes(startTime);
+      if (pause && shiftOverlapsPause(effStartTime, endTime, pause)) {
+        const sS = timeToMinutes(effStartTime);
         const sE = timeToMinutes(endTime);
         const pS = timeToMinutes(pause.start);
         const pE = timeToMinutes(pause.end);
@@ -256,7 +313,7 @@ export function generateWeekPlan(
             employee_id: emp.id,
             employee_name: emp.full_name,
             date: dateISO,
-            start_time: startTime,
+            start_time: effStartTime,
             end_time: minutesToTime(morningEnd),
             break_minutes: 0,
             position: options.defaultPosition ?? null,
@@ -287,12 +344,13 @@ export function generateWeekPlan(
         employee_id: emp.id,
         employee_name: emp.full_name,
         date: dateISO,
-        start_time: startTime,
+        start_time: effStartTime,
         end_time: endTime,
         break_minutes: breakMin,
         position: options.defaultPosition ?? null,
         location: null,
         hours: shiftHours,
+        reason: effStartTime !== startTime ? `Start décalé pour respecter une indispo partielle (${startTime} → ${effStartTime})` : undefined,
       });
     }
 
