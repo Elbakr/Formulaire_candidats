@@ -164,12 +164,16 @@ export default async function EmployeeCalendarPage(props: {
           </p>
         </div>
         <div className="flex flex-wrap gap-1 items-center">
-          {canSeeOvertime && view === "week" ? (
+          {/* Vider semaine + Demande renfort : visibles aussi pour les
+              managers (pas seulement admin/rh). Karim 15/05. */}
+          {view === "week" ? (
             <>
-              <GenerateEmployeePlanButton
-                employeeId={employee.id}
-                weekISO={toISODate(rangeStart)}
-              />
+              {canSeeOvertime ? (
+                <GenerateEmployeePlanButton
+                  employeeId={employee.id}
+                  weekISO={toISODate(rangeStart)}
+                />
+              ) : null}
               <ClearWeekButton
                 weekISO={toISODate(rangeStart)}
                 employeeId={employee.id}

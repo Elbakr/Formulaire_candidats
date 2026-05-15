@@ -21,6 +21,8 @@ import { DangerZone } from "./danger-zone";
 import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { InviteEmployeeButton } from "./invite-button";
+import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
+import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
   const { id } = await props.params;
@@ -131,6 +133,15 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
               <CalendarDays className="h-3.5 w-3.5" /> Calendrier (sem/mois/année)
             </Link>
           </Button>
+          {/* Karim 15/05 : Vider la semaine pour CET employe. Karim a signale
+              que ce bouton manquait sur la fiche -- on l ajoute ici, scope
+              automatique sur la semaine en cours. Pour vider une autre semaine,
+              utiliser /planning/employees/[id]/calendar?view=week + nav. */}
+          <ClearWeekButton
+            weekISO={toISODate(startOfWeek(new Date()))}
+            employeeId={id}
+            scopeLabel="pour cet employé (semaine en cours)"
+          />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/print?weeks=4`} target="_blank">
               <Printer className="h-3.5 w-3.5" /> Imprimer
