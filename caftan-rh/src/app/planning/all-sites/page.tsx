@@ -8,18 +8,21 @@ import {
   parseISODate,
   addDays,
   toISODate,
-  weekRange,
 } from "@/lib/planning";
 import { AllSitesBoard, type AllSitesShift, type AllSitesSite, type SiteDayNeedRow } from "./board";
 
+const VALID_WEEKS = new Set(["1", "2", "4", "12"]);
+
 export default async function AllSitesPage(props: {
-  searchParams: Promise<{ week?: string; filter?: string }>;
+  searchParams: Promise<{ week?: string; filter?: string; weeks?: string }>;
 }) {
   await requireRole(["admin", "rh", "manager"]);
-  const { week, filter } = await props.searchParams;
+  const { week, filter, weeks } = await props.searchParams;
 
   const monday = week ? startOfWeek(parseISODate(week)) : startOfWeek(new Date());
-  const { start, end } = weekRange(monday);
+  const nbWeeks = VALID_WEEKS.has(weeks ?? "") ? Number(weeks) : 1;
+  const periodStart = toISODate(monday);
+  const periodEnd = toISODate(addDays(monday, nbWeeks * 7 - 1));
 
   const supabase = await createClient();
   const [{ data: sitesRaw }, { data: shiftsRaw }, { data: needsRaw }] = await Promise.all([
@@ -34,8 +37,8 @@ export default async function AllSitesPage(props: {
         `id, employee_id, date, start_time, end_time, position, location, site_id, is_overtime, overtime_multiplier,
          employee:employees(id, full_name, job_title)`,
       )
-      .gte("date", start)
-      .lte("date", end)
+      .gte("date", periodStart)
+      .lte("date", periodEnd)
       .order("date")
       .order("start_time"),
     supabase
@@ -45,63 +48,134 @@ export default async function AllSitesPage(props: {
   ]);
 
   const allSites = (sitesRaw ?? []) as AllSitesSite[];
-  const shifts = (shiftsRaw ?? []) as unknown as AllSitesShift[];
+  const allShifts = (shiftsRaw ?? []) as unknown as AllSitesShift[];
   const needs = (needsRaw ?? []) as SiteDayNeedRow[];
 
-  // Karim 14/05/2026 : ne montrer que les sites pour lesquels le planning a
-  // ete genere cette semaine (proxy : sites qui ont >=1 shift sur la fenetre).
-  // Les sites sans shift cette semaine sont caches pour eviter le bruit visuel.
-  const sitesWithShifts = new Set(
-    shifts.map((s) => s.site_id).filter((v): v is string => Boolean(v)),
-  );
-  const sites = allSites.filter((s) => sitesWithShifts.has(s.id));
+  // Decoupe par semaine. Pour chaque semaine on filtre les shifts et les sites
+  // affiches a ceux qui ont >=1 shift dans cette semaine (Karim 14/05).
+  const weekBlocks = Array.from({ length: nbWeeks }, (_, i) => {
+    const wMonday = addDays(monday, i * 7);
+    const wStart = toISODate(wMonday);
+    const wEnd = toISODate(addDays(wMonday, 6));
+    const weekShifts = allShifts.filter((s) => s.date >= wStart && s.date <= wEnd);
+    const sitesWithShifts = new Set(
+      weekShifts.map((s) => s.site_id).filter((v): v is string => Boolean(v)),
+    );
+    const sites = allSites.filter((s) => sitesWithShifts.has(s.id));
+    return { mondayISO: wStart, endISO: wEnd, sites, shifts: weekShifts };
+  });
 
   const prevWeek = toISODate(addDays(monday, -7));
   const nextWeek = toISODate(addDays(monday, 7));
   const todayWeek = toISODate(startOfWeek(new Date()));
 
   const filterValue = (filter ?? "all").toLowerCase();
+  const filterQuery = filterValue !== "all" ? `&filter=${filterValue}` : "";
+  const weeksQuery = nbWeeks !== 1 ? `&weeks=${nbWeeks}` : "";
+
+  const PERIOD_OPTIONS = [
+    { value: 1, label: "1 sem" },
+    { value: 2, label: "2 sem" },
+    { value: 4, label: "4 sem" },
+    { value: 12, label: "12 sem" },
+  ];
+
+  const dateLabel =
+    nbWeeks === 1
+      ? `Du ${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au ${addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}`
+      : `${nbWeeks} semaines : du ${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })} au ${addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" })}`;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Vue d'ensemble — magasins</h1>
-          <p className="text-sm text-ink-2">
-            Du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
-            {addDays(monday, 6).toLocaleDateString("fr-BE", {
-              day: "2-digit",
-              month: "long",
-              year: "numeric",
-            })}
-          </p>
+          <p className="text-sm text-ink-2">{dateLabel}</p>
         </div>
-        <div className="flex gap-1 items-center flex-wrap">
+        <div className="flex gap-2 items-center flex-wrap">
+          {/* Selecteur periode (1/2/4/12 sem) -- Karim 15/05 : vue temporelle. */}
+          <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface text-xs">
+            {PERIOD_OPTIONS.map((o) => {
+              const isCurrent = nbWeeks === o.value;
+              const wq = o.value !== 1 ? `&weeks=${o.value}` : "";
+              return (
+                <Link
+                  key={o.value}
+                  href={`?week=${toISODate(monday)}${wq}${filterQuery}`}
+                  className={`whitespace-nowrap px-3 py-1.5 font-bold transition-colors ${
+                    isCurrent
+                      ? "bg-gold text-[#1a1a0d]"
+                      : "bg-white text-ink-2 hover:bg-surface-2"
+                  }`}
+                >
+                  {o.label}
+                </Link>
+              );
+            })}
+          </div>
           <Button asChild variant="outline" size="sm">
-            <Link href={`?week=${prevWeek}${filterValue !== "all" ? `&filter=${filterValue}` : ""}`}>
+            <Link href={`?week=${prevWeek}${weeksQuery}${filterQuery}`}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href={`?week=${todayWeek}${filterValue !== "all" ? `&filter=${filterValue}` : ""}`}>
+            <Link href={`?week=${todayWeek}${weeksQuery}${filterQuery}`}>
               Cette semaine
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href={`?week=${nextWeek}${filterValue !== "all" ? `&filter=${filterValue}` : ""}`}>
+            <Link href={`?week=${nextWeek}${weeksQuery}${filterQuery}`}>
               <ChevronRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
         </div>
       </div>
 
-      <AllSitesBoard
-        mondayISO={toISODate(monday)}
-        sites={sites}
-        shifts={shifts}
-        needs={needs}
-        initialFilter={filterValue}
-      />
+      {weekBlocks.map((wb, idx) => {
+        const wMonday = parseISODate(wb.mondayISO);
+        const isCurrentWeek = wb.mondayISO === todayWeek;
+        return (
+          <div key={wb.mondayISO} className="space-y-2">
+            {nbWeeks > 1 ? (
+              <div
+                className={`flex items-center gap-2 px-2 py-1 rounded-md border ${
+                  isCurrentWeek
+                    ? "border-gold bg-gold-light/30"
+                    : "border-line bg-surface-2/30"
+                }`}
+              >
+                <span className="text-xs font-bold uppercase tracking-wider text-ink-3">
+                  Semaine {idx + 1} / {nbWeeks}
+                </span>
+                <span className="text-xs text-ink-2">
+                  {wMonday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                  {" → "}
+                  {addDays(wMonday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                </span>
+                {isCurrentWeek ? (
+                  <span className="ml-auto text-[10px] font-bold uppercase text-gold-dark">
+                    Cette semaine
+                  </span>
+                ) : null}
+                <Link
+                  href={`?week=${wb.mondayISO}${filterQuery}`}
+                  className="ml-auto text-[10px] text-ink-3 hover:text-gold-dark hover:underline font-bold uppercase tracking-wider"
+                  title="Zoomer sur cette semaine"
+                >
+                  Zoom →
+                </Link>
+              </div>
+            ) : null}
+            <AllSitesBoard
+              mondayISO={wb.mondayISO}
+              sites={wb.sites}
+              shifts={wb.shifts}
+              needs={needs}
+              initialFilter={filterValue}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
