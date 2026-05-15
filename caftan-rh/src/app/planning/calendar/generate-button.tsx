@@ -58,6 +58,11 @@ export function GenerateWeekButton({ weekISO }: { weekISO: string }) {
       if (r.error) toast.error(r.error);
       else {
         toast.success(`${r.created ?? 0} shifts créés.`);
+        if (r.warnings && r.warnings.length > 0) {
+          for (const w of r.warnings) {
+            toast.warning(w, { duration: 8000 });
+          }
+        }
         setOpen(false);
         router.refresh();
       }

@@ -98,26 +98,59 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
   return { ...result, weekStart: start, weekEnd: end };
 }
 
-export async function commitDraftsAction(drafts: ShiftDraft[]): Promise<{ ok?: boolean; error?: string; created?: number }> {
+export async function commitDraftsAction(drafts: ShiftDraft[]): Promise<{ ok?: boolean; error?: string; created?: number; warnings?: string[] }> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   if (!Array.isArray(drafts) || drafts.length === 0) return { error: "Aucun shift à créer." };
   const supabase = await createClient();
 
-  const rows = drafts.map((d) => ({
-    employee_id: d.employee_id,
-    date: d.date,
-    start_time: d.start_time,
-    end_time: d.end_time,
-    break_minutes: d.break_minutes,
-    position: d.position,
-    location: d.location,
-    status: "planned" as const,
-    created_by: profile.id,
-  }));
+  // Karim 15/05/2026 : bug observe -- cette action legacy n inserait PAS
+  // site_id, donc les shifts produits par "Generer la semaine" sur le calendar
+  // se retrouvaient orphelins (visibles dans le calendar mais absents de
+  // la Vue d ensemble qui filtre par site). Fix : lookup du site primaire
+  // de chaque employe et hydratation automatique.
+  const empIds = [...new Set(drafts.map((d) => d.employee_id))];
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const { data: assignsRaw } = await supabase
+    .from("site_assignments")
+    .select("employee_id, site_id, is_primary")
+    .in("employee_id", empIds)
+    .lte("start_date", todayISO)
+    .or(`end_date.is.null,end_date.gte.${todayISO}`)
+    .order("is_primary", { ascending: false });
+  const siteByEmp = new Map<string, string>();
+  for (const a of (assignsRaw ?? []) as Array<{ employee_id: string; site_id: string; is_primary: boolean }>) {
+    if (!siteByEmp.has(a.employee_id)) {
+      siteByEmp.set(a.employee_id, a.site_id);
+    }
+  }
+
+  const warnings: string[] = [];
+  const employeesWithoutSite = new Set<string>();
+  const rows = drafts.map((d) => {
+    const siteId = siteByEmp.get(d.employee_id) ?? null;
+    if (!siteId) employeesWithoutSite.add(d.employee_name);
+    return {
+      employee_id: d.employee_id,
+      date: d.date,
+      start_time: d.start_time,
+      end_time: d.end_time,
+      break_minutes: d.break_minutes,
+      position: d.position,
+      location: d.location,
+      site_id: siteId,
+      status: "planned" as const,
+      created_by: profile.id,
+    };
+  });
+  if (employeesWithoutSite.size > 0) {
+    warnings.push(
+      `${employeesWithoutSite.size} employé(s) sans site assigné -- leurs shifts sont créés sans site_id et n apparaitront pas sur la Vue d ensemble : ${[...employeesWithoutSite].slice(0, 5).join(", ")}${employeesWithoutSite.size > 5 ? "…" : ""}`,
+    );
+  }
 
   const { error } = await supabase.from("shifts").insert(rows);
   if (error) return { error: error.message };
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, created: rows.length };
+  return { ok: true, created: rows.length, warnings: warnings.length > 0 ? warnings : undefined };
 }
