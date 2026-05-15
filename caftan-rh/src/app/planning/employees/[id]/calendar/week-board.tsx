@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, ArrowRight, X } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { addDays, toISODate, shiftHours } from "@/lib/planning";
 import { ShiftDialog } from "@/app/planning/calendar/shift-dialog";
+import { moveShiftAction } from "@/app/planning/actions";
 import { useRealtime } from "@/hooks/use-realtime";
 
 type Shift = {
@@ -52,6 +55,66 @@ export function WeekBoard({
     | { date: string; shift?: Shift }
     | null
   >(null);
+  // Karim 15/05 : drag-and-drop d un shift d un jour a l autre (memes
+  // employe, change date). + tap-to-move (long-press 500ms sur mobile).
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropHover, setDropHover] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const shiftById = useMemo(() => {
+    const m = new Map<string, Shift>();
+    for (const s of shifts) m.set(s.id, s);
+    return m;
+  }, [shifts]);
+  const selectedShift = selectedId ? shiftById.get(selectedId) ?? null : null;
+
+  function moveTo(shiftId: string, toDate: string) {
+    setDraggingId(null);
+    setDropHover(null);
+    setSelectedId(null);
+    (async () => {
+      const r = await moveShiftAction({ shiftId, toDate });
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success("Shift déplacé.");
+        router.refresh();
+      }
+    })();
+  }
+
+  function onShiftTouchStart(shiftId: string, ev: React.TouchEvent) {
+    const t = ev.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+    longPressFiredRef.current = false;
+    longPressRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      try { navigator.vibrate?.(40); } catch { /* noop */ }
+      setSelectedId(shiftId);
+    }, 500);
+  }
+  function onShiftTouchMove(ev: React.TouchEvent) {
+    const t = ev.touches[0];
+    const start = touchStartRef.current;
+    if (!start) return;
+    const dx = Math.abs(t.clientX - start.x);
+    const dy = Math.abs(t.clientY - start.y);
+    if (dx > 8 || dy > 8) {
+      if (longPressRef.current) {
+        clearTimeout(longPressRef.current);
+        longPressRef.current = null;
+      }
+    }
+  }
+  function onShiftTouchEnd() {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+    touchStartRef.current = null;
+  }
 
   useRealtime("shifts", () => router.refresh());
 
@@ -74,8 +137,41 @@ export function WeekBoard({
               (acc, s) => acc + shiftHours(s.start_time, s.end_time, s.break_minutes),
               0,
             );
+            const isDropHover = dropHover === dISO;
+            const isMoveTarget = !!selectedId;
+            const isSourceDay = selectedShift?.date === dISO;
             return (
-              <Card key={i}>
+              <Card
+                key={i}
+                role={canEdit && isMoveTarget && !isSourceDay ? "button" : undefined}
+                onClick={() => {
+                  if (!canEdit) return;
+                  if (selectedId && !isSourceDay) {
+                    moveTo(selectedId, dISO);
+                  }
+                }}
+                onDragOver={(ev) => {
+                  if (!canEdit || !draggingId) return;
+                  ev.preventDefault();
+                  setDropHover(dISO);
+                }}
+                onDragLeave={() => {
+                  if (dropHover === dISO) setDropHover(null);
+                }}
+                onDrop={(ev) => {
+                  if (!canEdit) return;
+                  ev.preventDefault();
+                  const id = ev.dataTransfer.getData("text/plain");
+                  if (id) moveTo(id, dISO);
+                }}
+                className={`transition-colors ${
+                  isDropHover ? "ring-2 ring-gold ring-inset bg-gold-light/40" : ""
+                } ${
+                  canEdit && isMoveTarget && !isSourceDay
+                    ? "cursor-pointer hover:ring-2 hover:ring-gold/60 hover:bg-gold-light/20"
+                    : ""
+                }`}
+              >
                 <div className="px-3 py-2 border-b border-line">
                   <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold">
                     {d.toLocaleDateString("fr-BE", { weekday: "short" })}
@@ -127,11 +223,48 @@ export function WeekBoard({
                         : canEdit
                           ? "Clique pour éditer"
                           : undefined;
+                      const isSel = selectedId === s.id;
                       return canEdit ? (
                         <button
                           key={s.id}
-                          onClick={() => setEditing({ date: dISO, shift: s })}
-                          className={cls}
+                          draggable
+                          onDragStart={(ev) => {
+                            ev.dataTransfer.setData("text/plain", s.id);
+                            ev.dataTransfer.effectAllowed = "move";
+                            setDraggingId(s.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDropHover(null);
+                          }}
+                          onTouchStart={(ev) => onShiftTouchStart(s.id, ev)}
+                          onTouchMove={onShiftTouchMove}
+                          onTouchEnd={onShiftTouchEnd}
+                          onTouchCancel={onShiftTouchEnd}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            // Long-press a deja arme la selection -> annule edit
+                            if (longPressFiredRef.current) {
+                              longPressFiredRef.current = false;
+                              return;
+                            }
+                            // Si on est en mode select, tap sur un autre shift bascule
+                            if (selectedId && selectedId !== s.id) {
+                              setSelectedId(s.id);
+                              return;
+                            }
+                            // Si on retape le shift selectionne, annule selection
+                            if (selectedId === s.id) {
+                              setSelectedId(null);
+                              return;
+                            }
+                            setEditing({ date: dISO, shift: s });
+                          }}
+                          className={`${cls} cursor-grab active:cursor-grabbing transition-all ${
+                            draggingId === s.id ? "opacity-40" : ""
+                          } ${
+                            isSel ? "ring-2 ring-gold ring-offset-1 ring-offset-white shadow-md scale-[1.02]" : ""
+                          }`}
                           style={style}
                           title={title}
                         >
@@ -185,6 +318,41 @@ export function WeekBoard({
           sites={sites}
           preferredSiteIds={preferredSiteIds}
         />
+      ) : null}
+
+      {/* Bottom bar deplacement -- visible quand un shift est selectionne
+          via long-press (mobile) ou click apres long-press (desktop).
+          Karim 15/05. */}
+      {selectedShift ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 print:hidden">
+          <div className="mx-auto max-w-3xl m-2 rounded-lg bg-ink text-white shadow-2xl border border-gold/40">
+            <div className="flex items-center gap-3 p-3">
+              <ArrowRight className="h-4 w-4 text-gold shrink-0" />
+              <div className="flex-1 text-xs leading-tight">
+                <div className="font-bold">
+                  Shift sélectionné : {selectedShift.start_time.slice(0, 5)}-{selectedShift.end_time.slice(0, 5)}
+                </div>
+                <div className="text-white/70">
+                  Actuellement : {selectedShift.date}
+                  {selectedShift.site ? ` • ${selectedShift.site.code} ${selectedShift.site.name}` : ""}
+                </div>
+                <div className="text-gold text-[11px] mt-0.5">
+                  Tape un autre jour pour déplacer.
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedId(null)}
+                aria-label="Annuler la sélection"
+                className="text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </>
   );
