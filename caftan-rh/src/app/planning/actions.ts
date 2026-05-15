@@ -261,6 +261,117 @@ export async function upsertShiftAction(formData: FormData) {
 }
 
 /**
+ * Karim 15/05/2026 : recopie 1+ shifts existants sur les N jours suivants.
+ * Utilise par ShiftDialog quand l admin coche "Recopier sur N jours suivants".
+ * Pour chaque shift source, on cree N clones (day+1..day+N) avec les memes
+ * heures / site / break / employee / is_overtime / multiplier.
+ * Skip silencieusement les jours qui chevauchent un shift existant du meme
+ * employe (pas de double-booking, cf decision Karim 2026-05-11).
+ */
+export async function copyShiftsToNextDaysAction(args: {
+  shiftIds: string[];
+  daysCount: number;
+}): Promise<{ ok?: boolean; error?: string; created?: number; skipped?: number }> {
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
+  if (args.daysCount <= 0 || args.shiftIds.length === 0) {
+    return { error: "Aucune copie demandee." };
+  }
+  if (args.daysCount > 31) {
+    return { error: "Limite : 31 jours maximum par operation de copie." };
+  }
+  const supabase = await createClient();
+  const { data: sourcesRaw, error: selErr } = await supabase
+    .from("shifts")
+    .select("employee_id, date, start_time, end_time, break_minutes, position, location, site_id, notes, is_overtime, overtime_multiplier")
+    .in("id", args.shiftIds);
+  if (selErr) return { error: selErr.message };
+  const sources = (sourcesRaw ?? []) as Array<{
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    position: string | null;
+    location: string | null;
+    site_id: string | null;
+    notes: string | null;
+    is_overtime: boolean;
+    overtime_multiplier: number | null;
+  }>;
+  if (sources.length === 0) return { error: "Shift(s) source introuvable(s)." };
+
+  type Row = {
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    position: string | null;
+    location: string | null;
+    site_id: string | null;
+    notes: string | null;
+    is_overtime: boolean;
+    overtime_multiplier: number | null;
+    status: "planned";
+    created_by: string;
+  };
+  const rowsToInsert: Row[] = [];
+  for (const src of sources) {
+    for (let d = 1; d <= args.daysCount; d++) {
+      const nextDate = toISODate(addDays(new Date(src.date + "T00:00:00"), d));
+      rowsToInsert.push({
+        employee_id: src.employee_id,
+        date: nextDate,
+        start_time: src.start_time,
+        end_time: src.end_time,
+        break_minutes: src.break_minutes,
+        position: src.position,
+        location: src.location,
+        site_id: src.site_id,
+        notes: src.notes,
+        is_overtime: src.is_overtime,
+        overtime_multiplier: src.overtime_multiplier,
+        status: "planned",
+        created_by: profile.id,
+      });
+    }
+  }
+
+  // Vérifie quels jours sont déjà occupés (anti-double-booking) -> skip ceux-là.
+  const empIds = [...new Set(sources.map((s) => s.employee_id))];
+  const minDate = rowsToInsert.reduce((m, r) => (r.date < m ? r.date : m), rowsToInsert[0]?.date ?? "");
+  const maxDate = rowsToInsert.reduce((m, r) => (r.date > m ? r.date : m), rowsToInsert[0]?.date ?? "");
+  const { data: existingRaw } = await supabase
+    .from("shifts")
+    .select("employee_id, date, start_time, end_time")
+    .in("employee_id", empIds)
+    .gte("date", minDate)
+    .lte("date", maxDate);
+  const existing = (existingRaw ?? []) as Array<{
+    employee_id: string; date: string; start_time: string; end_time: string;
+  }>;
+  function overlaps(empId: string, date: string, sNew: string, eNew: string): boolean {
+    return existing.some((e) => {
+      if (e.employee_id !== empId || e.date !== date) return false;
+      return sNew.slice(0, 5) < e.end_time.slice(0, 5) && eNew.slice(0, 5) > e.start_time.slice(0, 5);
+    });
+  }
+  const filtered = rowsToInsert.filter(
+    (r) => !overlaps(r.employee_id, r.date, r.start_time, r.end_time),
+  );
+  const skipped = rowsToInsert.length - filtered.length;
+  if (filtered.length === 0) {
+    return { ok: true, created: 0, skipped };
+  }
+  const { error } = await supabase.from("shifts").insert(filtered);
+  if (error) return { error: error.message };
+
+  revalidatePath("/planning", "layout");
+  revalidatePath("/me/planning");
+  return { ok: true, created: filtered.length, skipped };
+}
+
+/**
  * Charge les besoins is_enabled=true du site pour le jour de la semaine
  * correspondant a `dateISO`, et calcule l'heure d'ouverture du magasin ce
  * jour-la (= min start_time parmi les creneaux actifs). Utilise par le

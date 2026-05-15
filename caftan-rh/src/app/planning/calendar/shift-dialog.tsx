@@ -21,6 +21,7 @@ import {
   loadSiteNeedsForDayAction,
   loadEmployeeUnavailabilitiesForDayAction,
   loadEmployeeDayShiftsAction,
+  copyShiftsToNextDaysAction,
 } from "../actions";
 import { useShiftUndo } from "@/components/shift-undo-provider";
 
@@ -116,6 +117,10 @@ export function ShiftDialog({
   const [daySuggestions, setDaySuggestions] = useState<DaySuggestion[]>([]);
   const [openTime, setOpenTime] = useState<string | null>(null);
   const [closeTime, setCloseTime] = useState<string | null>(null);
+
+  // Karim 15/05 : option "Recopier ce shift sur les N jours suivants" en
+  // mode CREATION. Le copy applique le meme horaire/site sur day+1..day+N.
+  const [copyNextDays, setCopyNextDays] = useState<number>(0);
 
   // Karim 15/05/2026 : shifts deja places ce jour pour cet employe. Sert au
   // pre-remplissage intelligent (creneau libre dans les heures d ouverture)
@@ -222,9 +227,9 @@ export function ShiftDialog({
   }, [open]);
 
   // Karim 15/05 : pre-remplissage intelligent en CREATION (pas en edition).
-  // Si on a openTime/closeTime du site, on cherche le 1er creneau libre dans
-  // [openTime, closeTime] qui ne chevauche pas dayShifts. Par defaut on
-  // propose une duree de 8h (cap a la fin d ouverture).
+  // Avec la regle "shift >= 2h30 -> separation 10 min avec le suivant"
+  // (Karim 15/05 v2) : le start propose = end du shift precedent + 10 min,
+  // pour gain de temps et "logique humaine".
   useEffect(() => {
     if (!open) return;
     if (shift) return; // mode edition : on garde les heures du shift existant
@@ -239,44 +244,66 @@ export function ShiftDialog({
       const mm = m % 60;
       return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
     };
+    const MIN_LONG_DURATION_MIN = 150;
+    const MIN_SEP_MIN = 10;
     const openMin = toMin(openTime);
     const closeMin = toMin(closeTime);
-    if (closeMin - openMin < 60) return; // <1h de creneau, on ne pre-remplit pas
+    if (closeMin - openMin < 60) return;
 
     const occupied = [...dayShifts]
-      .map((s) => ({ s: toMin(s.start_time), e: toMin(s.end_time) }))
+      .map((s) => {
+        const sM = toMin(s.start_time);
+        const eM = toMin(s.end_time);
+        return { s: sM, e: eM, dur: eM - sM };
+      })
       .sort((a, b) => a.s - b.s);
 
-    // Cherche les gaps libres dans [openMin, closeMin].
-    const gaps: Array<{ s: number; e: number }> = [];
+    // Gaps avec buffer +10 min apres chaque shift >= 2h30.
+    const gaps: Array<{ s: number; e: number; afterLongShift: boolean }> = [];
     let cursor = openMin;
+    let lastWasLong = false;
     for (const occ of occupied) {
       if (occ.e <= cursor) continue;
       if (occ.s > cursor) {
-        gaps.push({ s: cursor, e: Math.min(occ.s, closeMin) });
+        const endBuffer = occ.dur >= MIN_LONG_DURATION_MIN ? MIN_SEP_MIN : 0;
+        gaps.push({
+          s: cursor,
+          e: Math.min(occ.s - endBuffer, closeMin),
+          afterLongShift: lastWasLong,
+        });
       }
-      cursor = Math.max(cursor, occ.e);
+      const afterBuffer = occ.dur >= MIN_LONG_DURATION_MIN ? MIN_SEP_MIN : 0;
+      cursor = Math.max(cursor, occ.e + afterBuffer);
+      lastWasLong = occ.dur >= MIN_LONG_DURATION_MIN;
       if (cursor >= closeMin) break;
     }
     if (cursor < closeMin) {
-      gaps.push({ s: cursor, e: closeMin });
+      gaps.push({ s: cursor, e: closeMin, afterLongShift: lastWasLong });
     }
 
-    // Garde les gaps >= 1h
     const usable = gaps.filter((g) => g.e - g.s >= 60);
     if (usable.length === 0) return;
 
-    // Choisi le plus grand gap (= plus utile pour planning), tie-break = le
-    // plus tot dans la journee.
+    // Priorise les gaps APRES un shift (puisque la demande utilisateur etait
+    // "10 min apres le shift qui le precede"). Sinon le 1er gap (= avant le
+    // 1er shift) prevaut.
+    // Tie-break : plus grand gap.
     usable.sort((a, b) => {
+      // 1. Si shifts existent ce jour : on prefere les gaps APRES un shift
+      //    (pour la regle "10 min apres"). Sinon n importe.
+      if (occupied.length > 0) {
+        if (a.afterLongShift && !b.afterLongShift) return -1;
+        if (!a.afterLongShift && b.afterLongShift) return 1;
+      }
+      // 2. Plus grand gap (durabilite)
       const da = a.e - a.s;
       const db = b.e - b.s;
       if (db !== da) return db - da;
+      // 3. Plus tot dans la journee
       return a.s - b.s;
     });
     const best = usable[0];
     const proposedStart = best.s;
-    // Duree par defaut 8h, plafonnee par la taille du gap et par closeMin
     const proposedEnd = Math.min(proposedStart + 8 * 60, best.e);
 
     setStartTime(toHHMM(proposedStart));
@@ -331,8 +358,12 @@ export function ShiftDialog({
 
   // Karim 15/05/2026 : gaps libres dans les heures d ouverture (= entre les
   // shifts deja places ce jour). Affiches comme chips cliquables pour
-  // pre-remplir start/end. Utile quand le jour a deja 1 ou 2 shifts et que
-  // le RH veut ajouter un creneau AVANT et/ou APRES.
+  // pre-remplir start/end.
+  // Karim 15/05 v2 : "chaque shift de minimum 2h30 doit etre separe du shift
+  // suivant de 10 a 15 minutes". On applique une pause MIN_SEP_MIN apres
+  // chaque shift >= MIN_LONG_DURATION_MIN, donc le gap d apres ce shift
+  // commence a shift.end + 10 min. Symétrique : un shift >= 2h30 a venir
+  // impose end_gap = next.start - 10.
   const availableGaps = useMemo(() => {
     if (!openTime || !closeTime) return [];
     const toMin = (t: string) => {
@@ -344,22 +375,30 @@ export function ShiftDialog({
       const mm = m % 60;
       return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
     };
+    const MIN_LONG_DURATION_MIN = 150; // 2h30 = 150 min
+    const MIN_SEP_MIN = 10;
     const openMin = toMin(openTime);
     const closeMin = toMin(closeTime);
     if (closeMin - openMin < 60) return [];
 
     const occupied = [...dayShifts]
-      .map((s) => ({ s: toMin(s.start_time), e: toMin(s.end_time) }))
+      .map((s) => {
+        const sM = toMin(s.start_time);
+        const eM = toMin(s.end_time);
+        return { s: sM, e: eM, dur: eM - sM };
+      })
       .sort((a, b) => a.s - b.s);
 
     const gaps: Array<{ start: string; end: string; minutes: number; label: string }> = [];
     let cursor = openMin;
     let position = 0;
-    for (const occ of occupied) {
+    for (let i = 0; i < occupied.length; i++) {
+      const occ = occupied[i];
       if (occ.e <= cursor) continue;
       if (occ.s > cursor) {
+        const endBuffer = occ.dur >= MIN_LONG_DURATION_MIN ? MIN_SEP_MIN : 0;
         const gapStart = cursor;
-        const gapEnd = Math.min(occ.s, closeMin);
+        const gapEnd = Math.min(occ.s - endBuffer, closeMin);
         if (gapEnd - gapStart >= 60) {
           gaps.push({
             start: toHHMM(gapStart),
@@ -370,7 +409,8 @@ export function ShiftDialog({
           position += 1;
         }
       }
-      cursor = Math.max(cursor, occ.e);
+      const afterBuffer = occ.dur >= MIN_LONG_DURATION_MIN ? MIN_SEP_MIN : 0;
+      cursor = Math.max(cursor, occ.e + afterBuffer);
       if (cursor >= closeMin) break;
     }
     if (cursor < closeMin) {
@@ -470,11 +510,32 @@ export function ShiftDialog({
                 : r?.split
                   ? `Shift créé fractionné (${r.split.regular_hours}h contrat + ${r.split.overtime_hours}h sup)`
                   : "Shift créé";
-              // Karim 15/05 : push une entry undo pour Ctrl+Z. On peut annuler
-              // tout ce qui a ete CREE dans cette operation (les rows sont en
-              // createdIds, qu il s agisse d une creation pure ou d un OT
-              // ajoute en bonus a un update). Pour une update sans split, il
-              // n y a rien a defaire ici (pas d undo update pour le moment).
+
+              // Karim 15/05 : recopie sur jours suivants (si user a saisi > 0).
+              // Effet uniquement en CREATION ; on copie les segments REGULIER
+              // (et OT s ils ont ete crees lors de cet upsert).
+              let copiedIds: string[] = [];
+              if (!shift && copyNextDays > 0 && createdIds.length > 0) {
+                const cp = await copyShiftsToNextDaysAction({
+                  shiftIds: createdIds,
+                  daysCount: copyNextDays,
+                });
+                if (cp.error) {
+                  toast.error(`Recopie échouée : ${cp.error}`);
+                } else if ((cp.created ?? 0) > 0) {
+                  toast.success(
+                    `${cp.created} copie(s) sur les ${copyNextDays} jour(s) suivant(s)${
+                      (cp.skipped ?? 0) > 0 ? ` (${cp.skipped} doublons evites)` : ""
+                    }.`,
+                  );
+                  // Note : on n a pas les ids des copies pour l undo car
+                  // copyShiftsToNextDaysAction ne les retourne pas. On
+                  // pourrait l ajouter ; pour l instant l undo Ctrl+Z couvre
+                  // uniquement les shifts du jour J.
+                }
+              }
+              void copiedIds;
+
               if (createdIds.length > 0) {
                 undoCtx.push({
                   label,
@@ -543,6 +604,46 @@ export function ShiftDialog({
               />
             </div>
           </div>
+          {!shift ? (
+            <div>
+              <Label htmlFor="copy_next_days" className="flex items-center gap-1">
+                Recopier sur les jours suivants
+                <span className="text-[10px] text-ink-3 font-normal">(0 = pas de recopie)</span>
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="copy_next_days"
+                  type="number"
+                  min={0}
+                  max={31}
+                  value={copyNextDays}
+                  onChange={(e) => setCopyNextDays(Math.max(0, Math.min(31, Number(e.target.value) || 0)))}
+                  className="w-24"
+                />
+                <div className="flex gap-1 flex-wrap">
+                  {[1, 2, 3, 5, 6].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setCopyNextDays(n)}
+                      className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                        copyNextDays === n
+                          ? "border-gold bg-gold text-[#1a1a0d] font-bold"
+                          : "border-line bg-surface hover:border-gold"
+                      }`}
+                    >
+                      +{n}
+                    </button>
+                  ))}
+                </div>
+                {copyNextDays > 0 ? (
+                  <span className="text-[11px] text-success font-bold">
+                    → {copyNextDays} copie{copyNextDays > 1 ? "s" : ""} (doublons skipped)
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {orderedSites.length > 0 ? (
             <div>
               <Label htmlFor="site_id">Site</Label>
