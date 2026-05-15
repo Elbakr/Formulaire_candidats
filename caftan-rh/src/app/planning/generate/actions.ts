@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { startOfWeek, parseISODate, addDays, toISODate, weekRange } from "@/lib/planning";
+import { startOfWeek, parseISODate, addDays, toISODate, weekRange, shiftHours } from "@/lib/planning";
 import {
   generateWeekPlan,
   DEFAULT_PRAYER_PAUSE,
@@ -14,6 +14,7 @@ import {
   type GenerationResult,
   type PrayerPauseSettings,
 } from "@/lib/auto-planning";
+import { splitShiftForQuota } from "@/lib/split-overtime";
 
 export async function previewWeekAction(weekISO: string): Promise<GenerationResult & { weekStart: string; weekEnd: string }> {
   await requireRole(["admin", "rh", "manager"]);
@@ -98,16 +99,12 @@ export async function previewWeekAction(weekISO: string): Promise<GenerationResu
   return { ...result, weekStart: start, weekEnd: end };
 }
 
-export async function commitDraftsAction(drafts: ShiftDraft[]): Promise<{ ok?: boolean; error?: string; created?: number; warnings?: string[] }> {
+export async function commitDraftsAction(drafts: ShiftDraft[]): Promise<{ ok?: boolean; error?: string; created?: number; warnings?: string[]; splits?: number }> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   if (!Array.isArray(drafts) || drafts.length === 0) return { error: "Aucun shift à créer." };
   const supabase = await createClient();
 
-  // Karim 15/05/2026 : bug observe -- cette action legacy n inserait PAS
-  // site_id, donc les shifts produits par "Generer la semaine" sur le calendar
-  // se retrouvaient orphelins (visibles dans le calendar mais absents de
-  // la Vue d ensemble qui filtre par site). Fix : lookup du site primaire
-  // de chaque employe et hydratation automatique.
+  // Lookup site primaire par employe (cf fix 36fa688).
   const empIds = [...new Set(drafts.map((d) => d.employee_id))];
   const todayISO = new Date().toISOString().slice(0, 10);
   const { data: assignsRaw } = await supabase
@@ -119,38 +116,152 @@ export async function commitDraftsAction(drafts: ShiftDraft[]): Promise<{ ok?: b
     .order("is_primary", { ascending: false });
   const siteByEmp = new Map<string, string>();
   for (const a of (assignsRaw ?? []) as Array<{ employee_id: string; site_id: string; is_primary: boolean }>) {
-    if (!siteByEmp.has(a.employee_id)) {
-      siteByEmp.set(a.employee_id, a.site_id);
+    if (!siteByEmp.has(a.employee_id)) siteByEmp.set(a.employee_id, a.site_id);
+  }
+
+  // Karim 15/05 : fractionnement quota -> OT applique aussi ici.
+  // Pour chaque (employee, week), calcul des heures contractuelles deja
+  // planifiees dans la semaine en base. Puis pour chaque draft, splitShiftForQuota
+  // decide : 1 shift regulier / 1 shift OT / 2 shifts (split au seuil).
+  // L accumulateur evolue au fil des inserts pour gerer le cas ou plusieurs
+  // drafts du meme employe se cumulent dans la meme semaine.
+  const weeklyTargetByEmp = new Map<string, number>();
+  const empWeekStartByEmp = new Map<string, string>();
+  // Pour chaque (empId, weekMondayISO) -> heures contractuelles deja en base
+  // (initialise via une requete groupee ci-dessous).
+  const weekContractualKey = (empId: string, weekMondayISO: string) =>
+    `${empId}|${weekMondayISO}`;
+  const accumulator = new Map<string, number>();
+
+  // Recupere weekly_hours pour chaque employe
+  const { data: empsRaw } = await supabase
+    .from("employees")
+    .select("id, weekly_hours")
+    .in("id", empIds);
+  for (const e of (empsRaw ?? []) as Array<{ id: string; weekly_hours: number | null }>) {
+    weeklyTargetByEmp.set(e.id, e.weekly_hours ?? 38);
+  }
+
+  // Recupere heures contractuelles deja planifiees pour chaque (emp, semaine
+  // distincte impliquee).
+  const weeksInBatch = new Set<string>();
+  for (const d of drafts) {
+    const wkMon = toISODate(startOfWeek(parseISODate(d.date)));
+    weeksInBatch.add(wkMon);
+    empWeekStartByEmp.set(d.employee_id, wkMon);
+  }
+  for (const wkMon of weeksInBatch) {
+    const wkEnd = toISODate(addDays(parseISODate(wkMon), 6));
+    const { data: shiftsRaw } = await supabase
+      .from("shifts")
+      .select("employee_id, start_time, end_time, break_minutes, is_overtime")
+      .in("employee_id", empIds)
+      .gte("date", wkMon)
+      .lte("date", wkEnd);
+    for (const s of (shiftsRaw ?? []) as Array<{
+      employee_id: string;
+      start_time: string;
+      end_time: string;
+      break_minutes: number;
+      is_overtime: boolean | null;
+    }>) {
+      if (s.is_overtime) continue;
+      const h = shiftHours(s.start_time.slice(0, 5), s.end_time.slice(0, 5), s.break_minutes ?? 0);
+      const key = weekContractualKey(s.employee_id, wkMon);
+      accumulator.set(key, (accumulator.get(key) ?? 0) + h);
     }
   }
 
   const warnings: string[] = [];
   const employeesWithoutSite = new Set<string>();
-  const rows = drafts.map((d) => {
+  let splitsCount = 0;
+  type Row = {
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    position: string | null;
+    location: string | null;
+    site_id: string | null;
+    is_overtime: boolean;
+    overtime_multiplier: number | null;
+    status: "planned";
+    created_by: string;
+  };
+  const rows: Row[] = [];
+
+  for (const d of drafts) {
     const siteId = siteByEmp.get(d.employee_id) ?? null;
     if (!siteId) employeesWithoutSite.add(d.employee_name);
-    return {
-      employee_id: d.employee_id,
-      date: d.date,
-      start_time: d.start_time,
-      end_time: d.end_time,
-      break_minutes: d.break_minutes,
-      position: d.position,
-      location: d.location,
-      site_id: siteId,
-      status: "planned" as const,
-      created_by: profile.id,
-    };
-  });
+
+    const wkMon = toISODate(startOfWeek(parseISODate(d.date)));
+    const target = weeklyTargetByEmp.get(d.employee_id) ?? 38;
+    const accKey = weekContractualKey(d.employee_id, wkMon);
+    const already = accumulator.get(accKey) ?? 0;
+
+    const split = splitShiftForQuota({
+      startTime: d.start_time.slice(0, 5),
+      endTime: d.end_time.slice(0, 5),
+      breakMinutes: d.break_minutes,
+      alreadyContractualHours: already,
+      weeklyTargetHours: target,
+      otMultiplier: 1.5,
+    });
+    if (split.totalProductiveHours <= 0) continue;
+
+    if (split.regular) {
+      rows.push({
+        employee_id: d.employee_id,
+        date: d.date,
+        start_time: split.regular.start_time + ":00",
+        end_time: split.regular.end_time + ":00",
+        break_minutes: split.regular.break_minutes,
+        position: d.position,
+        location: d.location,
+        site_id: siteId,
+        is_overtime: false,
+        overtime_multiplier: null,
+        status: "planned",
+        created_by: profile.id,
+      });
+      accumulator.set(accKey, already + split.regularHours);
+    }
+    if (split.overtime) {
+      rows.push({
+        employee_id: d.employee_id,
+        date: d.date,
+        start_time: split.overtime.start_time + ":00",
+        end_time: split.overtime.end_time + ":00",
+        break_minutes: split.overtime.break_minutes,
+        position: d.position,
+        location: d.location,
+        site_id: siteId,
+        is_overtime: true,
+        overtime_multiplier: split.overtime.overtime_multiplier ?? 1.5,
+        status: "planned",
+        created_by: profile.id,
+      });
+    }
+    if (split.regular && split.overtime) splitsCount += 1;
+  }
+
   if (employeesWithoutSite.size > 0) {
     warnings.push(
       `${employeesWithoutSite.size} employé(s) sans site assigné -- leurs shifts sont créés sans site_id et n apparaitront pas sur la Vue d ensemble : ${[...employeesWithoutSite].slice(0, 5).join(", ")}${employeesWithoutSite.size > 5 ? "…" : ""}`,
     );
   }
+  if (splitsCount > 0) {
+    warnings.push(
+      `${splitsCount} shift(s) fractionne(s) automatiquement au seuil du quota hebdo (regulier + heures sup).`,
+    );
+  }
+
+  if (rows.length === 0) return { error: "Aucun shift a inserer apres fractionnement." };
 
   const { error } = await supabase.from("shifts").insert(rows);
   if (error) return { error: error.message };
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, created: rows.length, warnings: warnings.length > 0 ? warnings : undefined };
+  return { ok: true, created: rows.length, warnings: warnings.length > 0 ? warnings : undefined, splits: splitsCount };
 }
