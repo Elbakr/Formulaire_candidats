@@ -50,13 +50,16 @@ export function GenerateEmployeePlanButton({
   function onApply() {
     if (!preview) return;
     const nothingToDo =
-      preview.drafts.length === 0 && (preview.reclassifications?.length ?? 0) === 0;
+      preview.drafts.length === 0 &&
+      (preview.reclassifications?.length ?? 0) === 0 &&
+      (preview.ot_proposals?.length ?? 0) === 0;
     if (nothingToDo) return;
     startTransition(async () => {
       const r = await commitEmployeeWeekPlanAction({
         employeeId,
         drafts: preview.drafts,
         reclassifyShiftIds: (preview.reclassifications ?? []).map((x) => x.shift_id),
+        otProposals: preview.ot_proposals ?? [],
       });
       if (r.error) {
         toast.error(r.error);
@@ -67,6 +70,9 @@ export function GenerateEmployeePlanButton({
         }
         if (r.created && r.created > 0) {
           parts.push(`${r.created} shift(s) créé(s)`);
+        }
+        if (r.ot_created && r.ot_created > 0) {
+          parts.push(`${r.ot_created} heure(s) sup créée(s)`);
         }
         toast.success(parts.join(" • ") || "Planning mis a jour.");
         setOpen(false);
@@ -154,23 +160,58 @@ export function GenerateEmployeePlanButton({
               ) : null}
 
               {preview.drafts.length > 0 ? (
-                <ul className="text-xs divide-y divide-line border border-line rounded-md max-h-72 overflow-auto">
-                  {preview.drafts.map((d, i) => {
-                    const dt = new Date(d.date + "T00:00:00");
-                    return (
-                      <li key={i} className="p-2 flex items-center gap-2">
-                        <span className="font-mono w-20 text-ink-3">
-                          {FR_DAYS[dt.getDay()]} {String(dt.getDate()).padStart(2, "0")}/{String(dt.getMonth() + 1).padStart(2, "0")}
-                        </span>
-                        <span className="font-mono font-bold">
-                          {d.start_time.slice(0, 5)} – {d.end_time.slice(0, 5)}
-                        </span>
-                        <span className="text-ink-3 ml-auto">{d.hours.toFixed(1)}h</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (preview.reclassifications?.length ?? 0) === 0 ? (
+                <div>
+                  <div className="text-[10px] uppercase text-ink-3 font-bold tracking-wider mb-1">
+                    Nouveaux shifts contractuels
+                  </div>
+                  <ul className="text-xs divide-y divide-line border border-line rounded-md max-h-48 overflow-auto">
+                    {preview.drafts.map((d, i) => {
+                      const dt = new Date(d.date + "T00:00:00");
+                      return (
+                        <li key={i} className="p-2 flex items-center gap-2">
+                          <span className="font-mono w-20 text-ink-3">
+                            {FR_DAYS[dt.getDay()]} {String(dt.getDate()).padStart(2, "0")}/{String(dt.getMonth() + 1).padStart(2, "0")}
+                          </span>
+                          <span className="font-mono font-bold">
+                            {d.start_time.slice(0, 5)} – {d.end_time.slice(0, 5)}
+                          </span>
+                          <span className="text-ink-3 ml-auto">{d.hours.toFixed(1)}h</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+
+              {(preview.ot_proposals?.length ?? 0) > 0 ? (
+                <div>
+                  <div className="text-[10px] uppercase text-orange-700 font-bold tracking-wider mb-1 flex items-center gap-1">
+                    Heures sup proposées (×1.5) pour combler {preview.ot_proposals.length} créneau{preview.ot_proposals.length > 1 ? "x" : ""} non couvert
+                    {preview.ot_proposals.length > 1 ? "s" : ""} (+{preview.total_ot_proposed_hours.toFixed(1)}h)
+                  </div>
+                  <ul className="text-xs divide-y divide-orange-200 border border-orange-300 bg-orange-50 rounded-md max-h-48 overflow-auto">
+                    {preview.ot_proposals.map((p, i) => {
+                      const dt = new Date(p.date + "T00:00:00");
+                      return (
+                        <li key={i} className="p-2 flex items-center gap-2 text-orange-900">
+                          <span className="font-mono w-20 text-orange-700/80">
+                            {FR_DAYS[dt.getDay()]} {String(dt.getDate()).padStart(2, "0")}/{String(dt.getMonth() + 1).padStart(2, "0")}
+                          </span>
+                          <span className="font-mono font-bold">
+                            {p.start_time} – {p.end_time}
+                          </span>
+                          <span className="text-[10px] italic ml-auto">{p.reason}</span>
+                          <span className="text-orange-700 font-bold">{p.hours.toFixed(1)}h</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+
+              {preview.drafts.length === 0 &&
+              (preview.reclassifications?.length ?? 0) === 0 &&
+              (preview.ot_proposals?.length ?? 0) === 0 ? (
                 <div className="text-xs text-ink-3 italic text-center py-4">
                   Rien à proposer. Voir warnings ci-dessus.
                 </div>
@@ -188,7 +229,9 @@ export function GenerateEmployeePlanButton({
               disabled={
                 pending ||
                 !preview ||
-                (preview.drafts.length === 0 && (preview.reclassifications?.length ?? 0) === 0)
+                (preview.drafts.length === 0 &&
+                  (preview.reclassifications?.length ?? 0) === 0 &&
+                  (preview.ot_proposals?.length ?? 0) === 0)
               }
             >
               {pending ? (
@@ -199,9 +242,12 @@ export function GenerateEmployeePlanButton({
               {(() => {
                 const r = preview?.reclassifications?.length ?? 0;
                 const c = preview?.drafts.length ?? 0;
-                if (r > 0 && c > 0) return `Valider : ${r} reclassement(s) + ${c} shift(s)`;
-                if (r > 0) return `Valider : ${r} reclassement(s) OT->contrat`;
-                return `Valider et créer ${c} shift${c > 1 ? "s" : ""}`;
+                const o = preview?.ot_proposals?.length ?? 0;
+                const parts: string[] = [];
+                if (r > 0) parts.push(`${r} reclassement${r > 1 ? "s" : ""}`);
+                if (c > 0) parts.push(`${c} shift${c > 1 ? "s" : ""}`);
+                if (o > 0) parts.push(`${o} OT`);
+                return parts.length > 0 ? `Valider : ${parts.join(" + ")}` : "Valider";
               })()}
             </Button>
           </DialogFooter>

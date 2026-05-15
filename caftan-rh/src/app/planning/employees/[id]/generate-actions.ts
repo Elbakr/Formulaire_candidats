@@ -14,6 +14,7 @@ type EmpRow = {
   default_pause_minutes: number | null;
   default_start_time: string | null;
   default_shift_hours: number | null;
+  ot_eligible: boolean | null;
 };
 
 export type EmpPlanDraft = {
@@ -36,6 +37,21 @@ export type EmpReclassifyOTToContract = {
   hours: number;
 };
 
+/** Karim 15/05 : proposition de shift OT pour combler un besoin site non
+ *  couvert. Ne s applique que si l employe est ot_eligible ET quota deja
+ *  atteint apres reclassements + drafts reguliers. */
+export type EmpOTProposal = {
+  date: string;
+  start_time: string;
+  end_time: string;
+  break_minutes: number;
+  site_id: string;
+  need_id: string;
+  multiplier: number;
+  hours: number;
+  reason: string;
+};
+
 export type EmpPlanPreview = {
   employee_id: string;
   employee_name: string;
@@ -44,8 +60,10 @@ export type EmpPlanPreview = {
   available_days: number;
   drafts: EmpPlanDraft[];
   reclassifications: EmpReclassifyOTToContract[];
+  ot_proposals: EmpOTProposal[];
   total_drafts_hours: number;
   total_reclassified_hours: number;
+  total_ot_proposed_hours: number;
   warnings: string[];
 };
 
@@ -101,16 +119,16 @@ export async function generateEmployeeWeekPlanAction(args: {
     { data: holidaysRaw },
     { data: closuresRaw },
     { data: assignsRaw },
+    { data: siteNeedsRaw },
   ] = await Promise.all([
     supabase
       .from("employees")
-      .select("id, full_name, status, weekly_hours, fixed_off_days, default_pause_minutes, default_start_time, default_shift_hours")
+      .select("id, full_name, status, weekly_hours, fixed_off_days, default_pause_minutes, default_start_time, default_shift_hours, ot_eligible")
       .eq("id", employeeId)
       .maybeSingle(),
     supabase
       .from("shifts")
-      .select("id, date, start_time, end_time, break_minutes, is_overtime")
-      .eq("employee_id", employeeId)
+      .select("id, date, start_time, end_time, break_minutes, is_overtime, site_id, employee_id")
       .gte("date", weekStart)
       .lte("date", weekEnd),
     supabase
@@ -144,6 +162,12 @@ export async function generateEmployeeWeekPlanAction(args: {
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`)
       .order("is_primary", { ascending: false }),
+    // Karim 15/05 : besoins is_enabled de tous les sites pour proposer
+    // des OT sur les creneaux non couverts (2eme gen / coverage gap).
+    supabase
+      .from("site_needs")
+      .select("id, site_id, day_of_week, start_time, end_time, headcount, is_critical, is_enabled")
+      .eq("is_enabled", true),
   ]);
 
   const emp = empRaw as EmpRow | null;
@@ -151,14 +175,21 @@ export async function generateEmployeeWeekPlanAction(args: {
   if (emp.status !== "active") return { error: "Employé non actif." };
 
   const weeklyTarget = emp.weekly_hours ?? 38;
-  const existingShifts = (shiftsRaw ?? []) as Array<{
+  // Karim 15/05 : on charge TOUS les shifts de la semaine (tous employes) pour
+  // pouvoir mesurer la couverture des besoins (utile pour les OT proposals).
+  // Pour les calculs lies a CET employe seulement (alreadyContract, etc.),
+  // on filtre via employee_id.
+  const allWeekShifts = (shiftsRaw ?? []) as Array<{
     id: string;
     date: string;
     start_time: string;
     end_time: string;
     break_minutes: number;
     is_overtime: boolean | null;
+    site_id: string | null;
+    employee_id: string;
   }>;
+  const existingShifts = allWeekShifts.filter((s) => s.employee_id === employeeId);
   function shiftDurHours(s: { start_time: string; end_time: string; break_minutes: number }): number {
     return (
       (timeToMin(s.end_time.slice(0, 5)) -
@@ -290,43 +321,14 @@ export async function generateEmployeeWeekPlanAction(args: {
 
   const remainingTarget = Math.max(0, weeklyTarget - alreadyContract);
   if (remainingTarget <= 0.01) {
-    warnings.push(`Le quota contractuel est déjà atteint (${alreadyContract.toFixed(1)}h / ${weeklyTarget}h). Rien à ajouter.`);
-    return {
-      preview: {
-        employee_id: emp.id,
-        employee_name: emp.full_name,
-        weekly_target: weeklyTarget,
-        already_contractual_hours: alreadyContract,
-        available_days: candidates.length,
-        drafts: [],
-        reclassifications,
-        total_drafts_hours: 0,
-        total_reclassified_hours: totalReclassifiedEarly,
-        warnings,
-      },
-    };
-  }
-  if (candidates.length === 0) {
-    warnings.push("Aucun jour disponible cette semaine (jours OFF / congés / fermetures / shifts déjà présents).");
-    return {
-      preview: {
-        employee_id: emp.id,
-        employee_name: emp.full_name,
-        weekly_target: weeklyTarget,
-        already_contractual_hours: alreadyContract,
-        available_days: 0,
-        drafts: [],
-        reclassifications,
-        total_drafts_hours: 0,
-        total_reclassified_hours: totalReclassifiedEarly,
-        warnings,
-      },
-    };
+    warnings.push(`Le quota contractuel est déjà atteint (${alreadyContract.toFixed(1)}h / ${weeklyTarget}h). Verifie les heures sup proposees ci-dessous si l employe est eligible.`);
+  } else if (candidates.length === 0) {
+    warnings.push("Aucun jour disponible cette semaine pour ajouter du contractuel (jours OFF / congés / fermetures / shifts déjà présents).");
   }
 
   // Durée par shift : default_shift_hours OU plafond fonction du quota / jours
   const defaultShift = emp.default_shift_hours ?? 8;
-  const avgPerDay = remainingTarget / candidates.length;
+  const avgPerDay = candidates.length > 0 ? remainingTarget / candidates.length : defaultShift;
   const shiftHours = Math.min(defaultShift, Math.max(4, Math.ceil(avgPerDay)));
 
   const startTime = emp.default_start_time ?? "10:00";
@@ -367,6 +369,106 @@ export async function generateEmployeeWeekPlanAction(args: {
   // (totalReclassifiedEarly). On evite le doublon ici.
   const totalReclassified = totalReclassifiedEarly;
 
+  // Karim 15/05/2026 : OT PROPOSALS. Quand la generation est appelee une
+  // deuxieme fois (quota deja sature), on propose de combler les besoins
+  // sites encore non couverts avec des heures supplementaires (si l employe
+  // est ot_eligible).
+  const otProposals: EmpOTProposal[] = [];
+  const totalAfterDrafts =
+    alreadyContract + drafts.reduce((a, d) => a + d.hours, 0);
+  const employeeIsQuotaSaturated =
+    totalAfterDrafts >= weeklyTarget - 0.01;
+  if (emp.ot_eligible && primarySiteId && employeeIsQuotaSaturated) {
+    // Besoins du site primaire indexes par day_of_week
+    const allNeeds = ((siteNeedsRaw ?? []) as Array<{
+      id: string;
+      site_id: string;
+      day_of_week: number;
+      start_time: string;
+      end_time: string;
+      headcount: number;
+      is_critical: number | null;
+      is_enabled: boolean;
+    }>).filter((n) => n.site_id === primarySiteId);
+    // Compte de couverture par (day_of_week, need_id) :
+    // shifts qui chevauchent le creneau du need ce jour, tous employes confondus
+    function countOverlap(dateISO: string, sStart: string, sEnd: string): number {
+      const sM = timeToMin(sStart.slice(0, 5));
+      const eM = timeToMin(sEnd.slice(0, 5));
+      return allWeekShifts.filter((sh) => {
+        if (sh.date !== dateISO) return false;
+        if (sh.site_id !== primarySiteId) return false;
+        const sshM = timeToMin(sh.start_time.slice(0, 5));
+        const eshM = timeToMin(sh.end_time.slice(0, 5));
+        return sshM < eM && eshM > sM;
+      }).length;
+    }
+    // 7 jours, on regarde chaque jour ouvert ; au plus 1 OT proposal par jour
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(monday, i);
+      const dateISO = toISODate(d);
+      const jsDow = d.getDay();
+      if (dateISO < tomorrowISO) continue;
+      if (dayClosed(dateISO)) continue;
+      if (dayOffByFixed(jsDow)) continue;
+      if (dayInLeave(dateISO)) continue;
+      if (dayFullyBlockedByUnavail(jsDow, dateISO)) continue;
+      // Besoins de ce jour, tries par criticite DESC pour traiter d abord
+      // ultra-critique puis critique puis normal
+      const dayNeeds = allNeeds
+        .filter((n) => n.day_of_week === jsDow)
+        .sort((a, b) => (b.is_critical ?? 0) - (a.is_critical ?? 0));
+      for (const need of dayNeeds) {
+        const coverage = countOverlap(dateISO, need.start_time, need.end_time);
+        if (coverage >= need.headcount) continue; // deja couvert
+        // L employe a-t-il deja un shift qui chevauche ce slot ?
+        const hasOwnConflict = existingShifts.some((sh) => {
+          if (sh.date !== dateISO) return false;
+          const sM = timeToMin(sh.start_time.slice(0, 5));
+          const eM = timeToMin(sh.end_time.slice(0, 5));
+          const nsM = timeToMin(need.start_time.slice(0, 5));
+          const neM = timeToMin(need.end_time.slice(0, 5));
+          return sM < neM && eM > nsM;
+        });
+        if (hasOwnConflict) continue;
+        const sStart = need.start_time.slice(0, 5);
+        const sEnd = need.end_time.slice(0, 5);
+        const hours = (timeToMin(sEnd) - timeToMin(sStart)) / 60;
+        if (hours <= 0) continue;
+        const critLabel =
+          (need.is_critical ?? 0) >= 2
+            ? "ultra-critique"
+            : (need.is_critical ?? 0) >= 1
+              ? "critique"
+              : "normal";
+        otProposals.push({
+          date: dateISO,
+          start_time: sStart,
+          end_time: sEnd,
+          break_minutes: emp.default_pause_minutes ?? 30,
+          site_id: primarySiteId,
+          need_id: need.id,
+          multiplier: 1.5,
+          hours,
+          reason: `Besoin ${critLabel} non couvert (${coverage}/${need.headcount})`,
+        });
+        break; // 1 OT par jour max
+      }
+    }
+  }
+  const totalOtProposed = otProposals.reduce((a, p) => a + p.hours, 0);
+  if (otProposals.length > 0) {
+    warnings.push(
+      `${otProposals.length} proposition(s) d heures sup pour combler les besoins non couverts (+${totalOtProposed.toFixed(1)}h, x1.5).`,
+    );
+  } else if (employeeIsQuotaSaturated && drafts.length === 0 && reclassifications.length === 0) {
+    if (!emp.ot_eligible) {
+      warnings.push(
+        "Quota atteint et employe non eligible aux heures sup. Coche ot_eligible dans la fiche pour proposer des OT.",
+      );
+    }
+  }
+
   return {
     preview: {
       employee_id: emp.id,
@@ -376,8 +478,10 @@ export async function generateEmployeeWeekPlanAction(args: {
       available_days: candidates.length,
       drafts,
       reclassifications,
+      ot_proposals: otProposals,
       total_drafts_hours: drafts.reduce((a, d) => a + d.hours, 0),
       total_reclassified_hours: totalReclassified,
+      total_ot_proposed_hours: totalOtProposed,
       warnings,
     },
   };
@@ -393,13 +497,14 @@ export async function commitEmployeeWeekPlanAction(args: {
   employeeId: string;
   drafts: EmpPlanDraft[];
   reclassifyShiftIds?: string[];
-}): Promise<{ ok?: boolean; error?: string; created?: number; reclassified?: number }> {
+  otProposals?: EmpOTProposal[];
+}): Promise<{ ok?: boolean; error?: string; created?: number; reclassified?: number; ot_created?: number }> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
-  const { employeeId, drafts, reclassifyShiftIds = [] } = args;
+  const { employeeId, drafts, reclassifyShiftIds = [], otProposals = [] } = args;
   if (!employeeId) return { error: "Employee requis." };
-  if (drafts.length === 0 && reclassifyShiftIds.length === 0) {
-    return { error: "Rien a appliquer (ni nouveau draft, ni reclassement)." };
+  if (drafts.length === 0 && reclassifyShiftIds.length === 0 && otProposals.length === 0) {
+    return { error: "Rien a appliquer (ni nouveau draft, ni reclassement, ni OT)." };
   }
 
   // 1. Reclassement OT -> contractuel (avant insert pour eviter doublons cap)
@@ -434,7 +539,27 @@ export async function commitEmployeeWeekPlanAction(args: {
     created = rows.length;
   }
 
+  // 3. Insertion des OT proposals (Karim 15/05 : combler besoins non couverts)
+  let otCreated = 0;
+  if (otProposals.length > 0) {
+    const otRows = otProposals.map((p) => ({
+      employee_id: employeeId,
+      date: p.date,
+      start_time: p.start_time + ":00",
+      end_time: p.end_time + ":00",
+      break_minutes: p.break_minutes,
+      site_id: p.site_id,
+      is_overtime: true,
+      overtime_multiplier: p.multiplier,
+      status: "planned" as const,
+      created_by: profile.id,
+    }));
+    const { error } = await supabase.from("shifts").insert(otRows);
+    if (error) return { error: error.message };
+    otCreated = otRows.length;
+  }
+
   revalidatePath("/planning", "layout");
   revalidatePath(`/planning/employees/${employeeId}`);
-  return { ok: true, created, reclassified };
+  return { ok: true, created, reclassified, ot_created: otCreated };
 }
