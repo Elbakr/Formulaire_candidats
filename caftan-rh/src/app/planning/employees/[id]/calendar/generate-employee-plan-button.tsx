@@ -48,16 +48,27 @@ export function GenerateEmployeePlanButton({
   }
 
   function onApply() {
-    if (!preview || preview.drafts.length === 0) return;
+    if (!preview) return;
+    const nothingToDo =
+      preview.drafts.length === 0 && (preview.reclassifications?.length ?? 0) === 0;
+    if (nothingToDo) return;
     startTransition(async () => {
       const r = await commitEmployeeWeekPlanAction({
         employeeId,
         drafts: preview.drafts,
+        reclassifyShiftIds: (preview.reclassifications ?? []).map((x) => x.shift_id),
       });
       if (r.error) {
         toast.error(r.error);
       } else {
-        toast.success(`${r.created} shifts créés.`);
+        const parts: string[] = [];
+        if (r.reclassified && r.reclassified > 0) {
+          parts.push(`${r.reclassified} OT reclassé(s) en contractuel`);
+        }
+        if (r.created && r.created > 0) {
+          parts.push(`${r.created} shift(s) créé(s)`);
+        }
+        toast.success(parts.join(" • ") || "Planning mis a jour.");
         setOpen(false);
         router.refresh();
       }
@@ -120,6 +131,28 @@ export function GenerateEmployeePlanButton({
                 </div>
               ) : null}
 
+              {(preview.reclassifications?.length ?? 0) > 0 ? (
+                <div className="rounded-md border border-orange-300 bg-orange-50 p-2 text-xs">
+                  <div className="font-bold text-orange-800 mb-1">
+                    {preview.reclassifications.length} shift(s) OT a reclasser en contractuel (+{preview.total_reclassified_hours.toFixed(1)}h)
+                  </div>
+                  <ul className="space-y-0.5">
+                    {preview.reclassifications.map((r) => {
+                      const dt = new Date(r.date + "T00:00:00");
+                      return (
+                        <li key={r.shift_id} className="flex items-center gap-2 text-orange-900">
+                          <span className="font-mono w-20 text-orange-700/80">
+                            {FR_DAYS[dt.getDay()]} {String(dt.getDate()).padStart(2, "0")}/{String(dt.getMonth() + 1).padStart(2, "0")}
+                          </span>
+                          <span className="font-mono">{r.start_time} – {r.end_time}</span>
+                          <span className="ml-auto">{r.hours.toFixed(1)}h</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+
               {preview.drafts.length > 0 ? (
                 <ul className="text-xs divide-y divide-line border border-line rounded-md max-h-72 overflow-auto">
                   {preview.drafts.map((d, i) => {
@@ -137,11 +170,11 @@ export function GenerateEmployeePlanButton({
                     );
                   })}
                 </ul>
-              ) : (
+              ) : (preview.reclassifications?.length ?? 0) === 0 ? (
                 <div className="text-xs text-ink-3 italic text-center py-4">
                   Rien à proposer. Voir warnings ci-dessus.
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -152,14 +185,24 @@ export function GenerateEmployeePlanButton({
             <Button
               variant="gold"
               onClick={onApply}
-              disabled={pending || !preview || preview.drafts.length === 0}
+              disabled={
+                pending ||
+                !preview ||
+                (preview.drafts.length === 0 && (preview.reclassifications?.length ?? 0) === 0)
+              }
             >
               {pending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />
               ) : (
                 <Check className="h-4 w-4 mr-1" />
               )}
-              Valider et créer {preview?.drafts.length ?? 0} shift{(preview?.drafts.length ?? 0) > 1 ? "s" : ""}
+              {(() => {
+                const r = preview?.reclassifications?.length ?? 0;
+                const c = preview?.drafts.length ?? 0;
+                if (r > 0 && c > 0) return `Valider : ${r} reclassement(s) + ${c} shift(s)`;
+                if (r > 0) return `Valider : ${r} reclassement(s) OT->contrat`;
+                return `Valider et créer ${c} shift${c > 1 ? "s" : ""}`;
+              })()}
             </Button>
           </DialogFooter>
         </DialogContent>

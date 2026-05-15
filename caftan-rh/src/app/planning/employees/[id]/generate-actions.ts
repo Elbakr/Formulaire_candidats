@@ -26,6 +26,16 @@ export type EmpPlanDraft = {
   hours: number;
 };
 
+/** Karim 15/05 : shift OT existant a reclasser en contractuel pour boucher
+ *  le quota inutilise. Le commit fera un UPDATE is_overtime=false. */
+export type EmpReclassifyOTToContract = {
+  shift_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  hours: number;
+};
+
 export type EmpPlanPreview = {
   employee_id: string;
   employee_name: string;
@@ -33,7 +43,9 @@ export type EmpPlanPreview = {
   already_contractual_hours: number;
   available_days: number;
   drafts: EmpPlanDraft[];
+  reclassifications: EmpReclassifyOTToContract[];
   total_drafts_hours: number;
+  total_reclassified_hours: number;
   warnings: string[];
 };
 
@@ -147,17 +159,51 @@ export async function generateEmployeeWeekPlanAction(args: {
     break_minutes: number;
     is_overtime: boolean | null;
   }>;
-  const alreadyContract = existingShifts
-    .filter((s) => !s.is_overtime)
-    .reduce(
-      (a, s) =>
-        a +
-        (timeToMin(s.end_time.slice(0, 5)) -
-          timeToMin(s.start_time.slice(0, 5)) -
-          (s.break_minutes ?? 0)) /
-          60,
-      0,
+  function shiftDurHours(s: { start_time: string; end_time: string; break_minutes: number }): number {
+    return (
+      (timeToMin(s.end_time.slice(0, 5)) -
+        timeToMin(s.start_time.slice(0, 5)) -
+        (s.break_minutes ?? 0)) /
+      60
     );
+  }
+
+  let alreadyContract = existingShifts
+    .filter((s) => !s.is_overtime)
+    .reduce((a, s) => a + shiftDurHours(s), 0);
+
+  // Karim 15/05/2026 : si des shifts OT existent ALORS que le quota
+  // contractuel n est pas atteint, ils doivent etre RECLASSES en contractuel.
+  // Boucler la reserve avant de generer/garder de l OT.
+  const existingOT = existingShifts
+    .filter((s) => s.is_overtime)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time));
+
+  const reclassifications: EmpReclassifyOTToContract[] = [];
+  for (const ot of existingOT) {
+    const h = shiftDurHours(ot);
+    if (h <= 0) continue;
+    const remaining = weeklyTarget - alreadyContract;
+    if (remaining <= 0.001) break;
+    if (h <= remaining + 0.001) {
+      // Tout le shift OT tient dans la reserve -> reclasse entier
+      reclassifications.push({
+        shift_id: ot.id,
+        date: ot.date,
+        start_time: ot.start_time.slice(0, 5),
+        end_time: ot.end_time.slice(0, 5),
+        hours: h,
+      });
+      alreadyContract += h;
+    } else {
+      // Le shift OT depasse la reserve -- pour l instant on ne fractionne pas
+      // un shift OT existant lors d une regeneration (operation risquee qui
+      // modifie un horaire valide par l employe). On laisse tel quel.
+      // L admin peut splitter manuellement via ShiftDialog si besoin.
+      break;
+    }
+  }
+
   const dayWithExistingShift = new Set(existingShifts.map((s) => s.date));
 
   // Days off de l'employe : fixed_off_days (0=Lun..6=Dim)
@@ -233,6 +279,15 @@ export async function generateEmployeeWeekPlanAction(args: {
     candidates.push({ dateISO, jsDow });
   }
 
+  // Helper pour les early-return : on doit propager les reclassifications
+  // computees plus haut (sinon le total_reclassified_hours est mort).
+  const totalReclassifiedEarly = reclassifications.reduce((a, r) => a + r.hours, 0);
+  if (totalReclassifiedEarly > 0) {
+    warnings.unshift(
+      `${reclassifications.length} shift(s) OT existant(s) reclasse(s) en contractuel (+${totalReclassifiedEarly.toFixed(1)}h).`,
+    );
+  }
+
   const remainingTarget = Math.max(0, weeklyTarget - alreadyContract);
   if (remainingTarget <= 0.01) {
     warnings.push(`Le quota contractuel est déjà atteint (${alreadyContract.toFixed(1)}h / ${weeklyTarget}h). Rien à ajouter.`);
@@ -244,7 +299,9 @@ export async function generateEmployeeWeekPlanAction(args: {
         already_contractual_hours: alreadyContract,
         available_days: candidates.length,
         drafts: [],
+        reclassifications,
         total_drafts_hours: 0,
+        total_reclassified_hours: totalReclassifiedEarly,
         warnings,
       },
     };
@@ -259,7 +316,9 @@ export async function generateEmployeeWeekPlanAction(args: {
         already_contractual_hours: alreadyContract,
         available_days: 0,
         drafts: [],
+        reclassifications,
         total_drafts_hours: 0,
+        total_reclassified_hours: totalReclassifiedEarly,
         warnings,
       },
     };
@@ -304,6 +363,10 @@ export async function generateEmployeeWeekPlanAction(args: {
     warnings.push("Aucun site assigné -- les shifts seront créés sans site. Affecte d'abord à un site via /admin.");
   }
 
+  // Note : le warning de reclassement a deja ete ajoute en tete plus haut
+  // (totalReclassifiedEarly). On evite le doublon ici.
+  const totalReclassified = totalReclassifiedEarly;
+
   return {
     preview: {
       employee_id: emp.id,
@@ -312,7 +375,9 @@ export async function generateEmployeeWeekPlanAction(args: {
       already_contractual_hours: alreadyContract,
       available_days: candidates.length,
       drafts,
+      reclassifications,
       total_drafts_hours: drafts.reduce((a, d) => a + d.hours, 0),
+      total_reclassified_hours: totalReclassified,
       warnings,
     },
   };
@@ -320,32 +385,56 @@ export async function generateEmployeeWeekPlanAction(args: {
 
 /**
  * Applique les drafts produits par generateEmployeeWeekPlanAction.
- * INSERT direct dans shifts. Tous en is_overtime=false (contractuel pur).
+ * - INSERT les nouveaux drafts (is_overtime=false)
+ * - UPDATE les shifts OT existants a reclasser en contractuel (Karim 15/05)
+ *   pour boucher la reserve avant de creer de nouveau de l OT
  */
 export async function commitEmployeeWeekPlanAction(args: {
   employeeId: string;
   drafts: EmpPlanDraft[];
-}): Promise<{ ok?: boolean; error?: string; created?: number }> {
+  reclassifyShiftIds?: string[];
+}): Promise<{ ok?: boolean; error?: string; created?: number; reclassified?: number }> {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
-  const { employeeId, drafts } = args;
-  if (!employeeId || drafts.length === 0) {
-    return { error: "Aucun shift à créer." };
+  const { employeeId, drafts, reclassifyShiftIds = [] } = args;
+  if (!employeeId) return { error: "Employee requis." };
+  if (drafts.length === 0 && reclassifyShiftIds.length === 0) {
+    return { error: "Rien a appliquer (ni nouveau draft, ni reclassement)." };
   }
-  const rows = drafts.map((d) => ({
-    employee_id: employeeId,
-    date: d.date,
-    start_time: d.start_time,
-    end_time: d.end_time,
-    break_minutes: d.break_minutes,
-    site_id: d.site_id,
-    is_overtime: false,
-    status: "planned" as const,
-    created_by: profile.id,
-  }));
-  const { error } = await supabase.from("shifts").insert(rows);
-  if (error) return { error: error.message };
+
+  // 1. Reclassement OT -> contractuel (avant insert pour eviter doublons cap)
+  let reclassified = 0;
+  if (reclassifyShiftIds.length > 0) {
+    const { error: updErr, count } = await supabase
+      .from("shifts")
+      .update({ is_overtime: false, overtime_multiplier: null }, { count: "exact" })
+      .in("id", reclassifyShiftIds)
+      .eq("employee_id", employeeId)
+      .eq("is_overtime", true); // garde-fou : on reclasse uniquement de l OT
+    if (updErr) return { error: updErr.message };
+    reclassified = count ?? 0;
+  }
+
+  // 2. Insertion des nouveaux drafts (toujours en contractuel)
+  let created = 0;
+  if (drafts.length > 0) {
+    const rows = drafts.map((d) => ({
+      employee_id: employeeId,
+      date: d.date,
+      start_time: d.start_time,
+      end_time: d.end_time,
+      break_minutes: d.break_minutes,
+      site_id: d.site_id,
+      is_overtime: false,
+      status: "planned" as const,
+      created_by: profile.id,
+    }));
+    const { error } = await supabase.from("shifts").insert(rows);
+    if (error) return { error: error.message };
+    created = rows.length;
+  }
+
   revalidatePath("/planning", "layout");
   revalidatePath(`/planning/employees/${employeeId}`);
-  return { ok: true, created: rows.length };
+  return { ok: true, created, reclassified };
 }
