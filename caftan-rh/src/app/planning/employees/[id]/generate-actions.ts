@@ -459,16 +459,35 @@ export async function generateEmployeeWeekPlanAction(args: {
       for (const need of dayNeeds) {
         const coverage = countOverlap(dateISO, need.start_time, need.end_time);
         if (coverage >= need.headcount) continue; // deja couvert
-        // L employe a-t-il deja un shift qui chevauche ce slot ?
-        const hasOwnConflict = existingShifts.some((sh) => {
+        const nsM = timeToMin(need.start_time.slice(0, 5));
+        const neM = timeToMin(need.end_time.slice(0, 5));
+        // Karim 15/05 v3 : check overlap avec les shifts existants en DB
+        // ET avec les DRAFTS qu on vient de generer dans CE meme run.
+        // Bug observe : drafts saturent quota -> OT proposal sur meme jour
+        // chevauche le draft = double shift. Le check qui ne consultait que
+        // existingShifts laissait passer.
+        const hasOwnConflictExisting = existingShifts.some((sh) => {
           if (sh.date !== dateISO) return false;
           const sM = timeToMin(sh.start_time.slice(0, 5));
           const eM = timeToMin(sh.end_time.slice(0, 5));
-          const nsM = timeToMin(need.start_time.slice(0, 5));
-          const neM = timeToMin(need.end_time.slice(0, 5));
           return sM < neM && eM > nsM;
         });
-        if (hasOwnConflict) continue;
+        const hasOwnConflictDraft = drafts.some((d) => {
+          if (d.date !== dateISO) return false;
+          const sM = timeToMin(d.start_time.slice(0, 5));
+          const eM = timeToMin(d.end_time.slice(0, 5));
+          return sM < neM && eM > nsM;
+        });
+        if (hasOwnConflictExisting || hasOwnConflictDraft) continue;
+        // Pareil pour les OT proposals deja accumules sur ce jour (1 OT/jour
+        // est la regle mais double-check)
+        const hasOwnConflictOT = otProposals.some((o) => {
+          if (o.date !== dateISO) return false;
+          const sM = timeToMin(o.start_time);
+          const eM = timeToMin(o.end_time);
+          return sM < neM && eM > nsM;
+        });
+        if (hasOwnConflictOT) continue;
         const sStart = need.start_time.slice(0, 5);
         const sEnd = need.end_time.slice(0, 5);
         const hours = (timeToMin(sEnd) - timeToMin(sStart)) / 60;
@@ -558,43 +577,115 @@ export async function commitEmployeeWeekPlanAction(args: {
     reclassified = count ?? 0;
   }
 
+  // Karim 15/05 v3 : check overlap GLOBAL au commit, defense-in-depth.
+  // On charge tous les shifts existants de l employe sur les dates concernees
+  // par drafts/otProposals, puis on filtre les rows qui chevauchent (existant
+  // ou autres rows du meme batch). Evite les doubles shifts meme en cas de
+  // race (entre preview et commit, ou bug dans le preview).
+  const allDates = [
+    ...new Set([
+      ...drafts.map((d) => d.date),
+      ...otProposals.map((p) => p.date),
+    ]),
+  ];
+  let existingForCheck: Array<{ date: string; start_time: string; end_time: string }> = [];
+  if (allDates.length > 0) {
+    const { data: existRaw } = await supabase
+      .from("shifts")
+      .select("date, start_time, end_time")
+      .eq("employee_id", employeeId)
+      .in("date", allDates);
+    existingForCheck = (existRaw ?? []) as typeof existingForCheck;
+  }
+  function tMin(t: string): number {
+    const [h, m] = t.slice(0, 5).split(":").map(Number);
+    return h * 60 + m;
+  }
+  const acceptedRanges = new Map<string, Array<{ s: number; e: number }>>();
+  for (const sh of existingForCheck) {
+    const arr = acceptedRanges.get(sh.date) ?? [];
+    arr.push({ s: tMin(sh.start_time), e: tMin(sh.end_time) });
+    acceptedRanges.set(sh.date, arr);
+  }
+  function overlapsAccepted(date: string, sMin: number, eMin: number): boolean {
+    const arr = acceptedRanges.get(date) ?? [];
+    return arr.some((r) => sMin < r.e && eMin > r.s);
+  }
+  function pushAccepted(date: string, sMin: number, eMin: number) {
+    const arr = acceptedRanges.get(date) ?? [];
+    arr.push({ s: sMin, e: eMin });
+    acceptedRanges.set(date, arr);
+  }
+
   // 2. Insertion des nouveaux drafts (toujours en contractuel)
   let created = 0;
+  let skippedOverlap = 0;
   if (drafts.length > 0) {
-    const rows = drafts.map((d) => ({
-      employee_id: employeeId,
-      date: d.date,
-      start_time: d.start_time,
-      end_time: d.end_time,
-      break_minutes: d.break_minutes,
-      site_id: d.site_id,
-      is_overtime: false,
-      status: "planned" as const,
-      created_by: profile.id,
-    }));
-    const { error } = await supabase.from("shifts").insert(rows);
-    if (error) return { error: error.message };
-    created = rows.length;
+    const filtered: typeof drafts = [];
+    for (const d of drafts) {
+      const sM = tMin(d.start_time);
+      const eM = tMin(d.end_time);
+      if (overlapsAccepted(d.date, sM, eM)) {
+        skippedOverlap += 1;
+        continue;
+      }
+      pushAccepted(d.date, sM, eM);
+      filtered.push(d);
+    }
+    if (filtered.length > 0) {
+      const rows = filtered.map((d) => ({
+        employee_id: employeeId,
+        date: d.date,
+        start_time: d.start_time,
+        end_time: d.end_time,
+        break_minutes: d.break_minutes,
+        site_id: d.site_id,
+        is_overtime: false,
+        status: "planned" as const,
+        created_by: profile.id,
+      }));
+      const { error } = await supabase.from("shifts").insert(rows);
+      if (error) return { error: error.message };
+      created = rows.length;
+    }
   }
 
   // 3. Insertion des OT proposals (Karim 15/05 : combler besoins non couverts)
   let otCreated = 0;
   if (otProposals.length > 0) {
-    const otRows = otProposals.map((p) => ({
-      employee_id: employeeId,
-      date: p.date,
-      start_time: p.start_time + ":00",
-      end_time: p.end_time + ":00",
-      break_minutes: p.break_minutes,
-      site_id: p.site_id,
-      is_overtime: true,
-      overtime_multiplier: p.multiplier,
-      status: "planned" as const,
-      created_by: profile.id,
-    }));
-    const { error } = await supabase.from("shifts").insert(otRows);
-    if (error) return { error: error.message };
-    otCreated = otRows.length;
+    const filteredOt: typeof otProposals = [];
+    for (const p of otProposals) {
+      const sM = tMin(p.start_time);
+      const eM = tMin(p.end_time);
+      if (overlapsAccepted(p.date, sM, eM)) {
+        skippedOverlap += 1;
+        continue;
+      }
+      pushAccepted(p.date, sM, eM);
+      filteredOt.push(p);
+    }
+    if (filteredOt.length > 0) {
+      const otRows = filteredOt.map((p) => ({
+        employee_id: employeeId,
+        date: p.date,
+        start_time: p.start_time + ":00",
+        end_time: p.end_time + ":00",
+        break_minutes: p.break_minutes,
+        site_id: p.site_id,
+        is_overtime: true,
+        overtime_multiplier: p.multiplier,
+        status: "planned" as const,
+        created_by: profile.id,
+      }));
+      const { error } = await supabase.from("shifts").insert(otRows);
+      if (error) return { error: error.message };
+      otCreated = otRows.length;
+    }
+  }
+  if (skippedOverlap > 0) {
+    console.warn(
+      `[commit-employee-week] ${skippedOverlap} shift(s) skip(s) anti-overlap (defense in depth).`,
+    );
   }
 
   revalidatePath("/planning", "layout");
