@@ -189,11 +189,29 @@ export async function syncGravityForms(
   }
 
   // Map + filter invalid
-  const mapped: MappedCandidate[] = [];
+  const mappedRaw: MappedCandidate[] = [];
   for (const entry of entries) {
     const m = mapGFEntry(entry, settings.field_map);
-    if (m) mapped.push(m);
+    if (m) mappedRaw.push(m);
     else stats.skipped_invalid += 1;
+  }
+
+  // Karim 15/05 : dedup interne par gf_entry_id. La pagination GF peut
+  // renvoyer la meme entree deux fois sur la frontiere de page, et le batch
+  // insert plante alors avec "duplicate key value violates unique constraint
+  // uniq_candidates_gf_entry". On garde la 1ere occurrence.
+  const mapped: MappedCandidate[] = [];
+  const seenInBatch = new Set<string>();
+  for (const m of mappedRaw) {
+    if (seenInBatch.has(m.gf_entry_id)) continue;
+    seenInBatch.add(m.gf_entry_id);
+    mapped.push(m);
+  }
+  const dedupedInBatch = mappedRaw.length - mapped.length;
+  if (dedupedInBatch > 0) {
+    stats.errors.push(
+      `${dedupedInBatch} doublon(s) GF deduplique(s) dans le batch (entrees retournees plusieurs fois par l API)`,
+    );
   }
 
   if (mapped.length === 0) return stats;
@@ -214,7 +232,9 @@ export async function syncGravityForms(
 
   if (toCreate.length === 0) return stats;
 
-  // Insert candidates batch
+  // Insert candidates batch. UPSERT avec onConflict pour ne pas planter si
+  // un autre process a insere entre la dedup et l insert (race), ou si la
+  // dedup en DB a manque quelque chose pour une autre raison.
   const candidateRows = toCreate.map((m) => ({
     email: m.email,
     full_name: m.full_name,
@@ -226,12 +246,16 @@ export async function syncGravityForms(
     raw_payload: m.raw_payload,
   }));
 
+  type UpsertClient = {
+    upsert: (
+      rows: unknown[],
+      opts: { onConflict: string; ignoreDuplicates: boolean },
+    ) => { select: (s: string) => Promise<{ data: { id: string; gf_entry_id: string }[] | null; error: { message: string } | null }> };
+  };
   const { data: createdCandsRaw, error: insErr } = await (
-    supabase.from("candidates") as unknown as {
-      insert: (rows: unknown[]) => { select: (s: string) => Promise<{ data: { id: string; gf_entry_id: string }[] | null; error: { message: string } | null }> };
-    }
+    supabase.from("candidates") as unknown as UpsertClient
   )
-    .insert(candidateRows)
+    .upsert(candidateRows, { onConflict: "gf_entry_id", ignoreDuplicates: true })
     .select("id, gf_entry_id");
 
   if (insErr) {
