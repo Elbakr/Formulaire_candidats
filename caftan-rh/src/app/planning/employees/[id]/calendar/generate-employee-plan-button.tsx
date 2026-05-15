@@ -18,6 +18,7 @@ import {
   commitEmployeeWeekPlanAction,
   type EmpPlanPreview,
 } from "../generate-actions";
+import { updateEmployeeBulkAction } from "@/app/planning/employees/bulk-edit/actions";
 
 const FR_DAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 
@@ -33,9 +34,7 @@ export function GenerateEmployeePlanButton({
   const [preview, setPreview] = useState<EmpPlanPreview | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function onOpen() {
-    setOpen(true);
-    setPreview(null);
+  function reloadPreview() {
     startTransition(async () => {
       const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO });
       if (r.error) {
@@ -44,6 +43,26 @@ export function GenerateEmployeePlanButton({
       } else if (r.preview) {
         setPreview(r.preview);
       }
+    });
+  }
+
+  function onOpen() {
+    setOpen(true);
+    setPreview(null);
+    reloadPreview();
+  }
+
+  /** Active ot_eligible sur l employe puis recharge le preview pour que les
+   *  OT proposals apparaissent immediatement. Karim 15/05. */
+  function activateOTEligibility() {
+    startTransition(async () => {
+      const r = await updateEmployeeBulkAction(employeeId, { ot_eligible: true });
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success("Éligibilité aux heures sup activée.");
+      reloadPreview();
     });
   }
 
@@ -127,13 +146,34 @@ export function GenerateEmployeePlanButton({
               </div>
 
               {preview.warnings.length > 0 ? (
-                <div className="rounded-md border border-warn bg-warn-light/40 p-2 text-xs space-y-1">
-                  {preview.warnings.map((w, i) => (
-                    <div key={i} className="flex items-start gap-1">
-                      <AlertTriangle className="h-3 w-3 text-warn shrink-0 mt-0.5" />
-                      <span>{w}</span>
-                    </div>
-                  ))}
+                <div className="rounded-md border border-warn bg-warn-light/40 p-2 text-xs space-y-1.5">
+                  {preview.warnings.map((w, i) => {
+                    const isOtEligibleAlert =
+                      w.includes("ot_eligible") || w.toLowerCase().includes("non eligible");
+                    return (
+                      <div key={i} className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-warn shrink-0 mt-0.5" />
+                        <span className="flex-1">{w}</span>
+                        {isOtEligibleAlert ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="gold"
+                            onClick={activateOTEligibility}
+                            disabled={pending}
+                            className="shrink-0 h-6 px-2 text-[10px]"
+                          >
+                            {pending ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="h-3 w-3" />
+                            )}
+                            Activer OT
+                          </Button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
 
