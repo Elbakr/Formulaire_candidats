@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Star, Clock } from "lucide-react";
+import { ArrowRight, Star, Clock, ShieldCheck } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import { RecomputeButton } from "./recompute-button";
 import { formatDateTime } from "@/lib/utils";
 import { loadPunctualityForEmployees } from "@/lib/scoring/punctuality";
+import { loadValidationReliabilityForEmployees } from "@/lib/scoring/validation-reliability";
 
 type Row = {
   employee_id: string;
@@ -41,10 +42,12 @@ export default async function ScoringHomePage() {
   // Ponctualite : computed TS-side a partir de clock_entries vs shifts (3 mois).
   // Karim 14/05/2026 : rendu visible dans le scoring pour rendre tangible la
   // rigueur observee, en attendant migration DB pour integrer au global_score.
-  const punctualityByEmp = await loadPunctualityForEmployees(
-    rows.map((r) => r.employee_id),
-    3,
-  );
+  const [punctualityByEmp, validationByEmp] = await Promise.all([
+    loadPunctualityForEmployees(rows.map((r) => r.employee_id), 3),
+    // Karim 15/05/2026 : fiabilite post-validation. Penalise les annulations
+    // apres validation acceptee. 6 mois de fenetre pour avoir assez de signal.
+    loadValidationReliabilityForEmployees(rows.map((r) => r.employee_id), 6),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -111,6 +114,31 @@ export default async function ScoringHomePage() {
                       >
                         <Clock className="h-3 w-3" />
                         Ponctualité : <span className="font-mono font-bold">{p.rigor_score.toFixed(0)}%</span>
+                      </span>
+                    );
+                  })()}
+                  {(() => {
+                    const v = validationByEmp.get(r.employee_id);
+                    if (!v || v.accepted + v.refused + v.cancelled_after_validation === 0) {
+                      return (
+                        <span className="text-ink-3 italic">Fiabilité validation : —</span>
+                      );
+                    }
+                    const tone =
+                      v.band === "exemplary"
+                        ? "text-success"
+                        : v.band === "ok"
+                          ? "text-ink-2"
+                          : v.band === "attention"
+                            ? "text-warn"
+                            : "text-danger";
+                    return (
+                      <span
+                        title={`${v.accepted} validations honorees, ${v.cancelled_after_validation} annulees apres validation, ${v.refused} refus directs (6 mois). Score = penalite forte sur annulations.`}
+                        className={`inline-flex items-center gap-1 ${tone}`}
+                      >
+                        <ShieldCheck className="h-3 w-3" />
+                        Fiabilité validation : <span className="font-mono font-bold">{v.score.toFixed(0)}%</span>
                       </span>
                     );
                   })()}
