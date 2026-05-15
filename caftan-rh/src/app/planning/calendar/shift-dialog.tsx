@@ -558,6 +558,7 @@ export function ShiftDialog({
                   onChange={(e) => setOvertimeMultiplier(e.target.value)}
                   className="rounded-md border border-line bg-canvas px-2 py-1 text-sm"
                 >
+                  <option value="1.0">×1.0</option>
                   <option value="1.25">×1.25</option>
                   <option value="1.5">×1.5</option>
                   <option value="2.0">×2.0</option>

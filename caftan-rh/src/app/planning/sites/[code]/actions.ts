@@ -814,7 +814,7 @@ export async function previewSitePlanAction(
 
 // --- phase 2 : overtime opt-in --------------------------------------------
 
-const ALLOWED_MULTIPLIERS = [1.25, 1.5, 2.0] as const;
+const ALLOWED_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0] as const;
 
 /**
  * @deprecated Remplacé depuis le 2026-05-11 par le workflow case-par-case
@@ -832,9 +832,9 @@ export async function previewOvertimeFillAction(args: {
   await requireRole(["admin", "rh", "manager"]);
   const { siteCode, weekISO, baseDrafts, multiplier } = args;
 
-  if (!ALLOWED_MULTIPLIERS.includes(multiplier as 1.25 | 1.5 | 2.0)) {
+  if (!ALLOWED_MULTIPLIERS.includes(multiplier as 1.0 | 1.25 | 1.5 | 2.0)) {
     return {
-      error: `Multiplicateur ${multiplier} non autorisé. Utilise 1.25, 1.5 ou 2.0.`,
+      error: `Multiplicateur ${multiplier} non autorisé. Utilise 1.0, 1.25, 1.5 ou 2.0.`,
     };
   }
 
@@ -1344,7 +1344,7 @@ export type OvertimeCandidate = {
    * (ou null si l'employé reste sous son contractuel — cas rare mais possible
    * si on est en uncovered pour cause d'overlap avec un draft phase 1, etc).
    */
-  min_multiplier_required: 1.25 | 1.5 | 2.0 | null;
+  min_multiplier_required: 1.0 | 1.25 | 1.5 | 2.0 | null;
 };
 
 export type UncoveredSlotWithCandidates = {
@@ -1364,7 +1364,7 @@ export type UncoveredSlotWithCandidates = {
 function pickMinMultiplier(
   weekly: number,
   wouldBeTotal: number,
-): 1.25 | 1.5 | 2.0 | null {
+): 1.0 | 1.25 | 1.5 | 2.0 | null {
   if (wouldBeTotal <= weekly + 1e-6) return null;
   const ratio = wouldBeTotal / weekly;
   if (ratio <= 1.25 + 1e-6) return 1.25;
@@ -1605,7 +1605,7 @@ export async function proposeOvertimeCandidatesAction(args: {
 
 // --- commit case-par-case --------------------------------------------------
 
-const ALLOWED_MULTIPLIERS_SET = new Set<number>([1.25, 1.5, 2.0]);
+const ALLOWED_MULTIPLIERS_SET = new Set<number>([1.0, 1.25, 1.5, 2.0]);
 
 export async function commitIndividualOvertimeAction(args: {
   siteCode: string;
@@ -1628,7 +1628,7 @@ export async function commitIndividualOvertimeAction(args: {
   for (const a of authorizations) {
     if (!ALLOWED_MULTIPLIERS_SET.has(a.overtime_multiplier)) {
       return {
-        error: `Multiplicateur ${a.overtime_multiplier} non autorisé. Utilise 1.25, 1.5 ou 2.0.`,
+        error: `Multiplicateur ${a.overtime_multiplier} non autorisé. Utilise 1.0, 1.25, 1.5 ou 2.0.`,
       };
     }
   }

@@ -35,9 +35,9 @@ import {
 type DraftRow = SitePlanPreview["drafts"][number];
 
 // Choix par cellule (need_id|employee_id) → multiplier ou 'no' (pas autorisé).
-type AuthChoice = "no" | 1.25 | 1.5 | 2.0;
+type AuthChoice = "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0;
 
-const MULT_OPTIONS: Array<1.25 | 1.5 | 2.0> = [1.25, 1.5, 2.0];
+const MULT_OPTIONS: Array<1.0 | 1.25 | 1.5 | 2.0> = [1.0, 1.25, 1.5, 2.0];
 
 // Étape de l'UI : preview phase 1 → vue case-par-case → retour si annule.
 type View = "preview" | "case_by_case";
@@ -131,7 +131,7 @@ export function GenerateSitePlanButton({
       employee_name: string;
       start_time: string;
       end_time: string;
-      overtime_multiplier: 1.25 | 1.5 | 2.0;
+      overtime_multiplier: 1.0 | 1.25 | 1.5 | 2.0;
       hours: number;
       ot_hours: number;
     }>;
@@ -141,7 +141,7 @@ export function GenerateSitePlanButton({
       employee_name: string;
       start_time: string;
       end_time: string;
-      overtime_multiplier: 1.25 | 1.5 | 2.0;
+      overtime_multiplier: 1.0 | 1.25 | 1.5 | 2.0;
       hours: number;
       ot_hours: number;
     }> = [];
@@ -161,7 +161,7 @@ export function GenerateSitePlanButton({
             employee_name: c.employee_name,
             start_time: c.effective_start_time,
             end_time: c.effective_end_time,
-            overtime_multiplier: v as 1.25 | 1.5 | 2.0,
+            overtime_multiplier: v as 1.0 | 1.25 | 1.5 | 2.0,
             hours: c.effective_slot_hours,
             ot_hours: c.overtime_hours,
           });
@@ -233,7 +233,7 @@ export function GenerateSitePlanButton({
             </DialogTitle>
             <DialogDescription>
               {view === "case_by_case"
-                ? "Pour chaque créneau non couvert, choisis quel employé autoriser et à quel niveau (×1.25 / ×1.5 / ×2). Pas de choix = pas de shift créé."
+                ? "Pour chaque créneau non couvert, choisis quel employé autoriser et à quel niveau (×1.0 / ×1.25 / ×1.5 / ×2). Pas de choix = pas de shift créé."
                 : "Phase 1 : contractuel strict (jamais > weekly_hours). Phase 2 : autorisations d'heures sup case-par-case."}
             </DialogDescription>
           </DialogHeader>
@@ -518,15 +518,15 @@ function CaseByCaseContent({
   pending,
 }: {
   slots: UncoveredSlotWithCandidates[];
-  choices: Record<string, "no" | 1.25 | 1.5 | 2.0>;
-  setChoice: (key: string, value: "no" | 1.25 | 1.5 | 2.0) => void;
+  choices: Record<string, "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0>;
+  setChoice: (key: string, value: "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0) => void;
   authorizations: Array<{
     need_id: string;
     employee_id: string;
     employee_name: string;
     start_time: string;
     end_time: string;
-    overtime_multiplier: 1.25 | 1.5 | 2.0;
+    overtime_multiplier: 1.0 | 1.25 | 1.5 | 2.0;
     hours: number;
     ot_hours: number;
   }>;
@@ -590,8 +590,8 @@ function SlotCard({
   disabled,
 }: {
   slot: UncoveredSlotWithCandidates;
-  choices: Record<string, "no" | 1.25 | 1.5 | 2.0>;
-  setChoice: (key: string, value: "no" | 1.25 | 1.5 | 2.0) => void;
+  choices: Record<string, "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0>;
+  setChoice: (key: string, value: "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0) => void;
   disabled: boolean;
 }) {
   // Compte les choix actifs sur ce slot pour signaler le surplus.
@@ -664,8 +664,8 @@ function CandidateRow({
 }: {
   slot: UncoveredSlotWithCandidates;
   candidate: OvertimeCandidate;
-  choice: "no" | 1.25 | 1.5 | 2.0;
-  onChoose: (v: "no" | 1.25 | 1.5 | 2.0) => void;
+  choice: "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0;
+  onChoose: (v: "no" | 1.0 | 1.0 | 1.25 | 1.5 | 2.0) => void;
   disabled: boolean;
 }) {
   const tierLabel =
