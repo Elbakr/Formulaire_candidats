@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Radio } from "lucide-react";
+import { Radio, Settings2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -119,6 +119,15 @@ export default async function EmployeesPage() {
             <Link href="/admin/presence" title="Vue détaillée : qui est où en direct">
               <Radio className="h-3.5 w-3.5 mr-1 animate-pulse" />
               Qui est où ?
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href="/planning/employees/bulk-edit"
+              title="Éditer les données utilisées par le solver : sites, OT, heures, etc."
+            >
+              <Settings2 className="h-3.5 w-3.5 mr-1" />
+              Données solver
             </Link>
           </Button>
           <ExportEmployeesButton employees={employees} />
