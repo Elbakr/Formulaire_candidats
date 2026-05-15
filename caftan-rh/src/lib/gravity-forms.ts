@@ -232,9 +232,12 @@ export async function syncGravityForms(
 
   if (toCreate.length === 0) return stats;
 
-  // Insert candidates batch. UPSERT avec onConflict pour ne pas planter si
-  // un autre process a insere entre la dedup et l insert (race), ou si la
-  // dedup en DB a manque quelque chose pour une autre raison.
+  // Insert candidates en batch. Le constraint UNIQUE sur gf_entry_id est un
+  // INDEX PARTIEL (WHERE gf_entry_id IS NOT NULL) -- Supabase upsert avec
+  // onConflict ne sait pas matcher ce type d index. Donc on tente l insert
+  // direct ; si conflit (race condition possible : un cron tourne entre
+  // notre SELECT dedup et notre INSERT), on retombe en mode per-row pour
+  // ne pas perdre toute la batch.
   const candidateRows = toCreate.map((m) => ({
     email: m.email,
     full_name: m.full_name,
@@ -246,23 +249,37 @@ export async function syncGravityForms(
     raw_payload: m.raw_payload,
   }));
 
-  type UpsertClient = {
-    upsert: (
-      rows: unknown[],
-      opts: { onConflict: string; ignoreDuplicates: boolean },
-    ) => { select: (s: string) => Promise<{ data: { id: string; gf_entry_id: string }[] | null; error: { message: string } | null }> };
+  type InsertClient = {
+    insert: (rows: unknown[]) => { select: (s: string) => Promise<{ data: { id: string; gf_entry_id: string }[] | null; error: { message: string } | null }> };
   };
+
+  let createdCands: { id: string; gf_entry_id: string }[] = [];
   const { data: createdCandsRaw, error: insErr } = await (
-    supabase.from("candidates") as unknown as UpsertClient
+    supabase.from("candidates") as unknown as InsertClient
   )
-    .upsert(candidateRows, { onConflict: "gf_entry_id", ignoreDuplicates: true })
+    .insert(candidateRows)
     .select("id, gf_entry_id");
 
   if (insErr) {
-    stats.errors.push(`Insert candidates: ${insErr.message}`);
-    return stats;
+    // Fallback per-row : on inserte 1 par 1 pour eviter qu un seul conflit
+    // (race ou bug GF) ne tue toute la batch. On log les echecs sans relancer.
+    stats.errors.push(`Batch insert failed (${insErr.message}) -- fallback per-row`);
+    for (const row of candidateRows) {
+      const { data, error } = await (
+        supabase.from("candidates") as unknown as InsertClient
+      )
+        .insert([row])
+        .select("id, gf_entry_id");
+      if (error) {
+        stats.errors.push(`Skip ${row.gf_entry_id}: ${error.message}`);
+        continue;
+      }
+      const rows = (data ?? []) as { id: string; gf_entry_id: string }[];
+      createdCands.push(...rows);
+    }
+  } else {
+    createdCands = (createdCandsRaw ?? []) as { id: string; gf_entry_id: string }[];
   }
-  const createdCands = (createdCandsRaw ?? []) as { id: string; gf_entry_id: string }[];
   stats.created = createdCands.length;
 
   // Insert applications + (optional) motivation
