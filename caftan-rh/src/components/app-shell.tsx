@@ -30,6 +30,7 @@ import { NotificationListener } from "./notification-listener";
 import { SoundToggle } from "./sound-toggle";
 import { LangToggle } from "./lang-toggle";
 import { ViewerRoleProvider } from "./user-role-context";
+import { ShiftUndoProvider } from "./shift-undo-provider";
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
@@ -80,6 +81,7 @@ export function AppShell({
 
   return (
     <ViewerRoleProvider role={user.role} profileId={user.id}>
+    <ShiftUndoProvider>
     <div className="flex flex-col min-h-screen min-h-screen-mobile">
       <NotificationListener profileId={user.id} />
       <header className="sticky top-0 z-30 border-b border-white/10 bg-ink/95 backdrop-blur-xl text-white pt-safe">
@@ -191,6 +193,7 @@ export function AppShell({
         <main className="flex-1 overflow-x-hidden p-3 sm:p-4 md:p-6 w-full min-w-0 pb-safe">{children}</main>
       </div>
     </div>
+    </ShiftUndoProvider>
     </ViewerRoleProvider>
   );
 }

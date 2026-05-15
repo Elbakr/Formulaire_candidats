@@ -22,6 +22,7 @@ import {
   loadEmployeeUnavailabilitiesForDayAction,
   loadEmployeeDayShiftsAction,
 } from "../actions";
+import { useShiftUndo } from "@/components/shift-undo-provider";
 
 type DaySuggestion = {
   id: string;
@@ -80,6 +81,7 @@ export function ShiftDialog({
   preferredSiteIds?: string[];
 }) {
   const [pending, startTransition] = useTransition();
+  const undoCtx = useShiftUndo();
   const initial = shift ?? defaults;
   const [siteId, setSiteId] = useState<string>(
     shift?.site_id ?? defaults?.site_id ?? (preferredSiteIds[0] ?? "none"),
@@ -456,18 +458,36 @@ export function ShiftDialog({
             if (shift?.id) fd.set("id", shift.id);
             startTransition(async () => {
               const r = await upsertShiftAction(fd);
-              if (r?.error) toast.error(r.error);
-              else {
-                if (r?.split) {
-                  toast.success(
-                    `Shift fractionné : ${r.split.regular_hours}h contractuel + ${r.split.overtime_hours}h heures sup (split à ${r.split.split_at}).`,
-                    { duration: 6000 },
-                  );
-                } else {
-                  toast.success(shift ? "Shift mis à jour." : "Shift créé.");
-                }
-                onOpenChange(false);
+              if (r?.error) {
+                toast.error(r.error);
+                return;
               }
+              const createdIds = (r?.created_ids ?? []) as string[];
+              const label = shift
+                ? r?.split
+                  ? `Shift mis à jour + heures sup ajoutées (split à ${r.split.split_at})`
+                  : "Shift mis à jour"
+                : r?.split
+                  ? `Shift créé fractionné (${r.split.regular_hours}h contrat + ${r.split.overtime_hours}h sup)`
+                  : "Shift créé";
+              // Karim 15/05 : push une entry undo pour Ctrl+Z. On peut annuler
+              // tout ce qui a ete CREE dans cette operation (les rows sont en
+              // createdIds, qu il s agisse d une creation pure ou d un OT
+              // ajoute en bonus a un update). Pour une update sans split, il
+              // n y a rien a defaire ici (pas d undo update pour le moment).
+              if (createdIds.length > 0) {
+                undoCtx.push({
+                  label,
+                  undo: async () => {
+                    for (const sid of createdIds) {
+                      await deleteShiftAction(sid);
+                    }
+                  },
+                });
+              } else {
+                toast.success(label);
+              }
+              onOpenChange(false);
             });
           }}
           className="space-y-3 px-5 py-3"

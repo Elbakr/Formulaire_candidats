@@ -211,6 +211,7 @@ export async function upsertShiftAction(formData: FormData) {
     };
   }
 
+  let createdIds: string[] = [];
   if (id) {
     // UPDATE : l'existant devient le premier segment present (regular si split,
     // sinon le segment unique). Si on a split, on INSERT le second segment.
@@ -222,10 +223,12 @@ export async function upsertShiftAction(formData: FormData) {
       .eq("id", id);
     if (errUpd) return { error: errUpd.message };
     if (split.regular && split.overtime) {
-      const { error: errIns } = await supabase
+      const { data: insOt, error: errIns } = await supabase
         .from("shifts")
-        .insert(payloadFor(split.overtime));
+        .insert(payloadFor(split.overtime))
+        .select("id");
       if (errIns) return { error: errIns.message };
+      createdIds = ((insOt ?? []) as Array<{ id: string }>).map((r) => r.id);
     }
   } else {
     // CREATE : insertion de 1 ou 2 segments selon le split.
@@ -233,14 +236,19 @@ export async function upsertShiftAction(formData: FormData) {
     if (split.regular) rows.push(payloadFor(split.regular));
     if (split.overtime) rows.push(payloadFor(split.overtime));
     if (rows.length === 0) return { error: "Aucun segment a sauvegarder." };
-    const { error } = await supabase.from("shifts").insert(rows);
+    const { data: ins, error } = await supabase
+      .from("shifts")
+      .insert(rows)
+      .select("id");
     if (error) return { error: error.message };
+    createdIds = ((ins ?? []) as Array<{ id: string }>).map((r) => r.id);
   }
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
   return {
     ok: true,
+    created_ids: createdIds,
     split:
       split.regular && split.overtime
         ? {
