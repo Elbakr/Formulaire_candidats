@@ -200,8 +200,14 @@ export async function loadQuotasForPeriod(period: PeriodKey): Promise<PeriodQuot
   }
 
   // 4. Construit lignes sites.
+  // Karim 15/05/2026 : ne quantifier que les sites qui ont AU MOINS un shift
+  // durant la periode. Les sites sans shift sont exclus du quota periodique
+  // (sinon ils faussent les KPI : un site sans planning pollue le deficit
+  // global comme si on avait oublie de le couvrir).
   const siteRows: SiteCoverageRow[] = [];
+  const sitesWithShifts = new Set(plannedBySite.keys());
   for (const site of sites) {
+    if (!sitesWithShifts.has(site.id)) continue; // exclu du calcul
     const required = requiredBySite.get(site.id) ?? 0;
     const planned = plannedBySite.get(site.id) ?? { c: 0, o: 0 };
     const total = planned.c + planned.o;

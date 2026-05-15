@@ -118,10 +118,11 @@ export default async function QuotasPage(props: {
       <Card>
         <div className="px-4 py-3 border-b border-line">
           <h2 className="font-bold text-sm flex items-center gap-2">
-            <Building2 className="h-4 w-4" /> Couverture besoins par site
+            <Building2 className="h-4 w-4" /> Couverture besoins par site (uniquement sites avec planning)
           </h2>
           <p className="text-[11px] text-ink-3 mt-0.5">
             Heures requises (sum des site_needs × occurrences jours) vs heures planifiées sur la periode.
+            Seuls les sites qui ont au moins 1 shift sur la période sont comptabilisés (Karim 15/05).
             Trié par déficit décroissant.
           </p>
         </div>
