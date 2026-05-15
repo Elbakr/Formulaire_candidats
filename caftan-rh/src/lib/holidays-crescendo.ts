@@ -83,12 +83,71 @@ export function computeCrescendoMultiplier(
 }
 
 /**
+ * Karim 15/05 v3 : detection "pont".
+ * Si un jour ferie international tombe jeudi -> vendredi est pont
+ * (les gens prolongent le weekend, rush important).
+ * Si un ferie tombe mardi -> lundi est pont.
+ * Retourne un multiplicateur ~1.5-1.75 ou 1.0 (pas pont).
+ *
+ * Formule : pontMult = 1 + (holidayStaffMult - 1) * 0.75
+ *  - holiday a staff_mult=1.5 -> pont = 1.375
+ *  - holiday a staff_mult=2.0 -> pont = 1.75
+ *  - holiday sans staff_mult -> pont = 1.75 (base 2.0 par defaut)
+ */
+export function computePontMultiplier(
+  dateISO: string,
+  holidays: CrescendoHoliday[],
+): { multiplier: number; reason: string | null } {
+  const date = new Date(dateISO + "T00:00:00");
+  const dow = date.getDay(); // 0=Dim..6=Sam
+
+  function adjHoliday(deltaDays: number): CrescendoHoliday | null {
+    const target = new Date(date);
+    target.setDate(target.getDate() + deltaDays);
+    const targetISO = target.toISOString().slice(0, 10);
+    return (
+      holidays.find(
+        (h) =>
+          h.date === targetISO &&
+          (h.kind === "international" ||
+            (h.priority ?? 0) >= 2 ||
+            (h.staff_multiplier != null && Number(h.staff_multiplier) > 1.0)),
+      ) ?? null
+    );
+  }
+
+  let related: CrescendoHoliday | null = null;
+  let label: string | null = null;
+
+  if (dow === 5) {
+    // Vendredi -> regarde si jeudi est ferie
+    related = adjHoliday(-1);
+    if (related) label = `Pont vendredi après férié jeudi ${related.date}`;
+  } else if (dow === 1) {
+    // Lundi -> regarde si mardi est ferie (les gens font le pont avant)
+    related = adjHoliday(1);
+    if (related) label = `Pont lundi avant férié mardi ${related.date}`;
+  }
+
+  if (!related) return { multiplier: 1.0, reason: null };
+
+  const holidayMult =
+    related.staff_multiplier != null && Number(related.staff_multiplier) > 1.0
+      ? Number(related.staff_multiplier)
+      : 2.0; // ferie sans staff_mult explicite -> base 2.0 pour calcul pont
+  const pontMult = 1.0 + (holidayMult - 1.0) * 0.75;
+  return { multiplier: pontMult, reason: label };
+}
+
+/**
  * Priorite d ordre de traitement des jours par le solver.
  * 100 = critique max, 0 = banal.
  *
  * Karim 14/05 : "priorisant toujours les jours speciaux (feries internationaux
  * et les samedis ensuite les dimanches mais aussi les 7 derniers jours avant
  * les 2 fetes)".
+ * Karim 15/05 v3 : jours pont (vendredi apres jeudi ferie, lundi avant
+ * mardi ferie) traites avec score eleve, juste sous les feries.
  */
 export function dayPriorityScore(
   dateISO: string,
@@ -97,6 +156,10 @@ export function dayPriorityScore(
   // Est-ce un jour ferie majeur lui-meme ?
   const hereIsHoliday = selectMajorHolidays(holidays).find((h) => h.date === dateISO);
   if (hereIsHoliday) return 100;
+
+  // Pont vendredi/lundi -> haut prioritaire
+  const pont = computePontMultiplier(dateISO, holidays);
+  if (pont.multiplier > 1.0) return 80;
 
   const dow = new Date(dateISO + "T00:00:00").getDay(); // 0=Dim..6=Sam
   let score = 0;

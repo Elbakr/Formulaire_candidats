@@ -15,6 +15,7 @@ import { seniorTier } from "@/lib/tenure";
 import { loadSeasonalEvents, pickPeakMultiplierForDay } from "@/lib/seasonal";
 import {
   computeCrescendoMultiplier,
+  computePontMultiplier,
   dayPriorityScore,
 } from "@/lib/holidays-crescendo";
 
@@ -593,14 +594,19 @@ export async function previewSitePlanAction(
           slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),
       );
 
-    // Multiplicateur d'effectif final = seasonal × holiday × crescendo.
+    // Multiplicateur d'effectif final = seasonal × holiday × crescendo × pont.
     // Crescendo gonfle les J-7..J-1 avant les 2 prochaines fetes majeures
-    // (max 3x pour la 1ere, 1.5x pour la 2eme). Plafond combiné 4x.
+    // (max 3x pour la 1ere, 1.5x pour la 2eme).
+    // Pont (Karim 15/05 v3) : vendredi apres jeudi ferie ou lundi avant
+    // mardi ferie -> multiplicateur ~1.5-1.75 (= 75% du ferie). Adapte les
+    // besoins en effectif pour absorber le rush "weekend prolonge".
+    // Plafond combiné 4x.
     const holidayMult = holidayStaffMultByDate.get(dateISO) ?? 1.0;
     const crescendo = computeCrescendoMultiplier(dateISO, allHolidaysForCrescendo);
+    const pont = computePontMultiplier(dateISO, allHolidaysForCrescendo);
     const combinedMult = Math.min(
       4.0,
-      seasonalMult * holidayMult * crescendo.multiplier,
+      seasonalMult * holidayMult * crescendo.multiplier * pont.multiplier,
     );
 
     for (const need of dayNeeds) {
