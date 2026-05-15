@@ -22,6 +22,7 @@ export type EmpRow = {
   weekly_hours: number | null;
   default_pause_minutes: number | null;
   ot_eligible: boolean | null;
+  ot_max_multiplier: number | null;
   fixed_off_days: number[] | null;
   preferred_site_ids: string[] | null;
   unavailable_site_ids: string[] | null;
@@ -49,6 +50,7 @@ type Edits = {
   contract_type?: string | null;
   default_pause_minutes?: number | null;
   ot_eligible?: boolean;
+  ot_max_multiplier?: number;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -88,6 +90,7 @@ export function BulkEditTable({
       case "contract_type": return (emp.contract_type ?? "") as Edits[K];
       case "default_pause_minutes": return emp.default_pause_minutes as Edits[K];
       case "ot_eligible": return (emp.ot_eligible ?? false) as Edits[K];
+      case "ot_max_multiplier": return (emp.ot_max_multiplier ?? 1.0) as Edits[K];
       case "fixed_off_days": return (emp.fixed_off_days ?? []) as Edits[K];
       case "preferred_site_ids": return (emp.preferred_site_ids ?? []) as Edits[K];
       case "unavailable_site_ids": return (emp.unavailable_site_ids ?? []) as Edits[K];
@@ -179,7 +182,9 @@ export function BulkEditTable({
               <th className="text-right px-2 py-2">Wk h</th>
               <th className="text-center px-2 py-2">Contrat</th>
               <th className="text-right px-2 py-2">Pause</th>
-              <th className="text-center px-2 py-2" title="Éligible aux heures sup">OT</th>
+              <th className="text-center px-2 py-2 min-w-[180px]" title="Coefficient OT max (1.0 = pas d OT, 2.0 = double).">
+                Niveau OT (×)
+              </th>
               <th className="text-center px-3 py-2 min-w-[140px]">Jours OFF fixes</th>
               <th className="text-center px-3 py-2 min-w-[200px]">Sites préférés</th>
               <th className="text-center px-3 py-2 min-w-[200px]">Sites bloqués</th>
@@ -193,7 +198,7 @@ export function BulkEditTable({
               const wkH = getValue(emp, "weekly_hours");
               const ct = getValue(emp, "contract_type");
               const pause = getValue(emp, "default_pause_minutes");
-              const otE = getValue(emp, "ot_eligible");
+              const otMult = getValue(emp, "ot_max_multiplier") ?? 1.0;
               const offDays = getValue(emp, "fixed_off_days") ?? [];
               const prefSites = getValue(emp, "preferred_site_ids") ?? [];
               const blockSites = getValue(emp, "unavailable_site_ids") ?? [];
@@ -247,12 +252,11 @@ export function BulkEditTable({
                     />
                   </td>
                   <td className="text-center px-2 py-2">
-                    <input
-                      type="checkbox"
-                      checked={otE ?? false}
-                      onChange={(e) => setField(emp.id, "ot_eligible", e.target.checked)}
-                      className="cursor-pointer h-4 w-4"
-                      aria-label={`Éligible OT ${emp.full_name}`}
+                    <OTLevelSlider
+                      value={otMult}
+                      weeklyHours={(wkH ?? 38)}
+                      onChange={(v) => setField(emp.id, "ot_max_multiplier", v)}
+                      aria-label={`Niveau OT ${emp.full_name}`}
                     />
                   </td>
                   <td className="text-center px-3 py-2">
@@ -334,6 +338,78 @@ export function BulkEditTable({
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/** Karim 15/05 : potentiometre niveau OT par employe. Range 1.0..2.0
+ *  step 0.05. Visualisation live du max d heures autorisees =
+ *  weekly_hours * multiplier. Couleur graduee gris -> ambre -> rouge. */
+function OTLevelSlider({
+  value,
+  weeklyHours,
+  onChange,
+  "aria-label": ariaLabel,
+}: {
+  value: number;
+  weeklyHours: number;
+  onChange: (v: number) => void;
+  "aria-label"?: string;
+}) {
+  const clamped = Math.max(1.0, Math.min(2.0, value));
+  const maxHours = weeklyHours * clamped;
+  const fillPct = ((clamped - 1.0) / 1.0) * 100; // 0% a x1.0, 100% a x2.0
+  const tone =
+    clamped <= 1.001
+      ? "bg-ink-3/30 text-ink-3"
+      : clamped < 1.3
+        ? "bg-success text-white"
+        : clamped < 1.6
+          ? "bg-gold text-[#1a1a0d]"
+          : clamped < 1.85
+            ? "bg-orange-500 text-white"
+            : "bg-danger text-white";
+  return (
+    <div className="flex flex-col items-stretch gap-0.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="range"
+          min={1.0}
+          max={2.0}
+          step={0.05}
+          value={clamped}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={ariaLabel}
+          className="flex-1 h-1.5 cursor-pointer accent-gold"
+          style={{
+            // Permet une zone tactile plus large sur mobile
+            paddingBlock: "6px",
+          }}
+        />
+        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${tone}`}>
+          ×{clamped.toFixed(2)}
+        </span>
+      </div>
+      <div className="text-[9px] text-ink-3 leading-tight text-center">
+        Max {maxHours.toFixed(0)}h/sem
+        {clamped <= 1.001 ? <span className="italic"> (non éligible)</span> : null}
+      </div>
+      <div className="h-0.5 bg-surface-2 rounded-full overflow-hidden">
+        <div
+          className={`h-full transition-all ${
+            clamped <= 1.001
+              ? "bg-ink-3/30"
+              : clamped < 1.3
+                ? "bg-success"
+                : clamped < 1.6
+                  ? "bg-gold"
+                  : clamped < 1.85
+                    ? "bg-orange-500"
+                    : "bg-danger"
+          }`}
+          style={{ width: `${fillPct}%` }}
+        />
       </div>
     </div>
   );

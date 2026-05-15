@@ -56,16 +56,19 @@ export function GenerateEmployeePlanButton({
     reloadPreview();
   }
 
-  /** Active ot_eligible sur l employe puis recharge le preview pour que les
-   *  OT proposals apparaissent immediatement. Karim 15/05. */
+  /** Active OT a niveau 1.5 (multiplier par defaut) sur l employe puis
+   *  recharge le preview pour que les OT proposals apparaissent immediatement.
+   *  Karim 15/05 : on set ot_max_multiplier (le trigger DB synchronise
+   *  ot_eligible). Niveau 1.5 par defaut, modifiable ensuite via le potentiometre
+   *  dans /planning/employees/bulk-edit. */
   function activateOTEligibility() {
     startTransition(async () => {
-      const r = await updateEmployeeBulkAction(employeeId, { ot_eligible: true });
+      const r = await updateEmployeeBulkAction(employeeId, { ot_max_multiplier: 1.5 });
       if (r.error) {
         toast.error(r.error);
         return;
       }
-      toast.success("Éligibilité aux heures sup activée.");
+      toast.success("Niveau OT défini à ×1.5. Ajuste via Données solver si besoin.");
       reloadPreview();
     });
   }

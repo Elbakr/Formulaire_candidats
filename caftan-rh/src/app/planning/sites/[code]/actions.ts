@@ -39,6 +39,7 @@ type EmployeeRow = {
   start_date: string | null;
   contract_type: string | null;
   ot_eligible: boolean | null;
+  ot_max_multiplier: number | null;
 };
 
 /** Score de séniorité numérique pour le tri (haut = plus senior). */
@@ -257,7 +258,7 @@ async function loadSolverContext(
     supabase
       .from("employees")
       .select(
-        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible",
+        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible, ot_max_multiplier",
       )
       .eq("status", "active"),
     // /!\ on charge TOUS les shifts de la semaine, pas seulement ceux du site,
@@ -1034,7 +1035,12 @@ export async function previewOvertimeFillAction(args: {
           continue;
         }
         const otH = (need_eMin - otStartMin) / 60;
-        const cap = (e.weekly_hours ?? 38) * multiplier;
+        // Karim 15/05 : cap personnel = min(multiplier slot autorise,
+        // ot_max_multiplier de l employe). Si l employe a ot_max=1.25
+        // et le slot est autorise a 1.5, on plafonne a 1.25 (son niveau).
+        const personalMaxMult = Math.max(1.0, e.ot_max_multiplier ?? 1.0);
+        const effectiveMult = Math.min(multiplier, personalMaxMult);
+        const cap = (e.weekly_hours ?? 38) * effectiveMult;
         const used = plannedHours.get(e.id) ?? 0;
         if (used + otH > cap + 1e-6) {
           countCapped += 1;

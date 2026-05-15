@@ -14,6 +14,9 @@ export type EmployeeBulkPatch = {
   contract_type?: string | null;
   default_pause_minutes?: number | null;
   ot_eligible?: boolean;
+  /** Karim 15/05 : niveau OT max par employe (1.0 = pas d OT, 2.0 = double).
+   *  Si > 1.0, ot_eligible est setted a true via trigger DB. */
+  ot_max_multiplier?: number;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -25,6 +28,7 @@ const ALLOWED_FIELDS = new Set<keyof EmployeeBulkPatch>([
   "contract_type",
   "default_pause_minutes",
   "ot_eligible",
+  "ot_max_multiplier",
   "fixed_off_days",
   "preferred_site_ids",
   "unavailable_site_ids",

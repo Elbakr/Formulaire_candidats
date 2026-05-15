@@ -14,7 +14,7 @@ export default async function EmployeesBulkEditPage() {
       .from("employees")
       .select(
         `id, full_name, status, contract_type, weekly_hours, default_pause_minutes,
-         ot_eligible, fixed_off_days, preferred_site_ids, unavailable_site_ids, job_title`,
+         ot_eligible, ot_max_multiplier, fixed_off_days, preferred_site_ids, unavailable_site_ids, job_title`,
       )
       .eq("status", "active")
       .order("full_name"),
