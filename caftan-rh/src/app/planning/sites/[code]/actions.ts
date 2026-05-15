@@ -18,6 +18,7 @@ import {
   computePontMultiplier,
   dayPriorityScore,
 } from "@/lib/holidays-crescendo";
+import { isRuleEnabled, mergeWithDefaults } from "@/lib/autoplaner-rules";
 
 type SiteNeed = {
   id: string;
@@ -493,11 +494,16 @@ export async function previewSitePlanAction(
   const supabaseRush = await createClient();
   const { data: orgRushRow } = await supabaseRush
     .from("org_settings")
-    .select("rush_use_in_solver")
+    .select("rush_use_in_solver, autoplaner_rules")
     .eq("id", 1)
     .maybeSingle();
   const rushEnabled = (orgRushRow as { rush_use_in_solver?: boolean | null } | null)
     ?.rush_use_in_solver !== false;
+  // Karim 15/05 v5 : config centrale des regles autoplaner (toggles).
+  const rulesCfg = mergeWithDefaults(
+    ((orgRushRow as { autoplaner_rules?: Record<string, unknown> | null } | null)
+      ?.autoplaner_rules ?? null),
+  );
   let rushSegments: RushSegment[] = [];
   if (rushEnabled) {
     try {
@@ -595,18 +601,29 @@ export async function previewSitePlanAction(
       );
 
     // Multiplicateur d'effectif final = seasonal × holiday × crescendo × pont.
-    // Crescendo gonfle les J-7..J-1 avant les 2 prochaines fetes majeures
-    // (max 3x pour la 1ere, 1.5x pour la 2eme).
-    // Pont (Karim 15/05 v3) : vendredi apres jeudi ferie ou lundi avant
-    // mardi ferie -> multiplicateur ~1.5-1.75 (= 75% du ferie). Adapte les
-    // besoins en effectif pour absorber le rush "weekend prolonge".
+    // Karim 15/05 v5 : chaque facteur respecte sa rule org_settings.autoplaner_rules.
     // Plafond combiné 4x.
     const holidayMult = holidayStaffMultByDate.get(dateISO) ?? 1.0;
-    const crescendo = computeCrescendoMultiplier(dateISO, allHolidaysForCrescendo);
+    const crescendoEnabled = isRuleEnabled(rulesCfg, "crescendo_before_holidays");
+    const crescendo = crescendoEnabled
+      ? computeCrescendoMultiplier(dateISO, allHolidaysForCrescendo)
+      : { multiplier: 1.0, reason: null };
     const pont = computePontMultiplier(dateISO, allHolidaysForCrescendo);
+    // Pont a plusieurs sous-regles : on les check separement selon le label
+    // retourne. Si la regle correspondante est OFF, pont = 1.0.
+    let pontMult = pont.multiplier;
+    if (pont.reason) {
+      const r = pont.reason;
+      const enabled =
+        (r.includes("Pont vendredi") && isRuleEnabled(rulesCfg, "pont_friday_after_thursday")) ||
+        (r.includes("Pont lundi") && isRuleEnabled(rulesCfg, "pont_monday_before_tuesday")) ||
+        ((r.includes("Samedi avant") || r.includes("Dimanche avant") || r.includes("Mardi après")) &&
+          isRuleEnabled(rulesCfg, "pont_weekend_extended_monday"));
+      if (!enabled) pontMult = 1.0;
+    }
     const combinedMult = Math.min(
       4.0,
-      seasonalMult * holidayMult * crescendo.multiplier * pont.multiplier,
+      seasonalMult * holidayMult * crescendo.multiplier * pontMult,
     );
 
     for (const need of dayNeeds) {
