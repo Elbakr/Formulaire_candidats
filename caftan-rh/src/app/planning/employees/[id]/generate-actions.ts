@@ -266,6 +266,19 @@ export async function generateEmployeeWeekPlanAction(args: {
     });
   }
 
+  /** Karim 15/05 v2 : retourne les blocs d indispo PARTIELLE (start_time +
+   *  end_time non null) qui s appliquent a ce jour (recurring ou specific).
+   *  Le generator doit ajuster le start_time du shift pour eviter de
+   *  chevaucher ces blocs. */
+  function partialUnavailBlocksForDay(jsDow: number, dateISO: string): Array<{ s: string; e: string }> {
+    return unavail
+      .filter((u) => {
+        const matchDay = u.day_of_week === jsDow || u.date_specific === dateISO;
+        return matchDay && u.start_time && u.end_time;
+      })
+      .map((u) => ({ s: u.start_time as string, e: u.end_time as string }));
+  }
+
   const shopsClosedDates = new Set(
     ((holidaysRaw ?? []) as Array<{ date: string }>).map((h) => h.date),
   );
@@ -338,15 +351,35 @@ export async function generateEmployeeWeekPlanAction(args: {
   // Distribue : on remplit jusqu'a saturation du quota
   const drafts: EmpPlanDraft[] = [];
   let remaining = remainingTarget;
+  let blockedByPartialUnavail = 0;
   for (const c of candidates) {
     if (remaining <= 0.01) break;
     const dayHours = Math.min(shiftHours, remaining);
     if (dayHours < 1) break; // pas de mini-shift < 1h
-    const endMin = startMin + Math.round(dayHours * 60) + breakMin;
-    if (endMin >= 24 * 60) continue; // ne pas deborder
+
+    // Karim 15/05 v2 : ajuste startMin si une indispo PARTIELLE (ex: cours
+    // dimanche 10:00-12:45) chevauche le creneau propose. On pousse le
+    // shift APRES la fin de l indispo. Si plusieurs blocs, on prend le
+    // plus tardif qui chevauche.
+    const partials = partialUnavailBlocksForDay(c.jsDow, c.dateISO);
+    let effStartMin = startMin;
+    const propEndMin = effStartMin + Math.round(dayHours * 60) + breakMin;
+    for (const p of partials) {
+      const pS = timeToMin(p.s.slice(0, 5));
+      const pE = timeToMin(p.e.slice(0, 5));
+      // Overlap si propEnd > pS et effStart < pE
+      if (propEndMin > pS && effStartMin < pE) {
+        effStartMin = Math.max(effStartMin, pE);
+      }
+    }
+    const endMin = effStartMin + Math.round(dayHours * 60) + breakMin;
+    if (endMin >= 24 * 60) {
+      blockedByPartialUnavail += 1;
+      continue; // ne pas deborder a cause de l indispo
+    }
     drafts.push({
       date: c.dateISO,
-      start_time: startTime.slice(0, 5) + ":00",
+      start_time: minToHHMM(effStartMin) + ":00",
       end_time: minToHHMM(endMin) + ":00",
       break_minutes: breakMin,
       site_id: primarySiteId,
@@ -354,6 +387,11 @@ export async function generateEmployeeWeekPlanAction(args: {
       hours: dayHours,
     });
     remaining -= dayHours;
+  }
+  if (blockedByPartialUnavail > 0) {
+    warnings.push(
+      `${blockedByPartialUnavail} jour(s) ecarte(s) car les indispos partielles ne laissent pas la place pour un shift complet.`,
+    );
   }
 
   if (remaining > 0.5) {

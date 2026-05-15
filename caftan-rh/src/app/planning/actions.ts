@@ -117,11 +117,40 @@ export async function upsertShiftAction(formData: FormData) {
 
   const supabase = await createClient();
 
-  // Chevauchements autorisés (décision Karim 2026-05-11) : un même employé
-  // peut avoir plusieurs shifts qui se chevauchent dans la journée — utile
-  // pour couvrir un besoin critique 14:30-17:30 *à l'intérieur* d'un shift
-  // contractuel 10:00-19:30. On n'envoie plus aucun bloc anti-overlap ici ;
-  // la responsabilité revient au RH de ne pas dupliquer un même créneau.
+  // Karim 15/05/2026 v2 : REJET des chevauchements pour un meme employe le
+  // meme jour. Cas observe : 10:15-17:45 regulier + 11:00-18:30 OT pour le
+  // meme employe -> 14h double-comptees alors que l employe etait au site
+  // ~8h elapsed. La regle "overlaps OK" du 2026-05-11 etait destinee au
+  // scenario "1 shift contractuel 10-19h30 inclut 1 besoin critique
+  // 14:30-17:30 du meme employe" mais elle ouvre la porte aux erreurs
+  // d additionnement par 2 shifts independants. Si tu as besoin de couvrir
+  // plusieurs creneaux avec 1 employe, cree 1 SEUL shift qui englobe
+  // (l existing position/notes peuvent tagguer le creneau couvert).
+  const newStart = start.slice(0, 5);
+  const newEnd = end.slice(0, 5);
+  {
+    const { data: sameDayRaw } = await supabase
+      .from("shifts")
+      .select("id, start_time, end_time, is_overtime")
+      .eq("employee_id", employeeId)
+      .eq("date", date);
+    const sameDay = ((sameDayRaw ?? []) as Array<{
+      id: string;
+      start_time: string;
+      end_time: string;
+      is_overtime: boolean | null;
+    }>).filter((s) => !id || s.id !== id);
+    const overlap = sameDay.find((s) => {
+      const sStart = s.start_time.slice(0, 5);
+      const sEnd = s.end_time.slice(0, 5);
+      return newStart < sEnd && newEnd > sStart;
+    });
+    if (overlap) {
+      return {
+        error: `Conflit horaire : un autre shift existe le ${date} (${overlap.start_time.slice(0, 5)}–${overlap.end_time.slice(0, 5)}${overlap.is_overtime ? " H. sup" : ""}). Modifie/supprime celui-ci d abord, ou cree un seul shift englobant.`,
+      };
+    }
+  }
 
   // ── Fractionnement automatique au seuil du quota hebdo (Karim 2026-05-14)
   // Plus de blocage "Dépassement de contrat" — si le shift fait dépasser
