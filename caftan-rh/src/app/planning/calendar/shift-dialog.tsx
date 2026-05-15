@@ -327,6 +327,78 @@ export function ShiftDialog({
     setEndTime(need.end_time.slice(0, 5));
   }
 
+  // Karim 15/05/2026 : gaps libres dans les heures d ouverture (= entre les
+  // shifts deja places ce jour). Affiches comme chips cliquables pour
+  // pre-remplir start/end. Utile quand le jour a deja 1 ou 2 shifts et que
+  // le RH veut ajouter un creneau AVANT et/ou APRES.
+  const availableGaps = useMemo(() => {
+    if (!openTime || !closeTime) return [];
+    const toMin = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const toHHMM = (m: number) => {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    };
+    const openMin = toMin(openTime);
+    const closeMin = toMin(closeTime);
+    if (closeMin - openMin < 60) return [];
+
+    const occupied = [...dayShifts]
+      .map((s) => ({ s: toMin(s.start_time), e: toMin(s.end_time) }))
+      .sort((a, b) => a.s - b.s);
+
+    const gaps: Array<{ start: string; end: string; minutes: number; label: string }> = [];
+    let cursor = openMin;
+    let position = 0;
+    for (const occ of occupied) {
+      if (occ.e <= cursor) continue;
+      if (occ.s > cursor) {
+        const gapStart = cursor;
+        const gapEnd = Math.min(occ.s, closeMin);
+        if (gapEnd - gapStart >= 60) {
+          gaps.push({
+            start: toHHMM(gapStart),
+            end: toHHMM(gapEnd),
+            minutes: gapEnd - gapStart,
+            label: position === 0 ? "avant" : "entre",
+          });
+          position += 1;
+        }
+      }
+      cursor = Math.max(cursor, occ.e);
+      if (cursor >= closeMin) break;
+    }
+    if (cursor < closeMin) {
+      const gapStart = cursor;
+      const gapEnd = closeMin;
+      if (gapEnd - gapStart >= 60) {
+        gaps.push({
+          start: toHHMM(gapStart),
+          end: toHHMM(gapEnd),
+          minutes: gapEnd - gapStart,
+          label: occupied.length === 0 ? "journée complète" : "après",
+        });
+      }
+    }
+    return gaps;
+  }, [openTime, closeTime, dayShifts]);
+
+  function pickGap(g: { start: string; end: string; minutes: number }) {
+    setStartTime(g.start);
+    // Si le gap est plus court que 8h, on prend toute sa longueur ; sinon 8h max.
+    const maxMin = Math.min(g.minutes, 8 * 60);
+    const endMin = (() => {
+      const [h, m] = g.start.split(":").map(Number);
+      return h * 60 + m + maxMin;
+    })();
+    const eh = Math.floor(endMin / 60);
+    const em = endMin % 60;
+    setEndTime(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
+  }
+
   // Sites triés : préférés d'abord, puis le reste, alpha.
   const orderedSites = [...sites].sort((a, b) => {
     const aPref = preferredSiteIds.includes(a.id);
@@ -471,7 +543,7 @@ export function ShiftDialog({
                   );
                 })}
               </select>
-              {siteId !== "none" && (openTime || daySuggestions.length > 0) ? (
+              {siteId !== "none" && (openTime || daySuggestions.length > 0 || availableGaps.length > 0) ? (
                 <div className="mt-2 rounded-md border border-line bg-surface-2/40 p-2 space-y-1.5">
                   {openTime ? (
                     <div className="text-[11px] text-ink-2">
@@ -480,6 +552,28 @@ export function ShiftDialog({
                       {closeTime ? <> – <span className="font-mono font-bold">{closeTime}</span></> : null}.
                       Choisir un créneau commençant dans les 30 min après{" "}
                       <span className="font-mono">{openTime}</span> aligne automatiquement à l'ouverture.
+                    </div>
+                  ) : null}
+                  {availableGaps.length > 0 && !shift ? (
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">
+                        Créneaux libres ({dayShifts.length > 0 ? `${dayShifts.length} shift${dayShifts.length > 1 ? "s" : ""} déjà placé${dayShifts.length > 1 ? "s" : ""}` : "journée vide"})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableGaps.map((g, i) => (
+                          <button
+                            key={`gap-${i}`}
+                            type="button"
+                            onClick={() => pickGap(g)}
+                            title={`Pré-remplir ${g.start} – ${g.end} (${(g.minutes / 60).toFixed(1)}h disponibles)`}
+                            className="text-[11px] font-mono px-2 py-1 rounded border border-success/40 bg-success-light/30 text-success hover:bg-success-light"
+                          >
+                            <span className="text-[9px] uppercase tracking-wider mr-1 opacity-70">{g.label}</span>
+                            {g.start}–{g.end}
+                            <span className="text-ink-3 ml-1">({(g.minutes / 60).toFixed(1)}h)</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {daySuggestions.length > 0 ? (
