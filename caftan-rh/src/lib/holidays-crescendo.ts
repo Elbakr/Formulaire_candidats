@@ -84,10 +84,18 @@ export function computeCrescendoMultiplier(
 
 /**
  * Karim 15/05 v3 : detection "pont".
- * Si un jour ferie international tombe jeudi -> vendredi est pont
- * (les gens prolongent le weekend, rush important).
- * Si un ferie tombe mardi -> lundi est pont.
- * Retourne un multiplicateur ~1.5-1.75 ou 1.0 (pas pont).
+ * Cas couverts :
+ *  - Vendredi APRES jeudi ferie -> rush du pont weekend prolonge
+ *  - Lundi AVANT mardi ferie -> idem (pont du mardi)
+ *  - Samedi AVANT lundi ferie -> weekend etendu (Pentecote, Ascension qui
+ *    tombe sur un lundi, etc.)
+ *  - Dimanche AVANT lundi ferie -> idem, encore plus marque (veille du pont)
+ *  - Mardi APRES lundi ferie -> creux car les gens font le pont (lundi-mardi)
+ *
+ * Karim 15/05 v4 : extension Pentecote. Quand le lundi est ferie, le
+ * weekend SAMEDI-DIMANCHE-LUNDI est exceptionnellement charge (3 jours
+ * de pont), encore plus si un autre ferie majeur (Aid) approche
+ * -- traite via crescendo separement.
  *
  * Formule : pontMult = 1 + (holidayStaffMult - 1) * 0.75
  *  - holiday a staff_mult=1.5 -> pont = 1.375
@@ -120,13 +128,26 @@ export function computePontMultiplier(
   let label: string | null = null;
 
   if (dow === 5) {
-    // Vendredi -> regarde si jeudi est ferie
+    // Vendredi -> jeudi ferie ?
     related = adjHoliday(-1);
     if (related) label = `Pont vendredi après férié jeudi ${related.date}`;
   } else if (dow === 1) {
-    // Lundi -> regarde si mardi est ferie (les gens font le pont avant)
+    // Lundi -> mardi ferie ?
     related = adjHoliday(1);
     if (related) label = `Pont lundi avant férié mardi ${related.date}`;
+  } else if (dow === 6) {
+    // Samedi -> lundi ferie a J+2 ? Weekend etendu samedi-dimanche-lundi
+    related = adjHoliday(2);
+    if (related) label = `Samedi avant lundi férié ${related.date} (weekend étendu)`;
+  } else if (dow === 0) {
+    // Dimanche -> lundi ferie a J+1 ? Veille du pont, encore plus marquee
+    related = adjHoliday(1);
+    if (related) label = `Dimanche avant lundi férié ${related.date} (veille pont)`;
+  } else if (dow === 2) {
+    // Mardi -> lundi ferie a J-1 ? Reprise apres pont, rush retombe mais
+    // souvent les gens reprennent plus tard -> on l accentue legerement.
+    related = adjHoliday(-1);
+    if (related) label = `Mardi après lundi férié ${related.date} (post-pont)`;
   }
 
   if (!related) return { multiplier: 1.0, reason: null };
