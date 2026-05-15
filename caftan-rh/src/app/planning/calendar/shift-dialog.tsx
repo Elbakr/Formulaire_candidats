@@ -511,30 +511,31 @@ export function ShiftDialog({
                   ? `Shift créé fractionné (${r.split.regular_hours}h contrat + ${r.split.overtime_hours}h sup)`
                   : "Shift créé";
 
-              // Karim 15/05 : recopie sur jours suivants (si user a saisi > 0).
-              // Effet uniquement en CREATION ; on copie les segments REGULIER
-              // (et OT s ils ont ete crees lors de cet upsert).
-              let copiedIds: string[] = [];
-              if (!shift && copyNextDays > 0 && createdIds.length > 0) {
-                const cp = await copyShiftsToNextDaysAction({
-                  shiftIds: createdIds,
-                  daysCount: copyNextDays,
-                });
-                if (cp.error) {
-                  toast.error(`Recopie échouée : ${cp.error}`);
-                } else if ((cp.created ?? 0) > 0) {
-                  toast.success(
-                    `${cp.created} copie(s) sur les ${copyNextDays} jour(s) suivant(s)${
-                      (cp.skipped ?? 0) > 0 ? ` (${cp.skipped} doublons evites)` : ""
-                    }.`,
-                  );
-                  // Note : on n a pas les ids des copies pour l undo car
-                  // copyShiftsToNextDaysAction ne les retourne pas. On
-                  // pourrait l ajouter ; pour l instant l undo Ctrl+Z couvre
-                  // uniquement les shifts du jour J.
+              // Karim 15/05 : recopie sur jours suivants (CREATION + EDITION).
+              // EDIT : on copie le shift modifie (shift.id, qui contient
+              // l update qu on vient de faire) + d eventuels segments OT
+              // crees en bonus.
+              // CREATE : on copie uniquement les nouveaux rows (createdIds).
+              if (copyNextDays > 0) {
+                const sourceIds = shift
+                  ? [shift.id, ...createdIds]
+                  : createdIds;
+                if (sourceIds.length > 0) {
+                  const cp = await copyShiftsToNextDaysAction({
+                    shiftIds: sourceIds,
+                    daysCount: copyNextDays,
+                  });
+                  if (cp.error) {
+                    toast.error(`Recopie échouée : ${cp.error}`);
+                  } else if ((cp.created ?? 0) > 0) {
+                    toast.success(
+                      `${cp.created} copie(s) sur les ${copyNextDays} jour(s) suivant(s)${
+                        (cp.skipped ?? 0) > 0 ? ` (${cp.skipped} doublons evites)` : ""
+                      }.`,
+                    );
+                  }
                 }
               }
-              void copiedIds;
 
               if (createdIds.length > 0) {
                 undoCtx.push({
@@ -604,46 +605,49 @@ export function ShiftDialog({
               />
             </div>
           </div>
-          {!shift ? (
-            <div>
-              <Label htmlFor="copy_next_days" className="flex items-center gap-1">
-                Recopier sur les jours suivants
-                <span className="text-[10px] text-ink-3 font-normal">(0 = pas de recopie)</span>
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="copy_next_days"
-                  type="number"
-                  min={0}
-                  max={31}
-                  value={copyNextDays}
-                  onChange={(e) => setCopyNextDays(Math.max(0, Math.min(31, Number(e.target.value) || 0)))}
-                  className="w-24"
-                />
-                <div className="flex gap-1 flex-wrap">
-                  {[1, 2, 3, 5, 6].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setCopyNextDays(n)}
-                      className={`text-[10px] px-2 py-1 rounded border transition-colors ${
-                        copyNextDays === n
-                          ? "border-gold bg-gold text-[#1a1a0d] font-bold"
-                          : "border-line bg-surface hover:border-gold"
-                      }`}
-                    >
-                      +{n}
-                    </button>
-                  ))}
-                </div>
-                {copyNextDays > 0 ? (
-                  <span className="text-[11px] text-success font-bold">
-                    → {copyNextDays} copie{copyNextDays > 1 ? "s" : ""} (doublons skipped)
-                  </span>
-                ) : null}
+          <div>
+            <Label htmlFor="copy_next_days" className="flex items-center gap-1">
+              Recopier {shift ? "ce shift (avec ses modifs) " : ""}sur les jours suivants
+              <span className="text-[10px] text-ink-3 font-normal">(0 = pas de recopie)</span>
+            </Label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                id="copy_next_days"
+                type="number"
+                min={0}
+                max={31}
+                value={copyNextDays}
+                onChange={(e) => setCopyNextDays(Math.max(0, Math.min(31, Number(e.target.value) || 0)))}
+                className="w-24"
+              />
+              <div className="flex gap-1 flex-wrap">
+                {[1, 2, 3, 5, 6].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setCopyNextDays(n)}
+                    className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                      copyNextDays === n
+                        ? "border-gold bg-gold text-[#1a1a0d] font-bold"
+                        : "border-line bg-surface hover:border-gold"
+                    }`}
+                  >
+                    +{n}
+                  </button>
+                ))}
               </div>
+              {copyNextDays > 0 ? (
+                <span className="text-[11px] text-success font-bold">
+                  → {copyNextDays} copie{copyNextDays > 1 ? "s" : ""} (doublons skipped)
+                </span>
+              ) : null}
             </div>
-          ) : null}
+            {shift ? (
+              <div className="text-[10px] text-ink-3 mt-1 italic">
+                Les copies prendront les horaires modifiés ci-dessus, sur les {copyNextDays || "N"} jours après le {date}.
+              </div>
+            ) : null}
+          </div>
           {orderedSites.length > 0 ? (
             <div>
               <Label htmlFor="site_id">Site</Label>
