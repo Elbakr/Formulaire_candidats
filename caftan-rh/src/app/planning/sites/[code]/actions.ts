@@ -550,12 +550,15 @@ export async function previewSitePlanAction(
   const drafts: SitePlanPreview["drafts"] = [];
   const uncovered: SitePlanPreview["uncovered"] = [];
 
-  // Itère sur les 7 jours de la semaine TRIÉS par priorité décroissante.
-  // Karim 14/05 : "priorisant toujours les jours speciaux (feries
-  // internationaux et samedis puis dimanches, mais aussi les 7 derniers
-  // jours avant les 2 fetes avec effet crescendo)". On traite les jours
-  // critiques d abord pour s assurer qu ils sont couverts (le solver fait
-  // ensuite "moins de jours planifies" pour les autres jours).
+  // Itère sur les 7 jours de la semaine dans l ORDRE CHRONOLOGIQUE (lundi -> dimanche).
+  // Karim 14/05 avait demande "priorisant toujours les jours speciaux", j avais
+  // implemente un tri par priorite DESC. Karim 15/05 a constate la regression :
+  // les jours speciaux (samedi/dimanche/feries) saturaient les quotas hebdo
+  // des employes en premier, et lundi/mardi/mercredi se retrouvaient SANS
+  // AUCUN candidat eligible (HARD CAP plannedHours + slotH <= weekly_hours).
+  // Solution : retour ordre chronologique pour la boucle, le renforcement
+  // des jours critiques reste assure par combinedMult (holiday + crescendo +
+  // pont + seasonal) qui gonfle le headcount sur ces jours specifiquement.
   // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1.
   const tomorrowISO = toISODate(addDays(new Date(), 1));
 
@@ -575,7 +578,7 @@ export async function previewSitePlanAction(
     const priority = dayPriorityScore(dateISO, allHolidaysForCrescendo);
     daysOrder.push({ dateISO, dayJsDow, priority });
   }
-  daysOrder.sort((a, b) => b.priority - a.priority);
+  // Pas de tri : ordre chronologique strict (lundi -> dimanche).
 
   for (const { dateISO, dayJsDow } of daysOrder) {
     if (dateISO < tomorrowISO) continue;
