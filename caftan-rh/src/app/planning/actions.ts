@@ -364,6 +364,49 @@ export async function loadEmployeeUnavailabilitiesForDayAction(
 }
 
 /**
+ * Charge tous les shifts existants d un employe sur une date donnee.
+ * Karim 15/05 : utilise par ShiftDialog pour pre-remplir intelligemment
+ * les heures (endeans l ouverture, hors creneaux deja occupes).
+ */
+export async function loadEmployeeDayShiftsAction(
+  employeeId: string,
+  dateISO: string,
+  excludeShiftId?: string | null,
+): Promise<{
+  items: Array<{
+    id: string;
+    start_time: string;
+    end_time: string;
+    is_overtime: boolean | null;
+  }>;
+}> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (!employeeId || !dateISO) return { items: [] };
+  const supabase = await createClient();
+  let q = supabase
+    .from("shifts")
+    .select("id, start_time, end_time, is_overtime")
+    .eq("employee_id", employeeId)
+    .eq("date", dateISO)
+    .order("start_time");
+  if (excludeShiftId) q = q.neq("id", excludeShiftId);
+  const { data } = await q;
+  return {
+    items: ((data ?? []) as Array<{
+      id: string;
+      start_time: string;
+      end_time: string;
+      is_overtime: boolean | null;
+    }>).map((s) => ({
+      id: s.id,
+      start_time: s.start_time.slice(0, 5),
+      end_time: s.end_time.slice(0, 5),
+      is_overtime: s.is_overtime,
+    })),
+  };
+}
+
+/**
  * Reclasse les heures excedentaires d'un employe sur une semaine donnee :
  * pour les shifts contractuels qui depassent weekly_hours, on bascule en OT
  * les plus recents (par created_at DESC) jusqu'a ce que le contractuel

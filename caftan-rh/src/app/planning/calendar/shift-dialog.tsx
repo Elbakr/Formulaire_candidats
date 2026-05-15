@@ -20,6 +20,7 @@ import {
   getEmployeeWeeklyHoursAction,
   loadSiteNeedsForDayAction,
   loadEmployeeUnavailabilitiesForDayAction,
+  loadEmployeeDayShiftsAction,
 } from "../actions";
 
 type DaySuggestion = {
@@ -114,6 +115,12 @@ export function ShiftDialog({
   const [openTime, setOpenTime] = useState<string | null>(null);
   const [closeTime, setCloseTime] = useState<string | null>(null);
 
+  // Karim 15/05/2026 : shifts deja places ce jour pour cet employe. Sert au
+  // pre-remplissage intelligent (creneau libre dans les heures d ouverture)
+  // et a l UI pour montrer ce qui est deja pris.
+  const [dayShifts, setDayShifts] = useState<Array<{ id: string; start_time: string; end_time: string; is_overtime: boolean | null }>>([]);
+  const [prefillApplied, setPrefillApplied] = useState(false);
+
   // Indispos declarees par l'employe pour ce jour (warning souple si overlap).
   type Unavail = {
     id: string;
@@ -188,6 +195,92 @@ export function ShiftDialog({
       cancelled = true;
     };
   }, [open, employeeId, date]);
+
+  // Charge les shifts deja places ce jour pour cet employe (= a eviter dans
+  // le pre-remplissage). Exclut le shift en cours d edition pour ne pas
+  // se bloquer soi-meme.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const r = await loadEmployeeDayShiftsAction(employeeId, date, shift?.id ?? null);
+      if (cancelled) return;
+      setDayShifts(r.items);
+    })().catch(() => {
+      /* noop */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, employeeId, date, shift?.id]);
+
+  // Reset prefillApplied a la fermeture pour que le prochain ouverture re-calcule.
+  useEffect(() => {
+    if (!open) setPrefillApplied(false);
+  }, [open]);
+
+  // Karim 15/05 : pre-remplissage intelligent en CREATION (pas en edition).
+  // Si on a openTime/closeTime du site, on cherche le 1er creneau libre dans
+  // [openTime, closeTime] qui ne chevauche pas dayShifts. Par defaut on
+  // propose une duree de 8h (cap a la fin d ouverture).
+  useEffect(() => {
+    if (!open) return;
+    if (shift) return; // mode edition : on garde les heures du shift existant
+    if (prefillApplied) return; // ne re-applique pas si l user a deja modifie
+    if (openTime == null || closeTime == null) return; // attend les donnees site
+    const toMin = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const toHHMM = (m: number) => {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    };
+    const openMin = toMin(openTime);
+    const closeMin = toMin(closeTime);
+    if (closeMin - openMin < 60) return; // <1h de creneau, on ne pre-remplit pas
+
+    const occupied = [...dayShifts]
+      .map((s) => ({ s: toMin(s.start_time), e: toMin(s.end_time) }))
+      .sort((a, b) => a.s - b.s);
+
+    // Cherche les gaps libres dans [openMin, closeMin].
+    const gaps: Array<{ s: number; e: number }> = [];
+    let cursor = openMin;
+    for (const occ of occupied) {
+      if (occ.e <= cursor) continue;
+      if (occ.s > cursor) {
+        gaps.push({ s: cursor, e: Math.min(occ.s, closeMin) });
+      }
+      cursor = Math.max(cursor, occ.e);
+      if (cursor >= closeMin) break;
+    }
+    if (cursor < closeMin) {
+      gaps.push({ s: cursor, e: closeMin });
+    }
+
+    // Garde les gaps >= 1h
+    const usable = gaps.filter((g) => g.e - g.s >= 60);
+    if (usable.length === 0) return;
+
+    // Choisi le plus grand gap (= plus utile pour planning), tie-break = le
+    // plus tot dans la journee.
+    usable.sort((a, b) => {
+      const da = a.e - a.s;
+      const db = b.e - b.s;
+      if (db !== da) return db - da;
+      return a.s - b.s;
+    });
+    const best = usable[0];
+    const proposedStart = best.s;
+    // Duree par defaut 8h, plafonnee par la taille du gap et par closeMin
+    const proposedEnd = Math.min(proposedStart + 8 * 60, best.e);
+
+    setStartTime(toHHMM(proposedStart));
+    setEndTime(toHHMM(proposedEnd));
+    setPrefillApplied(true);
+  }, [open, shift, openTime, closeTime, dayShifts, prefillApplied]);
 
   /**
    * Indispos qui chevauchent le creneau (startTime, endTime) saisi.
