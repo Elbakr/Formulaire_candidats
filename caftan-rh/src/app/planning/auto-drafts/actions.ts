@@ -140,14 +140,76 @@ export async function previewMultiSitePlanAction(
     preview?: SitePlanPreview;
     error?: string;
   }>;
+  /** Ordre de traitement choisi par le solver pour la repartition equilibree.
+   *  Karim 15/05/2026 : "la repartition equitable entre site est essentielle". */
+  processingOrder?: Array<{ site_code: string; criticality_score: number }>;
 }> {
   await requireRole(["admin", "rh", "manager"]);
   if (siteCodes.length === 0) return { items: [] };
+
+  // Karim 15/05 : tri par criticite DESC avant d enchainer les sites. Sans
+  // ce tri, le 1er site clique rafle tous les employes disponibles et les
+  // sites suivants restent vides. La criticite = somme (headcount * duree
+  // * (1 + is_critical)) sur les besoins is_enabled du site (chaque besoin
+  // ultra-critique pese 3x, critique 2x, normal 1x).
+  const supabase = await createClient();
+  const { data: sitesRaw } = await supabase
+    .from("sites")
+    .select("id, code")
+    .in("code", siteCodes.map((c) => c.toUpperCase()));
+  const siteIdByCode = new Map<string, string>();
+  for (const s of (sitesRaw ?? []) as Array<{ id: string; code: string }>) {
+    siteIdByCode.set(s.code.toUpperCase(), s.id);
+  }
+  const siteIds = [...siteIdByCode.values()];
+
+  const { data: needsRaw } = await supabase
+    .from("site_needs")
+    .select("site_id, start_time, end_time, headcount, is_critical, is_enabled")
+    .in("site_id", siteIds)
+    .eq("is_enabled", true);
+
+  function slotDurHours(s: string, e: string): number {
+    const [sh, sm] = s.split(":").map(Number);
+    const [eh, em] = e.split(":").map(Number);
+    return (eh * 60 + em - sh * 60 - sm) / 60;
+  }
+  const scoreBySiteId = new Map<string, number>();
+  for (const n of (needsRaw ?? []) as Array<{
+    site_id: string;
+    start_time: string;
+    end_time: string;
+    headcount: number;
+    is_critical: number | null;
+  }>) {
+    const dur = slotDurHours(n.start_time, n.end_time);
+    const weight = 1 + (n.is_critical ?? 0); // 1=normal, 2=critique, 3=ultra
+    const s = dur * Math.max(1, n.headcount) * weight;
+    scoreBySiteId.set(n.site_id, (scoreBySiteId.get(n.site_id) ?? 0) + s);
+  }
+
+  const sortedCodes = [...siteCodes].sort((a, b) => {
+    const idA = siteIdByCode.get(a.toUpperCase());
+    const idB = siteIdByCode.get(b.toUpperCase());
+    const scoreA = idA ? (scoreBySiteId.get(idA) ?? 0) : 0;
+    const scoreB = idB ? (scoreBySiteId.get(idB) ?? 0) : 0;
+    return scoreB - scoreA; // DESC : critique d abord
+  });
+
+  const processingOrder = sortedCodes.map((code) => {
+    const id = siteIdByCode.get(code.toUpperCase());
+    return {
+      site_code: code,
+      criticality_score: id ? (scoreBySiteId.get(id) ?? 0) : 0,
+    };
+  });
+  console.log(`[previewMultiSite] ordre traitement par criticite :`, processingOrder);
+
   const results: Array<{ site_code: string; preview?: SitePlanPreview; error?: string }> = [];
   // Map des creneaux deja pris par employe/date au cours de ce preview batch
   const takenByEmpDate = new Map<string, Array<{ start: string; end: string }>>();
 
-  for (const code of siteCodes) {
+  for (const code of sortedCodes) {
     const r = await previewSitePlanAction(code, weekISO);
     if ("error" in r) {
       console.log(`[previewMultiSite] ${code} ${weekISO} ERROR: ${r.error}`);
@@ -192,7 +254,14 @@ export async function previewMultiSitePlanAction(
       },
     });
   }
-  return { items: results };
+
+  // Karim 15/05 : preserve l ordre d input pour l UI (l ordre user-clic),
+  // meme si on a traite les sites dans l ordre de criticite cote solver.
+  const orderedResults = siteCodes.map((c) => results.find((r) => r.site_code === c)).filter(
+    (r): r is { site_code: string; preview?: SitePlanPreview; error?: string } => Boolean(r),
+  );
+
+  return { items: orderedResults, processingOrder };
 }
 
 /**
