@@ -35,7 +35,9 @@ export async function saveGfSettingsAction(formData: FormData) {
 }
 
 export async function runGfSyncAction(): Promise<{ error?: string; stats?: SyncStats }> {
-  await requireRole(["admin"]);
+  // Karim 15/05 : RH peut declencher la sync depuis /rh/candidates aussi,
+  // pas uniquement les admin via /admin/integrations/gravity-forms.
+  await requireRole(["admin", "rh"]);
   const supabase = await createClient();
   const { data } = await supabase.from("gf_settings").select("*").eq("id", 1).single();
   const settings = data as unknown as {
