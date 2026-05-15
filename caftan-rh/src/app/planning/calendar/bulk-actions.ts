@@ -138,6 +138,22 @@ export async function copyWeekToNextAction({
   return { ok: true, copied: inserts.length };
 }
 
+/** Snapshot d un shift supprime, suffisant pour le re-inserer en undo. */
+export type DeletedShiftSnapshot = {
+  employee_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  break_minutes: number;
+  position: string | null;
+  location: string | null;
+  site_id: string | null;
+  notes: string | null;
+  is_overtime: boolean;
+  overtime_multiplier: number | null;
+  status: string;
+};
+
 export async function clearWeekAction({
   weekISO,
   siteId,
@@ -148,11 +164,26 @@ export async function clearWeekAction({
   /** Karim 15/05 : permet de vider la semaine d un seul employe (depuis la
    * fiche /planning/employees/[id]/calendar par exemple). */
   employeeId?: string | null;
-}) {
+}): Promise<{ ok?: boolean; error?: string; deleted?: number; snapshots?: DeletedShiftSnapshot[] }> {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
   const monday = parseISODate(weekISO);
   const r = weekRange(monday);
+
+  // Karim 15/05 v2 : on SELECT les shifts avant DELETE pour pouvoir les
+  // restaurer via undo (Ctrl+Z). Snapshot complet hors id (le re-insert
+  // generera de nouveaux ids). 200 shifts max pour eviter les
+  // restaurations massives accidentelles.
+  let selectQuery = supabase
+    .from("shifts")
+    .select("employee_id, date, start_time, end_time, break_minutes, position, location, site_id, notes, is_overtime, overtime_multiplier, status")
+    .gte("date", r.start)
+    .lte("date", r.end);
+  if (siteId) selectQuery = selectQuery.eq("site_id", siteId);
+  if (employeeId) selectQuery = selectQuery.eq("employee_id", employeeId);
+  const { data: snapshotsRaw, error: selErr } = await selectQuery;
+  if (selErr) return { error: selErr.message };
+  const snapshots = (snapshotsRaw ?? []) as DeletedShiftSnapshot[];
 
   let query = supabase
     .from("shifts")
@@ -166,7 +197,41 @@ export async function clearWeekAction({
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, deleted: count ?? 0 };
+  return { ok: true, deleted: count ?? 0, snapshots: snapshots.length <= 200 ? snapshots : [] };
+}
+
+/**
+ * Restaure des shifts a partir d un snapshot (utilise par Ctrl+Z apres
+ * clearWeekAction). Les ids ne sont pas preserves -- de nouveaux ids
+ * sont generes. Pas de check anti-double-booking (on suppose que rien
+ * d autre n a ete cree entre temps, ce qui est le cas normal pour un undo).
+ */
+export async function restoreDeletedShiftsAction(
+  snapshots: DeletedShiftSnapshot[],
+): Promise<{ ok?: boolean; error?: string; restored?: number }> {
+  const { profile } = await requireRole(["admin", "rh", "manager"]);
+  if (snapshots.length === 0) return { ok: true, restored: 0 };
+  const supabase = await createClient();
+  const rows = snapshots.map((s) => ({
+    employee_id: s.employee_id,
+    date: s.date,
+    start_time: s.start_time,
+    end_time: s.end_time,
+    break_minutes: s.break_minutes,
+    position: s.position,
+    location: s.location,
+    site_id: s.site_id,
+    notes: s.notes,
+    is_overtime: s.is_overtime,
+    overtime_multiplier: s.overtime_multiplier,
+    status: s.status ?? "planned",
+    created_by: profile.id,
+  }));
+  const { error } = await supabase.from("shifts").insert(rows);
+  if (error) return { error: error.message };
+  revalidatePath("/planning", "layout");
+  revalidatePath("/me/planning");
+  return { ok: true, restored: rows.length };
 }
 
 /**

@@ -20,7 +20,8 @@ import {
   type EmpPlanPreview,
 } from "../generate-actions";
 import { updateEmployeeBulkAction } from "@/app/planning/employees/bulk-edit/actions";
-import { clearWeekAction } from "@/app/planning/calendar/bulk-actions";
+import { clearWeekAction, restoreDeletedShiftsAction } from "@/app/planning/calendar/bulk-actions";
+import { useShiftUndo } from "@/components/shift-undo-provider";
 
 const FR_DAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 
@@ -32,6 +33,7 @@ export function GenerateEmployeePlanButton({
   weekISO: string;
 }) {
   const router = useRouter();
+  const undoCtx = useShiftUndo();
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<EmpPlanPreview | null>(null);
   const [pending, startTransition] = useTransition();
@@ -79,7 +81,21 @@ export function GenerateEmployeePlanButton({
         toast.error(r.error);
         return;
       }
-      toast.success(`${r.deleted ?? 0} shift(s) supprimé(s). Tu peux régénérer.`);
+      const snaps = r.snapshots ?? [];
+      const deleted = r.deleted ?? 0;
+      if (snaps.length > 0) {
+        undoCtx.push({
+          label: `${deleted} shift(s) supprimé(s). Tu peux régénérer.`,
+          undo: async () => {
+            const rr = await restoreDeletedShiftsAction(snaps);
+            if (rr.error) throw new Error(rr.error);
+            router.refresh();
+            reloadPreview();
+          },
+        });
+      } else {
+        toast.success(`${deleted} shift(s) supprimé(s). Tu peux régénérer.`);
+      }
       reloadPreview();
     });
   }

@@ -14,7 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { addDays, parseISODate } from "@/lib/planning";
-import { clearWeekAction, countWeekShiftsAction } from "./bulk-actions";
+import { clearWeekAction, countWeekShiftsAction, restoreDeletedShiftsAction } from "./bulk-actions";
+import { useShiftUndo } from "@/components/shift-undo-provider";
 
 /**
  * Bouton "Vider la semaine" en 1 clic — ouvre un Dialog avec confirmation
@@ -40,6 +41,7 @@ export function ClearWeekButton({
   scopeLabel?: string;
 }) {
   const router = useRouter();
+  const undoCtx = useShiftUndo();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState<number | null>(null);
@@ -82,7 +84,27 @@ export function ClearWeekButton({
         toast.error(r.error);
         return;
       }
-      toast.success(`${r?.deleted ?? 0} shifts supprimés.`);
+      const snaps = r?.snapshots ?? [];
+      const deleted = r?.deleted ?? 0;
+      // Karim 15/05 : push undo Ctrl+Z pour restaurer les shifts supprimes.
+      // Si > 200 shifts, snapshots sera vide (limite serveur) et on ne pourra
+      // pas restaurer -- on log alors un toast informatif sans push.
+      if (snaps.length > 0) {
+        undoCtx.push({
+          label: `${deleted} shift(s) supprimé(s)`,
+          undo: async () => {
+            const rr = await restoreDeletedShiftsAction(snaps);
+            if (rr.error) throw new Error(rr.error);
+            router.refresh();
+          },
+        });
+      } else {
+        toast.success(
+          deleted > 200
+            ? `${deleted} shifts supprimés (trop nombreux pour Ctrl+Z).`
+            : `${deleted} shifts supprimés.`,
+        );
+      }
       setOpen(false);
       setCount(0);
       router.refresh();
