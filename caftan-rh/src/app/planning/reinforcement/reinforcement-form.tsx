@@ -20,18 +20,28 @@ type SiteOpt = { id: string; code: string; name: string; color: string | null };
 export function ReinforcementForm({
   sites,
   presetDate,
+  presetSiteId,
+  presetNotes,
 }: {
   sites: SiteOpt[];
   presetDate: string;
+  /** Karim 15/05 : pre-selectionne le site (depuis fiche site ou fiche employe). */
+  presetSiteId?: string | null;
+  /** Note pre-remplie (ex: "Manque sur le shift X de l employe Y"). */
+  presetNotes?: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [siteId, setSiteId] = useState(sites[0]?.id ?? "");
+  const initialSite =
+    presetSiteId && sites.some((s) => s.id === presetSiteId)
+      ? presetSiteId
+      : sites[0]?.id ?? "";
+  const [siteId, setSiteId] = useState(initialSite);
   const [date, setDate] = useState(presetDate);
   const [startTime, setStartTime] = useState("10:00");
   const [endTime, setEndTime] = useState("14:00");
   const [position, setPosition] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(presetNotes ?? "");
   const [requestId, setRequestId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<ReinforcementCandidate[]>([]);
   const [propose, startProposeTransition] = useTransition();

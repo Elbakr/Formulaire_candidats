@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Printer, ArrowLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Printer, ArrowLeft, LifeBuoy } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -175,6 +175,18 @@ export default async function EmployeeCalendarPage(props: {
                 employeeId={employee.id}
                 scopeLabel="pour cet employé"
               />
+              {preferredSiteIds[0] ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    href={`/planning/reinforcement?date=${toISODate(rangeStart)}&site=${preferredSiteIds[0]}&note=${encodeURIComponent(
+                      `Renfort pour ${employee.full_name}`,
+                    )}`}
+                    title={`Lance une demande de renfort pre-remplie (site primaire de ${employee.full_name})`}
+                  >
+                    <LifeBuoy className="h-3.5 w-3.5" /> Demande de renfort
+                  </Link>
+                </Button>
+              ) : null}
             </>
           ) : null}
           {canSeeOvertime ? <FilterTabs current={filter} /> : null}

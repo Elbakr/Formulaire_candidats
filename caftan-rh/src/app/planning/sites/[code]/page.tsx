@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, MapPin, Printer } from "lucide-react";
+import { ChevronLeft, ChevronRight, MapPin, Printer, LifeBuoy } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -185,9 +185,17 @@ export default async function SiteDetailPage(props: {
             </p>
           ) : null}
         </div>
-        <div className="flex gap-1 items-center">
+        <div className="flex gap-1 items-center flex-wrap">
           <GenerateSitePlanButton siteCode={site.code} weekISO={toISODate(monday)} />
           <ClearWeekButton weekISO={toISODate(monday)} siteId={site.id} />
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={`/planning/reinforcement?date=${toISODate(monday)}&site=${site.id}`}
+              title="Lance une demande de renfort pre-remplie pour ce site"
+            >
+              <LifeBuoy className="h-3.5 w-3.5" /> Demande de renfort
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link
               href={`/planning/sites/${site.code}/print?week=${toISODate(monday)}`}

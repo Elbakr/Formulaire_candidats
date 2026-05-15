@@ -12,6 +12,14 @@ export default async function ReinforcementPage(props: PageProps<"/planning/rein
   const sp = await props.searchParams;
   const presetDate =
     typeof sp.date === "string" ? sp.date : new Date().toISOString().slice(0, 10);
+  // Karim 15/05 : pre-selection du site (depuis fiche site /planning/sites/[code]
+  // ou fiche employe /planning/employees/[id]/calendar). Accept `site=` (UUID)
+  // ou `site_code=` (code court). Et `note=` pour ajouter un contexte (ex :
+  // "Manque sur le shift de l employe X").
+  const presetSiteParam = typeof sp.site === "string" ? sp.site : null;
+  const presetSiteCodeParam =
+    typeof sp.site_code === "string" ? sp.site_code.toUpperCase() : null;
+  const presetNote = typeof sp.note === "string" ? sp.note : null;
 
   const supabase = await createClient();
   const [{ data: sites }, { data: requestsRaw }] = await Promise.all([
@@ -76,6 +84,18 @@ export default async function ReinforcementPage(props: PageProps<"/planning/rein
     color: s.color,
   }));
 
+  // Resolve preset site : par UUID direct, ou par code si on a `site_code=`.
+  let resolvedPresetSiteId: string | null = null;
+  if (presetSiteParam) {
+    resolvedPresetSiteId = siteOptions.some((s) => s.id === presetSiteParam)
+      ? presetSiteParam
+      : null;
+  } else if (presetSiteCodeParam) {
+    resolvedPresetSiteId =
+      siteOptions.find((s) => s.code.toUpperCase() === presetSiteCodeParam)?.id ??
+      null;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -97,7 +117,12 @@ export default async function ReinforcementPage(props: PageProps<"/planning/rein
           </p>
         </div>
         <div className="p-4">
-          <ReinforcementForm sites={siteOptions} presetDate={presetDate} />
+          <ReinforcementForm
+            sites={siteOptions}
+            presetDate={presetDate}
+            presetSiteId={resolvedPresetSiteId}
+            presetNotes={presetNote}
+          />
         </div>
       </Card>
     </div>
