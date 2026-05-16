@@ -29,9 +29,40 @@ export function selectMajorHolidays(holidays: CrescendoHoliday[]): CrescendoHoli
 }
 
 function dayDiff(fromISO: string, toISO: string): number {
-  const a = new Date(fromISO + "T00:00:00").getTime();
-  const b = new Date(toISO + "T00:00:00").getTime();
+  // Karim 16/05 fix bug TZ : on parse en UTC pour eviter le decalage CET/CEST
+  // qui faisait que toISOString().slice(0,10) renvoyait J-1 (vu sur pont
+  // 15 mai 2026 : adjHoliday(-1) cherchait 2026-05-13 au lieu de 2026-05-14).
+  const a = Date.UTC(
+    parseInt(fromISO.slice(0, 4), 10),
+    parseInt(fromISO.slice(5, 7), 10) - 1,
+    parseInt(fromISO.slice(8, 10), 10),
+  );
+  const b = Date.UTC(
+    parseInt(toISO.slice(0, 4), 10),
+    parseInt(toISO.slice(5, 7), 10) - 1,
+    parseInt(toISO.slice(8, 10), 10),
+  );
   return Math.round((b - a) / 86_400_000);
+}
+
+function addDaysISO(iso: string, days: number): string {
+  const t = Date.UTC(
+    parseInt(iso.slice(0, 4), 10),
+    parseInt(iso.slice(5, 7), 10) - 1,
+    parseInt(iso.slice(8, 10), 10),
+  );
+  const d = new Date(t + days * 86_400_000);
+  return d.toISOString().slice(0, 10);
+}
+
+function dowFromISO(iso: string): number {
+  // 0=Dim..6=Sam, calcule en UTC pour eviter le bug TZ
+  const t = Date.UTC(
+    parseInt(iso.slice(0, 4), 10),
+    parseInt(iso.slice(5, 7), 10) - 1,
+    parseInt(iso.slice(8, 10), 10),
+  );
+  return new Date(t).getUTCDay();
 }
 
 /**
@@ -106,13 +137,10 @@ export function computePontMultiplier(
   dateISO: string,
   holidays: CrescendoHoliday[],
 ): { multiplier: number; reason: string | null } {
-  const date = new Date(dateISO + "T00:00:00");
-  const dow = date.getDay(); // 0=Dim..6=Sam
+  const dow = dowFromISO(dateISO); // 0=Dim..6=Sam, UTC-safe
 
   function adjHoliday(deltaDays: number): CrescendoHoliday | null {
-    const target = new Date(date);
-    target.setDate(target.getDate() + deltaDays);
-    const targetISO = target.toISOString().slice(0, 10);
+    const targetISO = addDaysISO(dateISO, deltaDays);
     return (
       holidays.find(
         (h) =>
@@ -182,7 +210,7 @@ export function dayPriorityScore(
   const pont = computePontMultiplier(dateISO, holidays);
   if (pont.multiplier > 1.0) return 80;
 
-  const dow = new Date(dateISO + "T00:00:00").getDay(); // 0=Dim..6=Sam
+  const dow = dowFromISO(dateISO); // 0=Dim..6=Sam, UTC-safe
   let score = 0;
   if (dow === 6) score = 40; // samedi
   else if (dow === 0) score = 30; // dimanche
