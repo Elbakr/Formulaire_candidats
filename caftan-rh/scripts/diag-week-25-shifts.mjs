@@ -10,7 +10,9 @@ const c = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rej
 await c.connect();
 
 const { rows } = await c.query(`
-  select s.date::text as d, st.code, count(*)::int as n
+  select s.date::text as d, st.code,
+    count(*)::int as nb_shifts,
+    count(distinct s.employee_id)::int as nb_employees
   from shifts s
   left join sites st on st.id = s.site_id
   where s.date >= '2026-05-25' and s.date <= '2026-05-31'
@@ -18,14 +20,14 @@ const { rows } = await c.query(`
   order by s.date, st.code
 `);
 
-console.log(`\nShifts en base 25-31 mai :\n`);
+console.log(`\nShifts en base 25-31 mai (nb_employes vs nb_shifts incluant les splits) :\n`);
 let prev = "";
 for (const r of rows) {
   if (r.d !== prev) {
     console.log(`\n--- ${r.d} ---`);
     prev = r.d;
   }
-  console.log(`  Site ${r.code ?? "(aucun)"} : ${r.n} shifts`);
+  console.log(`  Site ${(r.code ?? "(aucun)").padEnd(5)} : ${r.nb_employees} employes (${r.nb_shifts} shifts dont splits)`);
 }
 
 const { rows: tot } = await c.query(`

@@ -657,19 +657,29 @@ export async function previewSitePlanAction(
       const need_s = need.start_time.slice(0, 5);
       const need_e = need.end_time.slice(0, 5);
       const slotH = slotHours(need_s, need_e); // brut (sans pause)
-      // Karim 16/05 v6 : le boost de headcount est plafonne a +1 EMPLOYE
-      // par besoin (au lieu de multiplier need.headcount). Sans ce cap,
-      // un besoin de 4 employes avec combinedMult=2.0 ciblait 8 employes
-      // sur le meme site -> le solver tassait 8 sur le 1er site visite,
-      // les sites suivants restaient vides (test 25 mai : B=8, D=0).
-      // Avec le cap +1 : B=5, A=3, D=4, E=4 -> repartition realiste pour
-      // 13 employes actifs sur 4 sites. Le jour de pic reste reconnu
-      // (boost +1) sans devorer la disponibilite globale.
+      // Karim 16/05 v7 : cap +1 par besoin + decrement par "alreadyCovered".
+      // Cas reel : site B lundi 25 mai a 3 besoins IMBRIQUES (un grand slot
+      // 10:30-19:30 head=2, un sous-slot 12:30-18:30 head=1, un sous-slot
+      // 14:30-17:30 head=1). Sans alreadyCovered, le solver placait 3+2+2=7
+      // employes DIFFERENTS car chaque sous-slot demande son propre staff.
+      // En realite, 3 employes sur le slot principal couvrent les sous-slots.
+      // Avec alreadyCovered : on compte les drafts deja places ce jour qui
+      // ENGLOBENT le creneau du besoin courant, et on decremente d autant.
       const targetWithMult = Math.ceil(need.headcount * combinedMult);
-      const seasonalHeadcount = Math.min(
+      const seasonalHeadcountFull = Math.min(
         targetWithMult,
         need.headcount + 1,
       );
+      // Drafts deja places ce jour pour ce site, qui englobent [need_s, need_e].
+      const alreadyCoveringNeed = drafts.filter(
+        (d) =>
+          d.date === dateISO &&
+          d.site_id === siteId &&
+          d.start_time <= need_s &&
+          d.end_time >= need_e,
+      ).length;
+      const seasonalHeadcount = Math.max(0, seasonalHeadcountFull - alreadyCoveringNeed);
+      if (seasonalHeadcount === 0) continue;
 
       // Pool unique des employés éligibles, filtrés sur :
       //   - off / congé
