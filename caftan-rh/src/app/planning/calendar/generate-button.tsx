@@ -111,7 +111,7 @@ export function GenerateWeekButton({ weekISO }: { weekISO: string }) {
                     <div className="text-xs text-ink-2 space-y-0.5">
                       {emp.map((s, i) => (
                         <div key={i}>
-                          {new Date(s.date).toLocaleDateString("fr-BE", { weekday: "short", day: "2-digit", month: "short" })} : {s.start_time} – {s.end_time} ({s.hours}h, pause {s.break_minutes}min)
+                          {new Date(s.date).toLocaleDateString("fr-BE", { weekday: "short", day: "2-digit", month: "short" })} : {s.start_time} – {s.end_time} ({s.hours.toFixed(2)}h, pause {s.break_minutes}min)
                         </div>
                       ))}
                     </div>

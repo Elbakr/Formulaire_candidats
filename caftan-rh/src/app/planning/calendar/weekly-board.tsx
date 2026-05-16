@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, CalendarOff, Printer, LifeBuoy, X, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarOff, Printer, LifeBuoy, X, ArrowRight, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmployeeQuickLink } from "@/components/employee-quick-link";
@@ -18,7 +18,7 @@ import { addDays, parseISODate, toISODate, DAY_LABELS, shiftHours } from "@/lib/
 import { moveShiftAction } from "@/app/planning/actions";
 import { toast } from "sonner";
 import { ShiftDialog } from "./shift-dialog";
-import { GenerateWeekButton } from "./generate-button";
+import { GenerateWeekDialog } from "./generate-week-dialog";
 import { BroadcastScheduleButton } from "./broadcast-button";
 import { BulkActionsMenu } from "./bulk-actions-menu";
 import { ClearWeekButton } from "./clear-week-button";
@@ -107,6 +107,7 @@ export function WeeklyPlanningBoard({
   const router = useRouter();
   const monday = parseISODate(mondayISO);
   const [editing, setEditing] = useState<{ employeeId: string; date: string; shift?: Shift } | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
   // Drag & drop : id du shift en cours de drag, pour styler la cible
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHover, setDropHover] = useState<string | null>(null);
@@ -308,7 +309,15 @@ export function WeeklyPlanningBoard({
           </p>
         </div>
         <div className="ml-auto flex gap-1 items-center flex-wrap">
-          <GenerateWeekButton weekISO={mondayISO} />
+          <Button variant="gold" size="sm" onClick={() => setGenOpen(true)}>
+            <Sparkles className="h-3.5 w-3.5" /> Générer la semaine
+          </Button>
+          <GenerateWeekDialog
+            open={genOpen}
+            onOpenChange={setGenOpen}
+            sites={sites}
+            mondayISO={mondayISO}
+          />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/reinforcement?date=${mondayISO}`}>
               <LifeBuoy className="h-3.5 w-3.5" /> Demande de renfort
