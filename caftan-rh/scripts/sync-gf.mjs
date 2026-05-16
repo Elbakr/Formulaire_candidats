@@ -138,11 +138,33 @@ async function main() {
 
   if (mapped.length === 0) { console.log("Rien à importer."); return; }
 
-  const ids = mapped.map((m) => m.gf_entry_id);
-  const { data: existing } = await supabase.from("candidates").select("gf_entry_id").in("gf_entry_id", ids);
-  const seen = new Set((existing ?? []).map((r) => r.gf_entry_id));
-  const toCreate = mapped.filter((m) => !seen.has(m.gf_entry_id));
-  console.log(`  ${toCreate.length} nouveaux, ${mapped.length - toCreate.length} déjà connus.`);
+  // Karim 16/05 : forcer le type string + query existing par batches de 500.
+  // Supabase .in() est limite (~1000 valeurs) -- au-dela on rate certains
+  // existants -> insert crash sur duplicate.
+  const ids = mapped.map((m) => String(m.gf_entry_id));
+  const BATCH_SIZE = 500;
+  const seen = new Set();
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    const { data: existing } = await supabase.from("candidates").select("gf_entry_id").in("gf_entry_id", batch);
+    for (const r of existing ?? []) seen.add(String(r.gf_entry_id));
+  }
+  // Filtre les deja-connus
+  const candidatesNew = mapped.filter((m) => !seen.has(String(m.gf_entry_id)));
+  // Karim 16/05 : dedupe IN-BATCH (l API GF retourne parfois des doublons
+  // dans le meme dump, e.g. Kenza Kebdani 2x). Sans cette dedupe, insert
+  // crash avec "duplicate key value violates unique constraint
+  // uniq_candidates_gf_entry".
+  const seenInBatch = new Set();
+  const toCreate = [];
+  let dupesInBatch = 0;
+  for (const m of candidatesNew) {
+    const key = String(m.gf_entry_id);
+    if (seenInBatch.has(key)) { dupesInBatch += 1; continue; }
+    seenInBatch.add(key);
+    toCreate.push(m);
+  }
+  console.log(`  ${toCreate.length} nouveaux, ${mapped.length - candidatesNew.length} deja connus, ${dupesInBatch} doublons in-batch ignores.`);
 
   if (toCreate.length === 0) { console.log("Rien de nouveau."); return; }
 
@@ -154,8 +176,19 @@ async function main() {
     cv_url: m.cv_url ?? null,
     gf_full_payload: m.gf_full_payload ?? null,
   }));
-  const { data: created, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id, cv_url");
-  if (error) { console.error("Erreur insert candidates:", error.message); process.exit(1); }
+  let created;
+  const { data: createdBatch, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id, cv_url");
+  if (error) {
+    console.warn(`  ⚠ Batch insert failed (${error.message}) -- fallback per-row`);
+    created = [];
+    for (const row of candRows) {
+      const { data: one, error: oneErr } = await supabase.from("candidates").insert(row).select("id, gf_entry_id, cv_url").single();
+      if (oneErr) continue; // skip duplicates silently
+      created.push(one);
+    }
+  } else {
+    created = createdBatch;
+  }
   console.log(`  ✓ ${created.length} candidats créés.`);
 
   // Crée un documents row pour chaque CV récupéré
