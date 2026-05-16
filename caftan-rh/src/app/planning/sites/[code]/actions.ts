@@ -657,11 +657,18 @@ export async function previewSitePlanAction(
       const need_s = need.start_time.slice(0, 5);
       const need_e = need.end_time.slice(0, 5);
       const slotH = slotHours(need_s, need_e); // brut (sans pause)
-      // Headcount ajusté par la saisonnalité + ferie rush (arrondi sup pour
-      // rester protecteur : Aïd ×2 sur 1 vendeuse -> 2 ; ×1.3 sur 2 -> 3).
-      const seasonalHeadcount = Math.max(
-        need.headcount,
-        Math.ceil(need.headcount * combinedMult),
+      // Karim 16/05 v6 : le boost de headcount est plafonne a +1 EMPLOYE
+      // par besoin (au lieu de multiplier need.headcount). Sans ce cap,
+      // un besoin de 4 employes avec combinedMult=2.0 ciblait 8 employes
+      // sur le meme site -> le solver tassait 8 sur le 1er site visite,
+      // les sites suivants restaient vides (test 25 mai : B=8, D=0).
+      // Avec le cap +1 : B=5, A=3, D=4, E=4 -> repartition realiste pour
+      // 13 employes actifs sur 4 sites. Le jour de pic reste reconnu
+      // (boost +1) sans devorer la disponibilite globale.
+      const targetWithMult = Math.ceil(need.headcount * combinedMult);
+      const seasonalHeadcount = Math.min(
+        targetWithMult,
+        need.headcount + 1,
       );
 
       // Pool unique des employés éligibles, filtrés sur :
