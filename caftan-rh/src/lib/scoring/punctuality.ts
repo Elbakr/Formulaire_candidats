@@ -32,11 +32,6 @@ export type PunctualityMetrics = {
   band: "exemplary" | "ok" | "attention" | "danger";
 };
 
-function timeToMin(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
-
 function bandFor(rigorScore: number): PunctualityMetrics["band"] {
   if (rigorScore >= 95) return "exemplary";
   if (rigorScore >= 80) return "ok";

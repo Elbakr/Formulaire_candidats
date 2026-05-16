@@ -3,8 +3,6 @@
 // planifiés sur la semaine. Renvoie pour chaque site les heures requises,
 // planifiées, et le déficit en heures + effectifs manquants.
 
-import { shiftHours } from "@/lib/planning";
-
 export type SiteNeedRow = {
   site_id: string;
   day_of_week: number; // 0=Dim..6=Sam
@@ -69,22 +67,14 @@ export function computeSiteNeedsCoverage(
   shifts: SiteShiftRow[],
   weekStartISO: string,
 ): SiteNeedsCoverage[] {
-  // weekStartISO = lundi de la semaine, on calcule les 7 jours.
-  const monday = new Date(weekStartISO + "T00:00:00");
-  const dayOfMonday = monday.getDay(); // 1 normalement
-  // map day_of_week (0=Dim..6=Sam) -> date ISO sur cette semaine
-  const dateByDow = new Map<number, string>();
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    dateByDow.set(d.getDay(), d.toISOString().slice(0, 10));
-  }
+  // weekStartISO = lundi de la semaine (info conservee pour le contexte mais
+  // l essentiel du calcul est independant de la date precise -- on agrege par
+  // site sur les 7 jours definis via day_of_week).
+  void weekStartISO;
 
   // 1. Heures requises par site = somme sur les 7 jours de (duration × headcount)
   const requiredBySite = new Map<string, number>();
   const headcountByDay = new Map<string, Set<number>>(); // site -> set of dow with need
-  let totalDaysActive = 0;
-  let totalHeadcountActive = 0;
   for (const n of needs) {
     const dur = durationHours(n.start_time, n.end_time, 0);
     const need = dur * Math.max(0, n.headcount);
@@ -132,10 +122,6 @@ export function computeSiteNeedsCoverage(
       missing_shifts_estimate: deficit > 0 ? Math.ceil(deficit / 7) : 0,
       band: bandFor(deficitPct),
     });
-    // pour silenceer lint sur var inutile
-    void dayOfMonday;
-    void totalDaysActive;
-    void totalHeadcountActive;
   }
   return rows.sort((a, b) => b.deficit_hours - a.deficit_hours);
 }
