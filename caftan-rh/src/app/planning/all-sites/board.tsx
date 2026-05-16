@@ -253,7 +253,10 @@ export function AllSitesBoard({
             <div
               className="grid gap-2"
               style={{
-                gridTemplateColumns: `120px repeat(${sites.length}, minmax(220px, 1fr))`,
+                // Karim 16/05 : colonnes plus etroites pour voir 5-6 sites
+                // sans scroll sur ecran 1280+. Avant : minmax(220px, 1fr)
+                // -> 6 sites = 1440px min, colonnes hors ecran.
+                gridTemplateColumns: `90px repeat(${sites.length}, minmax(140px, 1fr))`,
               }}
             >
               <div className="hidden md:flex items-end px-2 pb-2 text-[10px] uppercase tracking-wider font-bold text-ink-3">

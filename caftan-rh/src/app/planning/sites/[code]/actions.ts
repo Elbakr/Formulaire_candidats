@@ -603,9 +603,13 @@ export async function previewSitePlanAction(
           slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),
       );
 
-    // Multiplicateur d'effectif final = seasonal × holiday × crescendo × pont.
-    // Karim 15/05 v5 : chaque facteur respecte sa rule autoplaner_rules.
-    // Plafond combiné 4x.
+    // Multiplicateur d'effectif final.
+    // Karim 16/05 : holiday, crescendo et pont sont 3 INTENSIFICATIONS du
+    // meme phenomene (jour ferie qui amene du trafic) : on prend le MAX
+    // des 3, pas le produit. Puis on multiplie par le saisonnier (Ramadan,
+    // soldes -- evenement different) -- la c est legitime de cumuler.
+    // Plafond combine 2.0x (avant : 4.0 -> produisait des cibles d effectif
+    // x4 qui absorbaient tous les employes sur 1 site, vidant les autres).
     const holidayStaffMultEnabled = isRuleEnabled(rulesCfg, "holiday_staff_multiplier");
     const holidayMult = holidayStaffMultEnabled
       ? (holidayStaffMultByDate.get(dateISO) ?? 1.0)
@@ -629,9 +633,11 @@ export async function previewSitePlanAction(
           isRuleEnabled(rulesCfg, "pont_weekend_extended_monday"));
       if (!enabled) pontMult = 1.0;
     }
+    // MAX des 3 facteurs feries (holiday/crescendo/pont) puis x saisonnier.
+    const holidayMaxMult = Math.max(holidayMult, crescendo.multiplier, pontMult);
     const combinedMult = Math.min(
-      4.0,
-      effectiveSeasonalMult * holidayMult * crescendo.multiplier * pontMult,
+      2.0,
+      effectiveSeasonalMult * holidayMaxMult,
     );
 
     for (const need of dayNeeds) {
