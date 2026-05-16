@@ -465,6 +465,15 @@ function hasUnavailabilityOverlap(
 export async function previewSitePlanAction(
   siteCode: string,
   weekISO: string,
+  /**
+   * Karim 16/05 : shifts virtuels deja alloues a cet employe par d autres
+   * sites du meme batch multi-sites. Le solver les inclut dans plannedHours/
+   * plannedDays/conflicts comme si c etaient des shifts en base. Sans ce
+   * parametre, le 1er site du batch raflait tous les employes (combinedMult
+   * x2 sur 4 besoins = 8 employes, 13 dispo -> tout sur 1 site, les autres
+   * vides). Avec : repartition equitable.
+   */
+  additionalExistingShifts?: ExistingShift[],
 ): Promise<SitePlanPreview | { error: string }> {
   await requireRole(["admin", "rh", "manager"]);
 
@@ -478,7 +487,7 @@ export async function previewSitePlanAction(
     needs,
     allEmployees,
     tierByEmp,
-    existing,
+    existing: existingFromDb,
     offs,
     unavail,
     blockedDates,
@@ -487,6 +496,10 @@ export async function previewSitePlanAction(
     allHolidays,
     closedDates,
   } = ctx;
+  // Merge des shifts en base + drafts virtuels des sites precedents du batch.
+  const existing: ExistingShift[] = additionalExistingShifts
+    ? [...existingFromDb, ...additionalExistingShifts]
+    : existingFromDb;
 
   // Coefficients de rush horaire (AUTOPLAN_RULES) — décision Karim 2026-05-09.
   // Si rush_use_in_solver=false dans org_settings, on désactive complètement

@@ -207,10 +207,24 @@ export async function previewMultiSitePlanAction(
 
   const results: Array<{ site_code: string; preview?: SitePlanPreview; error?: string }> = [];
   // Map des creneaux deja pris par employe/date au cours de ce preview batch
+  // (utilise UNIQUEMENT pour la defense en profondeur post-hoc -- le solver
+  // de chaque site est deja averti via additionalExistingShifts).
   const takenByEmpDate = new Map<string, Array<{ start: string; end: string }>>();
+  // Karim 16/05 : drafts cumules des sites deja traites, passes au solver
+  // du site suivant comme "shifts virtuels en base". Sans ca, le 1er site
+  // (B sur le test 25 mai) raflait 13 employes pour ses 4 besoins x 2.0 mult,
+  // laissant les sites suivants (A, E) sans personne.
+  const cumulativeDrafts: Array<{
+    employee_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    break_minutes: number;
+    is_overtime: boolean;
+  }> = [];
 
   for (const code of sortedCodes) {
-    const r = await previewSitePlanAction(code, weekISO);
+    const r = await previewSitePlanAction(code, weekISO, cumulativeDrafts);
     if ("error" in r) {
       console.log(`[previewMultiSite] ${code} ${weekISO} ERROR: ${r.error}`);
       results.push({ site_code: code, error: r.error });
@@ -218,7 +232,7 @@ export async function previewMultiSitePlanAction(
     }
     console.log(`[previewMultiSite] ${code} ${weekISO} : ${r.drafts.length} drafts initiaux, ${r.uncovered.length} uncovered initiaux`);
     // Filtre les drafts qui chevauchent ce qui a deja ete propose pour un
-    // autre site dans ce meme batch.
+    // autre site dans ce meme batch (defense en profondeur).
     const kept: typeof r.drafts = [];
     const blocked: typeof r.drafts = [];
     for (const d of r.drafts) {
@@ -232,6 +246,15 @@ export async function previewMultiSitePlanAction(
       kept.push(d);
       existing.push({ start: d.start_time, end: d.end_time });
       takenByEmpDate.set(k, existing);
+      // Accumule pour informer le solver des sites suivants.
+      cumulativeDrafts.push({
+        employee_id: d.employee_id,
+        date: d.date,
+        start_time: d.start_time,
+        end_time: d.end_time,
+        break_minutes: d.break_minutes,
+        is_overtime: d.is_overtime,
+      });
     }
     console.log(`[previewMultiSite] ${code} ${weekISO} : ${kept.length} kept, ${blocked.length} bloques par double-booking`);
     // Les drafts bloques deviennent des "uncovered" (effectif manquant) sur
