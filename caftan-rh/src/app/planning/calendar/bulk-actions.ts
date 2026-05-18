@@ -315,6 +315,44 @@ export async function clearAllFutureShiftsAction({
 }
 
 /**
+ * Karim 18/05 : action unifiee "Vider tous les planning" avec 3 modes :
+ *   - after_today  : shifts strictement APRES aujourd hui (regle J+1)
+ *   - until_today  : shifts jusqu a aujourd hui INCLUS
+ *   - all          : TOUT (avant + apres + aujourd hui)
+ * Scope optionnel : siteId ou employeeId pour limiter.
+ */
+export async function clearShiftsByModeAction({
+  mode,
+  siteId,
+  employeeId,
+}: {
+  mode: "after_today" | "until_today" | "all";
+  siteId?: string | null;
+  employeeId?: string | null;
+}) {
+  await requireRole(["admin", "rh", "manager"]);
+  const supabase = await createClient();
+  const todayISO = toISODate(new Date());
+  const tomorrowISO = toISODate(addDays(new Date(), 1));
+
+  let query = supabase.from("shifts").delete({ count: "exact" });
+  if (mode === "after_today") {
+    query = query.gte("date", tomorrowISO);
+  } else if (mode === "until_today") {
+    query = query.lte("date", todayISO);
+  }
+  // mode === "all" : pas de filtre date, tout dégage
+  if (siteId) query = query.eq("site_id", siteId);
+  if (employeeId) query = query.eq("employee_id", employeeId);
+  const { error, count } = await query;
+  if (error) return { error: error.message };
+
+  revalidatePath("/planning", "layout");
+  revalidatePath("/me/planning");
+  return { ok: true, deleted: count ?? 0, mode };
+}
+
+/**
  * Compte les shifts existants pour la semaine. Si `siteId` est fourni, ne
  * compte que les shifts liés à ce site. Permet à l'UI de désactiver le bouton
  * "Vider la semaine" quand il n'y a rien à vider.

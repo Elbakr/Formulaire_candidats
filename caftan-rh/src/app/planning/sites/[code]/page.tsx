@@ -18,6 +18,7 @@ import { MembersSection } from "./members-section";
 import { SitePresenceStrip } from "./presence-strip";
 import { GenerateSitePlanButton } from "./generate-button";
 import { ClearWeekButton } from "../../calendar/clear-week-button";
+import { ClearPlanningMenu } from "../../calendar/clear-planning-menu";
 import { NeedsEditor } from "./needs-editor";
 import { SiteWeekBoard } from "./site-week-board";
 import { SiteNavigator } from "./site-navigator";
@@ -188,6 +189,7 @@ export default async function SiteDetailPage(props: {
         <div className="flex gap-1 items-center flex-wrap">
           <GenerateSitePlanButton siteCode={site.code} weekISO={toISODate(monday)} />
           <ClearWeekButton weekISO={toISODate(monday)} siteId={site.id} />
+          <ClearPlanningMenu siteId={site.id} />
           <Button asChild variant="outline" size="sm">
             <Link
               href={`/planning/reinforcement?date=${toISODate(monday)}&site=${site.id}`}

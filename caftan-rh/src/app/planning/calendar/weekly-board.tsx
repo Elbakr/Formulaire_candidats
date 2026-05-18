@@ -22,6 +22,7 @@ import { GenerateWeekDialog } from "./generate-week-dialog";
 import { BroadcastScheduleButton } from "./broadcast-button";
 import { BulkActionsMenu } from "./bulk-actions-menu";
 import { ClearWeekButton } from "./clear-week-button";
+import { ClearPlanningMenu } from "./clear-planning-menu";
 
 type Employee = {
   id: string;
@@ -324,6 +325,7 @@ export function WeeklyPlanningBoard({
             </Link>
           </Button>
           <ClearWeekButton weekISO={mondayISO} />
+          <ClearPlanningMenu />
           <BulkActionsMenu weekISO={mondayISO} />
           <BroadcastScheduleButton weekISO={mondayISO} />
           <DropdownMenu>

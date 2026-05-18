@@ -19,6 +19,7 @@ import { WeekBoard } from "./week-board";
 import { QuotaOverrunBanner } from "./quota-overrun-banner";
 import { GenerateEmployeePlanButton } from "./generate-employee-plan-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
+import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 
 type View = "week" | "month" | "year";
 
@@ -179,6 +180,7 @@ export default async function EmployeeCalendarPage(props: {
                 employeeId={employee.id}
                 scopeLabel="pour cet employé"
               />
+              <ClearPlanningMenu employeeId={employee.id} />
               {preferredSiteIds[0] ? (
                 <Button asChild variant="outline" size="sm">
                   <Link

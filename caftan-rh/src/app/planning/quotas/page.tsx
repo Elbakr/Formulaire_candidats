@@ -10,6 +10,7 @@ import {
 } from "@/lib/quotas-period";
 import { PeriodSelector } from "./period-selector";
 import { ResetPeriodButton } from "./reset-period-button";
+import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 
 const VALID_PERIODS: PeriodKey[] = ["this_week", "next_week", "4w", "12w", "this_month"];
 
@@ -69,6 +70,7 @@ export default async function QuotasPage(props: {
             siteIds={data.sites.map((s) => s.site_id)}
             visibleSitesCount={data.sites.length}
           />
+          <ClearPlanningMenu />
           <PeriodSelector current={period} />
         </div>
       </div>

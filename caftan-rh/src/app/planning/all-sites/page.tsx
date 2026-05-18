@@ -10,6 +10,7 @@ import {
   toISODate,
 } from "@/lib/planning";
 import { AllSitesBoard, type AllSitesShift, type AllSitesSite, type SiteDayNeedRow } from "./board";
+import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 
 const VALID_WEEKS = new Set(["1", "2", "4", "12"]);
 
@@ -128,6 +129,7 @@ export default async function AllSitesPage(props: {
               <ChevronRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
+          <ClearPlanningMenu />
         </div>
       </div>
 
