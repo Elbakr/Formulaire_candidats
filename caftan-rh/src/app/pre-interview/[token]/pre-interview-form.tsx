@@ -152,7 +152,10 @@ export function PreInterviewForm({
       const cur = prev[qid];
       let next: string[];
       if (kind === "single_choice") {
-        next = cur.choices.includes(value) ? [] : [value];
+        // Karim 18/05 : NE PAS deselectionner si re-click sur la meme option
+        // (avant : toggle off = choices=[] -> serveur rejetait le submit).
+        // Pour un single_choice, on REMPLACE toujours par la nouvelle valeur.
+        next = [value];
       } else {
         next = cur.choices.includes(value)
           ? cur.choices.filter((v) => v !== value)
@@ -190,7 +193,11 @@ export function PreInterviewForm({
       }
       return;
     }
-    if (!confirm(t("pre_interview.confirm_submit", locale))) return;
+    // Karim 18/05 : confirm() browser etait bloque silencieusement sur certains
+    // contextes (Safari iOS PWA, tunnel cloudflared), Karim cliquait
+    // "Soumettre" mais le confirm retournait false sans le montrer -> rien
+    // ne se passait. On retire le confirm pour plus de fiabilite.
+    console.log("[pre-interview] submit() triggered, all required answered:", allRequiredAnswered);
     startTransition(async () => {
       // Force-flush any pending debounced saves before submit
       const pendingIds = Object.keys(timersRef.current).filter((k) => timersRef.current[k]);
@@ -200,8 +207,9 @@ export function PreInterviewForm({
         await doSave(qid);
       }
       const res = await submitPreInterviewAction({ token });
+      console.log("[pre-interview] submit result:", res);
       if (!res.ok) {
-        toast.error(res.error);
+        toast.error(res.error ?? "Erreur lors de la soumission", { duration: 8000 });
         return;
       }
       toast.success(t("pre_interview.submit_error_toast", locale));
