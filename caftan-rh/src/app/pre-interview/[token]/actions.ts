@@ -84,6 +84,22 @@ export async function saveResponseAction(input: {
     const allowed = new Set((qq.choices ?? []).map((c) => c.value));
     const choices = (input.answerChoices ?? []).filter((c) => allowed.has(c));
     if (qq.kind === "single_choice" && choices.length > 1) choices.length = 1;
+    // Karim 18/05 : si single_choice et choix vide recu, on REFUSE d ecraser
+    // une valeur existante (ancien bundle client peut envoyer [] par toggle
+    // accidentel). C est une protection serveur defensive.
+    if (qq.kind === "single_choice" && choices.length === 0) {
+      const { data: prev } = await admin
+        .from("pre_interview_responses")
+        .select("answer_choices")
+        .eq("pre_interview_id", pi.id)
+        .eq("question_id", input.questionId)
+        .maybeSingle();
+      const prevArr = (prev as { answer_choices?: string[] } | null)?.answer_choices;
+      if (Array.isArray(prevArr) && prevArr.length > 0) {
+        // Ne rien changer : on retourne ok pour ne pas casser le UI.
+        return { ok: true };
+      }
+    }
     payload.answer_choices = choices;
   } else if (qq.kind === "video") {
     // Fallback texte pour browsers sans MediaRecorder. Le path vidéo lui
