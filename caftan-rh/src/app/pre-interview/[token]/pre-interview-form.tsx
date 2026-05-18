@@ -165,7 +165,29 @@ export function PreInterviewForm({
 
   function submit() {
     if (!allRequiredAnswered) {
-      toast.error(t("pre_interview.required_missing", locale));
+      // Karim 18/05 : au lieu d un toast generique, on liste les questions
+      // oubliees + scroll vers la 1ere pour que le candidat sache quoi corriger.
+      const missing: number[] = [];
+      let firstMissingId: string | null = null;
+      questions.forEach((q, idx) => {
+        if (!q.is_required) return;
+        const a = answers[q.id];
+        if (!a) return;
+        const hasText = (a.text ?? "").trim().length > 0;
+        const hasChoices = Array.isArray(a.choices) && a.choices.length > 0;
+        const hasScale = typeof a.scale === "number";
+        const hasVideo = !!(a.videoPath && a.videoPath.length > 0);
+        if (!hasText && !hasChoices && !hasScale && !hasVideo) {
+          missing.push(idx + 1);
+          if (!firstMissingId) firstMissingId = q.id;
+        }
+      });
+      const list = missing.join(", ");
+      toast.error(`Manque la question ${missing.length > 1 ? "s" : ""}${list}`, { duration: 6000 });
+      if (firstMissingId) {
+        const el = document.getElementById(`q-${firstMissingId}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
       return;
     }
     if (!confirm(t("pre_interview.confirm_submit", locale))) return;
@@ -205,7 +227,7 @@ export function PreInterviewForm({
 
       <div className="space-y-3">
         {questions.map((q, idx) => (
-          <Card key={q.id} className="p-4">
+          <Card key={q.id} id={`q-${q.id}`} className="p-4 scroll-mt-20">
             <div className="flex items-start gap-3">
               <span className="flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full bg-gold-light text-gold-dark text-xs font-bold">
                 {idx + 1}
