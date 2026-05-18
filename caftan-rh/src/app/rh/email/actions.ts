@@ -7,6 +7,9 @@ import { requireRole } from "@/lib/auth";
 import { renderTemplate, firstNameOf, type OrgVars } from "@/lib/email-templates";
 import { logActivity } from "@/lib/activity";
 import { subjectRoot } from "@/lib/inbound/parse";
+import { preInterviewPublicUrl, formatDeadlineFR, generateToken } from "@/lib/pre-interview";
+
+const PRE_INTERVIEW_DURATION_DAYS = 7;
 
 type PrepareArgs = {
   applicationIds: string[];
@@ -76,6 +79,12 @@ export async function prepareEmailBatchAction(args: PrepareArgs): Promise<Prepar
   const emails: PreparedEmail[] = [];
   let invalid = 0;
 
+  // Karim 18/05 : si le template est un pre_interview_invite/relance, on doit
+  // generer (ou reutiliser) un token + link, sinon le bouton "Repondre au
+  // pre-entretien" du mail est mort (href="").
+  const isPreInterviewTemplate = /^pre_interview_(invite|relance)/.test(template.slug);
+  const admin = isPreInterviewTemplate ? createAdminClient() : null;
+
   type AppRow = { id: string; candidate: { email: string; full_name: string } | null };
   for (const app of (apps ?? []) as unknown as AppRow[]) {
     if (!app.candidate?.email) {
@@ -87,10 +96,50 @@ export async function prepareEmailBatchAction(args: PrepareArgs): Promise<Prepar
       fullname: app.candidate.full_name,
     };
     const override = args.perRecipient?.[app.id];
+
+    // Pre-interview link + deadline si applicable.
+    let preInterviewLink = "";
+    let preInterviewDeadline = "";
+    if (isPreInterviewTemplate && admin) {
+      // Reutilise un pre_interview "sent" ou "started" existant, sinon cree.
+      const { data: existing } = await admin
+        .from("pre_interviews")
+        .select("token, expires_at")
+        .eq("application_id", app.id)
+        .in("status", ["sent", "started"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let token: string;
+      let expiresAt: string;
+      if (existing) {
+        const e = existing as { token: string; expires_at: string };
+        token = e.token;
+        expiresAt = e.expires_at;
+      } else {
+        token = generateToken();
+        const exp = new Date(Date.now() + PRE_INTERVIEW_DURATION_DAYS * 24 * 3600 * 1000);
+        expiresAt = exp.toISOString();
+        await admin.from("pre_interviews").insert({
+          application_id: app.id,
+          position_role: "all",
+          token,
+          language_code: "fr",
+          sent_at: new Date().toISOString(),
+          expires_at: expiresAt,
+          status: "sent",
+        });
+      }
+      preInterviewLink = preInterviewPublicUrl(token);
+      preInterviewDeadline = formatDeadlineFR(expiresAt);
+    }
+
     const dynamicVars = {
       custom: args.customMessage ?? "",
       dates: override?.dates ?? args.dates ?? "",
       times: override?.times ?? args.times ?? "",
+      link: preInterviewLink,
+      deadline: preInterviewDeadline,
     };
     const renderedSubject = renderTemplate(args.customSubject || template.subject, { ...orgVars, ...candidateVars, ...dynamicVars });
     const subject = tagSubjectWithApp(renderedSubject, app.id);

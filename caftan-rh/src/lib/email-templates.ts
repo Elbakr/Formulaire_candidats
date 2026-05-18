@@ -19,27 +19,26 @@ export type DynamicVars = {
   times?: string; // formatted "9h00 / 14h00"
   document_label?: string; // libellé doc demandé (catalogue)
   document_upload_url?: string; // magic link signé pour upload doc
+  link?: string;     // ex : URL pre-interview, lien upload doc, etc.
+  deadline?: string; // date limite formatee FR
+  [key: string]: string | undefined;
 };
 
+/**
+ * Substitue les {{vars}} dans `raw` par les valeurs de l objet `vars`.
+ * Karim 18/05 : avant, le dict etait statique et IGNORAIT silencieusement
+ * `{{link}}` / `{{deadline}}` / toute cle non listee -> bouton "Repondre
+ * au pre-entretien" vide (href="") = mort au clic. Fix : on iterre sur
+ * TOUTES les cles de vars, plus de liste blanche.
+ */
 export function renderTemplate(
   raw: string,
-  vars: OrgVars & CandidateVars & DynamicVars,
+  vars: OrgVars & CandidateVars & DynamicVars & Record<string, unknown>,
 ): string {
-  const dict: Record<string, string> = {
-    org_name: vars.org_name ?? "",
-    org_email: vars.org_email ?? "",
-    org_phone: vars.org_phone ?? "",
-    org_whatsapp: vars.org_whatsapp ?? "",
-    org_address: vars.org_address ?? "",
-    firstname: vars.firstname ?? "",
-    fullname: vars.fullname ?? "",
-    custom: vars.custom ?? "",
-    dates: vars.dates ?? "",
-    times: vars.times ?? "",
-    document_label: vars.document_label ?? "",
-    document_upload_url: vars.document_upload_url ?? "",
-  };
-  return raw.replace(/\{\{(\w+)\}\}/g, (_, key) => dict[key] ?? "");
+  return raw.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const v = (vars as Record<string, unknown>)[key];
+    return v == null ? "" : String(v);
+  });
 }
 
 export function firstNameOf(fullName: string): string {
