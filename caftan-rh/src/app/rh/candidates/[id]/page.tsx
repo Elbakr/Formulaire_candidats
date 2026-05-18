@@ -393,6 +393,17 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
             questions={preInterviewQuestions}
             responses={preInterviewResponses}
             publicUrl={preInterviewPublicLink}
+            preInterviewScore={(candidate as unknown as { pre_interview_score?: number | null }).pre_interview_score ?? null}
+            preInterviewBreakdown={
+              (candidate as unknown as {
+                pre_interview_breakdown?: {
+                  availability: number; mobility: number; communication: number;
+                  text_quality: number; videos: number; engagement: number;
+                  availability_label: string; mobility_label: string;
+                  channels_count: number; videos_count: number;
+                } | null;
+              }).pre_interview_breakdown ?? null
+            }
           />
         </TabsContent>
 

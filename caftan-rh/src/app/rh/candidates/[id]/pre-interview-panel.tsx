@@ -71,7 +71,23 @@ export function PreInterviewPanel({
   questions,
   responses,
   publicUrl,
-}: Props) {
+  preInterviewScore,
+  preInterviewBreakdown,
+}: Props & {
+  preInterviewScore?: number | null;
+  preInterviewBreakdown?: {
+    availability: number;
+    mobility: number;
+    communication: number;
+    text_quality: number;
+    videos: number;
+    engagement: number;
+    availability_label: string;
+    mobility_label: string;
+    channels_count: number;
+    videos_count: number;
+  } | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [positionRole, setPositionRole] = useState<string>("all");
@@ -309,6 +325,44 @@ export function PreInterviewPanel({
         </div>
       </Card>
 
+      {preInterview.status === "completed" && preInterviewScore != null ? (
+        <Card>
+          <div className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div
+                className={`flex items-center justify-center w-14 h-14 rounded-full font-bold text-lg ${
+                  preInterviewScore >= 70 ? "bg-success text-white"
+                    : preInterviewScore >= 50 ? "bg-gold text-[#1a1a0d]"
+                    : preInterviewScore >= 30 ? "bg-warn text-white"
+                    : "bg-ink-3/30 text-ink-3"
+                }`}
+              >
+                {preInterviewScore}
+              </div>
+              <div>
+                <div className="font-bold text-sm">Score pré-entretien</div>
+                <div className="text-[11px] text-ink-3">
+                  {preInterviewScore >= 70 ? "Excellent · prioriser entretien" :
+                   preInterviewScore >= 50 ? "Bon · à examiner" :
+                   preInterviewScore >= 30 ? "Moyen · profil à creuser" :
+                   "Faible · engagement limité"}
+                </div>
+              </div>
+            </div>
+            {preInterviewBreakdown ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                <Metric label="Dispo" value={`${preInterviewBreakdown.availability}/25`} hint={preInterviewBreakdown.availability_label} />
+                <Metric label="Mobilité" value={`${preInterviewBreakdown.mobility}/20`} hint={preInterviewBreakdown.mobility_label} />
+                <Metric label="Canaux" value={`${preInterviewBreakdown.communication}/10`} hint={`${preInterviewBreakdown.channels_count} cochés`} />
+                <Metric label="Qualité texte" value={`${preInterviewBreakdown.text_quality}/25`} />
+                <Metric label="Vidéos" value={`${preInterviewBreakdown.videos}/15`} hint={`${preInterviewBreakdown.videos_count}/3 enregistrées`} />
+                <Metric label="Engagement" value={`${preInterviewBreakdown.engagement}/5`} />
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
       {preInterview.status === "completed" ? (
         <ReviewCard
           questions={visibleQuestions}
@@ -321,6 +375,16 @@ export function PreInterviewPanel({
           pending={pending}
         />
       ) : null}
+    </div>
+  );
+}
+
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded border border-line p-2">
+      <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold">{label}</div>
+      <div className="font-bold text-sm">{value}</div>
+      {hint ? <div className="text-[10px] text-ink-3 truncate">{hint}</div> : null}
     </div>
   );
 }

@@ -174,6 +174,44 @@ export async function submitPreInterviewAction(input: {
     .eq("id", pi.id);
   if (updErr) return { ok: false, error: updErr.message };
 
+  // Karim 18/05 : calcule + persiste le pre_interview_score sur le candidate
+  // immediatement apres la soumission. Permet au RH de filtrer/trier sans
+  // attendre un cron de rescore.
+  try {
+    const { computePreInterviewScore } = await import("@/lib/scoring/pre-interview-score");
+    const { data: respWithQ } = await admin
+      .from("pre_interview_responses")
+      .select("answer_text, answer_choices, answer_scale, video_storage_path, question_id, pre_interview_questions(sort_order, kind)")
+      .eq("pre_interview_id", pi.id);
+    type Row = {
+      answer_text: string | null; answer_choices: string[] | null;
+      answer_scale: number | null; video_storage_path: string | null;
+      pre_interview_questions: { sort_order: number; kind: string } | null;
+    };
+    const responses = ((respWithQ ?? []) as unknown as Row[]).map((r) => ({
+      question_sort_order: r.pre_interview_questions?.sort_order ?? 0,
+      question_kind: (r.pre_interview_questions?.kind ?? "text") as "text" | "scale_1_5" | "single_choice" | "multi_choice" | "video",
+      answer_text: r.answer_text, answer_choices: r.answer_choices,
+      answer_scale: r.answer_scale, video_storage_path: r.video_storage_path,
+    }));
+    const { score, breakdown } = computePreInterviewScore(responses);
+    const { data: appRow } = await admin
+      .from("applications").select("candidate_id").eq("id", pi.application_id).maybeSingle();
+    const candidateId = (appRow as { candidate_id?: string } | null)?.candidate_id;
+    if (candidateId) {
+      await admin
+        .from("candidates")
+        .update({
+          pre_interview_score: score,
+          pre_interview_breakdown: breakdown,
+          pre_interview_score_computed_at: new Date().toISOString(),
+        })
+        .eq("id", candidateId);
+    }
+  } catch (e) {
+    console.warn("[pre-interview submit] score compute failed (non-fatal):", (e as Error).message);
+  }
+
   // Notify RH
   const { data: rhUsers } = await admin
     .from("profiles")
