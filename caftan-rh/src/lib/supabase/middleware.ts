@@ -10,6 +10,11 @@ const PUBLIC_ROUTES = [
   "/api/postuler",
   "/upload",
   "/api/documents/upload",
+  // Karim 18/05 : pre-interview accessible au candidat externe (token-protected
+  // dans la page elle-meme). Sans ca, le mail "Repondre au pre-entretien"
+  // redirige vers /login alors que le candidat n a aucun compte.
+  "/pre-interview",
+  "/api/pre-interview",
   // Routes cron : Vercel Cron Scheduler les appelle SANS cookie utilisateur.
   // Chaque route verifie son propre Bearer ${CRON_SECRET} cote handler.
   "/api/cron",
