@@ -63,6 +63,7 @@ export function PreInterviewForm({
   }, [questions, initialResponses]);
 
   const [answers, setAnswers] = useState<Record<string, LocalAnswer>>(initial);
+  const [missingHighlight, setMissingHighlight] = useState<Set<string>>(new Set());
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
 
   // Compute progress for the sticky bar from current local state
@@ -168,9 +169,10 @@ export function PreInterviewForm({
 
   function submit() {
     if (!allRequiredAnswered) {
-      // Karim 18/05 : au lieu d un toast generique, on liste les questions
-      // oubliees + scroll vers la 1ere pour que le candidat sache quoi corriger.
+      // Karim 18/05 : toast + highlight ROUGE des cards des questions oubliees
+      // + scroll auto vers la 1ere. Beaucoup plus visuel.
       const missing: number[] = [];
+      const missingIds = new Set<string>();
       let firstMissingId: string | null = null;
       questions.forEach((q, idx) => {
         if (!q.is_required) return;
@@ -182,17 +184,24 @@ export function PreInterviewForm({
         const hasVideo = !!(a.videoPath && a.videoPath.length > 0);
         if (!hasText && !hasChoices && !hasScale && !hasVideo) {
           missing.push(idx + 1);
+          missingIds.add(q.id);
           if (!firstMissingId) firstMissingId = q.id;
         }
       });
+      setMissingHighlight(missingIds);
       const list = missing.join(", ");
-      toast.error(`Manque la question ${missing.length > 1 ? "s" : ""}${list}`, { duration: 6000 });
+      toast.error(
+        `Question${missing.length > 1 ? "s" : ""} manquante${missing.length > 1 ? "s" : ""} : ${list} (en rouge ci-dessous)`,
+        { duration: 8000 },
+      );
       if (firstMissingId) {
         const el = document.getElementById(`q-${firstMissingId}`);
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       return;
     }
+    // Si on submit OK, on efface le highlight
+    setMissingHighlight(new Set());
     // Karim 18/05 : confirm() browser etait bloque silencieusement sur certains
     // contextes (Safari iOS PWA, tunnel cloudflared), Karim cliquait
     // "Soumettre" mais le confirm retournait false sans le montrer -> rien
@@ -235,7 +244,15 @@ export function PreInterviewForm({
 
       <div className="space-y-3">
         {questions.map((q, idx) => (
-          <Card key={q.id} id={`q-${q.id}`} className="p-4 scroll-mt-20">
+          <Card
+            key={q.id}
+            id={`q-${q.id}`}
+            className={`p-4 scroll-mt-20 transition-all ${
+              missingHighlight.has(q.id)
+                ? "border-2 border-danger bg-danger-light/40 shadow-md"
+                : ""
+            }`}
+          >
             <div className="flex items-start gap-3">
               <span className="flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full bg-gold-light text-gold-dark text-xs font-bold">
                 {idx + 1}
