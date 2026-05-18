@@ -59,6 +59,13 @@ export default async function RhCandidatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/rh/top-candidates"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-gold text-[#1a1a0d] hover:bg-gold-dark font-bold text-sm"
+            title="Top profils : classement intelligent par match_score"
+          >
+            ✨ Top profils
+          </Link>
           {gfReady ? (
             <GfSyncButton disabled={false} />
           ) : (

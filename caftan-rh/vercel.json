@@ -19,6 +19,7 @@
     { "path": "/api/cron/dimona-reminder", "schedule": "0 6 * * *" },
     { "path": "/api/cron/vip-birthdays", "schedule": "0 8 * * *" },
     { "path": "/api/cron/special-day-preview", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/unassigned-employees-alert", "schedule": "0 9 * * *" }
+    { "path": "/api/cron/unassigned-employees-alert", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/candidate-match-rescore", "schedule": "0 4 * * *" }
   ]
 }
