@@ -24,16 +24,28 @@ const BRUSSELS_CORE = new Set(["bruxelles","brussel","anderlecht","molenbeek","m
 const BRUSSELS_NEAR = new Set(["schaerbeek","ixelles","etterbeek","jette","laeken","evere","ganshoren","uccle","berchem-sainte-agathe","neder-over-heembeek","1030","1050","1040","1090","1140","1083","1180","1082"]);
 const BRUSSELS_FAR = new Set(["auderghem","watermael-boitsfort","woluwe-saint-pierre","woluwe-saint-lambert","1160","1170","1150","1200"]);
 
-function proximityScore(city) {
+function proximityFromDistance(km) {
+  if (km <= 2) return { score: 25, label: `Très proche (${km.toFixed(1)} km)` };
+  if (km <= 5) return { score: 22, label: `Proche (${km.toFixed(1)} km)` };
+  if (km <= 10) return { score: 18, label: `Bxl élargi (${km.toFixed(1)} km)` };
+  if (km <= 20) return { score: 12, label: `Périphérie (${km.toFixed(1)} km)` };
+  if (km <= 40) return { score: 6, label: `Brabant (${km.toFixed(1)} km)` };
+  if (km <= 80) return { score: 3, label: `BE éloignée (${km.toFixed(0)} km)` };
+  return { score: 0, label: `Très loin (${km.toFixed(0)} km)` };
+}
+function proximityScore(city, distanceKm) {
+  if (typeof distanceKm === "number" && Number.isFinite(distanceKm)) {
+    return proximityFromDistance(distanceKm);
+  }
   if (!city) return { score: 0, label: "Ville inconnue" };
   const cc = city.toLowerCase().trim();
-  for (const k of BRUSSELS_CORE) if (cc.includes(k)) return { score: 25, label: "Bruxelles (core)" };
-  for (const k of BRUSSELS_NEAR) if (cc.includes(k)) return { score: 20, label: "Bruxelles élargi" };
-  for (const k of BRUSSELS_FAR) if (cc.includes(k)) return { score: 15, label: "Bruxelles périphérie" };
+  for (const k of BRUSSELS_CORE) if (cc.includes(k)) return { score: 25, label: "Bruxelles (core, ville)" };
+  for (const k of BRUSSELS_NEAR) if (cc.includes(k)) return { score: 20, label: "Bruxelles élargi (ville)" };
+  for (const k of BRUSSELS_FAR) if (cc.includes(k)) return { score: 15, label: "Bruxelles périphérie (ville)" };
   if (/halle|vilvorde|leuven|wavre|nivelles|wemmel|drogenbos|sint-pieters/.test(cc)) return { score: 10, label: "Brabant proche" };
-  if (/charleroi|liege|namur|mons|antwerpen|gent|brugge/.test(cc)) return { score: 5, label: "Belgique éloignée" };
+  if (/charleroi|liege|namur|mons|antwerpen|gent|brugge/.test(cc)) return { score: 5, label: "BE éloignée" };
   if (/maroc|france|paris|tunis|algier|casablanca/.test(cc)) return { score: 0, label: "Étranger" };
-  return { score: 5, label: "Belgique (autre)" };
+  return { score: 5, label: "BE (ville inconnue)" };
 }
 
 function languagesScore(langs) {
@@ -81,12 +93,13 @@ function freshnessScore(at) {
 
 // Fetch
 const where = ALL ? "" : "where match_score is null";
-const { rows } = await c.query(`select id, city, birth_date, langs, applied_at from candidates ${where}`);
+const { rows } = await c.query(`select id, city, birth_date, langs, applied_at, distance_km from candidates ${where}`);
 console.log(`\nRecalcul score sur ${rows.length} candidats${ALL ? "" : " (sans score)"}…`);
 
 let n = 0;
 for (const r of rows) {
-  const prox = proximityScore(r.city);
+  const distKm = r.distance_km != null ? Number(r.distance_km) : null;
+  const prox = proximityScore(r.city, distKm);
   const lang = languagesScore(r.langs);
   const ageR = ageScore(r.birth_date);
   const fresh = freshnessScore(r.applied_at);

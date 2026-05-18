@@ -60,7 +60,7 @@ for (const cand of candidates) {
     const km = haversineKm({ lat: Number(pc.lat), lng: Number(pc.lng) }, { lat: Number(s.lat), lng: Number(s.lng) });
     if (km < minKm) { minKm = km; closestCode = s.code; }
   }
-  await c.query(`update candidates set distance_km = $1 where id = $2`, [Math.round(minKm * 10) / 10, cand.id]);
+  await c.query(`update candidates set distance_km = $1 where id = $2`, [Math.round(minKm), cand.id]);
   console.log(`  ${cand.full_name.padEnd(30)} | pc=${cand.postal_code} | -> Site ${closestCode} = ${minKm.toFixed(1)} km`);
   updated += 1;
 }
