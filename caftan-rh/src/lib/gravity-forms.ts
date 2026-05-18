@@ -238,6 +238,10 @@ export async function syncGravityForms(
   // direct ; si conflit (race condition possible : un cron tourne entre
   // notre SELECT dedup et notre INSERT), on retombe en mode per-row pour
   // ne pas perdre toute la batch.
+  // Karim 18/05 : applied_at, motivation, cv_url etaient oublies dans cette
+  // lib (utilisee par /api/cron/gf-sync) -> les candidats syncs via cron
+  // avaient applied_at = now() au lieu de la vraie date GF date_created.
+  // Diag : Yasmine Tourat soumise 17/05 13:40 mais applied_at = 17/05 17:20.
   const candidateRows = toCreate.map((m) => ({
     email: m.email,
     full_name: m.full_name,
@@ -247,6 +251,9 @@ export async function syncGravityForms(
     source: m.source,
     gf_entry_id: m.gf_entry_id,
     raw_payload: m.raw_payload,
+    applied_at: m.applied_at,
+    motivation: m.motivation,
+    cv_url: m.cv_url,
   }));
 
   type InsertClient = {
