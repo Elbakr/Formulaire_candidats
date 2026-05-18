@@ -73,8 +73,15 @@ function mapEntry(e, fm) {
 
   const birthRaw = getField(e, fm.birthdate);
   const birthDate = /^\d{4}-\d{2}-\d{2}/.test(birthRaw) ? birthRaw.slice(0, 10) : null;
+  // Karim 18/05 : extraction code postal (champ 14 du nouveau formulaire).
+  const postcodeRaw = getField(e, fm.postcode);
+  const pcMatch = postcodeRaw.match(/\b(\d{4})\b/);
+  const postal_code = pcMatch ? pcMatch[1] : null;
+  // city peut rester pour compat (formulaire avant changement).
   const cityRaw = getField(e, fm.city);
-  const city = cityRaw.includes("|") ? cityRaw.split("|")[0].trim() : cityRaw || null;
+  const city = cityRaw
+    ? (cityRaw.includes("|") ? cityRaw.split("|")[0].trim() : cityRaw)
+    : null;
   const dispo = parseDays(e, fm.days_prefix);
   const role = getField(e, fm.role);
   const worktime = getField(e, fm.worktime);
@@ -93,6 +100,7 @@ function mapEntry(e, fm) {
     phone: getField(e, fm.phone) || null,
     birth_date: birthDate,
     city,
+    postal_code,
     source: "gravity_forms",
     motivation,
     cv_url: findCv(e),
@@ -171,6 +179,7 @@ async function main() {
   const candRows = toCreate.map((m) => ({
     email: m.email, full_name: m.full_name, phone: m.phone,
     birth_date: m.birth_date, city: m.city, source: m.source,
+    postal_code: m.postal_code ?? null,
     gf_entry_id: m.gf_entry_id, raw_payload: m.raw_payload,
     applied_at: m.raw_payload?.date_created ?? null,
     cv_url: m.cv_url ?? null,

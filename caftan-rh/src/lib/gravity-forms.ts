@@ -12,6 +12,7 @@ export type GFFieldMap = {
   worktime?: string;
   role?: string;
   city?: string;
+  postcode?: string; // Karim 18/05 : code postal Belgique 4 chiffres
   days_prefix?: string; // e.g. "11" → 11.1..11.7 = Lundi..Dimanche
 };
 
@@ -65,6 +66,7 @@ export type MappedCandidate = {
   phone: string | null;
   birth_date: string | null;
   city: string | null;
+  postal_code: string | null;
   source: string;
   raw_payload: Record<string, unknown>;
   motivation: string | null;
@@ -84,9 +86,19 @@ export function mapGFEntry(entry: GFEntry, fieldMap: GFFieldMap): MappedCandidat
   const birthRaw = getField(entry, fieldMap.birthdate);
   const birthDate = birthRaw && /^\d{4}-\d{2}-\d{2}/.test(birthRaw) ? birthRaw.slice(0, 10) : null;
 
+  // Karim 18/05 : le champ "postcode" (id 14 sur le nouveau formulaire) remplace
+  // l ancien champ "city" qui retournait toujours "Bruxelles | Caftan Factory".
+  // On extrait le code postal (4 chiffres BE) et on laisse city deriver du
+  // be_postcodes lookup cote serveur (lib/distance.ts).
+  const postcodeRaw = getField(entry, fieldMap.postcode);
+  const postcodeMatch = postcodeRaw.match(/\b(\d{4})\b/);
+  const postal_code = postcodeMatch ? postcodeMatch[1] : null;
+  // Si pas de postcode mais city.x configure, garde-le en fallback (ancien
+  // formulaire). Aussi accepte "City | Site" -> garde la partie city.
   const cityRaw = getField(entry, fieldMap.city);
-  // city peut être "City | Site"
-  const city = cityRaw.includes("|") ? cityRaw.split("|")[0].trim() : cityRaw || null;
+  const city = cityRaw
+    ? (cityRaw.includes("|") ? cityRaw.split("|")[0].trim() : cityRaw)
+    : null;
 
   const { dispoLabel } = parseDays(entry, fieldMap.days_prefix);
   const worktime = getField(entry, fieldMap.worktime);
@@ -107,6 +119,7 @@ export function mapGFEntry(entry: GFEntry, fieldMap: GFFieldMap): MappedCandidat
     phone: getField(entry, fieldMap.phone) || null,
     birth_date: birthDate,
     city,
+    postal_code,
     source: "gravity_forms",
     motivation: motivationParts.length ? motivationParts.join("\n") : null,
     cv_url: findCvUrl(entry),
@@ -248,6 +261,7 @@ export async function syncGravityForms(
     phone: m.phone,
     birth_date: m.birth_date,
     city: m.city,
+    postal_code: m.postal_code,
     source: m.source,
     gf_entry_id: m.gf_entry_id,
     raw_payload: m.raw_payload,

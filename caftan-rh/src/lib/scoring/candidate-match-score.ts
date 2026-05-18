@@ -18,6 +18,12 @@ export type CandidateForScoring = {
   birth_date: string | null;
   langs: Record<string, unknown> | null;
   applied_at: string | null;
+  /**
+   * Distance en km vers le site le plus proche (calculee via be_postcodes
+   * lookup -- voir scripts/compute-candidate-distances.mjs). Si disponible,
+   * elle ECRASE le score city-based qui est imprecis pour Bruxelles.
+   */
+  distance_km?: number | null;
 };
 
 export type ScoreBreakdown = {
@@ -51,23 +57,34 @@ const BRUSSELS_FAR = new Set([
   "woluwe-saint-lambert", "1160", "1170", "1150", "1200",
 ]);
 
-function proximityScore(city: string | null): { score: number; label: string } {
+function proximityFromDistance(km: number): { score: number; label: string } {
+  if (km <= 2) return { score: 25, label: `Très proche (${km.toFixed(1)} km)` };
+  if (km <= 5) return { score: 22, label: `Proche (${km.toFixed(1)} km)` };
+  if (km <= 10) return { score: 18, label: `Bruxelles élargi (${km.toFixed(1)} km)` };
+  if (km <= 20) return { score: 12, label: `Périphérie (${km.toFixed(1)} km)` };
+  if (km <= 40) return { score: 6, label: `Brabant (${km.toFixed(1)} km)` };
+  if (km <= 80) return { score: 3, label: `Belgique éloignée (${km.toFixed(0)} km)` };
+  return { score: 0, label: `Très loin (${km.toFixed(0)} km)` };
+}
+
+function proximityScore(city: string | null, distanceKm: number | null | undefined): { score: number; label: string } {
+  // Priorité 1 : distance précise (postal_code → be_postcodes lookup)
+  if (typeof distanceKm === "number" && Number.isFinite(distanceKm)) {
+    return proximityFromDistance(distanceKm);
+  }
+  // Fallback : matching par ville textuelle (imprécis sur "Bruxelles" generique)
   if (!city) return { score: 0, label: "Ville inconnue" };
   const c = city.toLowerCase().trim();
-  // Tentative match sur le contenu (le champ peut être "Bruxelles, 1000")
-  for (const key of BRUSSELS_CORE) if (c.includes(key)) return { score: 25, label: "Bruxelles (core)" };
-  for (const key of BRUSSELS_NEAR) if (c.includes(key)) return { score: 20, label: "Bruxelles élargi" };
-  for (const key of BRUSSELS_FAR) if (c.includes(key)) return { score: 15, label: "Bruxelles périphérie" };
-  // Brabant proche
+  for (const key of BRUSSELS_CORE) if (c.includes(key)) return { score: 25, label: "Bruxelles (core, ville)" };
+  for (const key of BRUSSELS_NEAR) if (c.includes(key)) return { score: 20, label: "Bruxelles élargi (ville)" };
+  for (const key of BRUSSELS_FAR) if (c.includes(key)) return { score: 15, label: "Bruxelles périphérie (ville)" };
   if (/halle|vilvorde|leuven|wavre|nivelles|wemmel|drogenbos|sint-pieters/.test(c))
-    return { score: 10, label: "Brabant proche" };
-  // Autres Wallonie / Flandre
+    return { score: 10, label: "Brabant proche (ville)" };
   if (/charleroi|liege|namur|mons|antwerpen|gent|brugge/.test(c))
-    return { score: 5, label: "Belgique éloignée" };
-  // Etranger
+    return { score: 5, label: "Belgique éloignée (ville)" };
   if (/maroc|france|paris|tunis|algier|casablanca/.test(c))
     return { score: 0, label: "Étranger" };
-  return { score: 5, label: "Belgique (autre)" };
+  return { score: 5, label: "Belgique (ville inconnue)" };
 }
 
 // ─── Langues ───────────────────────────────────────────────────────────────
@@ -128,7 +145,7 @@ export function computeCandidateScore(c: CandidateForScoring): {
   score: number;
   breakdown: ScoreBreakdown;
 } {
-  const prox = proximityScore(c.city);
+  const prox = proximityScore(c.city, c.distance_km);
   const lang = languagesScore(c.langs);
   const ageR = ageScore(c.birth_date);
   const fresh = freshnessScore(c.applied_at);
