@@ -39,33 +39,47 @@ export async function fetchApplications(opts?: {
   appliedTo?: string;
 }): Promise<ApplicationListItem[]> {
   const supabase = await createClient();
-  let query = supabase
-    .from("applications")
-    .select(
-      `id, status, rating, motivation, created_at, updated_at,
-       candidate:candidates(id, full_name, email, phone, city, profile_id, applied_at, source,
-         birth_date, nrn, distance_km, wanted_contract_type, langs, raw_payload),
-       job:jobs(id, title),
-       assigned_manager_profile:profiles!applications_assigned_manager_fkey(id, full_name)`,
-    )
-    .order("applied_at", { ascending: false, foreignTable: "candidates" });
+  // Karim 18/05 : .range(0, 4999) avec .order(foreignTable) NE fonctionne PAS
+  // sur Supabase -- le cap 1000 reste applique en silence. Symptome :
+  // sur 1829 applications, seulement 1000 retournees, date max visible = 9 mai
+  // (= grand batch GF). Les candidats post-9 mai jamais affiches.
+  // Fix : pagination en boucle + tri sur applications.created_at (primary
+  // table -- range fonctionne correctement, et tri foreignTable est de
+  // toute facon fragile dans Supabase).
+  const PAGE = 1000;
+  const targetMax = opts?.limit ?? 5000;
+  const all: ApplicationListItem[] = [];
+  for (let offset = 0; offset < targetMax; offset += PAGE) {
+    let query = supabase
+      .from("applications")
+      .select(
+        `id, status, rating, motivation, created_at, updated_at,
+         candidate:candidates(id, full_name, email, phone, city, profile_id, applied_at, source,
+           birth_date, nrn, distance_km, wanted_contract_type, langs, raw_payload),
+         job:jobs(id, title),
+         assigned_manager_profile:profiles!applications_assigned_manager_fkey(id, full_name)`,
+      )
+      .order("created_at", { ascending: false });
 
-  if (opts?.status) query = query.eq("status", opts.status);
-  if (opts?.managerId) query = query.eq("assigned_manager", opts.managerId);
-  if (opts?.candidateProfileId)
-    query = query.eq("candidate.profile_id", opts.candidateProfileId);
-  if (opts?.appliedFrom) query = query.gte("candidate.applied_at", `${opts.appliedFrom}T00:00:00`);
-  if (opts?.appliedTo) query = query.lte("candidate.applied_at", `${opts.appliedTo}T23:59:59`);
-  // Override Supabase default 1000-row cap. Without explicit range, only ~1000
-  // rows come back even when the table has more.
-  query = query.range(0, (opts?.limit ?? 5000) - 1);
+    if (opts?.status) query = query.eq("status", opts.status);
+    if (opts?.managerId) query = query.eq("assigned_manager", opts.managerId);
+    if (opts?.candidateProfileId)
+      query = query.eq("candidate.profile_id", opts.candidateProfileId);
+    if (opts?.appliedFrom) query = query.gte("candidate.applied_at", `${opts.appliedFrom}T00:00:00`);
+    if (opts?.appliedTo) query = query.lte("candidate.applied_at", `${opts.appliedTo}T23:59:59`);
+    const upper = Math.min(offset + PAGE - 1, targetMax - 1);
+    query = query.range(offset, upper);
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("fetchApplications:", error.message);
-    return [];
+    const { data, error } = await query;
+    if (error) {
+      console.error("fetchApplications page", offset, ":", error.message);
+      break;
+    }
+    const rows = (data ?? []) as unknown as ApplicationListItem[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
   }
-  return (data ?? []) as unknown as ApplicationListItem[];
+  return all;
 }
 
 export async function fetchPipelineCounts() {

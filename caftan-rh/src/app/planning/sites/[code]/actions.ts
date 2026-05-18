@@ -211,6 +211,21 @@ type SolverContext = {
     staff_multiplier: number | string | null;
   }>;
   closedDates: Set<string>;
+  /**
+   * Karim 17/05 : overrides ponctuels de besoins par DATE (jour ferie
+   * exceptionnel, evenement, etc.). Si >= 1 row pour (site, date), c est
+   * exclusivement ces lignes qui sont utilisees pour ce jour, sinon
+   * fallback sur site_needs (day_of_week). Headcount 0 = ferme.
+   */
+  dateOverrides: Array<{
+    id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    headcount: number;
+    role: string | null;
+    is_critical: number;
+  }>;
 };
 
 async function loadSolverContext(
@@ -239,6 +254,7 @@ async function loadSolverContext(
     { data: closures },
     { data: holidays },
     { data: unavailRaw },
+    { data: dateOverridesRaw },
   ] = await Promise.all([
     supabase
       .from("site_needs")
@@ -302,11 +318,27 @@ async function loadSolverContext(
       .select("employee_id, day_of_week, date_specific, start_time, end_time, is_active")
       .eq("is_active", true)
       .or(`date_specific.is.null,and(date_specific.gte.${start},date_specific.lte.${end})`),
+    // Karim 17/05 : overrides de besoins par DATE specifique.
+    supabase
+      .from("site_needs_date_overrides")
+      .select("id, date, start_time, end_time, headcount, role, is_critical")
+      .eq("site_id", siteId)
+      .gte("date", start)
+      .lte("date", end),
   ]);
 
   const needs = (needsRaw ?? []) as SiteNeed[];
   if (needs.length === 0)
     return { error: "Aucun besoin défini pour ce site (site_needs vide)." };
+  const dateOverrides = (dateOverridesRaw ?? []) as Array<{
+    id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    headcount: number;
+    role: string | null;
+    is_critical: number;
+  }>;
 
   const tierByEmp = new Map<string, 1 | 2 | 3>();
   for (const a of (siteAssignsRaw ?? []) as Array<{
@@ -388,6 +420,7 @@ async function loadSolverContext(
     holidayStaffMultByDate,
     allHolidays,
     closedDates,
+    dateOverrides,
   };
 }
 
@@ -495,6 +528,7 @@ export async function previewSitePlanAction(
     holidayStaffMultByDate,
     allHolidays,
     closedDates,
+    dateOverrides,
   } = ctx;
   // Merge des shifts en base + drafts virtuels des sites precedents du batch.
   const existing: ExistingShift[] = additionalExistingShifts
@@ -608,9 +642,24 @@ export async function previewSitePlanAction(
       else seasonalDaysCount.set(seasonalEvt.id, { event: seasonalEvt, days: 1 });
     }
 
-    // Trie les besoins du jour par durée décroissante.
-    const dayNeeds = needs
-      .filter((n) => n.day_of_week === dayJsDow)
+    // Karim 17/05 : overrides ponctuels par DATE prennent le pas sur site_needs.
+    // Si >= 1 override pour cette date, on les utilise exclusivement. Sinon
+    // fallback sur site_needs (day_of_week).
+    const overridesForDate = dateOverrides.filter((o) => o.date === dateISO);
+    const dayNeedsRaw = overridesForDate.length > 0
+      ? overridesForDate.map((o) => ({
+          id: o.id,
+          day_of_week: dayJsDow,
+          start_time: o.start_time,
+          end_time: o.end_time,
+          headcount: o.headcount,
+          role: o.role,
+          is_critical: o.is_critical,
+          is_enabled: true,
+        } as SiteNeed))
+      : needs.filter((n) => n.day_of_week === dayJsDow);
+    const dayNeeds = dayNeedsRaw
+      .filter((n) => n.headcount > 0) // override headcount=0 = ferme exceptionnellement
       .sort(
         (a, b) =>
           slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),

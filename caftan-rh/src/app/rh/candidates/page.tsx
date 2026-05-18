@@ -7,6 +7,13 @@ import { ExportCandidatesButton } from "./export-button";
 import { GfSyncButton } from "@/app/admin/integrations/gravity-forms/sync-button";
 import { formatDateTime } from "@/lib/utils";
 
+// Karim 18/05 : la liste candidats etait stale (cachee a la 1ere visite).
+// Force-dynamic + revalidate=0 garantit que chaque load relit les data
+// fraiches, indispensable apres un sync GF (sinon les nouveaux candidats
+// du jour ne remontent pas sans Ctrl+F5 manuel).
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function RhCandidatesPage() {
   const supabase = await createClient();
   const [apps, jobs, { data: tmpls }, { data: gfSettings }] = await Promise.all([
