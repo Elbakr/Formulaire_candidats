@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles, MapPin, Languages, Calendar, User } from "lucide-react";
+import { ArrowRight, Sparkles, MapPin, Languages, Calendar, User, Mail } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
+import { CopyEmailsButton } from "./copy-emails-button";
 
 // Karim 18/05 : "denicher les meilleurs profils de la facon la plus
 // intelligente qui soit". Page dediee qui liste les candidats tries
@@ -16,6 +17,7 @@ type CandidateRow = {
   email: string | null;
   phone: string | null;
   city: string | null;
+  birth_date: string | null;
   applied_at: string | null;
   match_score: number | null;
   match_breakdown: {
@@ -28,7 +30,19 @@ type CandidateRow = {
     langs_summary: string;
     days_since_applied: number | null;
   } | null;
+  applications: Array<{ id: string }> | null;
 };
+
+function calcAge(birthDate: string | null): number | null {
+  if (!birthDate) return null;
+  const d = new Date(birthDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age >= 0 && age < 120 ? age : null;
+}
 
 function scoreColor(score: number | null): string {
   if (score === null) return "bg-ink-3/20 text-ink-3";
@@ -55,10 +69,12 @@ export default async function TopCandidatesPage(props: {
   const limitN = Math.min(200, Math.max(10, Number(limit ?? "50")));
 
   const supabase = await createClient();
+  // Join applications pour avoir l application.id (la page /rh/candidates/[id]
+  // attend application.id, pas candidate.id -- Karim 18/05 : 404 sinon).
   const { data: candidates } = await supabase
     .from("candidates")
     .select(
-      "id, full_name, email, phone, city, applied_at, match_score, match_breakdown",
+      "id, full_name, email, phone, city, birth_date, applied_at, match_score, match_breakdown, applications:applications(id)",
     )
     .gte("match_score", minScore)
     .order("match_score", { ascending: false })
@@ -92,8 +108,9 @@ export default async function TopCandidatesPage(props: {
             Classement intelligent sur 4 axes : proximité, langues, âge, fraîcheur. Score sur 100.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-ink-3">Seuil :</span>
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <CopyEmailsButton emails={rows.map((c) => c.email ?? "").filter(Boolean)} />
+          <span className="text-ink-3 ml-2">Seuil :</span>
           {[40, 60, 70, 80].map((v) => (
             <Link
               key={v}
@@ -147,6 +164,10 @@ export default async function TopCandidatesPage(props: {
           <ul>
             {rows.map((c, idx) => {
               const b = c.match_breakdown;
+              const age = calcAge(c.birth_date);
+              // Recupere l application.id : le 1er trouve, ou fallback null.
+              const appId = c.applications?.[0]?.id ?? null;
+              const fiche = appId ? `/rh/candidates/${appId}` : null;
               return (
                 <li
                   key={c.id}
@@ -160,12 +181,20 @@ export default async function TopCandidatesPage(props: {
                     {c.match_score ?? "—"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <Link
-                      href={`/rh/candidates/${c.id}`}
-                      className="font-bold text-sm hover:text-gold-dark truncate block"
-                    >
-                      {c.full_name}
-                    </Link>
+                    {fiche ? (
+                      <Link
+                        href={fiche}
+                        className="font-bold text-sm hover:text-gold-dark truncate block"
+                      >
+                        {c.full_name}
+                        {age !== null ? <span className="font-normal text-ink-3 ml-2">· {age} ans</span> : null}
+                      </Link>
+                    ) : (
+                      <span className="font-bold text-sm truncate block">
+                        {c.full_name}
+                        {age !== null ? <span className="font-normal text-ink-3 ml-2">· {age} ans</span> : null}
+                      </span>
+                    )}
                     <div className="text-xs text-ink-2 truncate">
                       {c.email ?? "—"} · {c.phone ?? "—"}
                     </div>
@@ -190,12 +219,18 @@ export default async function TopCandidatesPage(props: {
                       </div>
                     ) : null}
                   </div>
-                  <Link
-                    href={`/rh/candidates/${c.id}`}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-gold-dark hover:underline shrink-0"
-                  >
-                    Fiche <ArrowRight className="h-3 w-3" />
-                  </Link>
+                  {fiche ? (
+                    <Link
+                      href={fiche}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-gold-dark hover:underline shrink-0"
+                    >
+                      Fiche <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-ink-3 shrink-0" title="Candidat sans application associee">
+                      —
+                    </span>
+                  )}
                 </li>
               );
             })}

@@ -601,7 +601,15 @@ export function CandidatesTable({
                   <Link href={`/rh/candidates/${app.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                     <NameAvatar name={app.candidate.full_name} />
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-sm truncate">{app.candidate.full_name}</div>
+                      <div className="font-bold text-sm truncate">
+                        {app.candidate.full_name}
+                        {(() => {
+                          const age = calcAge(app.candidate.birth_date ?? null);
+                          return age !== null ? (
+                            <span className="font-normal text-ink-3 ml-2">· {age} ans</span>
+                          ) : null;
+                        })()}
+                      </div>
                       <div className="text-xs text-ink-3 truncate flex items-center gap-2">
                         <span>{app.candidate.email}</span>
                         {app.candidate.city ? <span>· {app.candidate.city}</span> : null}
