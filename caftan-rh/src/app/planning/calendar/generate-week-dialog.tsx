@@ -70,6 +70,13 @@ export function GenerateWeekDialog({
   const [weeksCount, setWeeksCount] = useState<number>(1);
   const [previews, setPreviews] = useState<PreviewRow[] | null>(null);
   const [phase, setPhase] = useState<"select" | "preview">("select");
+  // Karim 19/05 : date de demarrage choisie. Par defaut = demain (regle J+1).
+  // Permet de generer depuis aujourd'hui si le user veut (apres avoir vide
+  // toute la semaine et veut re-planifier le jour meme).
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  const [startDate, setStartDate] = useState<string>(tomorrowISO);
 
   // Charge les prefs localStorage a l'ouverture (sites + periode)
   useEffect(() => {
@@ -136,7 +143,7 @@ export function GenerateWeekDialog({
       // Pour chaque semaine, preview multi-sites en parallele
       const allRows: PreviewRow[] = [];
       for (const wm of weekMondays) {
-        const r = await previewMultiSitePlanAction(codes, wm);
+        const r = await previewMultiSitePlanAction(codes, wm, startDate);
         for (const it of r.items) {
           const site = sites.find((s) => s.code === it.site_code)!;
           allRows.push({
@@ -281,6 +288,20 @@ export function GenerateWeekDialog({
                   );
                 })}
               </div>
+            </div>
+
+            <div>
+              <h3 className="font-bold text-sm mb-2">🗓️ Démarrer la génération à partir de</h3>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface focus:border-gold outline-none"
+              />
+              <p className="text-[11px] text-ink-3 mt-1">
+                Par défaut : demain (règle J+1). Choisis une date plus tôt pour planifier aujourd'hui même.
+                Les jours <strong>antérieurs</strong> à cette date dans la période ne seront pas générés.
+              </p>
             </div>
 
             <p className="text-[11px] text-ink-3 italic">

@@ -134,6 +134,12 @@ export async function rollbackAutoDraftAction(
 export async function previewMultiSitePlanAction(
   siteCodes: string[],
   weekISO: string,
+  /**
+   * Karim 19/05 : date a partir de laquelle generer. Par defaut J+1 (regle
+   * historique). Permet de forcer la generation sur aujourd hui ou un jour
+   * specifique. Format YYYY-MM-DD.
+   */
+  startDateOverride?: string,
 ): Promise<{
   items: Array<{
     site_code: string;
@@ -224,7 +230,7 @@ export async function previewMultiSitePlanAction(
   }> = [];
 
   for (const code of sortedCodes) {
-    const r = await previewSitePlanAction(code, weekISO, cumulativeDrafts);
+    const r = await previewSitePlanAction(code, weekISO, cumulativeDrafts, startDateOverride);
     if ("error" in r) {
       console.log(`[previewMultiSite] ${code} ${weekISO} ERROR: ${r.error}`);
       results.push({ site_code: code, error: r.error });

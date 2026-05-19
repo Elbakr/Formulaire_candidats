@@ -507,6 +507,13 @@ export async function previewSitePlanAction(
    * vides). Avec : repartition equitable.
    */
   additionalExistingShifts?: ExistingShift[],
+  /**
+   * Karim 19/05 : date a partir de laquelle generer (format YYYY-MM-DD).
+   * Si null/undefined -> J+1 (default historique). Si fournie, override la
+   * regle "ne pas planifier aujourd hui". Permet de generer le jour meme
+   * apres un vidage massif.
+   */
+  startDateOverride?: string,
 ): Promise<SitePlanPreview | { error: string }> {
   await requireRole(["admin", "rh", "manager"]);
 
@@ -607,7 +614,9 @@ export async function previewSitePlanAction(
   // des jours critiques reste assure par combinedMult (holiday + crescendo +
   // pont + seasonal) qui gonfle le headcount sur ces jours specifiquement.
   // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1.
-  const tomorrowISO = toISODate(addDays(new Date(), 1));
+  // Karim 19/05 : startDateOverride permet de demarrer plus tot que J+1
+  // (ex : re-planifier aujourd hui apres un vidage massif).
+  const tomorrowISO = startDateOverride ?? toISODate(addDays(new Date(), 1));
 
   const allHolidaysForCrescendo = allHolidays.map((h) => ({
     date: h.date,

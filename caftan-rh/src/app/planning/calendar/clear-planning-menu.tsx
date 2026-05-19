@@ -69,10 +69,18 @@ export function ClearPlanningMenu({
     startTransition(async () => {
       const r = await clearShiftsByModeAction({ mode, siteId, employeeId });
       if (r.error) {
-        toast.error(r.error);
+        toast.error(`Erreur : ${r.error}`, { duration: 10000 });
         return;
       }
-      toast.success(`${r.deleted} shift${(r.deleted ?? 0) > 1 ? "s" : ""} supprimé${(r.deleted ?? 0) > 1 ? "s" : ""}.`);
+      const n = r.deleted ?? 0;
+      if (n === 0) {
+        toast.warning(
+          "Aucun shift à supprimer (la portée choisie était déjà vide).",
+          { duration: 6000 },
+        );
+      } else {
+        toast.success(`${n} shift${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""}.`);
+      }
       setConfirmMode(null);
       router.refresh();
     });
