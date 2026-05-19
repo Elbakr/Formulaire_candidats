@@ -352,9 +352,19 @@ export async function clearShiftsByModeAction({
   console.log(`[clearShiftsByMode] ${matched} rows matchees pour le criteria.`);
 
   // 2. DELETE
+  // Karim 19/05 : Supabase / PG bloque le DELETE sans WHERE pour securite
+  // ('DELETE requires a WHERE clause'). Pour le mode 'all' sans scope, on
+  // ajoute explicitement un WHERE qui matche tout (date depuis 1900).
   let query = supabase.from("shifts").delete({ count: "exact" });
-  if (mode === "after_today") query = query.gte("date", tomorrowISO);
-  else if (mode === "until_today") query = query.lte("date", todayISO);
+  if (mode === "after_today") {
+    query = query.gte("date", tomorrowISO);
+  } else if (mode === "until_today") {
+    query = query.lte("date", todayISO);
+  } else {
+    // mode === "all" : pas de filtre date, mais on doit AVOIR un WHERE.
+    // 'date >= 1900-01-01' matche toutes les rows existantes en pratique.
+    query = query.gte("date", "1900-01-01");
+  }
   if (siteId) query = query.eq("site_id", siteId);
   if (employeeId) query = query.eq("employee_id", employeeId);
   const { error, count } = await query;
