@@ -11,6 +11,7 @@ import {
 } from "@/lib/planning";
 import { AllSitesBoard, type AllSitesShift, type AllSitesSite, type SiteDayNeedRow } from "./board";
 import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
+import { SiteCoverageStrip } from "@/app/planning/calendar/site-coverage-strip";
 
 const VALID_WEEKS = new Set(["1", "2", "4", "12"]);
 
@@ -132,6 +133,8 @@ export default async function AllSitesPage(props: {
           <ClearPlanningMenu />
         </div>
       </div>
+
+      <SiteCoverageStrip weekISO={toISODate(monday)} />
 
       {weekBlocks.map((wb, idx) => {
         const wMonday = parseISODate(wb.mondayISO);

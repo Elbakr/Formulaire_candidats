@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WeeklyPlanningBoard } from "./weekly-board";
 import { WeekActionsBar } from "./week-actions-bar";
+import { SiteCoverageStrip } from "./site-coverage-strip";
 
 export default async function PlanningCalendarPage(
   props: { searchParams: Promise<{ week?: string }> },
@@ -61,7 +62,7 @@ export default async function PlanningCalendarPage(
       .order("start_date"),
     supabase
       .from("sites")
-      .select("id, code, name, color")
+      .select("id, code, name, color, abbr")
       .eq("is_active", true)
       .order("sort_order"),
     supabase
@@ -182,6 +183,7 @@ export default async function PlanningCalendarPage(
           </div>
         </Card>
       ) : null}
+      <SiteCoverageStrip weekISO={toISODate(monday)} />
       <WeeklyPlanningBoard
         mondayISO={toISODate(monday)}
         employees={employeesWithSites as never}

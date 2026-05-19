@@ -262,26 +262,65 @@ export function AllSitesBoard({
               <div className="hidden md:flex items-end px-2 pb-2 text-[10px] uppercase tracking-wider font-bold text-ink-3">
                 Jour
               </div>
-              {sites.map((site) => (
+              {sites.map((site) => {
+                // Karim 19/05 : agrege la couverture sur les 7 jours pour
+                // afficher un score % par site au-dessus de la colonne.
+                let totalReq = 0;
+                let totalAct = 0;
+                let totalMissing = 0;
+                let daysNeeded = 0;
+                for (let i = 0; i < 7; i++) {
+                  const d = days[i];
+                  const dISO = toISODate(d);
+                  const dayJsDow = d.getDay();
+                  const cov = coverageFor(site.id, dISO, dayJsDow);
+                  if (cov.requiredHeadcount > 0) daysNeeded += 1;
+                  totalReq += cov.requiredHeadcount;
+                  totalAct += cov.actualHeadcount;
+                  totalMissing += cov.missing;
+                }
+                const pct = totalReq > 0 ? Math.round((Math.min(totalAct, totalReq) / totalReq) * 100) : 100;
+                const tone =
+                  totalReq === 0 ? "bg-ink-3/20 text-ink-3"
+                    : pct >= 100 ? "bg-success text-white"
+                    : pct >= 70 ? "bg-gold text-[#1a1a0d]"
+                    : pct >= 30 ? "bg-warn text-white"
+                    : "bg-danger text-white";
+                return (
                 <div
                   key={`hdr-${site.id}`}
-                  className="hidden md:flex items-center gap-2 px-3 py-2 rounded-md border border-line"
+                  className="hidden md:flex flex-col gap-1 px-3 py-2 rounded-md border border-line"
                   style={{ backgroundColor: site.light_color ?? undefined }}
                 >
-                  <span
-                    className="inline-flex items-center justify-center h-7 w-7 rounded-md text-white font-bold text-xs shrink-0"
-                    style={{ backgroundColor: site.color ?? "#666" }}
-                  >
-                    {site.abbr ?? site.code}
-                  </span>
-                  <Link
-                    href={`/planning/sites/${site.code}`}
-                    className="font-bold text-sm hover:text-gold-dark truncate"
-                  >
-                    {site.name}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-md text-white font-bold text-xs shrink-0"
+                      style={{ backgroundColor: site.color ?? "#666" }}
+                    >
+                      {site.abbr ?? site.code}
+                    </span>
+                    <Link
+                      href={`/planning/sites/${site.code}`}
+                      className="font-bold text-sm hover:text-gold-dark truncate"
+                    >
+                      {site.name}
+                    </Link>
+                  </div>
+                  {totalReq > 0 ? (
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className={`px-1.5 py-0.5 rounded font-bold ${tone}`} title={`Couverture semaine`}>
+                        {totalAct}/{totalReq} · {pct}%
+                      </span>
+                      {totalMissing > 0 ? (
+                        <span className="text-danger font-bold">−{totalMissing} manque{totalMissing > 1 ? "nt" : ""}</span>
+                      ) : (
+                        <span className="text-success font-bold">✓ couvert</span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
 
               {days.map((d, dayIdx) => {
                 const dISO = toISODate(d);
