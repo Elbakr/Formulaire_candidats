@@ -177,7 +177,7 @@ export async function generateEmployeeWeekPlanAction(args: {
     // des OT sur les creneaux non couverts (2eme gen / coverage gap).
     supabase
       .from("site_needs")
-      .select("id, site_id, day_of_week, start_time, end_time, headcount, is_critical, is_enabled")
+      .select("id, site_id, day_of_week, start_time, end_time, headcount, role, is_critical, is_enabled")
       .eq("is_enabled", true),
   ]);
 
@@ -373,26 +373,97 @@ export async function generateEmployeeWeekPlanAction(args: {
   const startMin = timeToMin(startTime.slice(0, 5));
   const breakMin = emp.default_pause_minutes ?? 30;
 
+  // Karim 19/05 v2 : on PRIVILEGIE les site_needs exactes pour chaque jour.
+  // Si l employe a un site primaire et que des needs ouverts existent ce
+  // jour-la, on cree le shift EXACTEMENT sur le creneau du need (start_time
+  // / end_time du need, pas un creneau libre). Si pas de need ou tous deja
+  // satures par d autres shifts, on fallback en mode libre.
+  const needsByDayForPrimary = new Map<number, Array<{ id: string; start_time: string; end_time: string; headcount: number; role: string | null }>>();
+  if (primarySiteId) {
+    for (const n of (siteNeedsRaw ?? []) as Array<{ id: string; site_id: string; day_of_week: number; start_time: string; end_time: string; headcount: number; role: string | null; is_enabled: boolean }>) {
+      if (n.site_id !== primarySiteId || !n.is_enabled) continue;
+      const arr = needsByDayForPrimary.get(n.day_of_week) ?? [];
+      arr.push({ id: n.id, start_time: n.start_time, end_time: n.end_time, headcount: n.headcount, role: n.role });
+      needsByDayForPrimary.set(n.day_of_week, arr);
+    }
+  }
+  // Combien d employes autres deja sur chaque (need_id, dateISO) ?
+  // Approximation : on compte les shifts existants au site primaire dont
+  // [start, end] chevauche le creneau du need a cette date.
+  function alreadyOnNeed(need: { start_time: string; end_time: string }, dateISO: string): number {
+    return allWeekShifts.filter(
+      (s) =>
+        s.date === dateISO &&
+        s.start_time.slice(0, 5) === need.start_time.slice(0, 5) &&
+        s.end_time.slice(0, 5) === need.end_time.slice(0, 5),
+    ).length;
+  }
+
   // Distribue : on remplit jusqu'a saturation du quota
   const drafts: EmpPlanDraft[] = [];
   let remaining = remainingTarget;
   let blockedByPartialUnavail = 0;
+  let needsUsed = 0;
+  let fallbackUsed = 0;
   for (const c of limitedCandidates) {
     if (remaining <= 0.01) break;
+
+    // Karim 19/05 v2 : tente de placer sur un site_need exact du jour.
+    const dayNeeds = (needsByDayForPrimary.get(c.jsDow) ?? [])
+      .filter((n) => alreadyOnNeed(n, c.dateISO) < n.headcount)
+      .sort((a, b) => {
+        // Privilegie les longs creneaux (plus de quota brule en 1 shift)
+        const aH = (timeToMin(b.end_time.slice(0, 5)) - timeToMin(b.start_time.slice(0, 5)));
+        const bH = (timeToMin(a.end_time.slice(0, 5)) - timeToMin(a.start_time.slice(0, 5)));
+        return aH - bH;
+      });
+
+    let placedFromNeed = false;
+    for (const need of dayNeeds) {
+      if (remaining <= 0.01) break;
+      const nStart = timeToMin(need.start_time.slice(0, 5));
+      const nEnd = timeToMin(need.end_time.slice(0, 5));
+      // Vrai check indispo partielle : on ne place que si aucun chevauchement
+      const partials = partialUnavailBlocksForDay(c.jsDow, c.dateISO);
+      const conflict = partials.some((p) => {
+        const pS = timeToMin(p.s.slice(0, 5));
+        const pE = timeToMin(p.e.slice(0, 5));
+        return nEnd > pS && nStart < pE;
+      });
+      if (conflict) continue;
+      // Duree nette (avec pause)
+      const grossH = (nEnd - nStart) / 60;
+      const netH = Math.max(0.5, grossH - breakMin / 60);
+      // Karim 19/05 : on accepte de leger debordement du quota pour respecter
+      // le creneau exact du besoin. Pas de fractionnement du besoin (le shift
+      // doit coller exactement au site_need, c est la regle Karim).
+      drafts.push({
+        date: c.dateISO,
+        start_time: need.start_time.slice(0, 5) + ":00",
+        end_time: need.end_time.slice(0, 5) + ":00",
+        break_minutes: breakMin,
+        site_id: primarySiteId,
+        is_overtime: false,
+        hours: netH,
+        generation_note: `Génération individuelle ${emp.full_name} · Shift COLLE sur site_need #${need.id.slice(0, 8)} (${need.start_time.slice(0, 5)}-${need.end_time.slice(0, 5)}, ${need.role ?? "?"}) · ${grossH.toFixed(1)}h brut, ${netH.toFixed(1)}h net pause ${breakMin}min`,
+      });
+      remaining -= netH;
+      needsUsed += 1;
+      placedFromNeed = true;
+      break; // 1 need par jour pour cet employe (sinon il faudrait gerer overlap)
+    }
+    if (placedFromNeed) continue;
+
+    // FALLBACK : aucun site_need exploitable -> shift libre comme avant
     const dayHours = Math.min(shiftHours, remaining);
     if (dayHours < 1) break; // pas de mini-shift < 1h
 
-    // Karim 15/05 v2 : ajuste startMin si une indispo PARTIELLE (ex: cours
-    // dimanche 10:00-12:45) chevauche le creneau propose. On pousse le
-    // shift APRES la fin de l indispo. Si plusieurs blocs, on prend le
-    // plus tardif qui chevauche.
     const partials = partialUnavailBlocksForDay(c.jsDow, c.dateISO);
     let effStartMin = startMin;
     const propEndMin = effStartMin + Math.round(dayHours * 60) + breakMin;
     for (const p of partials) {
       const pS = timeToMin(p.s.slice(0, 5));
       const pE = timeToMin(p.e.slice(0, 5));
-      // Overlap si propEnd > pS et effStart < pE
       if (propEndMin > pS && effStartMin < pE) {
         effStartMin = Math.max(effStartMin, pE);
       }
@@ -400,11 +471,12 @@ export async function generateEmployeeWeekPlanAction(args: {
     const endMin = effStartMin + Math.round(dayHours * 60) + breakMin;
     if (endMin >= 24 * 60) {
       blockedByPartialUnavail += 1;
-      continue; // ne pas deborder a cause de l indispo
+      continue;
     }
+    fallbackUsed += 1;
     // Karim 19/05 : note explicative pour audit RH
     const noteSegments = [
-      `Génération individuelle (fiche employé ${emp.full_name})`,
+      `Génération individuelle (fiche employé ${emp.full_name}) · MODE LIBRE (aucun site_need utilisable ce jour)`,
       `Quota hebdo ${emp.weekly_hours ?? "?"}h · déjà planifié ${((emp.weekly_hours ?? 0) - remainingTarget).toFixed(1)}h · reste ${remainingTarget.toFixed(1)}h`,
       `Distribution sur ${limitedCandidates.length} jour(s) dispo · ${shiftHours}h/jour`,
     ];
@@ -427,6 +499,12 @@ export async function generateEmployeeWeekPlanAction(args: {
   if (blockedByPartialUnavail > 0) {
     warnings.push(
       `${blockedByPartialUnavail} jour(s) ecarte(s) car les indispos partielles ne laissent pas la place pour un shift complet.`,
+    );
+  }
+
+  if (needsUsed > 0 || fallbackUsed > 0) {
+    warnings.push(
+      `Mode shifts : ${needsUsed} collés sur site_needs exactes, ${fallbackUsed} en mode libre (aucun besoin site exploitable).`,
     );
   }
 
