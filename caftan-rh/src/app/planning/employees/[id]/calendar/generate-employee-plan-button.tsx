@@ -95,41 +95,51 @@ export function GenerateEmployeePlanButton({
     const weeks = computeWeeks(period, weekISO, startDate);
     setMultiProgress(weeks.length > 1 ? { done: 0, total: weeks.length } : null);
     startTransition(async () => {
-      // Aggrege les previews de toutes les semaines selectionnees.
-      let agg: EmpPlanPreview | null = null;
       const shiftH = shiftHoursPerDay ? Number(shiftHoursPerDay) : undefined;
       const maxD = maxDaysPerWeek ? Number(maxDaysPerWeek) : undefined;
-      for (let i = 0; i < weeks.length; i++) {
-        const w = weeks[i];
-        const r = await generateEmployeeWeekPlanAction({
-          employeeId, weekISO: w, startDate,
-          shiftHoursPerDay: shiftH && Number.isFinite(shiftH) && shiftH > 0 ? shiftH : undefined,
-          maxDaysPerWeek: maxD && Number.isFinite(maxD) && maxD > 0 ? maxD : undefined,
-          startTimeOverride: /^\d{2}:\d{2}$/.test(startTimeOverride) ? startTimeOverride : undefined,
-        });
+      // Karim 19/05 : PARALLELISE les appels par semaine (avant : sequentiel,
+      // 4 semaines x ~2s = 8s d attente). Le solver est independant par semaine
+      // (chaque semaine a son propre quota hebdo) -> safe a paralleliser.
+      const opts = {
+        employeeId,
+        startDate,
+        shiftHoursPerDay: shiftH && Number.isFinite(shiftH) && shiftH > 0 ? shiftH : undefined,
+        maxDaysPerWeek: maxD && Number.isFinite(maxD) && maxD > 0 ? maxD : undefined,
+        startTimeOverride: /^\d{2}:\d{2}$/.test(startTimeOverride) ? startTimeOverride : undefined,
+      } as const;
+      let doneCount = 0;
+      const promises = weeks.map((w) =>
+        generateEmployeeWeekPlanAction({ ...opts, weekISO: w }).then((r) => {
+          doneCount++;
+          if (weeks.length > 1) setMultiProgress({ done: doneCount, total: weeks.length });
+          return { w, r };
+        }),
+      );
+      const settled = await Promise.all(promises);
+
+      // Agrege dans l ordre chronologique (preserve l ordre des semaines)
+      let agg: EmpPlanPreview | null = null;
+      for (const { w, r } of settled) {
         if (r.error) {
           toast.error(`Semaine du ${w} : ${r.error}`);
           continue;
         }
-        if (r.preview) {
-          if (!agg) {
-            agg = { ...r.preview, drafts: [...r.preview.drafts] };
-            agg.reclassifications = [...(agg.reclassifications ?? [])];
-            agg.ot_proposals = [...(agg.ot_proposals ?? [])];
-            agg.warnings = [...agg.warnings];
-          } else {
-            agg.drafts.push(...r.preview.drafts);
-            agg.reclassifications = [...(agg.reclassifications ?? []), ...(r.preview.reclassifications ?? [])];
-            agg.ot_proposals = [...(agg.ot_proposals ?? []), ...(r.preview.ot_proposals ?? [])];
-            agg.total_drafts_hours += r.preview.total_drafts_hours;
-            agg.total_reclassified_hours += r.preview.total_reclassified_hours;
-            agg.total_ot_proposed_hours += r.preview.total_ot_proposed_hours;
-            agg.available_days += r.preview.available_days;
-            // Dedupe warnings (identiques au fil des semaines)
-            for (const w2 of r.preview.warnings) if (!agg.warnings.includes(w2)) agg.warnings.push(w2);
-          }
+        if (!r.preview) continue;
+        if (!agg) {
+          agg = { ...r.preview, drafts: [...r.preview.drafts] };
+          agg.reclassifications = [...(agg.reclassifications ?? [])];
+          agg.ot_proposals = [...(agg.ot_proposals ?? [])];
+          agg.warnings = [...agg.warnings];
+        } else {
+          agg.drafts.push(...r.preview.drafts);
+          agg.reclassifications = [...(agg.reclassifications ?? []), ...(r.preview.reclassifications ?? [])];
+          agg.ot_proposals = [...(agg.ot_proposals ?? []), ...(r.preview.ot_proposals ?? [])];
+          agg.total_drafts_hours += r.preview.total_drafts_hours;
+          agg.total_reclassified_hours += r.preview.total_reclassified_hours;
+          agg.total_ot_proposed_hours += r.preview.total_ot_proposed_hours;
+          agg.available_days += r.preview.available_days;
+          for (const w2 of r.preview.warnings) if (!agg.warnings.includes(w2)) agg.warnings.push(w2);
         }
-        setMultiProgress(weeks.length > 1 ? { done: i + 1, total: weeks.length } : null);
       }
       if (agg) setPreview(agg);
       else if (weeks.length > 0) toast.error("Aucun preview généré.");
