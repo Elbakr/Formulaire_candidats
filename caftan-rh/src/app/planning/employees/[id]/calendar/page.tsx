@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Printer, ArrowLeft, LifeBuoy } from "lucide-react";
+
+// Karim 19/05 : force-dynamic pour assurer coherence avec Vue d ensemble.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

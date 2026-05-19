@@ -1,5 +1,5 @@
 /* CaftanRH Service Worker — vanilla, no Workbox */
-const CACHE_VERSION = "caftanrh-shell-v15-force-quota";
+const CACHE_VERSION = "caftanrh-shell-v16-coherence";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

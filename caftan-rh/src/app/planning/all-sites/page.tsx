@@ -13,6 +13,11 @@ import { AllSitesBoard, type AllSitesShift, type AllSitesSite, type SiteDayNeedR
 import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 import { SiteCoverageStrip } from "@/app/planning/calendar/site-coverage-strip";
 
+// Karim 19/05 : force-dynamic pour eviter incoherence cache vs Planning
+// individuel (les 2 vues doivent toujours afficher les memes shifts).
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const VALID_WEEKS = new Set(["1", "2", "4", "12"]);
 
 export default async function AllSitesPage(props: {
@@ -60,11 +65,11 @@ export default async function AllSitesPage(props: {
     const wStart = toISODate(wMonday);
     const wEnd = toISODate(addDays(wMonday, 6));
     const weekShifts = allShifts.filter((s) => s.date >= wStart && s.date <= wEnd);
-    const sitesWithShifts = new Set(
-      weekShifts.map((s) => s.site_id).filter((v): v is string => Boolean(v)),
-    );
-    const sites = allSites.filter((s) => sitesWithShifts.has(s.id));
-    return { mondayISO: wStart, endISO: wEnd, sites, shifts: weekShifts };
+    // Karim 19/05 : on affiche TOUS les sites actifs (meme ceux sans shift)
+    // pour la coherence avec le Planning individuel. Auparavant on filtrait
+    // sur les sites avec >=1 shift, ce qui faisait disparaitre les sites vides
+    // et donnait l impression de divergence entre les 2 vues.
+    return { mondayISO: wStart, endISO: wEnd, sites: allSites, shifts: weekShifts };
   });
 
   const prevWeek = toISODate(addDays(monday, -7));

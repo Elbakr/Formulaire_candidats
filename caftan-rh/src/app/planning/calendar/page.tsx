@@ -8,6 +8,12 @@ import { WeeklyPlanningBoard } from "./weekly-board";
 import { WeekActionsBar } from "./week-actions-bar";
 import { SiteCoverageStrip } from "./site-coverage-strip";
 
+// Karim 19/05 : force-dynamic pour assurer coherence Planning semaine
+// vs Vue d ensemble vs Planning individuel (toutes 3 doivent toujours
+// montrer les memes shifts en DB).
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function PlanningCalendarPage(
   props: { searchParams: Promise<{ week?: string }> },
 ) {
