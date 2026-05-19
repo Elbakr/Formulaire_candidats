@@ -1,64 +1,26 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles, MapPin, Languages, Calendar, User, Mail } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
-import { CopyEmailsButton } from "./copy-emails-button";
+import { TopCandidatesList, type TopCandidateRow } from "./top-candidates-list";
 
-// Karim 18/05 : "denicher les meilleurs profils de la facon la plus
-// intelligente qui soit". Page dediee qui liste les candidats tries
-// par match_score DESC avec breakdown visuel + filtres par poste.
+// Karim 18/05 : "denicher les meilleurs profils".
+// Karim 19/05 : selection multi + bulk mail via EmailJS (remplace l ancien
+// mailto BCC qui ouvrait Outlook).
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type CandidateRow = {
+type RawCandidate = {
   id: string;
   full_name: string;
   email: string | null;
   phone: string | null;
-  city: string | null;
   birth_date: string | null;
-  applied_at: string | null;
   match_score: number | null;
-  match_breakdown: {
-    proximity: number;
-    languages: number;
-    age: number;
-    freshness: number;
-    city_label: string;
-    age_value: number | null;
-    langs_summary: string;
-    days_since_applied: number | null;
-  } | null;
+  match_breakdown: TopCandidateRow["match_breakdown"];
   applications: Array<{ id: string }> | null;
 };
-
-function calcAge(birthDate: string | null): number | null {
-  if (!birthDate) return null;
-  const d = new Date(birthDate);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  const m = now.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
-  return age >= 0 && age < 120 ? age : null;
-}
-
-function scoreColor(score: number | null): string {
-  if (score === null) return "bg-ink-3/20 text-ink-3";
-  if (score >= 80) return "bg-success text-white";
-  if (score >= 60) return "bg-gold text-[#1a1a0d]";
-  if (score >= 40) return "bg-warn text-white";
-  return "bg-ink-3/30 text-ink-3";
-}
-
-function scoreLabel(score: number | null): string {
-  if (score === null) return "Non scoré";
-  if (score >= 80) return "Excellent";
-  if (score >= 60) return "Bon";
-  if (score >= 40) return "Moyen";
-  return "Faible";
-}
 
 export default async function TopCandidatesPage(props: {
   searchParams: Promise<{ min?: string; limit?: string }>;
@@ -69,21 +31,27 @@ export default async function TopCandidatesPage(props: {
   const limitN = Math.min(200, Math.max(10, Number(limit ?? "50")));
 
   const supabase = await createClient();
-  // Join applications pour avoir l application.id (la page /rh/candidates/[id]
-  // attend application.id, pas candidate.id -- Karim 18/05 : 404 sinon).
   const { data: candidates } = await supabase
     .from("candidates")
     .select(
-      "id, full_name, email, phone, city, birth_date, applied_at, match_score, match_breakdown, applications:applications(id)",
+      "id, full_name, email, phone, birth_date, match_score, match_breakdown, applications:applications(id)",
     )
     .gte("match_score", minScore)
     .order("match_score", { ascending: false })
     .order("applied_at", { ascending: false })
     .limit(limitN);
 
-  const rows = (candidates ?? []) as CandidateRow[];
+  const rows: TopCandidateRow[] = ((candidates ?? []) as RawCandidate[]).map((c) => ({
+    id: c.id,
+    full_name: c.full_name,
+    email: c.email,
+    phone: c.phone,
+    birth_date: c.birth_date,
+    match_score: c.match_score,
+    match_breakdown: c.match_breakdown,
+    application_id: c.applications?.[0]?.id ?? null,
+  }));
 
-  // Comptes par bande
   const { data: stats } = await supabase
     .from("candidates")
     .select("match_score")
@@ -97,7 +65,7 @@ export default async function TopCandidatesPage(props: {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-24">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -105,12 +73,11 @@ export default async function TopCandidatesPage(props: {
             Top profils
           </h1>
           <p className="text-sm text-ink-2">
-            Classement intelligent sur 4 axes : proximité, langues, âge, fraîcheur. Score sur 100.
+            Classement intelligent sur 4 axes : proximité, langues, âge, fraîcheur. Coche pour mail bulk.
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs flex-wrap">
-          <CopyEmailsButton emails={rows.map((c) => c.email ?? "").filter(Boolean)} />
-          <span className="text-ink-3 ml-2">Seuil :</span>
+          <span className="text-ink-3">Seuil :</span>
           {[40, 60, 70, 80].map((v) => (
             <Link
               key={v}
@@ -152,96 +119,11 @@ export default async function TopCandidatesPage(props: {
         </Card>
       </div>
 
-      <Card>
-        <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2 border-b border-line">
-          {rows.length} candidat{rows.length > 1 ? "s" : ""} affiché{rows.length > 1 ? "s" : ""} · score ≥ {minScore}
-        </div>
-        {rows.length === 0 ? (
-          <div className="p-8 text-center text-sm text-ink-3">
-            Aucun candidat avec un score ≥ {minScore}. Baisse le seuil ou relance le recalcul des scores.
-          </div>
-        ) : (
-          <ul>
-            {rows.map((c, idx) => {
-              const b = c.match_breakdown;
-              const age = calcAge(c.birth_date);
-              // Recupere l application.id : le 1er trouve, ou fallback null.
-              const appId = c.applications?.[0]?.id ?? null;
-              const fiche = appId ? `/rh/candidates/${appId}` : null;
-              return (
-                <li
-                  key={c.id}
-                  className="flex items-center gap-3 p-3 border-b border-line last:border-b-0 hover:bg-surface-2 transition-colors"
-                >
-                  <div className="text-xs font-mono text-ink-3 w-6 text-right">{idx + 1}</div>
-                  <div
-                    className={`flex items-center justify-center w-12 h-12 rounded-full font-bold text-sm ${scoreColor(c.match_score)}`}
-                    title={scoreLabel(c.match_score)}
-                  >
-                    {c.match_score ?? "—"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    {fiche ? (
-                      <Link
-                        href={fiche}
-                        className="font-bold text-sm hover:text-gold-dark truncate block"
-                      >
-                        {c.full_name}
-                        {age !== null ? <span className="font-normal text-ink-3 ml-2">· {age} ans</span> : null}
-                      </Link>
-                    ) : (
-                      <span className="font-bold text-sm truncate block">
-                        {c.full_name}
-                        {age !== null ? <span className="font-normal text-ink-3 ml-2">· {age} ans</span> : null}
-                      </span>
-                    )}
-                    <div className="text-xs text-ink-2 truncate">
-                      {c.email ?? "—"} · {c.phone ?? "—"}
-                    </div>
-                    {b ? (
-                      <div className="flex flex-wrap gap-2 mt-1 text-[10px]">
-                        <span className="inline-flex items-center gap-1 text-ink-3">
-                          <MapPin className="h-3 w-3" />
-                          {b.city_label} ({b.proximity}/25)
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-ink-3">
-                          <Languages className="h-3 w-3" />
-                          {b.langs_summary} ({b.languages}/25)
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-ink-3">
-                          <User className="h-3 w-3" />
-                          {b.age_value ?? "?"} ans ({b.age}/25)
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-ink-3">
-                          <Calendar className="h-3 w-3" />
-                          {b.days_since_applied ?? "?"}j ({b.freshness}/25)
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-                  {fiche ? (
-                    <Link
-                      href={fiche}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-gold-dark hover:underline shrink-0"
-                    >
-                      Fiche <ArrowRight className="h-3 w-3" />
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-ink-3 shrink-0" title="Candidat sans application associee">
-                      —
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+      <TopCandidatesList rows={rows} />
 
       <div className="text-[11px] text-ink-3">
         Barème (100 pts) : Proximité 25 + Langues 25 + Âge 25 + Fraîcheur 25.
         Recalcul périodique via <code className="font-mono">scripts/recompute-candidate-scores.mjs</code>.
-        La fraîcheur évolue tous les jours, relance régulièrement.
       </div>
     </div>
   );
