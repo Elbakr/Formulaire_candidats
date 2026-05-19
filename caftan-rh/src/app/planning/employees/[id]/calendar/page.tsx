@@ -20,6 +20,7 @@ import { QuotaOverrunBanner } from "./quota-overrun-banner";
 import { GenerateEmployeePlanButton } from "./generate-employee-plan-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
+import { EmployeeAutoFillButton } from "@/app/planning/employees/[id]/auto-fill-button";
 
 type View = "week" | "month" | "year";
 
@@ -175,6 +176,10 @@ export default async function EmployeeCalendarPage(props: {
                   weekISO={toISODate(rangeStart)}
                 />
               ) : null}
+              <EmployeeAutoFillButton
+                employeeId={employee.id}
+                weekISO={toISODate(rangeStart)}
+              />
               <ClearWeekButton
                 weekISO={toISODate(rangeStart)}
                 employeeId={employee.id}
