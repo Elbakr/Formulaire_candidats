@@ -15,6 +15,7 @@ type EmpRow = {
   default_start_time: string | null;
   default_shift_hours: number | null;
   ot_eligible: boolean | null;
+  force_full_quota: boolean | null;
 };
 
 export type EmpPlanDraft = {
@@ -134,7 +135,7 @@ export async function generateEmployeeWeekPlanAction(args: {
   ] = await Promise.all([
     supabase
       .from("employees")
-      .select("id, full_name, status, weekly_hours, fixed_off_days, default_pause_minutes, default_start_time, default_shift_hours, ot_eligible")
+      .select("id, full_name, status, weekly_hours, fixed_off_days, default_pause_minutes, default_start_time, default_shift_hours, ot_eligible, force_full_quota")
       .eq("id", employeeId)
       .maybeSingle(),
     supabase
@@ -505,6 +506,74 @@ export async function generateEmployeeWeekPlanAction(args: {
   if (needsUsed > 0 || fallbackUsed > 0) {
     warnings.push(
       `Mode shifts : ${needsUsed} collés sur site_needs exactes, ${fallbackUsed} en mode libre (aucun besoin site exploitable).`,
+    );
+  }
+
+  // Karim 19/05 : si force_full_quota actif et qu il reste des heures non
+  // placees, on FORCE un second passage qui ignore les contraintes habituelles :
+  //  - skip fixed_off_days (l employe travaille meme ses jours OFF)
+  //  - accepte mini-shifts < 1h
+  //  - allonge le dernier shift cree si possible
+  let forcedExtra = 0;
+  if ((emp.force_full_quota ?? false) && remaining > 0.5) {
+    // Stratégie 1 : allonger le dernier shift cree (s il y en a un)
+    if (drafts.length > 0 && remaining > 0.01) {
+      const last = drafts[drafts.length - 1];
+      const [eH, eM] = last.end_time.split(":").map(Number);
+      const lastEndMin = eH * 60 + eM;
+      const extraMin = Math.min(remaining * 60, 24 * 60 - lastEndMin - 1);
+      if (extraMin > 5) {
+        const newEndMin = lastEndMin + extraMin;
+        const nH = Math.floor(newEndMin / 60);
+        const nM = newEndMin % 60;
+        last.end_time = `${String(nH).padStart(2, "0")}:${String(nM).padStart(2, "0")}:00`;
+        last.hours += extraMin / 60;
+        last.generation_note = (last.generation_note ?? "") + ` · 🔒 force_full_quota : rallongé de ${(extraMin/60).toFixed(2)}h pour saturer le quota`;
+        forcedExtra += extraMin / 60;
+        remaining -= extraMin / 60;
+      }
+    }
+    // Stratégie 2 : ajouter des shifts sur les jours OFF (skip fixed_off)
+    if (remaining > 0.5) {
+      // Reconstruit la liste de jours dispo SANS le filtre off
+      for (let i = 0; i < 7; i++) {
+        if (remaining <= 0.5) break;
+        const dayDate = addDays(monday, i);
+        const dateISO = toISODate(dayDate);
+        if (dateISO < tomorrowISO) continue;
+        // Skip si l employe a deja un shift ce jour
+        if (drafts.some((d) => d.date === dateISO)) continue;
+        if (allWeekShifts.some((s) => s.employee_id === employeeId && s.date === dateISO)) continue;
+        // Skip si conge ou ferme
+        const inLeave = (leavesRaw ?? []).some((l) => {
+          const lr = l as { start_date: string; end_date: string };
+          return dateISO >= lr.start_date && dateISO <= lr.end_date;
+        });
+        if (inLeave) continue;
+        // Cree un shift libre de min(remaining, defaultShift)
+        const h = Math.min(defaultShift, remaining);
+        const hMin = Math.round(h * 60);
+        const endMin = startMin + hMin + breakMin;
+        if (endMin >= 24 * 60) continue;
+        drafts.push({
+          date: dateISO,
+          start_time: minToHHMM(startMin) + ":00",
+          end_time: minToHHMM(endMin) + ":00",
+          break_minutes: breakMin,
+          site_id: primarySiteId,
+          is_overtime: false,
+          hours: h,
+          generation_note: `🔒 force_full_quota : shift force sur ${dateISO} (jour OFF habituel) pour saturer quota`,
+        });
+        forcedExtra += h;
+        remaining -= h;
+      }
+    }
+  }
+
+  if (forcedExtra > 0) {
+    warnings.push(
+      `🔒 force_full_quota actif : +${forcedExtra.toFixed(1)}h forcees (shift rallonge + jours OFF utilises).`,
     );
   }
 

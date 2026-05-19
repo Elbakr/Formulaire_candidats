@@ -21,6 +21,8 @@ export type EmployeeBulkPatch = {
    *  + cap OT eleve (manager x2.0, responsable magasin x2.5). */
   is_manager?: boolean;
   is_site_manager?: boolean;
+  /** Karim 19/05 : si TRUE, force le solver a saturer tout le quota. */
+  force_full_quota?: boolean;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -35,6 +37,7 @@ const ALLOWED_FIELDS = new Set<keyof EmployeeBulkPatch>([
   "ot_max_multiplier",
   "is_manager",
   "is_site_manager",
+  "force_full_quota",
   "fixed_off_days",
   "preferred_site_ids",
   "unavailable_site_ids",

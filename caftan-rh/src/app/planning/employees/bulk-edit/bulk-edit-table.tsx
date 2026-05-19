@@ -25,6 +25,7 @@ export type EmpRow = {
   ot_max_multiplier: number | null;
   is_manager: boolean | null;
   is_site_manager: boolean | null;
+  force_full_quota: boolean | null;
   fixed_off_days: number[] | null;
   preferred_site_ids: string[] | null;
   unavailable_site_ids: string[] | null;
@@ -55,6 +56,7 @@ type Edits = {
   ot_max_multiplier?: number;
   is_manager?: boolean;
   is_site_manager?: boolean;
+  force_full_quota?: boolean;
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
@@ -97,6 +99,7 @@ export function BulkEditTable({
       case "ot_max_multiplier": return (emp.ot_max_multiplier ?? 1.0) as Edits[K];
       case "is_manager": return (emp.is_manager ?? false) as Edits[K];
       case "is_site_manager": return (emp.is_site_manager ?? false) as Edits[K];
+      case "force_full_quota": return (emp.force_full_quota ?? false) as Edits[K];
       case "fixed_off_days": return (emp.fixed_off_days ?? []) as Edits[K];
       case "preferred_site_ids": return (emp.preferred_site_ids ?? []) as Edits[K];
       case "unavailable_site_ids": return (emp.unavailable_site_ids ?? []) as Edits[K];
@@ -298,6 +301,20 @@ export function BulkEditTable({
                           className="cursor-pointer"
                         />
                         <span className={isSiteMgr ? "font-bold text-orange-700" : ""}>Resp. mag.</span>
+                      </label>
+                      <label
+                        className="text-[10px] flex items-center gap-1 cursor-pointer"
+                        title="Si coché : le solver force la distribution complète du quota hebdo, quitte à ignorer les jours OFF et créer des mini-shifts. Sinon comportement standard."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(getValue(emp, "force_full_quota") ?? false) as boolean}
+                          onChange={(e) => setField(emp.id, "force_full_quota", e.target.checked)}
+                          className="cursor-pointer"
+                        />
+                        <span className={getValue(emp, "force_full_quota") ? "font-bold text-danger" : ""}>
+                          🔒 Forcer quota
+                        </span>
                       </label>
                     </div>
                   </td>
