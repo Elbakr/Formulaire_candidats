@@ -69,6 +69,7 @@ export type MappedCandidate = {
   postal_code: string | null;
   source: string;
   raw_payload: Record<string, unknown>;
+  gf_full_payload: Record<string, unknown>;
   motivation: string | null;
   cv_url: string | null;
   applied_at: string | null;
@@ -132,6 +133,10 @@ export function mapGFEntry(entry: GFEntry, fieldMap: GFFieldMap): MappedCandidat
       source_url: entry.source_url,
       user_agent: entry.user_agent,
     },
+    // Karim 19/05 : on stocke aussi le payload complet pour pouvoir
+    // re-extraire le CV plus tard si findCvUrl rate au premier passage
+    // (ex : champ CV ajoute apres coup, nouveau mapping).
+    gf_full_payload: entry as Record<string, unknown>,
   };
 }
 
@@ -265,6 +270,7 @@ export async function syncGravityForms(
     source: m.source,
     gf_entry_id: m.gf_entry_id,
     raw_payload: m.raw_payload,
+    gf_full_payload: m.gf_full_payload,
     applied_at: m.applied_at,
     motivation: m.motivation,
     cv_url: m.cv_url,

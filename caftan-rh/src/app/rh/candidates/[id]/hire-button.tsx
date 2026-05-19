@@ -15,6 +15,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { sendEmailViaEmailJS } from "@/lib/emailjs-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,13 +109,21 @@ export function HireCandidateButton({
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   }
 
-  function shareMailto() {
+  async function shareMailto() {
     if (!result?.credentials) return;
     const c = result.credentials;
     const url = typeof window !== "undefined" ? window.location.origin : "";
     const subject = "Bienvenue chez Caftan Factory — ton accès";
     const body = `Bonjour ${candidateName},\n\nNous sommes ravis de t'accueillir.\n\nVoici tes identifiants :\nURL : ${url}/login\nEmail : ${c.email}\nMot de passe : ${c.password}\n\nMerci de changer ton mot de passe à la première connexion.\n\nL'équipe RH`;
-    window.location.href = `mailto:${c.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // Karim 19/05 : envoi via messagerie integree (EmailJS) au lieu de
+    // mailto qui ouvrait Outlook.
+    const toastId = toast.loading("Envoi de l'email…");
+    const r = await sendEmailViaEmailJS({
+      to_email: c.email, to_name: candidateName, subject, body_text: body,
+    });
+    toast.dismiss(toastId);
+    if (r.ok) toast.success("Email envoyé via la messagerie intégrée.");
+    else toast.error(r.error ?? "Envoi échoué", { duration: 8000 });
   }
 
   function reset() {
