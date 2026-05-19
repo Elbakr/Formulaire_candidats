@@ -96,6 +96,8 @@ function minToHHMM(min: number): string {
 export async function generateEmployeeWeekPlanAction(args: {
   employeeId: string;
   weekISO: string;
+  /** Karim 19/05 : date a partir de laquelle generer (override J+1). */
+  startDate?: string;
 }): Promise<{ preview?: EmpPlanPreview; error?: string }> {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -107,9 +109,9 @@ export async function generateEmployeeWeekPlanAction(args: {
   const weekStart = toISODate(monday);
   const weekEnd = toISODate(sunday);
   const todayISO = toISODate(new Date());
-  // Regle fondamentale Karim 2026-05-13 : aucune generation sur date passee
-  // ou aujourd'hui. On planifie a partir de J+1 (demain) uniquement.
-  const tomorrowISO = toISODate(addDays(new Date(), 1));
+  // Karim 19/05 : startDate override permet de re-planifier le jour meme
+  // apres un vidage. Par defaut J+1 (regle historique).
+  const tomorrowISO = args.startDate ?? toISODate(addDays(new Date(), 1));
 
   const [
     { data: empRaw },

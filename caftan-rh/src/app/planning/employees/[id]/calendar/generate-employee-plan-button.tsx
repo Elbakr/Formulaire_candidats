@@ -37,10 +37,15 @@ export function GenerateEmployeePlanButton({
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<EmpPlanPreview | null>(null);
   const [pending, startTransition] = useTransition();
+  // Karim 19/05 : date picker pour demarrer la generation (default J+1).
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  const [startDate, setStartDate] = useState<string>(tomorrowISO);
 
   function reloadPreview() {
     startTransition(async () => {
-      const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO });
+      const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO, startDate });
       if (r.error) {
         toast.error(r.error);
         setOpen(false);
@@ -156,6 +161,28 @@ export function GenerateEmployeePlanButton({
             </DialogDescription>
           </DialogHeader>
 
+          <div className="rounded-md border border-line bg-surface-2 p-3 mb-2">
+            <label className="text-xs font-bold text-ink-2 block mb-1">
+              🗓️ Démarrer à partir de
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPreview(null);
+              }}
+              className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
+            />
+            <p className="text-[10px] text-ink-3 mt-1">
+              Défaut : demain (J+1). Choisis aujourd'hui pour re-planifier après un vidage.
+            </p>
+            {preview ? (
+              <Button variant="outline" size="sm" onClick={reloadPreview} disabled={pending} className="mt-2">
+                Recalculer avec cette date
+              </Button>
+            ) : null}
+          </div>
           {!preview ? (
             <div className="py-6 text-center text-sm text-ink-3 flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
