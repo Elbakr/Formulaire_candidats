@@ -25,6 +25,47 @@ import { useShiftUndo } from "@/components/shift-undo-provider";
 
 const FR_DAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 
+type Period = "this_week" | "next_week" | "rest_of_month";
+
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function getMonday(dISO: string): string {
+  const d = new Date(dISO + "T00:00:00");
+  const dow = d.getDay(); // 0=dim
+  const offset = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + offset);
+  return fmtDate(d);
+}
+
+/**
+ * Calcule la liste des lundis de semaines a generer selon la periode choisie.
+ * - this_week : [weekISO]
+ * - next_week : [weekISO + 7]
+ * - rest_of_month : tous les lundis depuis la semaine de startDate jusqu a
+ *   la fin du mois de startDate (incluant la semaine qui chevauche fin du mois).
+ */
+function computeWeeks(period: Period, weekISO: string, startDate: string): string[] {
+  if (period === "this_week") return [weekISO];
+  if (period === "next_week") {
+    const d = new Date(weekISO + "T00:00:00");
+    d.setDate(d.getDate() + 7);
+    return [fmtDate(d)];
+  }
+  // rest_of_month : depuis la semaine de startDate jusqu a fin du mois
+  const start = new Date(startDate + "T00:00:00");
+  const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+  const weeks: string[] = [];
+  let cursor = new Date(getMonday(startDate) + "T00:00:00");
+  while (cursor <= monthEnd) {
+    weeks.push(fmtDate(cursor));
+    cursor.setDate(cursor.getDate() + 7);
+    if (weeks.length > 6) break; // safety
+  }
+  return weeks;
+}
+
 export function GenerateEmployeePlanButton({
   employeeId,
   weekISO,
@@ -37,21 +78,51 @@ export function GenerateEmployeePlanButton({
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<EmpPlanPreview | null>(null);
   const [pending, startTransition] = useTransition();
-  // Karim 19/05 : date picker pour demarrer la generation (default J+1).
+  // Karim 19/05 : date picker + selecteur periode.
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  const tomorrowISO = fmtDate(tomorrow);
   const [startDate, setStartDate] = useState<string>(tomorrowISO);
+  const [period, setPeriod] = useState<Period>("this_week");
+  // Pour multi-weeks : nombre de semaines a traiter + progression
+  const [multiProgress, setMultiProgress] = useState<{ done: number; total: number } | null>(null);
 
   function reloadPreview() {
+    const weeks = computeWeeks(period, weekISO, startDate);
+    setMultiProgress(weeks.length > 1 ? { done: 0, total: weeks.length } : null);
     startTransition(async () => {
-      const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO, startDate });
-      if (r.error) {
-        toast.error(r.error);
-        setOpen(false);
-      } else if (r.preview) {
-        setPreview(r.preview);
+      // Aggrege les previews de toutes les semaines selectionnees.
+      let agg: EmpPlanPreview | null = null;
+      for (let i = 0; i < weeks.length; i++) {
+        const w = weeks[i];
+        const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO: w, startDate });
+        if (r.error) {
+          toast.error(`Semaine du ${w} : ${r.error}`);
+          continue;
+        }
+        if (r.preview) {
+          if (!agg) {
+            agg = { ...r.preview, drafts: [...r.preview.drafts] };
+            agg.reclassifications = [...(agg.reclassifications ?? [])];
+            agg.ot_proposals = [...(agg.ot_proposals ?? [])];
+            agg.warnings = [...agg.warnings];
+          } else {
+            agg.drafts.push(...r.preview.drafts);
+            agg.reclassifications = [...(agg.reclassifications ?? []), ...(r.preview.reclassifications ?? [])];
+            agg.ot_proposals = [...(agg.ot_proposals ?? []), ...(r.preview.ot_proposals ?? [])];
+            agg.total_drafts_hours += r.preview.total_drafts_hours;
+            agg.total_reclassified_hours += r.preview.total_reclassified_hours;
+            agg.total_ot_proposed_hours += r.preview.total_ot_proposed_hours;
+            agg.available_days += r.preview.available_days;
+            // Dedupe warnings (identiques au fil des semaines)
+            for (const w2 of r.preview.warnings) if (!agg.warnings.includes(w2)) agg.warnings.push(w2);
+          }
+        }
+        setMultiProgress(weeks.length > 1 ? { done: i + 1, total: weeks.length } : null);
       }
+      if (agg) setPreview(agg);
+      else if (weeks.length > 0) toast.error("Aucun preview généré.");
+      setMultiProgress(null);
     });
   }
 
@@ -161,25 +232,53 @@ export function GenerateEmployeePlanButton({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="rounded-md border border-line bg-surface-2 p-3 mb-2">
-            <label className="text-xs font-bold text-ink-2 block mb-1">
-              🗓️ Démarrer à partir de
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                setPreview(null);
-              }}
-              className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
-            />
-            <p className="text-[10px] text-ink-3 mt-1">
-              Défaut : demain (J+1). Choisis aujourd'hui pour re-planifier après un vidage.
-            </p>
-            {preview ? (
-              <Button variant="outline" size="sm" onClick={reloadPreview} disabled={pending} className="mt-2">
-                Recalculer avec cette date
+          <div className="rounded-md border border-line bg-surface-2 p-3 mb-2 space-y-2">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
+                Période à générer
+              </label>
+              <div className="grid grid-cols-3 gap-1">
+                {([
+                  ["this_week", "Cette semaine"],
+                  ["next_week", "Semaine prochaine"],
+                  ["rest_of_month", "Reste du mois"],
+                ] as Array<[Period, string]>).map(([p, label]) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => { setPeriod(p); setPreview(null); }}
+                    className={`px-2 py-1.5 text-xs font-bold rounded border transition-colors ${
+                      period === p
+                        ? "bg-gold text-[#1a1a0d] border-gold"
+                        : "border-line text-ink-2 hover:bg-surface"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
+                🗓️ Démarrer à partir de
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setPreview(null);
+                }}
+                className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
+              />
+              <p className="text-[10px] text-ink-3 mt-1">
+                Défaut : demain (J+1). Choisis aujourd'hui pour re-planifier après un vidage.
+                {period === "rest_of_month" ? " Le 'Reste du mois' part de cette date jusqu'à fin du mois." : ""}
+              </p>
+            </div>
+            {(preview || !pending) ? (
+              <Button variant="outline" size="sm" onClick={reloadPreview} disabled={pending} className="w-full">
+                {pending && multiProgress ? `Calcul ${multiProgress.done}/${multiProgress.total}…` : "Recalculer"}
               </Button>
             ) : null}
           </div>
