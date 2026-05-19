@@ -335,21 +335,44 @@ export async function clearShiftsByModeAction({
   const todayISO = toISODate(new Date());
   const tomorrowISO = toISODate(addDays(new Date(), 1));
 
-  let query = supabase.from("shifts").delete({ count: "exact" });
-  if (mode === "after_today") {
-    query = query.gte("date", tomorrowISO);
-  } else if (mode === "until_today") {
-    query = query.lte("date", todayISO);
+  // Karim 19/05 : log explicite pour audit cote serveur.
+  console.log(`[clearShiftsByMode] mode=${mode} siteId=${siteId ?? "(none)"} employeeId=${employeeId ?? "(none)"} today=${todayISO} tomorrow=${tomorrowISO}`);
+
+  // 1. D abord COUNT pour savoir ce qui matchera (transparence + log)
+  let countQ = supabase.from("shifts").select("id", { count: "exact", head: true });
+  if (mode === "after_today") countQ = countQ.gte("date", tomorrowISO);
+  else if (mode === "until_today") countQ = countQ.lte("date", todayISO);
+  if (siteId) countQ = countQ.eq("site_id", siteId);
+  if (employeeId) countQ = countQ.eq("employee_id", employeeId);
+  const { count: matched, error: cntErr } = await countQ;
+  if (cntErr) {
+    console.error(`[clearShiftsByMode] count error:`, cntErr.message);
+    return { error: cntErr.message };
   }
-  // mode === "all" : pas de filtre date, tout dégage
+  console.log(`[clearShiftsByMode] ${matched} rows matchees pour le criteria.`);
+
+  // 2. DELETE
+  let query = supabase.from("shifts").delete({ count: "exact" });
+  if (mode === "after_today") query = query.gte("date", tomorrowISO);
+  else if (mode === "until_today") query = query.lte("date", todayISO);
   if (siteId) query = query.eq("site_id", siteId);
   if (employeeId) query = query.eq("employee_id", employeeId);
   const { error, count } = await query;
-  if (error) return { error: error.message };
+  if (error) {
+    console.error(`[clearShiftsByMode] delete error:`, error.message);
+    return { error: error.message };
+  }
+  console.log(`[clearShiftsByMode] ${count} rows supprimees.`);
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, deleted: count ?? 0, mode };
+  return {
+    ok: true,
+    deleted: count ?? 0,
+    matched: matched ?? 0,
+    mode,
+    scope: siteId ? "site" : employeeId ? "employee" : "global",
+  };
 }
 
 /**

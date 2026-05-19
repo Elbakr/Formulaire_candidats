@@ -66,20 +66,29 @@ export function ClearPlanningMenu({
   const [pending, startTransition] = useTransition();
 
   function execute(mode: Mode) {
+    console.log(`[ClearPlanningMenu] execute mode=${mode} siteId=${siteId ?? "(none)"} employeeId=${employeeId ?? "(none)"}`);
     startTransition(async () => {
       const r = await clearShiftsByModeAction({ mode, siteId, employeeId });
+      console.log(`[ClearPlanningMenu] server result:`, r);
       if (r.error) {
         toast.error(`Erreur : ${r.error}`, { duration: 10000 });
         return;
       }
       const n = r.deleted ?? 0;
+      const scopeLabel =
+        r.scope === "site" ? "ce site"
+          : r.scope === "employee" ? "cet employé"
+          : "tous sites/employés confondus";
       if (n === 0) {
         toast.warning(
-          "Aucun shift à supprimer (la portée choisie était déjà vide).",
-          { duration: 6000 },
+          `Aucun shift à supprimer pour ${scopeLabel} (mode "${MODE_META[mode].label.toLowerCase()}"). La portée est déjà vide.`,
+          { duration: 8000 },
         );
       } else {
-        toast.success(`${n} shift${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""}.`);
+        toast.success(
+          `${n} shift${n > 1 ? "s" : ""} supprimé${n > 1 ? "s" : ""} pour ${scopeLabel}.`,
+          { duration: 5000 },
+        );
       }
       setConfirmMode(null);
       router.refresh();
