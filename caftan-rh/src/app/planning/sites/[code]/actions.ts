@@ -133,6 +133,8 @@ export type SitePlanPreview = {
     is_overtime: boolean;
     /** Multiplicateur du contractuel (1.25 / 1.5 / 2.0) pour audit, sinon null. */
     overtime_multiplier: number | null;
+    /** Karim 19/05 : note explicative pour l audit RH au clic sur le shift. */
+    generation_note?: string | null;
   }>;
   uncovered: Array<{
     date: string;
@@ -850,9 +852,32 @@ export async function previewSitePlanAction(
       });
 
       let remaining = seasonalHeadcount;
+      // Construit la note explicative pour ce slot (commune a tous les
+      // employes places dessus, individualisee ensuite avec le pool_tier).
+      const noteParts: string[] = [];
+      noteParts.push(`Phase 1 contractuel · Site ${siteCode} · need ${need.role ?? "?"}`);
+      noteParts.push(`Slot ${need_s}-${need_e} (${slotH.toFixed(2)}h)`);
+      if (need.is_critical) {
+        noteParts.push(`Need critique (${need.is_critical})`);
+      }
+      if (combinedMult > 1.01) {
+        const factors: string[] = [];
+        if (holidayMult > 1.01) factors.push(`holiday×${holidayMult.toFixed(2)}`);
+        if (crescendo.multiplier > 1.01) factors.push(`crescendo×${crescendo.multiplier.toFixed(2)} (${crescendo.reason ?? ""})`);
+        if (pontMult > 1.01) factors.push(`pont×${pontMult.toFixed(2)}`);
+        if (effectiveSeasonalMult > 1.01) factors.push(`seasonal×${effectiveSeasonalMult.toFixed(2)}`);
+        noteParts.push(`Boost effectif MAX(${factors.join(", ")}) · combinedMult=${combinedMult.toFixed(2)} cap 2.0`);
+      }
+      noteParts.push(`Headcount visé : ${seasonalHeadcount} (need=${need.headcount} + cap +1)`);
+      if (isSpecialDay) noteParts.push("Jour spécial férié : OFF ignoré");
+      if (requireSenior) noteParts.push("Tri : seniors prioritaires");
+      if (alreadyCoveringNeed > 0) noteParts.push(`Déjà couvert par ${alreadyCoveringNeed} shift(s) précédent(s)`);
+
       for (const emp of eligible) {
         if (remaining <= 0) break;
         const tier = (tierByEmp.get(emp.id) ?? 3) as 1 | 2 | 3;
+        const tierLbl = tier === 1 ? "Primary (assigné à ce site)" : tier === 2 ? "Secondary" : "Externe (renfort cross-site)";
+        const empNote = `${noteParts.join(" · ")} · Choisi : ${emp.full_name} (${tierLbl})${emp.is_site_manager ? " [resp. magasin]" : emp.is_manager ? " [manager]" : ""}`;
         drafts.push({
           employee_id: emp.id,
           employee_name: emp.full_name,
@@ -867,6 +892,7 @@ export async function previewSitePlanAction(
           pool_tier: tier,
           is_overtime: false,
           overtime_multiplier: null,
+          generation_note: empNote,
         });
         // Comptage : on incrémente en heures brutes (slotH) pour rester
         // cohérent avec le HARD CAP qui filtre en brut.
@@ -1469,6 +1495,7 @@ export async function commitSitePlanAction(
     created_by: profile.id,
     is_overtime: !!d.is_overtime,
     overtime_multiplier: d.is_overtime ? d.overtime_multiplier : null,
+    generation_note: d.generation_note ?? null,
   }));
 
   // .select() pour recuperer les ids inseres (rollback ulterieur).

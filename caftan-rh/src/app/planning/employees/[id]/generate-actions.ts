@@ -25,6 +25,7 @@ export type EmpPlanDraft = {
   site_id: string | null;
   is_overtime: false;
   hours: number;
+  generation_note?: string | null;
 };
 
 /** Karim 15/05 : shift OT existant a reclasser en contractuel pour boucher
@@ -401,6 +402,16 @@ export async function generateEmployeeWeekPlanAction(args: {
       blockedByPartialUnavail += 1;
       continue; // ne pas deborder a cause de l indispo
     }
+    // Karim 19/05 : note explicative pour audit RH
+    const noteSegments = [
+      `Génération individuelle (fiche employé ${emp.full_name})`,
+      `Quota hebdo ${emp.weekly_hours ?? "?"}h · déjà planifié ${((emp.weekly_hours ?? 0) - remainingTarget).toFixed(1)}h · reste ${remainingTarget.toFixed(1)}h`,
+      `Distribution sur ${limitedCandidates.length} jour(s) dispo · ${shiftHours}h/jour`,
+    ];
+    if (args.shiftHoursPerDay) noteSegments.push(`Override heures/jour : ${args.shiftHoursPerDay}h`);
+    if (args.maxDaysPerWeek) noteSegments.push(`Override jours/sem : ${args.maxDaysPerWeek}j`);
+    if (args.startTimeOverride) noteSegments.push(`Override heure début : ${args.startTimeOverride}`);
+    if (effStartMin !== startMin) noteSegments.push(`Heure décalée car indispo partielle ${minToHHMM(startMin)}→${minToHHMM(effStartMin)}`);
     drafts.push({
       date: c.dateISO,
       start_time: minToHHMM(effStartMin) + ":00",
@@ -409,6 +420,7 @@ export async function generateEmployeeWeekPlanAction(args: {
       site_id: primarySiteId,
       is_overtime: false,
       hours: dayHours,
+      generation_note: noteSegments.join(" · "),
     });
     remaining -= dayHours;
   }
@@ -667,6 +679,7 @@ export async function commitEmployeeWeekPlanAction(args: {
         is_overtime: false,
         status: "planned" as const,
         created_by: profile.id,
+        generation_note: d.generation_note ?? null,
       }));
       const { error } = await supabase.from("shifts").insert(rows);
       if (error) return { error: error.message };

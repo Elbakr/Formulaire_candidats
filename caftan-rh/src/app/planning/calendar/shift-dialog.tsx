@@ -47,6 +47,8 @@ type Shift = {
   notes: string | null;
   is_overtime?: boolean | null;
   overtime_multiplier?: number | null;
+  /** Karim 19/05 : explication "pourquoi/comment" generee par le solver. */
+  generation_note?: string | null;
 };
 
 type SiteOption = {
@@ -478,6 +480,20 @@ export function ShiftDialog({
             {employeeName} · {new Date(date).toLocaleDateString("fr-BE", { weekday: "long", day: "2-digit", month: "long" })}
           </DialogDescription>
         </DialogHeader>
+        {shift?.generation_note ? (
+          <details className="rounded-md border border-gold/40 bg-gold-light/30 p-2 text-[11px]">
+            <summary className="cursor-pointer font-bold text-gold-dark">
+              🔍 Pourquoi ce shift ? (audit solver)
+            </summary>
+            <div className="mt-1.5 text-ink-2 leading-relaxed whitespace-pre-wrap">
+              {shift.generation_note.split(" · ").map((part, i) => (
+                <div key={i} className="py-0.5 border-b border-line/40 last:border-0">
+                  {i + 1}. {part}
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
         <form
           action={(fd) => {
             fd.set("employee_id", employeeId);

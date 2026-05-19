@@ -77,7 +77,7 @@ export default async function SiteDetailPage(props: {
     supabase
       .from("shifts")
       .select(
-        `id, employee_id, date, start_time, end_time, break_minutes, position, location, site_id, notes, is_overtime, overtime_multiplier,
+        `id, employee_id, date, start_time, end_time, break_minutes, position, location, site_id, notes, is_overtime, overtime_multiplier, generation_note,
          employee:employees(id, full_name, job_title)`,
       )
       .eq("site_id", site.id)
