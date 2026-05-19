@@ -1,5 +1,5 @@
 /* CaftanRH Service Worker — vanilla, no Workbox */
-const CACHE_VERSION = "caftanrh-shell-v12-parallel-gen";
+const CACHE_VERSION = "caftanrh-shell-v13-autofill";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

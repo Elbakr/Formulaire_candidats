@@ -17,6 +17,7 @@ import { loadSiteByCode, loadSiteNeeds, loadSites } from "@/lib/sites";
 import { MembersSection } from "./members-section";
 import { SitePresenceStrip } from "./presence-strip";
 import { GenerateSitePlanButton } from "./generate-button";
+import { AutoFillButton } from "./auto-fill-button";
 import { ClearWeekButton } from "../../calendar/clear-week-button";
 import { ClearPlanningMenu } from "../../calendar/clear-planning-menu";
 import { NeedsEditor } from "./needs-editor";
@@ -188,6 +189,7 @@ export default async function SiteDetailPage(props: {
         </div>
         <div className="flex gap-1 items-center flex-wrap">
           <GenerateSitePlanButton siteCode={site.code} weekISO={toISODate(monday)} />
+          <AutoFillButton siteCode={site.code} weekISO={toISODate(monday)} />
           <ClearWeekButton weekISO={toISODate(monday)} siteId={site.id} />
           <ClearPlanningMenu siteId={site.id} />
           <Button asChild variant="outline" size="sm">
