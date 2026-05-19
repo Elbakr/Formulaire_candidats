@@ -98,6 +98,14 @@ export async function generateEmployeeWeekPlanAction(args: {
   weekISO: string;
   /** Karim 19/05 : date a partir de laquelle generer (override J+1). */
   startDate?: string;
+  /** Karim 19/05 : duree fixe par shift en heures (override default_shift_hours). */
+  shiftHoursPerDay?: number;
+  /** Karim 19/05 : nombre max de jours travailles cette semaine (premieres
+   *  N journees dispo). Override la distribution sur tous les jours dispos. */
+  maxDaysPerWeek?: number;
+  /** Karim 19/05 : heure de debut des shifts (format HH:MM). Override
+   *  default_start_time de l employe. */
+  startTimeOverride?: string;
 }): Promise<{ preview?: EmpPlanPreview; error?: string }> {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -341,12 +349,26 @@ export async function generateEmployeeWeekPlanAction(args: {
     warnings.push("Aucun jour disponible cette semaine pour ajouter du contractuel (jours OFF / congés / fermetures / shifts déjà présents).");
   }
 
-  // Durée par shift : default_shift_hours OU plafond fonction du quota / jours
-  const defaultShift = emp.default_shift_hours ?? 8;
-  const avgPerDay = candidates.length > 0 ? remainingTarget / candidates.length : defaultShift;
-  const shiftHours = Math.min(defaultShift, Math.max(4, Math.ceil(avgPerDay)));
+  // Karim 19/05 : si maxDaysPerWeek est fourni, on coupe la liste de candidats
+  // aux N premiers jours dispos. La distribution se fait sur moins de jours
+  // mais le quota total reste le meme -> shifts plus longs.
+  const limitedCandidates = args.maxDaysPerWeek != null && args.maxDaysPerWeek > 0
+    ? candidates.slice(0, Math.min(args.maxDaysPerWeek, candidates.length))
+    : candidates;
 
-  const startTime = emp.default_start_time ?? "10:00";
+  // Durée par shift : si shiftHoursPerDay fourni par Karim, on l utilise tel quel.
+  // Sinon default_shift_hours OU plafond fonction du quota / jours.
+  const defaultShift = emp.default_shift_hours ?? 8;
+  const avgPerDay = limitedCandidates.length > 0 ? remainingTarget / limitedCandidates.length : defaultShift;
+  const shiftHours = args.shiftHoursPerDay != null && args.shiftHoursPerDay > 0
+    ? Math.min(12, Math.max(1, args.shiftHoursPerDay)) // clamp entre 1 et 12h
+    : Math.min(defaultShift, Math.max(4, Math.ceil(avgPerDay)));
+
+  // Karim 19/05 : startTimeOverride permet de fixer une heure de debut
+  // differente du default de l employe (utile pour un changement temporaire).
+  const startTime = args.startTimeOverride && /^\d{2}:\d{2}/.test(args.startTimeOverride)
+    ? args.startTimeOverride
+    : (emp.default_start_time ?? "10:00");
   const startMin = timeToMin(startTime.slice(0, 5));
   const breakMin = emp.default_pause_minutes ?? 30;
 
@@ -354,7 +376,7 @@ export async function generateEmployeeWeekPlanAction(args: {
   const drafts: EmpPlanDraft[] = [];
   let remaining = remainingTarget;
   let blockedByPartialUnavail = 0;
-  for (const c of candidates) {
+  for (const c of limitedCandidates) {
     if (remaining <= 0.01) break;
     const dayHours = Math.min(shiftHours, remaining);
     if (dayHours < 1) break; // pas de mini-shift < 1h

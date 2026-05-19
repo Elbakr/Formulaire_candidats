@@ -84,6 +84,10 @@ export function GenerateEmployeePlanButton({
   const tomorrowISO = fmtDate(tomorrow);
   const [startDate, setStartDate] = useState<string>(tomorrowISO);
   const [period, setPeriod] = useState<Period>("this_week");
+  // Karim 19/05 : overrides duree/jour, nb jours/semaine, heure de debut.
+  const [shiftHoursPerDay, setShiftHoursPerDay] = useState<string>("");
+  const [maxDaysPerWeek, setMaxDaysPerWeek] = useState<string>("");
+  const [startTimeOverride, setStartTimeOverride] = useState<string>("");
   // Pour multi-weeks : nombre de semaines a traiter + progression
   const [multiProgress, setMultiProgress] = useState<{ done: number; total: number } | null>(null);
 
@@ -93,9 +97,16 @@ export function GenerateEmployeePlanButton({
     startTransition(async () => {
       // Aggrege les previews de toutes les semaines selectionnees.
       let agg: EmpPlanPreview | null = null;
+      const shiftH = shiftHoursPerDay ? Number(shiftHoursPerDay) : undefined;
+      const maxD = maxDaysPerWeek ? Number(maxDaysPerWeek) : undefined;
       for (let i = 0; i < weeks.length; i++) {
         const w = weeks[i];
-        const r = await generateEmployeeWeekPlanAction({ employeeId, weekISO: w, startDate });
+        const r = await generateEmployeeWeekPlanAction({
+          employeeId, weekISO: w, startDate,
+          shiftHoursPerDay: shiftH && Number.isFinite(shiftH) && shiftH > 0 ? shiftH : undefined,
+          maxDaysPerWeek: maxD && Number.isFinite(maxD) && maxD > 0 ? maxD : undefined,
+          startTimeOverride: /^\d{2}:\d{2}$/.test(startTimeOverride) ? startTimeOverride : undefined,
+        });
         if (r.error) {
           toast.error(`Semaine du ${w} : ${r.error}`);
           continue;
@@ -276,6 +287,58 @@ export function GenerateEmployeePlanButton({
                 {period === "rest_of_month" ? " Le 'Reste du mois' part de cette date jusqu'à fin du mois." : ""}
               </p>
             </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
+                  ⏱️ Heures / jour
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="12"
+                  step="0.5"
+                  value={shiftHoursPerDay}
+                  onChange={(e) => { setShiftHoursPerDay(e.target.value); setPreview(null); }}
+                  placeholder="auto"
+                  className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
+                  📆 Jours / semaine
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="7"
+                  step="1"
+                  value={maxDaysPerWeek}
+                  onChange={(e) => { setMaxDaysPerWeek(e.target.value); setPreview(null); }}
+                  placeholder="auto"
+                  className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
+                  🕘 Heure début
+                </label>
+                <input
+                  type="time"
+                  value={startTimeOverride}
+                  onChange={(e) => { setStartTimeOverride(e.target.value); setPreview(null); }}
+                  className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-ink-3">Vide = auto (selon contrat employé)</p>
+            {preview ? (
+              <SuggestedSlot
+                preview={preview}
+                shiftHoursPerDay={shiftHoursPerDay}
+                maxDaysPerWeek={maxDaysPerWeek}
+                startTimeOverride={startTimeOverride}
+              />
+            ) : null}
             {(preview || !pending) ? (
               <Button variant="outline" size="sm" onClick={reloadPreview} disabled={pending} className="w-full">
                 {pending && multiProgress ? `Calcul ${multiProgress.done}/${multiProgress.total}…` : "Recalculer"}
@@ -508,5 +571,75 @@ export function GenerateEmployeePlanButton({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Karim 19/05 : aperçu live des creneaux calcules a partir des overrides
+ * choisis + preview de l employe. Permet a Karim de voir AVANT de generer
+ * "OK ce sera 7.6h/jour de 10:00 a 18:06, sur 5 jours" et d ajuster ses
+ * choix si besoin.
+ */
+function SuggestedSlot({
+  preview,
+  shiftHoursPerDay,
+  maxDaysPerWeek,
+  startTimeOverride,
+}: {
+  preview: EmpPlanPreview;
+  shiftHoursPerDay: string;
+  maxDaysPerWeek: string;
+  startTimeOverride: string;
+}) {
+  const remaining = Math.max(0, preview.weekly_target - preview.already_contractual_hours);
+  const userShiftH = shiftHoursPerDay ? Number(shiftHoursPerDay) : null;
+  const userDays = maxDaysPerWeek ? Number(maxDaysPerWeek) : null;
+  // Nb jours retenus :
+  const days = userDays && userDays > 0 ? Math.min(userDays, preview.available_days) : preview.available_days;
+  // Heures/jour :
+  let hPerDay: number;
+  if (userShiftH && userShiftH > 0) {
+    hPerDay = Math.min(12, Math.max(1, userShiftH));
+  } else if (days > 0) {
+    hPerDay = remaining / days;
+  } else {
+    hPerDay = 0;
+  }
+  const totalCovered = Math.min(remaining, hPerDay * days);
+  // Creneau type
+  const start = /^\d{2}:\d{2}$/.test(startTimeOverride) ? startTimeOverride : "10:00";
+  const breakMin = 30; // approximation, le solver utilise emp.default_pause_minutes
+  const [sh, sm] = start.split(":").map(Number);
+  const totalMin = sh * 60 + sm + Math.round(hPerDay * 60) + breakMin;
+  const endH = Math.floor(totalMin / 60);
+  const endM = totalMin % 60;
+  const end = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+
+  const isOverloaded = userShiftH != null && userDays != null && userShiftH * userDays < remaining - 1;
+
+  return (
+    <div className="rounded-md border border-gold/40 bg-gold-light/30 p-2 text-xs">
+      <div className="font-bold mb-1 text-gold-dark">📊 Aperçu calcul (cette semaine)</div>
+      <div className="grid grid-cols-2 gap-1 text-[11px]">
+        <div>Heures restantes : <span className="font-mono font-bold">{remaining.toFixed(1)}h</span></div>
+        <div>Jours retenus : <span className="font-mono font-bold">{days}</span></div>
+        <div>Heures / jour : <span className="font-mono font-bold">{hPerDay.toFixed(2)}h</span></div>
+        <div>Couvertes : <span className="font-mono font-bold">{totalCovered.toFixed(1)}h</span></div>
+      </div>
+      <div className="mt-1.5 text-[11px]">
+        Créneau type : <span className="font-mono font-bold">{start} – {end}</span>
+        <span className="text-ink-3 ml-1">(pause {breakMin}min incluse)</span>
+      </div>
+      {isOverloaded ? (
+        <div className="mt-1 text-[10px] text-warn font-bold">
+          ⚠ {userShiftH}h × {userDays}j = {(userShiftH * userDays).toFixed(1)}h &lt; {remaining.toFixed(1)}h contractuel. Quota non saturé.
+        </div>
+      ) : null}
+      {endH >= 23 ? (
+        <div className="mt-1 text-[10px] text-danger font-bold">
+          ⚠ Le shift se termine après 23h00 → ajuste l&apos;heure de début ou les heures/jour.
+        </div>
+      ) : null}
+    </div>
   );
 }
