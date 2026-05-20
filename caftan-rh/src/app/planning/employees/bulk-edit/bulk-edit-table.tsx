@@ -138,6 +138,54 @@ export function BulkEditTable({
     });
   }
 
+  // Karim 20/05 : sauvegarde TOUT en 1 clic. Appelle updateEmployeeBulkAction
+  // pour chaque employe modifie, en parallele. Toast progress + final.
+  const [savingAll, setSavingAll] = useState(false);
+  async function saveAll() {
+    const entries = [...edits.entries()].filter(([, patch]) => Object.keys(patch).length > 0);
+    if (entries.length === 0) {
+      toast.info("Aucune modification à sauvegarder.");
+      return;
+    }
+    setSavingAll(true);
+    const toastId = toast.loading(`Sauvegarde de ${entries.length} employé${entries.length > 1 ? "s" : ""}…`);
+    try {
+      const results = await Promise.all(
+        entries.map(async ([empId, patch]) => {
+          const r = await updateEmployeeBulkAction(empId, patch);
+          return { empId, error: r.error };
+        }),
+      );
+      const errors = results.filter((r) => r.error);
+      const ok = results.length - errors.length;
+      toast.dismiss(toastId);
+      if (errors.length === 0) {
+        toast.success(`${ok} employé${ok > 1 ? "s" : ""} mis à jour.`);
+        setEdits(new Map());
+        router.refresh();
+      } else {
+        toast.error(
+          `${ok}/${results.length} sauvés. ${errors.length} échec${errors.length > 1 ? "s" : ""} : ${errors.slice(0, 3).map((e) => e.error).join(" · ")}`,
+          { duration: 10000 },
+        );
+        // Garde les patches en échec, retire ceux qui ont passé
+        setEdits((prev) => {
+          const m = new Map(prev);
+          for (const r of results) {
+            if (!r.error) m.delete(r.empId);
+          }
+          return m;
+        });
+        router.refresh();
+      }
+    } catch (e) {
+      toast.dismiss(toastId);
+      toast.error(`Erreur globale : ${(e as Error).message}`);
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
   function toggleDow(emp: EmpRow, dow: number) {
     const cur = getValue(emp, "fixed_off_days") ?? [];
     const next = cur.includes(dow) ? cur.filter((d) => d !== dow) : [...cur, dow];
@@ -170,14 +218,23 @@ export function BulkEditTable({
   return (
     <div>
       {dirtyCount > 0 ? (
-        <div className="px-3 py-2 border-b border-line bg-gold-light/30 text-xs flex items-center gap-2">
+        <div className="sticky top-0 z-20 px-3 py-2 border-b border-line bg-gold-light text-xs flex items-center gap-2 shadow-sm">
           <span className="font-bold text-gold-dark">
             {dirtyCount} ligne{dirtyCount > 1 ? "s" : ""} modifiée{dirtyCount > 1 ? "s" : ""}
           </span>
-          <span className="text-ink-3">— sauve par ligne ou tout réinitialiser :</span>
+          <span className="text-ink-3">— sauve par ligne, sauve tout, ou annule :</span>
+          <button
+            onClick={saveAll}
+            disabled={savingAll || pending}
+            className="ml-auto inline-flex items-center gap-1 px-3 py-1 rounded bg-gold text-[#1a1a0d] hover:bg-gold-dark font-bold disabled:opacity-50"
+            title={`Sauvegarder les ${dirtyCount} lignes modifiées en 1 clic`}
+          >
+            {savingAll ? "Sauvegarde…" : `💾 Sauvegarder tout (${dirtyCount})`}
+          </button>
           <button
             onClick={() => setEdits(new Map())}
-            className="ml-auto text-[11px] text-ink-3 hover:text-danger underline"
+            disabled={savingAll || pending}
+            className="text-[11px] text-ink-3 hover:text-danger underline disabled:opacity-50"
           >
             Tout annuler
           </button>
