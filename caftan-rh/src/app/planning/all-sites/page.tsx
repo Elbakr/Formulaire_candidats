@@ -65,11 +65,15 @@ export default async function AllSitesPage(props: {
     const wStart = toISODate(wMonday);
     const wEnd = toISODate(addDays(wMonday, 6));
     const weekShifts = allShifts.filter((s) => s.date >= wStart && s.date <= wEnd);
-    // Karim 19/05 : on affiche TOUS les sites actifs (meme ceux sans shift)
-    // pour la coherence avec le Planning individuel. Auparavant on filtrait
-    // sur les sites avec >=1 shift, ce qui faisait disparaitre les sites vides
-    // et donnait l impression de divergence entre les 2 vues.
-    return { mondayISO: wStart, endISO: wEnd, sites: allSites, shifts: weekShifts };
+    // Karim 20/05 : revenir au filtrage 'sites avec >=1 shift cette semaine'.
+    // Combiner avec is_active=false sur sites Anvers (C, F) -> seuls les sites
+    // Bruxelles utilises apparaissent. La coherence avec Planning individuel
+    // est gardee car C/F n ont pas de shifts non plus.
+    const sitesWithShifts = new Set(
+      weekShifts.map((s) => s.site_id).filter((v): v is string => Boolean(v)),
+    );
+    const sites = allSites.filter((s) => sitesWithShifts.has(s.id));
+    return { mondayISO: wStart, endISO: wEnd, sites, shifts: weekShifts };
   });
 
   const prevWeek = toISODate(addDays(monday, -7));

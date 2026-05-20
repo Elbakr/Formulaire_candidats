@@ -190,6 +190,11 @@ export default async function SiteDetailPage(props: {
         <div className="flex gap-1 items-center flex-wrap">
           <GenerateSitePlanButton siteCode={site.code} weekISO={toISODate(monday)} />
           <AutoFillButton siteCode={site.code} weekISO={toISODate(monday)} />
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/planning/sites/${site.code}/display?week=${toISODate(monday)}`} target="_blank">
+              📋 Vue affichable
+            </Link>
+          </Button>
           <ClearWeekButton weekISO={toISODate(monday)} siteId={site.id} />
           <ClearPlanningMenu siteId={site.id} />
           <Button asChild variant="outline" size="sm">
