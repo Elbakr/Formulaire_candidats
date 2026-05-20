@@ -52,7 +52,7 @@ function parseView(s: string | undefined): View {
 
 export default async function EmployeeCalendarPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string; date?: string; filter?: string }>;
+  searchParams: Promise<{ view?: string; date?: string; filter?: string; scope?: string }>;
 }) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   // Le manager peut consulter le calendrier mais NE doit PAS imprimer la vue
@@ -60,7 +60,10 @@ export default async function EmployeeCalendarPage(props: {
   // l'option "Vue admin (avec h. sup)" dans le PrintMenu.
   const canSeeOvertime = profile.role === "admin" || profile.role === "rh";
   const { id } = await props.params;
-  const { view: vStr, date: dateStr, filter: fStr } = await props.searchParams;
+  const { view: vStr, date: dateStr, filter: fStr, scope: scopeStr } = await props.searchParams;
+  // Karim 20/05 : scope='site' affiche les WeekBoards de TOUS les collegues
+  // du meme site primary empiles l un en dessous de l autre.
+  const scope: "individual" | "site" = scopeStr === "site" ? "site" : "individual";
   const view = parseView(vStr);
   // Manager ne voit que la vue contractuelle (pas accès aux OT).
   const filter: ShiftFilter = canSeeOvertime ? parseFilter(fStr) : "contract";
@@ -120,6 +123,68 @@ export default async function EmployeeCalendarPage(props: {
   ]);
   const sites = ((sitesRaw ?? []) as Array<{ id: string; code: string; name: string; color: string | null }>);
   const preferredSiteIds = ((assignsRaw ?? []) as Array<{ site_id: string }>).map((a) => a.site_id);
+
+  // Karim 20/05 : si scope=site, charge tous les collegues du site primary
+  // + leurs shifts de la semaine en cours. Limite au mode week pour eviter
+  // d exploser le rendering en mode month/year.
+  const primarySiteIdForScope = preferredSiteIds[0] ?? null;
+  let siteColleagues: Array<{ id: string; full_name: string; job_title: string | null; weekly_hours: number | null; preferredSiteIds: string[] }> = [];
+  let siteColleaguesShifts: Map<string, Shift[]> = new Map();
+  let siteCurrent: { id: string; code: string; name: string; color: string | null } | null = null;
+  if (scope === "site" && primarySiteIdForScope && view === "week") {
+    siteCurrent = sites.find((s) => s.id === primarySiteIdForScope) ?? null;
+    const { data: colleaguesRaw } = await supabase
+      .from("site_assignments")
+      .select("employee_id, is_primary, employee:employees(id, full_name, job_title, weekly_hours, status)")
+      .eq("site_id", primarySiteIdForScope)
+      .lte("start_date", todayISO)
+      .or(`end_date.is.null,end_date.gte.${todayISO}`)
+      .order("is_primary", { ascending: false });
+    type CR = { employee_id: string; is_primary: boolean; employee: { id: string; full_name: string; job_title: string | null; weekly_hours: number | null; status: string } | null };
+    const rows = ((colleaguesRaw ?? []) as unknown as CR[])
+      .filter((c) => c.employee && c.employee.status === "active")
+      .map((c) => c.employee!);
+    // Dedupe par id (sites multiples)
+    const seen = new Set<string>();
+    const uniqCols = rows.filter((e) => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+    // Place l employe courant en tête
+    siteColleagues = [
+      ...uniqCols.filter((e) => e.id === employee.id),
+      ...uniqCols.filter((e) => e.id !== employee.id),
+    ].map((e) => ({
+      id: e.id,
+      full_name: e.full_name,
+      job_title: e.job_title,
+      weekly_hours: e.weekly_hours,
+      preferredSiteIds: [primarySiteIdForScope],
+    }));
+    // Fetch shifts de tous les collegues en 1 query
+    const colIds = siteColleagues.map((e) => e.id);
+    if (colIds.length > 0) {
+      const { data: allColShifts } = await supabase
+        .from("shifts")
+        .select(
+          `id, employee_id, date, start_time, end_time, break_minutes, position, location, is_overtime, overtime_multiplier,
+           site_id, notes,
+           site:sites(code, name, color)`,
+        )
+        .in("employee_id", colIds)
+        .gte("date", toISODate(rangeStart))
+        .lte("date", toISODate(rangeEnd))
+        .order("date")
+        .order("start_time");
+      type SRow = Shift & { employee_id: string };
+      for (const s of ((allColShifts ?? []) as unknown as SRow[])) {
+        const arr = siteColleaguesShifts.get(s.employee_id) ?? [];
+        arr.push(s);
+        siteColleaguesShifts.set(s.employee_id, arr);
+      }
+    }
+  }
   const shiftsAll = (shiftsRaw ?? []) as unknown as Shift[];
   const shifts =
     filter === "contract"
@@ -284,7 +349,72 @@ export default async function EmployeeCalendarPage(props: {
         />
       ) : null}
 
-      {view === "week" ? (
+      {/* Karim 20/05 : toggle vue Individuel / Site (week only) */}
+      {view === "week" && primarySiteIdForScope ? (
+        <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface text-xs">
+          <Link
+            href={`?view=week&date=${toISODate(rangeStart)}${filter !== "all" ? `&filter=${filter}` : ""}`}
+            className={`px-3 py-1.5 font-bold transition-colors ${
+              scope === "individual" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+            }`}
+          >
+            Individuel
+          </Link>
+          <Link
+            href={`?view=week&date=${toISODate(rangeStart)}&scope=site${filter !== "all" ? `&filter=${filter}` : ""}`}
+            className={`px-3 py-1.5 font-bold transition-colors ${
+              scope === "site" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+            }`}
+          >
+            👥 Tout le site {siteCurrent ? `(${siteCurrent.code})` : ""}
+          </Link>
+        </div>
+      ) : null}
+
+      {view === "week" && scope === "site" ? (
+        <div className="space-y-4">
+          {siteColleagues.length === 0 ? (
+            <Card className="p-6 text-center text-sm text-ink-3">
+              Aucun collègue actif sur ce site.
+            </Card>
+          ) : (
+            siteColleagues.map((col) => {
+              const colShifts = (siteColleaguesShifts.get(col.id) ?? []).filter((s) =>
+                filter === "contract" ? !s.is_overtime : filter === "overtime" ? !!s.is_overtime : true,
+              );
+              const isCurrent = col.id === employee.id;
+              return (
+                <div key={col.id} className={`border-l-4 ${isCurrent ? "border-gold" : "border-line"} pl-2`}>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <Link
+                      href={`/planning/employees/${col.id}/calendar?view=week&date=${toISODate(rangeStart)}`}
+                      className={`font-bold text-sm hover:text-gold-dark ${isCurrent ? "text-gold-dark" : ""}`}
+                    >
+                      {col.full_name}
+                    </Link>
+                    {isCurrent ? <span className="text-[10px] text-gold-dark font-bold">(courant)</span> : null}
+                    <span className="text-[11px] text-ink-3">
+                      {col.job_title ?? "—"} · {col.weekly_hours ?? 38}h/sem
+                    </span>
+                    <span className="ml-auto text-[11px] text-ink-3">
+                      {colShifts.length} shift{colShifts.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <WeekBoard
+                    monday={rangeStart}
+                    shifts={colShifts}
+                    employeeId={col.id}
+                    employeeName={col.full_name}
+                    sites={sites}
+                    preferredSiteIds={col.preferredSiteIds}
+                    canEdit={canSeeOvertime}
+                  />
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : view === "week" ? (
         <WeekBoard
           monday={rangeStart}
           shifts={shifts}
