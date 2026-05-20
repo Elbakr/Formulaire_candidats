@@ -13,6 +13,7 @@ import {
 import { tenureLabel, seniorTier, seniorTierLabel, nextAnniversary } from "@/lib/tenure";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { EmployeeSiteNav } from "./employee-site-nav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmployeeAdminForm } from "./form";
@@ -114,6 +115,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
   return (
     <div className="space-y-4">
+      <EmployeeSiteNav currentEmployeeId={id} basePath="" />
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Button asChild variant="ghost" size="sm">
           <Link href="/planning/employees"><ArrowLeft className="h-3.5 w-3.5" /> Retour liste</Link>

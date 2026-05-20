@@ -25,6 +25,7 @@ import { GenerateEmployeePlanButton } from "./generate-employee-plan-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 import { EmployeeAutoFillButton } from "@/app/planning/employees/[id]/auto-fill-button";
+import { EmployeeSiteNav } from "@/app/planning/employees/[id]/employee-site-nav";
 
 type View = "week" | "month" | "year";
 
@@ -154,6 +155,7 @@ export default async function EmployeeCalendarPage(props: {
 
   return (
     <div className="space-y-4">
+      <EmployeeSiteNav currentEmployeeId={employee.id} basePath="calendar" />
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <Link
