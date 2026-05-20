@@ -24,6 +24,9 @@ import {
 
 type Phase = "contractual" | "overtime";
 
+// Karim 20/05 : mini-shifts en 2 phases (rush first puis reste)
+type MiniPhase = "rush" | "non_rush";
+
 export function EmployeeAutoFillButton({
   employeeId,
   weekISO,
@@ -33,6 +36,7 @@ export function EmployeeAutoFillButton({
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("contractual");
+  const [miniPhase, setMiniPhase] = useState<MiniPhase>("rush");
   const [pending, startTransition] = useTransition();
 
   function exec() {
@@ -114,23 +118,41 @@ export function EmployeeAutoFillButton({
   }
   function execMini() {
     startTransition(async () => {
-      const r = await fillCreateMiniShiftsAction({ employeeId, weekISO });
+      // Karim 20/05 : 1er clic = rush only (weekend/feries en milieu de
+      // journee), 2e clic = autres jours/heures.
+      const rushOnly = miniPhase === "rush";
+      const r = await fillCreateMiniShiftsAction({ employeeId, weekISO, rushOnly });
       if (r.error) { toast.error(r.error); return; }
       const cre = r.created ?? 0;
       const min = r.minutes_added ?? 0;
       const remMin = r.remaining_min ?? 0;
+      const rushN = r.rush_placed ?? 0;
+      const nonRushN = r.non_rush_placed ?? 0;
       if (cre === 0) {
-        toast.warning(
-          remMin > 0
-            ? `Aucun mini-shift place (pas de creneau libre). Reste ${(remMin/60).toFixed(1)}h.`
-            : "Quota deja sature, rien a creer.",
+        if (rushOnly && remMin > 0) {
+          toast.warning(
+            `Aucun creneau rush disponible (weekends/feries). Bascule vers les autres jours…`,
+            { duration: 6000 },
+          );
+          setMiniPhase("non_rush");
+        } else {
+          toast.warning(
+            remMin > 0
+              ? `Aucun mini-shift place (pas de creneau libre). Reste ${(remMin/60).toFixed(1)}h.`
+              : "Quota deja sature, rien a creer.",
+            { duration: 8000 },
+          );
+          setMiniPhase("rush");
+        }
+      } else {
+        const tag = rushOnly ? "🔥 rush" : "creneaux standards";
+        toast.success(
+          `${cre} mini-shift(s) ${tag} crees (${rushN} rush, ${nonRushN} non-rush), +${min} min.${remMin > 0 ? ` Reste ${(remMin/60).toFixed(1)}h — clique a nouveau pour les autres jours.` : ""}`,
           { duration: 8000 },
         );
-      } else {
-        toast.success(
-          `${cre} mini-shift(s) crees, +${min} min ajoutees (pause 15min entre shifts).${remMin > 0 ? ` Reste ${(remMin/60).toFixed(1)}h non placees.` : ""}`,
-          { duration: 7000 },
-        );
+        // Si rush epuise mais reste -> 2e clic ira sur non-rush
+        if (rushOnly && remMin > 60) setMiniPhase("non_rush");
+        else setMiniPhase("rush");
       }
       router.refresh();
     });
@@ -169,10 +191,15 @@ export function EmployeeAutoFillButton({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={execMini} className="flex-col items-start gap-0.5 cursor-pointer">
             <span className="font-bold text-sm flex items-center gap-1">
-              <Plus className="h-3.5 w-3.5" /> Créer mini-shifts (pause 15min)
+              <Plus className="h-3.5 w-3.5" />
+              {miniPhase === "rush"
+                ? "Créer mini-shifts 🔥 RUSH (weekend/férié)"
+                : "Créer mini-shifts (autres jours)"}
             </span>
             <span className="text-[11px] text-ink-3 leading-snug">
-              Crée de nouveaux shifts courts (15min-4h) avec 15min de pause après les shifts existants. Pour combler 6h par fragments si besoin.
+              {miniPhase === "rush"
+                ? "1er passage : place sur les jours rush (weekend, fériés) en milieu de journée. Respecte indispos, congés, fermeture site."
+                : "2e passage : place sur les jours hors rush. Cliquer encore pour revenir au mode rush."}
             </span>
           </DropdownMenuItem>
         </DropdownMenuContent>

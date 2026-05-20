@@ -388,6 +388,21 @@ export async function generateEmployeeWeekPlanAction(args: {
       needsByDayForPrimary.set(n.day_of_week, arr);
     }
   }
+  // Karim 20/05 : helper fermeture site = max(end_time) des site_needs
+  // ouverts ce jour pour ce site. Plafonne les shifts pour qu ils ne
+  // depassent pas l heure de fermeture (vs 23h59 avant).
+  function maxCloseTimeFor(siteId: string | null, jsDow: number): number {
+    if (!siteId) return 24 * 60 - 1; // pas de site -> pas de plafond
+    let maxEnd = 0;
+    for (const n of (siteNeedsRaw ?? []) as Array<{ site_id: string; day_of_week: number; end_time: string; is_enabled: boolean }>) {
+      if (n.site_id !== siteId || !n.is_enabled || n.day_of_week !== jsDow) continue;
+      const e = timeToMin(n.end_time.slice(0, 5));
+      if (e > maxEnd) maxEnd = e;
+    }
+    // Si aucun need ce jour, on tolere jusqu a 23h59
+    return maxEnd > 0 ? maxEnd : 24 * 60 - 1;
+  }
+
   // Combien d employes autres deja sur chaque (need_id, dateISO) ?
   // Approximation : on compte les shifts existants au site primaire dont
   // [start, end] chevauche le creneau du need a cette date.
@@ -469,8 +484,15 @@ export async function generateEmployeeWeekPlanAction(args: {
         effStartMin = Math.max(effStartMin, pE);
       }
     }
-    const endMin = effStartMin + Math.round(dayHours * 60) + breakMin;
-    if (endMin >= 24 * 60) {
+    let endMin = effStartMin + Math.round(dayHours * 60) + breakMin;
+    // Karim 20/05 : plafonne au max(end_time) des site_needs du site primary
+    // ce jour (au lieu de 23h59). Le shift contractuel ne deborde plus la
+    // fermeture du site.
+    const siteCloseFallback = maxCloseTimeFor(primarySiteId, c.jsDow);
+    if (endMin > siteCloseFallback) {
+      endMin = siteCloseFallback;
+    }
+    if (endMin >= 24 * 60 || endMin - effStartMin - breakMin < 60) {
       blockedByPartialUnavail += 1;
       continue;
     }
@@ -521,7 +543,11 @@ export async function generateEmployeeWeekPlanAction(args: {
       const last = drafts[drafts.length - 1];
       const [eH, eM] = last.end_time.split(":").map(Number);
       const lastEndMin = eH * 60 + eM;
-      const extraMin = Math.min(remaining * 60, 24 * 60 - lastEndMin - 1);
+      // Karim 20/05 : plafond = fermeture site CE jour (pas 23h59).
+      const lastDow = parseISODate(last.date).getDay();
+      const siteClose = maxCloseTimeFor(last.site_id, lastDow);
+      const ceiling = Math.min(siteClose, 24 * 60 - 1);
+      const extraMin = Math.min(remaining * 60, ceiling - lastEndMin);
       if (extraMin > 5) {
         const newEndMin = lastEndMin + extraMin;
         const nH = Math.floor(newEndMin / 60);
@@ -553,8 +579,12 @@ export async function generateEmployeeWeekPlanAction(args: {
         // Cree un shift libre de min(remaining, defaultShift)
         const h = Math.min(defaultShift, remaining);
         const hMin = Math.round(h * 60);
-        const endMin = startMin + hMin + breakMin;
-        if (endMin >= 24 * 60) continue;
+        let endMin = startMin + hMin + breakMin;
+        // Karim 20/05 : plafond fermeture site
+        const dayDow = dayDate.getDay();
+        const siteClose = maxCloseTimeFor(primarySiteId, dayDow);
+        if (endMin > siteClose) endMin = siteClose;
+        if (endMin >= 24 * 60 || endMin - startMin - breakMin < 60) continue;
         drafts.push({
           date: dateISO,
           start_time: minToHHMM(startMin) + ":00",
