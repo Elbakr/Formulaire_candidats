@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarOff, ChevronRight, MapPin, Sliders, Bell, Store, CalendarHeart, Snowflake, Cpu } from "lucide-react";
+import { CalendarOff, ChevronRight, MapPin, Sliders, Bell, Store, CalendarHeart, Snowflake, Cpu, CalendarCheck } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -82,6 +82,21 @@ export default async function AdminSettingsPage() {
             <div className="font-bold text-sm">Jours fériés · politique magasins · effectif</div>
             <div className="text-xs text-ink-3">
               Magasin fermé/ouvert par jour, multiplicateur d'effectif (rush Aïd, soldes).
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-ink-3" />
+        </Link>
+        <Link
+          href="/admin/settings/aid-dates"
+          className="flex items-center gap-3 p-4 hover:bg-surface-2 transition-colors border-b border-line"
+        >
+          <div className="h-9 w-9 rounded-md bg-gold-light flex items-center justify-center text-gold-dark shrink-0">
+            <CalendarCheck className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">Dates des Aïd (Saghir / Kabir)</div>
+            <div className="text-xs text-ink-3">
+              Confirme ou décale d'un jour les dates des Aïd quand l'annonce officielle tombe. Rappel mail J-7 et push J-3.
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-ink-3" />

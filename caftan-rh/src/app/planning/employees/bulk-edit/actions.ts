@@ -26,6 +26,10 @@ export type EmployeeBulkPatch = {
   fixed_off_days?: number[];
   preferred_site_ids?: string[];
   unavailable_site_ids?: string[];
+  /** Karim 2026-05-21 : si TRUE, leve le cap 9h30/jour du solver. */
+  is_resistant?: boolean;
+  /** Karim 2026-05-21 : nb max de jours consec travailles (default 5). */
+  derogation_max_consec_days?: number;
   status?: "active" | "on_leave" | "archived";
 };
 
@@ -41,6 +45,8 @@ const ALLOWED_FIELDS = new Set<keyof EmployeeBulkPatch>([
   "fixed_off_days",
   "preferred_site_ids",
   "unavailable_site_ids",
+  "is_resistant",
+  "derogation_max_consec_days",
   "status",
 ]);
 

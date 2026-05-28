@@ -9,6 +9,7 @@ import {
   Award,
   FileText,
   ShieldCheck,
+  Activity,
 } from "lucide-react";
 import { tenureLabel, seniorTier, seniorTierLabel, nextAnniversary } from "@/lib/tenure";
 import { requireRole } from "@/lib/auth";
@@ -23,6 +24,7 @@ import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
+import { LeaveButton } from "./leave-button";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -42,7 +44,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     supabase.from("sites").select("id, code, name, color").eq("is_active", true).order("sort_order"),
     supabase
       .from("site_assignments")
-      .select("id, site_id, start_date, end_date, is_primary, pct, site:sites(id, code, name, color)")
+      .select("id, site_id, start_date, end_date, is_primary, pct, is_site_manager, substitute_employee_id, site:sites(id, code, name, color), substitute:employees!substitute_employee_id(id, full_name)")
       .eq("employee_id", id)
       .order("start_date", { ascending: false }),
   ]);
@@ -52,7 +54,10 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   const assignments = (assignsRaw ?? []) as unknown as Array<{
     id: string; site_id: string; start_date: string; end_date: string | null;
     is_primary: boolean; pct: number | null;
+    is_site_manager: boolean;
+    substitute_employee_id: string | null;
     site: { id: string; code: string; name: string; color: string | null } | null;
+    substitute: { id: string; full_name: string } | null;
   }>;
   if (!emp) notFound();
 
@@ -135,6 +140,11 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
               <CalendarDays className="h-3.5 w-3.5" /> Calendrier (sem/mois/année)
             </Link>
           </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/planning/employees/${id}/prestations?view=day`}>
+              <Activity className="h-3.5 w-3.5" /> Prestations
+            </Link>
+          </Button>
           {/* Karim 15/05 : Vider la semaine pour CET employe. Karim a signale
               que ce bouton manquait sur la fiche -- on l ajoute ici, scope
               automatique sur la semaine en cours. Pour vider une autre semaine,
@@ -143,6 +153,10 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             weekISO={toISODate(startOfWeek(new Date()))}
             employeeId={id}
             scopeLabel="pour cet employé (semaine en cours)"
+          />
+          <LeaveButton
+            employeeId={id}
+            employeeName={(emp as { full_name: string }).full_name}
           />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/print?weeks=4`} target="_blank">

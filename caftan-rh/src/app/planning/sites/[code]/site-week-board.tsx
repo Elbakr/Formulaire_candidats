@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CalendarOff, Plus, UserPlus } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { CalendarOff, Plus, UserPlus, Trash2, Edit3 } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import {
@@ -14,6 +16,7 @@ import {
 import { addDays, parseISODate, toISODate } from "@/lib/planning";
 import { DAY_LABELS_FR_LONG_FROM_SUNDAY } from "@/lib/sites-shared";
 import { ShiftDialog } from "../../calendar/shift-dialog";
+import { deleteShiftAction } from "../../actions";
 
 type Shift = {
   id: string;
@@ -89,10 +92,18 @@ function shiftOverlaps(s1: string, e1: string, s2: string, e2: string): boolean 
   return m(s1) < m(e2) && m(e1) > m(s2);
 }
 
+type CrossShift = {
+  employee_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+};
+
 export function SiteWeekBoard({
   site,
   mondayISO,
   shifts,
+  crossSiteShifts = [],
   needs,
   members,
   closures = [],
@@ -101,12 +112,48 @@ export function SiteWeekBoard({
   site: Site;
   mondayISO: string;
   shifts: Shift[];
+  crossSiteShifts?: CrossShift[];
   needs: Need[];
   members: Member[];
   closures?: Closure[];
   holidays?: Holiday[];
 }) {
   const [editing, setEditing] = useState<EditingState | null>(null);
+  const router = useRouter();
+  const [pendingDelete, startDeleteTransition] = useTransition();
+
+  function deleteEmployeeShiftsForDay(
+    employeeId: string,
+    employeeName: string,
+    dateISO: string,
+    shiftsToDelete: Shift[],
+  ) {
+    const nShifts = shiftsToDelete.length;
+    if (nShifts === 0) return;
+    const dayLabel = new Date(dateISO + "T12:00:00").toLocaleDateString("fr-BE", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+    });
+    if (
+      !window.confirm(
+        `Supprimer ${nShifts} shift${nShifts > 1 ? "s" : ""} de ${employeeName} le ${dayLabel} ?`,
+      )
+    )
+      return;
+    startDeleteTransition(async () => {
+      let ok = 0;
+      let fail = 0;
+      for (const s of shiftsToDelete) {
+        const r = await deleteShiftAction(s.id);
+        if (r?.error) fail += 1;
+        else ok += 1;
+      }
+      if (fail > 0) toast.error(`${fail} suppression(s) en echec`);
+      if (ok > 0) toast.success(`${ok} shift(s) supprime(s)`);
+      router.refresh();
+    });
+  }
 
   const monday = useMemo(() => parseISODate(mondayISO), [mondayISO]);
   const days = useMemo(
@@ -235,6 +282,24 @@ export function SiteWeekBoard({
                                     employeeId={empId}
                                     fullName={info.name}
                                     fullWidth
+                                    extraMenuItems={
+                                      <DropdownMenuItem
+                                        onSelect={(e) => {
+                                          e.preventDefault();
+                                          deleteEmployeeShiftsForDay(
+                                            empId,
+                                            info.name,
+                                            dISO,
+                                            info.shifts,
+                                          );
+                                        }}
+                                        disabled={pendingDelete}
+                                        className="text-danger cursor-pointer focus:bg-danger-light focus:text-danger"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Supprimer {info.shifts.length === 1 ? "le shift" : `les ${info.shifts.length} shifts`} de ce jour
+                                      </DropdownMenuItem>
+                                    }
                                   />
                                   <div className="flex flex-wrap gap-1 mt-0.5">
                                     {uniqueShifts.map((sh) => (
@@ -290,7 +355,26 @@ export function SiteWeekBoard({
                           : "text-warn bg-warn-light";
                     const uncovered = cov < n.headcount;
                     const usedIds = new Set(matching.map((s) => s.employee_id));
-                    const candidates = members.filter((m) => !usedIds.has(m.employee_id));
+                    // Karim 2026-05-21 : exclure aussi ceux qui ont deja un
+                    // shift CROSS-SITE qui chevauche le creneau du besoin
+                    // (on ne peut pas etre a 2 endroits en meme temps).
+                    const crossBusyIds = new Set(
+                      crossSiteShifts
+                        .filter(
+                          (cs) =>
+                            cs.date === dISO &&
+                            shiftOverlaps(
+                              cs.start_time.slice(0, 5),
+                              cs.end_time.slice(0, 5),
+                              n.start_time.slice(0, 5),
+                              n.end_time.slice(0, 5),
+                            ),
+                        )
+                        .map((cs) => cs.employee_id),
+                    );
+                    const candidates = members.filter(
+                      (m) => !usedIds.has(m.employee_id) && !crossBusyIds.has(m.employee_id),
+                    );
 
                     return (
                       <div
@@ -321,10 +405,12 @@ export function SiteWeekBoard({
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                              <DropdownMenuLabel>Membres du site</DropdownMenuLabel>
+                              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">
+                                Disponibles ({candidates.length}/{members.length})
+                              </DropdownMenuLabel>
                               {candidates.length === 0 ? (
                                 <div className="px-2 py-2 text-xs text-ink-3 italic">
-                                  Tous les membres sont déjà sur ce créneau.
+                                  Aucun membre disponible (tous déjà placés ici ou ailleurs à ce créneau).
                                 </div>
                               ) : (
                                 candidates.map((m) => (
@@ -353,7 +439,23 @@ export function SiteWeekBoard({
                       </div>
                     );
                   })}
-                  {/* Bouton générique + ajouter shift libre dans le jour */}
+                  {/* Bouton générique + ajouter shift libre dans le jour.
+                      Karim 2026-05-21 : filtre les membres deja occupes
+                      AILLEURS ce jour-la (cross-site). On affiche aussi un
+                      compteur global. */}
+                  {(() => {
+                  const dayBusyCrossIds = new Set(
+                    crossSiteShifts.filter((cs) => cs.date === dISO).map((cs) => cs.employee_id),
+                  );
+                  const daySiteBusyIds = new Set(
+                    dayShifts.map((s) => s.employee_id),
+                  );
+                  const dayCandidates = members.filter(
+                    (m) =>
+                      !daySiteBusyIds.has(m.employee_id) &&
+                      !dayBusyCrossIds.has(m.employee_id),
+                  );
+                  return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
@@ -364,13 +466,15 @@ export function SiteWeekBoard({
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                      <DropdownMenuLabel>Membres du site</DropdownMenuLabel>
-                      {members.length === 0 ? (
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-ink-3">
+                        Disponibles ({dayCandidates.length}/{members.length})
+                      </DropdownMenuLabel>
+                      {dayCandidates.length === 0 ? (
                         <div className="px-2 py-2 text-xs text-ink-3 italic">
-                          Aucun membre sur ce site.
+                          Aucun membre disponible ce jour (tous occupés).
                         </div>
                       ) : (
-                        members.map((m) => (
+                        dayCandidates.map((m) => (
                           <DropdownMenuItem
                             key={m.employee_id}
                             onSelect={() =>
@@ -387,6 +491,8 @@ export function SiteWeekBoard({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  );
+                  })()}
                 </div>
               )}
             </Card>

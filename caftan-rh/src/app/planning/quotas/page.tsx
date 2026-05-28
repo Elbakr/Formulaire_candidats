@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TrendingUp, TrendingDown, AlertTriangle, Building2, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertTriangle, Building2, Users, Gauge } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import {
@@ -75,8 +75,29 @@ export default async function QuotasPage(props: {
         </div>
       </div>
 
-      {/* KPI direction : 4 cards horizontales en tete. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Karim 2026-05-21 : calcul saturation du reservoir RH global.
+          Somme des heures contractuelles placees / somme des cibles des
+          employes actifs sur la periode. Montre combien de capacite
+          contractuelle est utilisee vs combien dort. */}
+      {(() => null)()}
+      {/* KPI direction : 5 cards horizontales en tete. */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {(() => {
+          const totalCapacity = data.employees.reduce((a, r) => a + r.target_hours, 0);
+          const totalContract = data.employees.reduce((a, r) => a + r.contractual_hours, 0);
+          const totalOT = data.employees.reduce((a, r) => a + r.overtime_hours, 0);
+          const dormant = Math.max(0, totalCapacity - totalContract);
+          const satPct = totalCapacity > 0 ? (totalContract / totalCapacity) * 100 : 0;
+          return (
+            <KpiCard
+              icon={<Gauge className="h-4 w-4" />}
+              label="Saturation réservoir RH"
+              value={`${satPct.toFixed(0)}%`}
+              sub={`${totalContract.toFixed(0)}h placées / ${totalCapacity.toFixed(0)}h capacité · ${dormant.toFixed(0)}h dorment${totalOT > 0 ? ` · +${totalOT.toFixed(0)}h OT` : ""}`}
+              tone={satPct >= 90 ? "ok" : satPct >= 70 ? "warn" : "danger"}
+            />
+          );
+        })()}
         <KpiCard
           icon={<Building2 className="h-4 w-4" />}
           label="Couverture besoins"

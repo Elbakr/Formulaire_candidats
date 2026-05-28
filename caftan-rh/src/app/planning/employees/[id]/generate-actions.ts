@@ -119,9 +119,16 @@ export async function generateEmployeeWeekPlanAction(args: {
   const weekStart = toISODate(monday);
   const weekEnd = toISODate(sunday);
   const todayISO = toISODate(new Date());
-  // Karim 19/05 : startDate override permet de re-planifier le jour meme
-  // apres un vidage. Par defaut J+1 (regle historique).
-  const tomorrowISO = args.startDate ?? toISODate(addDays(new Date(), 1));
+  // Karim 2026-05-21 : default aujourd hui (les creneaux dont l heure est
+  // deja passee sont filtres plus loin). startDate override possible.
+  const tomorrowISO = args.startDate ?? todayISO;
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const NOW_GUARD_MIN = 30;
+  function needStartInPast(dateISO: string, needStart: string): boolean {
+    if (dateISO !== todayISO) return false;
+    const [h, m] = needStart.split(":").map(Number);
+    return h * 60 + m <= nowMin + NOW_GUARD_MIN;
+  }
 
   const [
     { data: empRaw },
@@ -169,7 +176,7 @@ export async function generateEmployeeWeekPlanAction(args: {
       .gte("end_date", weekStart),
     supabase
       .from("site_assignments")
-      .select("site_id, is_primary, start_date, end_date")
+      .select("site_id, is_primary, is_site_manager, start_date, end_date")
       .eq("employee_id", employeeId)
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`)
@@ -308,6 +315,15 @@ export async function generateEmployeeWeekPlanAction(args: {
     end_date: string | null;
   }>;
   const primarySiteId = assigns[0]?.site_id ?? null;
+  // Karim 2026-05-21 : si l employe est responsable de son site primary OU
+  // a force_full_quota=true, le solver passe en mode "saturation max" :
+  //   - choix du besoin le plus LONG meme si le headcount est deja atteint
+  //     (l employe est ajoute en surplus au creneau le plus large)
+  //   - rallonge des shifts existants jusqu a epuiser le reservoir
+  // C est ce que Karim appelle "epuisement du reservoir selon les regles du
+  // solver". Un seul flag effectif : "saturationMode".
+  const isSiteManagerForPrimary = !!assigns[0]?.is_site_manager;
+  const saturationMode = (emp.force_full_quota ?? false) || isSiteManagerForPrimary;
   if (!primarySiteId) {
     // Karim 2026-05-13 : refus de generer un shift sans site. Sans site,
     // les shifts sont orphelins (n'apparaissent pas sur /planning/sites/[code]
@@ -317,22 +333,30 @@ export async function generateEmployeeWeekPlanAction(args: {
     };
   }
 
-  // Boucle 7 jours : determine quels jours sont dispo
+  // Boucle 7 jours : determine quels jours sont dispo + raisons de skip
   type DayCandidate = { dateISO: string; jsDow: number };
   const candidates: DayCandidate[] = [];
   const warnings: string[] = [];
+  const skipReasons = { past: 0, closed: 0, off: 0, leave: 0, unavail: 0, existing: 0 };
+  const leaveDates: string[] = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(monday, i);
     const dateISO = toISODate(d);
     const jsDow = d.getDay();
-    // Regle fondamentale Karim : pas de planification < J+1 (passe ou aujourd'hui).
-    if (dateISO < tomorrowISO) continue;
-    if (dayClosed(dateISO)) continue;
-    if (dayOffByFixed(jsDow)) continue;
-    if (dayInLeave(dateISO)) continue;
-    if (dayFullyBlockedByUnavail(jsDow, dateISO)) continue;
-    if (dayWithExistingShift.has(dateISO)) continue; // on respecte les shifts deja la
+    if (dateISO < tomorrowISO) { skipReasons.past += 1; continue; }
+    if (dayClosed(dateISO)) { skipReasons.closed += 1; continue; }
+    if (dayOffByFixed(jsDow)) { skipReasons.off += 1; continue; }
+    if (dayInLeave(dateISO)) { skipReasons.leave += 1; leaveDates.push(dateISO); continue; }
+    if (dayFullyBlockedByUnavail(jsDow, dateISO)) { skipReasons.unavail += 1; continue; }
+    if (dayWithExistingShift.has(dateISO)) { skipReasons.existing += 1; continue; }
     candidates.push({ dateISO, jsDow });
+  }
+  // Karim 21/05 : detecte conge "ouvert" (9999-12-31) qui bloque tout
+  const openEndedLeaves = leaves.filter((l) => l.end_date >= "9000-01-01");
+  if (openEndedLeaves.length > 0) {
+    warnings.push(
+      `⚠ ${openEndedLeaves.length} congé(s) ouvert(s) sans fin programmée bloque(nt) tous les jours. Clôture ces congés sur la fiche pour libérer le solver.`,
+    );
   }
 
   // Helper pour les early-return : on doit propager les reclassifications
@@ -348,7 +372,16 @@ export async function generateEmployeeWeekPlanAction(args: {
   if (remainingTarget <= 0.01) {
     warnings.push(`Le quota contractuel est déjà atteint (${alreadyContract.toFixed(1)}h / ${weeklyTarget}h). Verifie les heures sup proposees ci-dessous si l employe est eligible.`);
   } else if (candidates.length === 0) {
-    warnings.push("Aucun jour disponible cette semaine pour ajouter du contractuel (jours OFF / congés / fermetures / shifts déjà présents).");
+    const parts: string[] = [];
+    if (skipReasons.past > 0) parts.push(`${skipReasons.past} jour(s) passé(s)`);
+    if (skipReasons.off > 0) parts.push(`${skipReasons.off} jour(s) OFF fixe`);
+    if (skipReasons.leave > 0) parts.push(`${skipReasons.leave} jour(s) en congé (${leaveDates.join(", ")})`);
+    if (skipReasons.closed > 0) parts.push(`${skipReasons.closed} jour(s) magasins fermés`);
+    if (skipReasons.unavail > 0) parts.push(`${skipReasons.unavail} jour(s) indispo totale`);
+    if (skipReasons.existing > 0) parts.push(`${skipReasons.existing} jour(s) déjà avec shift`);
+    warnings.push(
+      `Aucun jour disponible cette semaine. Détail : ${parts.join(" · ")}.`,
+    );
   }
 
   // Karim 19/05 : si maxDaysPerWeek est fourni, on coupe la liste de candidats
@@ -424,14 +457,16 @@ export async function generateEmployeeWeekPlanAction(args: {
   for (const c of limitedCandidates) {
     if (remaining <= 0.01) break;
 
-    // Karim 19/05 v2 : tente de placer sur un site_need exact du jour.
+    // Karim 19/05 v2 + 2026-05-21 : tente de placer sur le PLUS LONG site_need
+    // exact du jour. Si saturationMode (responsable site OU force_full_quota),
+    // on outrepasse la cap headcount : l employe est ajoute en surplus au
+    // creneau le plus large pour maximiser l absorption de quota.
     const dayNeeds = (needsByDayForPrimary.get(c.jsDow) ?? [])
-      .filter((n) => alreadyOnNeed(n, c.dateISO) < n.headcount)
+      .filter((n) => saturationMode || alreadyOnNeed(n, c.dateISO) < n.headcount)
       .sort((a, b) => {
-        // Privilegie les longs creneaux (plus de quota brule en 1 shift)
-        const aH = (timeToMin(b.end_time.slice(0, 5)) - timeToMin(b.start_time.slice(0, 5)));
-        const bH = (timeToMin(a.end_time.slice(0, 5)) - timeToMin(a.start_time.slice(0, 5)));
-        return aH - bH;
+        const aDur = timeToMin(a.end_time.slice(0, 5)) - timeToMin(a.start_time.slice(0, 5));
+        const bDur = timeToMin(b.end_time.slice(0, 5)) - timeToMin(b.start_time.slice(0, 5));
+        return bDur - aDur; // DESC : le plus long en premier
       });
 
     let placedFromNeed = false;
@@ -447,12 +482,12 @@ export async function generateEmployeeWeekPlanAction(args: {
         return nEnd > pS && nStart < pE;
       });
       if (conflict) continue;
+      // Karim 2026-05-21 : skip si on est aujourd hui et l heure de debut
+      // est deja passee (avec marge 30 min).
+      if (needStartInPast(c.dateISO, need.start_time.slice(0, 5))) continue;
       // Duree nette (avec pause)
       const grossH = (nEnd - nStart) / 60;
       const netH = Math.max(0.5, grossH - breakMin / 60);
-      // Karim 19/05 : on accepte de leger debordement du quota pour respecter
-      // le creneau exact du besoin. Pas de fractionnement du besoin (le shift
-      // doit coller exactement au site_need, c est la regle Karim).
       drafts.push({
         date: c.dateISO,
         start_time: need.start_time.slice(0, 5) + ":00",
@@ -461,7 +496,7 @@ export async function generateEmployeeWeekPlanAction(args: {
         site_id: primarySiteId,
         is_overtime: false,
         hours: netH,
-        generation_note: `Génération individuelle ${emp.full_name} · Shift COLLE sur site_need #${need.id.slice(0, 8)} (${need.start_time.slice(0, 5)}-${need.end_time.slice(0, 5)}, ${need.role ?? "?"}) · ${grossH.toFixed(1)}h brut, ${netH.toFixed(1)}h net pause ${breakMin}min`,
+        generation_note: `Génération individuelle ${emp.full_name} · Shift COLLE sur site_need #${need.id.slice(0, 8)} (${need.start_time.slice(0, 5)}-${need.end_time.slice(0, 5)}, ${need.role ?? "?"}) · ${grossH.toFixed(1)}h brut, ${netH.toFixed(1)}h net pause ${breakMin}min${saturationMode ? ` · 👑 saturationMode (${isSiteManagerForPrimary ? "responsable site" : "force_full_quota"}) — besoin le PLUS LONG choisi sans cap headcount` : ""}`,
       });
       remaining -= netH;
       needsUsed += 1;
@@ -507,6 +542,8 @@ export async function generateEmployeeWeekPlanAction(args: {
     if (args.maxDaysPerWeek) noteSegments.push(`Override jours/sem : ${args.maxDaysPerWeek}j`);
     if (args.startTimeOverride) noteSegments.push(`Override heure début : ${args.startTimeOverride}`);
     if (effStartMin !== startMin) noteSegments.push(`Heure décalée car indispo partielle ${minToHHMM(startMin)}→${minToHHMM(effStartMin)}`);
+    // Karim 2026-05-21 : skip si on est aujourd hui et l heure est passee.
+    if (needStartInPast(c.dateISO, minToHHMM(effStartMin))) continue;
     drafts.push({
       date: c.dateISO,
       start_time: minToHHMM(effStartMin) + ":00",
@@ -585,6 +622,8 @@ export async function generateEmployeeWeekPlanAction(args: {
         const siteClose = maxCloseTimeFor(primarySiteId, dayDow);
         if (endMin > siteClose) endMin = siteClose;
         if (endMin >= 24 * 60 || endMin - startMin - breakMin < 60) continue;
+        // Karim 2026-05-21 : skip si aujourd hui et heure deja passee.
+        if (needStartInPast(dateISO, minToHHMM(startMin))) continue;
         drafts.push({
           date: dateISO,
           start_time: minToHHMM(startMin) + ":00",

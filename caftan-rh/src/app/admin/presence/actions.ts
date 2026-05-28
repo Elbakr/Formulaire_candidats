@@ -150,4 +150,56 @@ export async function forceClockOutAction(args: {
   return { ok: true };
 }
 
+/**
+ * Karim 2026-05-25 : corrige le site d un pointage actuel. Utile quand le
+ * terminal Pointage A est partage par sites A/B/D (proximite) et que la
+ * detection auto via shift_id du jour a faux. Met a jour le site_id du
+ * dernier clock_in non encore ferme (et de l OUT correspondant s il existe).
+ */
+export async function updateClockEntrySiteAction(args: {
+  employeeId: string;
+  newSiteId: string;
+}): Promise<{ ok?: true; error?: string }> {
+  await requireRole(["admin", "rh", "manager"]);
+  if (!args.newSiteId) return { error: "Site requis." };
+  const supabase = await createClient();
+  // Cherche le dernier IN ouvert (sans OUT posterieur)
+  const { data: lastIn } = await supabase
+    .from("clock_entries")
+    .select("id, occurred_at, shift_id")
+    .eq("employee_id", args.employeeId)
+    .eq("kind", "in")
+    .order("occurred_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!lastIn) return { error: "Aucun pointage IN trouvé." };
+  const inRow = lastIn as { id: string; occurred_at: string; shift_id: string | null };
+  const { error: upInErr } = await supabase
+    .from("clock_entries")
+    .update({ site_id: args.newSiteId, notes: `Site corrigé manuellement le ${new Date().toISOString().slice(0,10)}` })
+    .eq("id", inRow.id);
+  if (upInErr) return { error: upInErr.message };
+  // Update aussi l OUT correspondant si existe (meme employee, occurred_at apres, meme jour)
+  const today = inRow.occurred_at.slice(0, 10);
+  const { data: outRow } = await supabase
+    .from("clock_entries")
+    .select("id")
+    .eq("employee_id", args.employeeId)
+    .eq("kind", "out")
+    .gt("occurred_at", inRow.occurred_at)
+    .lte("occurred_at", `${today}T23:59:59`)
+    .order("occurred_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (outRow) {
+    await supabase
+      .from("clock_entries")
+      .update({ site_id: args.newSiteId })
+      .eq("id", (outRow as { id: string }).id);
+  }
+  revalidatePath("/admin/presence");
+  revalidatePath("/planning/employees");
+  return { ok: true };
+}
+
 export { formatDurationMin };

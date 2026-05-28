@@ -26,12 +26,17 @@ function minToHHMM(min: number): string {
 export async function fillExtendExistingShiftsAction(args: {
   employeeId: string;
   weekISO: string;
+  // Karim 2026-05-22 : direction d extension. "forward" (default) = etend
+  // l end_time jusqu a fermeture site. "backward" = etend le start_time en
+  // amont jusqu a l ouverture site (premiere heure de besoin du jour).
+  direction?: "forward" | "backward";
 }): Promise<{
   ok?: boolean;
   error?: string;
   extended?: number;
   minutes_added?: number;
   remaining_min?: number;
+  direction?: "forward" | "backward";
 }> {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -51,16 +56,16 @@ export async function fillExtendExistingShiftsAction(args: {
       .lte("date", end)
       .order("date")
       .order("start_time"),
-    // Karim 20/05 : besoins pour calculer fermeture site par jour
+    // Karim 20/05 + 22/05 : besoins pour calculer fermeture ET ouverture site
     supabase
       .from("site_needs")
-      .select("site_id, day_of_week, end_time, is_enabled")
+      .select("site_id, day_of_week, start_time, end_time, is_enabled")
       .eq("is_enabled", true),
   ]);
   const emp = empRaw as { id: string; full_name: string; weekly_hours: number | null; default_pause_minutes: number | null } | null;
   if (!emp) return { error: "Employé introuvable" };
   const target = emp.weekly_hours ?? 38;
-  const needs = (needsRaw ?? []) as Array<{ site_id: string; day_of_week: number; end_time: string; is_enabled: boolean }>;
+  const needs = (needsRaw ?? []) as Array<{ site_id: string; day_of_week: number; start_time: string; end_time: string; is_enabled: boolean }>;
   function siteClose(siteId: string | null, jsDow: number): number {
     if (!siteId) return 24 * 60 - 1;
     let m = 0;
@@ -71,6 +76,17 @@ export async function fillExtendExistingShiftsAction(args: {
       }
     }
     return m > 0 ? m : 24 * 60 - 1;
+  }
+  function siteOpen(siteId: string | null, jsDow: number): number {
+    if (!siteId) return 0;
+    let m = 24 * 60;
+    for (const n of needs) {
+      if (n.site_id === siteId && n.day_of_week === jsDow) {
+        const s = timeToMin(n.start_time.slice(0, 5));
+        if (s < m) m = s;
+      }
+    }
+    return m < 24 * 60 ? m : 0;
   }
 
   type ShiftRow = { id: string; employee_id: string; date: string; start_time: string; end_time: string; break_minutes: number; is_overtime: boolean | null; site_id: string | null };
@@ -93,45 +109,73 @@ export async function fillExtendExistingShiftsAction(args: {
     return { ok: true, extended: 0, minutes_added: 0, remaining_min: 0 };
   }
 
-  // Trouve, pour chaque shift, la marge max d extension end_time -> limite
-  // = prochain shift de l employe ce jour OU 23h59.
+  const direction = args.direction === "backward" ? "backward" : "forward";
   let extended = 0;
   let minutesAdded = 0;
   for (const sh of empContract) {
     if (remainingMin <= 0) break;
     const startM = timeToMin(sh.start_time.slice(0, 5));
     const endM = timeToMin(sh.end_time.slice(0, 5));
-    // Prochain shift du meme employe meme jour
-    const sameDayLater = allShifts
-      .filter((x) => x.employee_id === args.employeeId && x.date === sh.date && x.id !== sh.id)
-      .map((x) => timeToMin(x.start_time.slice(0, 5)))
-      .filter((m) => m > endM)
-      .sort((a, b) => a - b)[0];
-    // Karim 20/05 : plafond = MIN(fermeture site, prochain shift -15min, 23h59).
     const shiftDow = new Date(sh.date + "T00:00:00").getDay();
-    const closeAtSite = siteClose(sh.site_id, shiftDow);
-    const ceil = Math.min(
-      closeAtSite,
-      sameDayLater != null ? sameDayLater - 15 : 23 * 60 + 59,
-    );
-    const maxExtend = Math.max(0, ceil - endM);
-    if (maxExtend <= 0) continue;
-    const addMin = Math.min(maxExtend, remainingMin);
-    if (addMin < 5) continue;
-    const newEndM = endM + addMin;
-    const { error } = await supabase
-      .from("shifts")
-      .update({ end_time: minToHHMM(newEndM) + ":00" })
-      .eq("id", sh.id);
-    if (error) return { error: error.message };
-    extended += 1;
-    minutesAdded += addMin;
-    remainingMin -= addMin;
+
+    if (direction === "forward") {
+      // Plafond = MIN(fermeture site, prochain shift -15min, 23h59).
+      const sameDayLater = allShifts
+        .filter((x) => x.employee_id === args.employeeId && x.date === sh.date && x.id !== sh.id)
+        .map((x) => timeToMin(x.start_time.slice(0, 5)))
+        .filter((m) => m > endM)
+        .sort((a, b) => a - b)[0];
+      const closeAtSite = siteClose(sh.site_id, shiftDow);
+      const ceil = Math.min(
+        closeAtSite,
+        sameDayLater != null ? sameDayLater - 15 : 23 * 60 + 59,
+      );
+      const maxExtend = Math.max(0, ceil - endM);
+      if (maxExtend <= 0) continue;
+      const addMin = Math.min(maxExtend, remainingMin);
+      if (addMin < 5) continue;
+      const newEndM = endM + addMin;
+      const { error } = await supabase
+        .from("shifts")
+        .update({ end_time: minToHHMM(newEndM) + ":00" })
+        .eq("id", sh.id);
+      if (error) return { error: error.message };
+      extended += 1;
+      minutesAdded += addMin;
+      remainingMin -= addMin;
+    } else {
+      // direction = backward : rallonge le start_time en amont jusqu a
+      // l ouverture du site (premier besoin du jour). Plancher =
+      // MAX(ouverture site, shift precedent +15min, 00:00).
+      const sameDayEarlier = allShifts
+        .filter((x) => x.employee_id === args.employeeId && x.date === sh.date && x.id !== sh.id)
+        .map((x) => timeToMin(x.end_time.slice(0, 5)))
+        .filter((m) => m < startM)
+        .sort((a, b) => b - a)[0];
+      const openAtSite = siteOpen(sh.site_id, shiftDow);
+      const floor = Math.max(
+        openAtSite,
+        sameDayEarlier != null ? sameDayEarlier + 15 : 0,
+      );
+      const maxExtend = Math.max(0, startM - floor);
+      if (maxExtend <= 0) continue;
+      const addMin = Math.min(maxExtend, remainingMin);
+      if (addMin < 5) continue;
+      const newStartM = startM - addMin;
+      const { error } = await supabase
+        .from("shifts")
+        .update({ start_time: minToHHMM(newStartM) + ":00" })
+        .eq("id", sh.id);
+      if (error) return { error: error.message };
+      extended += 1;
+      minutesAdded += addMin;
+      remainingMin -= addMin;
+    }
   }
 
   revalidatePath("/planning", "layout");
   revalidatePath("/me/planning");
-  return { ok: true, extended, minutes_added: minutesAdded, remaining_min: remainingMin };
+  return { ok: true, extended, minutes_added: minutesAdded, remaining_min: remainingMin, direction };
 }
 
 /**

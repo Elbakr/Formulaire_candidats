@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { prepareContractAction } from "../contract-actions";
 import { PrepareContractButton } from "./prepare-button";
+import { NewContractFromTemplateButton } from "./new-from-template-button";
 
 type ContractRow = {
   id: string;
@@ -78,11 +79,14 @@ export default async function EmployeeContractListPage(
             <ArrowLeft className="h-3.5 w-3.5" /> Retour fiche
           </Link>
         </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/planning/employees/${id}/dimona`}>
-            Dimona ONSS
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <NewContractFromTemplateButton employeeId={id} />
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/planning/employees/${id}/dimona`}>
+              Dimona ONSS
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card>

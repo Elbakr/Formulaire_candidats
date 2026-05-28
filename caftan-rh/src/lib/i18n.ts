@@ -79,6 +79,18 @@ const FR = {
   "me.nav.section_poste": "Mon poste",
   "me.nav.section_communication": "Communication",
   "me.nav.reinforcement": "Renfort",
+  "me.nav.my_bonus": "Mes primes",
+  "me.nav.my_clients": "Mes clientes VIP",
+
+  // Sections de la nav globale (utilisées dans app-shell pour TOUS les rôles
+  // — les sections admin/RH ne sont pas exposées au candidate, donc seules
+  // celles-ci ont besoin d'une traduction côté utilisateur final).
+  "nav.section.me": "Mon espace",
+  "nav.section.planning": "Planning",
+  "nav.section.rh": "RH",
+  "nav.section.pointage": "Pointage",
+  "nav.section.reporting": "Reporting",
+  "nav.section.admin": "Admin",
 
   // Page Documents (/me/documents)
   "documents.title": "Mes documents",
@@ -720,6 +732,15 @@ const NL: Record<TranslationKey, string> = {
   "me.nav.section_poste": "Mijn functie",
   "me.nav.section_communication": "Communicatie",
   "me.nav.reinforcement": "Versterking",
+  "me.nav.my_bonus": "Mijn premies",
+  "me.nav.my_clients": "Mijn VIP-klanten",
+
+  "nav.section.me": "Mijn ruimte",
+  "nav.section.planning": "Planning",
+  "nav.section.rh": "HR",
+  "nav.section.pointage": "Tijdregistratie",
+  "nav.section.reporting": "Rapportage",
+  "nav.section.admin": "Admin",
 
   "documents.title": "Mijn documenten",
   "documents.subtitle": "CV en bijlagen verstuurd naar het HR-team.",

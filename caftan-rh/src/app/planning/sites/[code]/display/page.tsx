@@ -251,11 +251,7 @@ export default async function SiteDisplayPage(props: {
                           {s.break_minutes > 0 ? (
                             <span className="opacity-70">· pause {s.break_minutes}'</span>
                           ) : null}
-                          {s.is_overtime ? (
-                            <span className="ml-auto px-1 rounded bg-orange-500 text-white text-[9px] font-bold">
-                              OT×{s.overtime_multiplier ?? 1.5}
-                            </span>
-                          ) : null}
+                          {/* Karim 22/05 : couleur seule distingue OT (orange) du normal */}
                         </div>
                         {s.position ? (
                           <div className="text-[10px] opacity-80 mt-0.5 truncate">{s.position}</div>

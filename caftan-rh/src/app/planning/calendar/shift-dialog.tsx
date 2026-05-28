@@ -103,8 +103,9 @@ export function ShiftDialog({
   const [isOvertime, setIsOvertime] = useState<boolean>(
     shift?.is_overtime === true || defaults?.is_overtime === true,
   );
+  // Karim 2026-05-21 : multiplicateur OT default à 1 (heures sup non-majorées).
   const [overtimeMultiplier, setOvertimeMultiplier] = useState<string>(
-    String(shift?.overtime_multiplier ?? defaults?.overtime_multiplier ?? 1.5),
+    String(shift?.overtime_multiplier ?? defaults?.overtime_multiplier ?? 1.0),
   );
 
   // Quota hebdo chargé au mount via action serveur.
@@ -140,6 +141,11 @@ export function ShiftDialog({
     notes: string | null;
   };
   const [unavailabilities, setUnavailabilities] = useState<Unavail[]>([]);
+  // Karim 22/05 : alerte visible quand on tente d ajouter un shift sur le
+  // jour OFF habituel de l employe. Le serveur bloquera de toute facon
+  // (upsertShiftAction return error), mais on previent l utilisateur en
+  // amont pour eviter le clic submit.
+  const [offDayLabel, setOffDayLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -156,6 +162,22 @@ export function ShiftDialog({
           contractualHoursThisWeek: r.contractualHoursThisWeek,
           overtimeHoursThisWeek: r.overtimeHoursThisWeek,
         });
+        // Karim 22/05 : check fixed_off_days (l action serveur retourne
+        // cette info via fixed_off_label si on la met dans la signature).
+        // Fallback : check via fixed_off_days inclus dans la response.
+        const offDays = (r as { fixedOffDays?: number[] }).fixedOffDays ?? [];
+        if (offDays.length > 0) {
+          const jsDow = new Date(date + "T12:00:00").getDay();
+          const isoDow = jsDow === 0 ? 6 : jsDow - 1;
+          if (offDays.includes(isoDow)) {
+            const labels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+            setOffDayLabel(labels[isoDow]);
+          } else {
+            setOffDayLabel(null);
+          }
+        } else {
+          setOffDayLabel(null);
+        }
       }
     })().catch(() => {
       /* silencieux : si l'action plante, on ne montre juste pas le banner */
@@ -480,6 +502,18 @@ export function ShiftDialog({
             {employeeName} · {new Date(date).toLocaleDateString("fr-BE", { weekday: "long", day: "2-digit", month: "long" })}
           </DialogDescription>
         </DialogHeader>
+        {offDayLabel ? (
+          <div className="rounded-md border-l-4 border-l-danger bg-danger-light/40 p-3 text-sm">
+            <div className="font-bold text-danger flex items-center gap-1">
+              ⛔ Jour OFF habituel
+            </div>
+            <p className="text-xs text-ink-2 mt-1">
+              <strong>{offDayLabel}</strong> est un jour OFF habituel pour {employeeName}.
+              La création/modification d&apos;un shift sera <strong>refusée</strong> au moment de la sauvegarde.
+              Pour exception, retire d&apos;abord ce jour de ses « Jours OFF habituels » sur sa fiche.
+            </p>
+          </div>
+        ) : null}
         {shift?.generation_note ? (
           <details className="rounded-md border border-gold/40 bg-gold-light/30 p-2 text-[11px]">
             <summary className="cursor-pointer font-bold text-gold-dark">
@@ -518,6 +552,16 @@ export function ShiftDialog({
                 toast.error(r.error);
                 return;
               }
+              // Karim 2026-05-21 : warning si l employe est en conge ce jour
+              const lw = (r as { leave_warning?: { from: string; to: string; kind: string } | null })?.leave_warning;
+              if (lw) {
+                toast.warning(
+                  `⚠ Employé en congé (${lw.kind}) du ${lw.from} au ${lw.to}. Shift créé quand même comme demandé.`,
+                  { duration: 8000 },
+                );
+              }
+              // Karim 22/05 : fixed_off_days est REJET DUR cote serveur (pas
+              // de warning ici, l erreur est captee dans r.error plus haut).
               const createdIds = (r?.created_ids ?? []) as string[];
               const label = shift
                 ? r?.split

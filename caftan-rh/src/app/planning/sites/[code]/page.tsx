@@ -23,6 +23,8 @@ import { ClearPlanningMenu } from "../../calendar/clear-planning-menu";
 import { NeedsEditor } from "./needs-editor";
 import { SiteWeekBoard } from "./site-week-board";
 import { SiteNavigator } from "./site-navigator";
+import { SiteIncoherenceBanner } from "./incoherence-banner";
+import { loadSiteAnalyticsData } from "@/app/planning/employees/[id]/calendar/site-analytics-loader";
 import { loadCurrentlyIn } from "@/lib/clock";
 
 type Shift = {
@@ -70,6 +72,7 @@ export default async function SiteDetailPage(props: {
   const supabase = await createClient();
   const [
     { data: shiftsRaw },
+    { data: crossShiftsRaw },
     { data: membersRaw },
     { data: eligibleRaw },
     { data: holidaysRaw },
@@ -86,12 +89,18 @@ export default async function SiteDetailPage(props: {
       .lte("date", end)
       .order("date")
       .order("start_time"),
+    // Karim 2026-05-21 : shifts de TOUS les sites cette semaine, pour filtrer
+    // les candidats "Ajouter un employé"/"Nouveau shift" -> ne pas proposer
+    // un employé déjà occupé sur un autre site au même créneau.
+    supabase
+      .from("shifts")
+      .select("employee_id, date, start_time, end_time")
+      .neq("site_id", site.id)
+      .gte("date", start)
+      .lte("date", end),
     supabase
       .from("site_assignments")
-      .select(
-        `id, start_date, is_primary,
-         employee:employees(id, full_name, job_title)`,
-      )
+      .select("id, employee_id, start_date, is_primary")
       .eq("site_id", site.id)
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`)
@@ -120,21 +129,49 @@ export default async function SiteDetailPage(props: {
 
   type AssignRow = {
     id: string;
+    employee_id: string;
     start_date: string;
     is_primary: boolean;
-    employee: { id: string; full_name: string; job_title: string | null } | null;
   };
-  const memberRows = (membersRaw ?? []) as unknown as AssignRow[];
+  const memberRows = (membersRaw ?? []) as AssignRow[];
+  // Karim 2026-05-21 : fetch employees en 2eme requete (la jointure embed
+  // Supabase ne ramene pas les donnees fiables sur cette table -> equipe
+  // affichait 0 membre).
+  const memberEmpIds = [...new Set(memberRows.map((m) => m.employee_id))];
+  let employeesById = new Map<string, { id: string; full_name: string; job_title: string | null }>();
+  if (memberEmpIds.length > 0) {
+    const { data: empsRaw } = await supabase
+      .from("employees")
+      .select("id, full_name, job_title")
+      .in("id", memberEmpIds)
+      .eq("status", "active");
+    employeesById = new Map(
+      ((empsRaw ?? []) as Array<{ id: string; full_name: string; job_title: string | null }>).map(
+        (e) => [e.id, e] as const,
+      ),
+    );
+  }
+  // Dedupe par employee_id : si plusieurs assignments actifs (doublons), on
+  // garde le premier (priorise primary puis le plus recent grace au order).
+  const seenEmpIds = new Set<string>();
   const members = memberRows
-    .filter((m) => m.employee)
-    .map((m) => ({
-      assignment_id: m.id,
-      employee_id: m.employee!.id,
-      full_name: m.employee!.full_name,
-      job_title: m.employee!.job_title,
-      is_primary: m.is_primary,
-      start_date: m.start_date,
-    }));
+    .filter((m) => {
+      if (!employeesById.has(m.employee_id)) return false;
+      if (seenEmpIds.has(m.employee_id)) return false;
+      seenEmpIds.add(m.employee_id);
+      return true;
+    })
+    .map((m) => {
+      const e = employeesById.get(m.employee_id)!;
+      return {
+        assignment_id: m.id,
+        employee_id: e.id,
+        full_name: e.full_name,
+        job_title: e.job_title,
+        is_primary: m.is_primary,
+        start_date: m.start_date,
+      };
+    });
   const memberIds = new Set(members.map((m) => m.employee_id));
   const eligible = ((eligibleRaw ?? []) as Array<{
     id: string;
@@ -241,6 +278,14 @@ export default async function SiteDetailPage(props: {
 
       <SitePresenceStrip siteId={site.id} initial={presentsForStrip} />
 
+      {/* Karim 2026-05-22 : data loader mutualise (memes queries reutilisees ailleurs) */}
+      {(await (async () => {
+        const data = await loadSiteAnalyticsData(site.id, start, end);
+        return (
+          <SiteIncoherenceBanner data={data} siteCode={site.code} weekStart={start} />
+        );
+      })())}
+
       <SiteWeekBoard
         site={{
           id: site.id,
@@ -251,6 +296,12 @@ export default async function SiteDetailPage(props: {
         }}
         mondayISO={toISODate(monday)}
         shifts={shifts}
+        crossSiteShifts={(crossShiftsRaw ?? []) as Array<{
+          employee_id: string;
+          date: string;
+          start_time: string;
+          end_time: string;
+        }>}
         needs={needs}
         members={memberMinis}
         closures={(closuresRaw ?? []) as Array<{

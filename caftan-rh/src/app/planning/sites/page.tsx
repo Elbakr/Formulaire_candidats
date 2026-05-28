@@ -7,7 +7,12 @@ import { loadSites, totalRequiredHours, type SiteNeed } from "@/lib/sites";
 
 export default async function SitesOverviewPage() {
   await requireRole(["admin", "rh", "manager"]);
-  const sites = await loadSites();
+  const allSites = await loadSites();
+  // Karim 2026-05-25 : filtre par ville (cookie). BXL = A/B/D/E, Anvers = C/F.
+  const { readCity, siteCodesForCity } = await import("@/lib/city");
+  const city = await readCity();
+  const cityCodes = new Set(siteCodesForCity(city));
+  const sites = allSites.filter((s) => cityCodes.has(s.code));
   const supabase = await createClient();
 
   // Tous les besoins par site en un seul appel.

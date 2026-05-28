@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, Pencil, MapPin, Camera } from "lucide-react";
+import { LogOut, Pencil, MapPin, Camera, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
   forceClockOutAction,
   getSelfieSignedUrlAction,
   managerOverrideClockAction,
+  updateClockEntrySiteAction,
 } from "./actions";
 import {
   Dialog,
@@ -69,6 +71,21 @@ export function PresenceLiveTable({
   const [now, setNow] = useState<number>(() => Date.now());
   const [pending, startTransition] = useTransition();
   const [overrideOpen, setOverrideOpen] = useState<Person | null>(null);
+  // Karim 2026-05-25 : popup pour corriger le site du pointage (terminal A
+  // partage entre sites A/B/D, parfois la detection auto est fausse).
+  const [siteOpen, setSiteOpen] = useState<Person | null>(null);
+
+  function handleChangeSite(p: Person, newSiteId: string) {
+    if (newSiteId === p.site_id) { setSiteOpen(null); return; }
+    startTransition(async () => {
+      const r = await updateClockEntrySiteAction({ employeeId: p.employee_id, newSiteId });
+      if (r.error) { toast.error(r.error); return; }
+      const site = sites.find((s) => s.id === newSiteId);
+      toast.success(`${p.full_name} déplacé(e) vers ${site?.code ?? "?"}`);
+      setSiteOpen(null);
+      router.refresh();
+    });
+  }
 
   // Tick chaque 30s pour rafraîchir les durées affichées.
   useEffect(() => {
@@ -163,26 +180,36 @@ export function PresenceLiveTable({
                   fullName={p.full_name}
                 />
                 <div className="flex-1 min-w-0">
-                  <EmployeeQuickLink
-                    employeeId={p.employee_id}
-                    fullName={p.full_name}
-                    profileId={p.profile_id}
-                    withAvatar
-                    avatarSize="md"
-                    variant="block"
-                    fullWidth
-                    subtitle={
-                      <span className="tabular-nums">
-                        Depuis{" "}
-                        {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        · {elapsed(p.clock_in_at, now)}
-                      </span>
-                    }
-                  />
+                  <Link
+                    href={`/planning/employees/${p.employee_id}/prestations?view=week`}
+                    className="font-bold text-sm text-blue-700 hover:underline truncate block"
+                    title="Voir prestations jour/semaine/mois"
+                  >
+                    {p.full_name}
+                  </Link>
+                  <div className="text-xs text-ink-3 tabular-nums">
+                    Depuis{" "}
+                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
+                    · {elapsed(p.clock_in_at, now)}
+                  </div>
                 </div>
+                <Button asChild variant="ghost" size="sm" title="Voir prestations">
+                  <Link href={`/planning/employees/${p.employee_id}/prestations?view=week`}>
+                    <Activity className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSiteOpen(p)}
+                  disabled={pending}
+                  title="Changer de site (terminal partagé A/B/D)"
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -229,26 +256,27 @@ export function PresenceLiveTable({
                   fullName={p.full_name}
                 />
                 <div className="flex-1 min-w-0">
-                  <EmployeeQuickLink
-                    employeeId={p.employee_id}
-                    fullName={p.full_name}
-                    profileId={p.profile_id}
-                    withAvatar
-                    avatarSize="md"
-                    variant="block"
-                    fullWidth
-                    subtitle={
-                      <span className="tabular-nums">
-                        Depuis{" "}
-                        {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        · {elapsed(p.clock_in_at, now)}
-                      </span>
-                    }
-                  />
+                  <Link
+                    href={`/planning/employees/${p.employee_id}/prestations?view=week`}
+                    className="font-bold text-sm text-blue-700 hover:underline truncate block"
+                    title="Voir prestations jour/semaine/mois"
+                  >
+                    {p.full_name}
+                  </Link>
+                  <div className="text-xs text-ink-3 tabular-nums">
+                    Depuis{" "}
+                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
+                    · {elapsed(p.clock_in_at, now)}
+                  </div>
                 </div>
+                <Button asChild variant="ghost" size="sm" title="Voir prestations">
+                  <Link href={`/planning/employees/${p.employee_id}/prestations?view=week`}>
+                    <Activity className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -273,6 +301,55 @@ export function PresenceLiveTable({
           </ul>
         </Card>
       ) : null}
+
+      {/* Karim 2026-05-25 : Dialog corriger le site du pointage (terminal partage) */}
+      <Dialog open={!!siteOpen} onOpenChange={(o) => { if (!o) setSiteOpen(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Changer le site du pointage</DialogTitle>
+          </DialogHeader>
+          {siteOpen ? (
+            <div className="space-y-3 px-5 py-4">
+              <div className="text-sm text-ink-2">
+                <strong>{siteOpen.full_name}</strong> a pointé sur le terminal
+                {" "}<em>Pointage A</em> (partagé entre Sites A, B et D).
+                Sélectionne le bon site :
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {sites.filter((s) => ["A", "B", "D", "E"].includes(s.code)).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => handleChangeSite(siteOpen, s.id)}
+                    disabled={pending}
+                    className={`rounded-md border-[1.5px] px-3 py-2 text-sm font-bold transition-colors ${
+                      siteOpen.site_id === s.id
+                        ? "border-gold bg-gold-light text-gold-dark"
+                        : "border-line text-ink-3 hover:border-gold hover:text-gold-dark"
+                    }`}
+                  >
+                    <span
+                      className="inline-flex items-center justify-center w-6 h-6 rounded text-white text-[10px] mr-2"
+                      style={{ backgroundColor: s.color ?? "#666" }}
+                    >
+                      {s.code}
+                    </span>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-3">
+                Le site sera mis à jour sur le clock-in actuel et son OUT correspondant (s'il existe).
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSiteOpen(null)} disabled={pending}>
+              Annuler
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <OverrideDialog
         open={!!overrideOpen}

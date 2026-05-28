@@ -12,6 +12,8 @@ import {
   type RushSegment,
 } from "@/lib/rush-profile";
 import { seniorTier } from "@/lib/tenure";
+import { splitShiftForQuota } from "@/lib/split-overtime";
+import { scheduleBreaks, buildSiteOffsets } from "@/lib/break-scheduler";
 import { loadSeasonalEvents, pickPeakMultiplierForDay } from "@/lib/seasonal";
 import {
   computeCrescendoMultiplier,
@@ -44,6 +46,11 @@ type EmployeeRow = {
   ot_max_multiplier: number | null;
   is_manager: boolean | null;
   is_site_manager: boolean | null;
+  preferred_site_ids: string[] | null;
+  unavailable_site_ids: string[] | null;
+  is_resistant: boolean | null;
+  derogation_max_consec_days: number | null;
+  force_full_quota: boolean | null;
 };
 
 /** Score de séniorité numérique pour le tri (haut = plus senior). */
@@ -273,14 +280,14 @@ async function loadSolverContext(
       .order("start_time"),
     supabase
       .from("site_assignments")
-      .select("employee_id, is_primary")
+      .select("employee_id, is_primary, is_site_manager")
       .eq("site_id", siteId)
       .lte("start_date", end)
       .or(`end_date.is.null,end_date.gte.${start}`),
     supabase
       .from("employees")
       .select(
-        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible, ot_max_multiplier, is_manager, is_site_manager",
+        "id, full_name, status, fixed_off_days, default_pause_minutes, weekly_hours, start_date, contract_type, ot_eligible, ot_max_multiplier, is_manager, is_site_manager, preferred_site_ids, unavailable_site_ids, is_resistant, derogation_max_consec_days, force_full_quota",
       )
       .eq("status", "active"),
     // /!\ on charge TOUS les shifts de la semaine, pas seulement ceux du site,
@@ -343,11 +350,43 @@ async function loadSolverContext(
   }>;
 
   const tierByEmp = new Map<string, 1 | 2 | 3>();
+  // Karim 2026-05-21 : set des responsables de CE site (priorite absolue).
+  const siteManagerIds = new Set<string>();
   for (const a of (siteAssignsRaw ?? []) as Array<{
     employee_id: string;
     is_primary: boolean;
+    is_site_manager: boolean;
   }>) {
     tierByEmp.set(a.employee_id, a.is_primary ? 1 : 2);
+    if (a.is_site_manager) siteManagerIds.add(a.employee_id);
+  }
+
+  // Karim 2026-05-21 : VERROU cross-site. Charge TOUS les site_managers
+  // (n importe quel site) pour les exclure quand on genere pour un AUTRE
+  // site. Un responsable doit etre sature sur SON site, pas pioche en
+  // renfort. Repond a "Omaima doit etre au site A pcq elle en est
+  // responsable et donc prioritaire et en premier lieu".
+  const otherSiteManagerIds = new Set<string>();
+  {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const { data: allMgrs } = await supabase
+      .from("site_assignments")
+      .select("employee_id, site_id, is_site_manager, start_date, end_date")
+      .eq("is_site_manager", true);
+    type M = {
+      employee_id: string;
+      site_id: string;
+      is_site_manager: boolean;
+      start_date: string;
+      end_date: string | null;
+    };
+    for (const m of ((allMgrs ?? []) as M[])) {
+      if (m.site_id === siteId) continue;
+      // actif aujourd hui ?
+      if (m.start_date > todayISO) continue;
+      if (m.end_date != null && m.end_date < todayISO) continue;
+      otherSiteManagerIds.add(m.employee_id);
+    }
   }
 
   const allEmployees = ((allActiveEmpsRaw ?? []) as EmployeeRow[]).filter(
@@ -414,6 +453,8 @@ async function loadSolverContext(
     needs,
     allEmployees,
     tierByEmp,
+    siteManagerIds,
+    otherSiteManagerIds,
     existing,
     offs,
     unavail,
@@ -497,25 +538,19 @@ function hasUnavailabilityOverlap(
 
 // --- phase 1 : génération contractuelle stricte ---------------------------
 
+export type SolverMode = "eco" | "full";
+
 export async function previewSitePlanAction(
   siteCode: string,
   weekISO: string,
-  /**
-   * Karim 16/05 : shifts virtuels deja alloues a cet employe par d autres
-   * sites du meme batch multi-sites. Le solver les inclut dans plannedHours/
-   * plannedDays/conflicts comme si c etaient des shifts en base. Sans ce
-   * parametre, le 1er site du batch raflait tous les employes (combinedMult
-   * x2 sur 4 besoins = 8 employes, 13 dispo -> tout sur 1 site, les autres
-   * vides). Avec : repartition equitable.
-   */
   additionalExistingShifts?: ExistingShift[],
-  /**
-   * Karim 19/05 : date a partir de laquelle generer (format YYYY-MM-DD).
-   * Si null/undefined -> J+1 (default historique). Si fournie, override la
-   * regle "ne pas planifier aujourd hui". Permet de generer le jour meme
-   * apres un vidage massif.
-   */
   startDateOverride?: string,
+  // Karim 2026-05-21 : 2 modes de solver.
+  //   - "eco" (default) : couverture stricte, alreadyCoveringNeed actif,
+  //     cap headcount+1, OT seulement seniors/responsables.
+  //   - "full" : saturation max, alreadyCoveringNeed ignore pour critiques,
+  //     cap headcount+2 en rush, OT auto etendu a tous les ot_eligible.
+  mode: SolverMode = "eco",
 ): Promise<SitePlanPreview | { error: string }> {
   await requireRole(["admin", "rh", "manager"]);
 
@@ -529,6 +564,8 @@ export async function previewSitePlanAction(
     needs,
     allEmployees,
     tierByEmp,
+    siteManagerIds,
+    otherSiteManagerIds,
     existing: existingFromDb,
     offs,
     unavail,
@@ -615,10 +652,19 @@ export async function previewSitePlanAction(
   // Solution : retour ordre chronologique pour la boucle, le renforcement
   // des jours critiques reste assure par combinedMult (holiday + crescendo +
   // pont + seasonal) qui gonfle le headcount sur ces jours specifiquement.
-  // Regle fondamentale Karim 2026-05-13 : aucune generation < J+1.
-  // Karim 19/05 : startDateOverride permet de demarrer plus tot que J+1
-  // (ex : re-planifier aujourd hui apres un vidage massif).
-  const tomorrowISO = startDateOverride ?? toISODate(addDays(new Date(), 1));
+  // Karim 2026-05-21 : on accepte aujourd hui par defaut pour les creneaux
+  // dont l heure de debut n est pas encore passee. startDateOverride permet
+  // d aller plus loin si besoin (ex : forcer demain via UI).
+  const tomorrowISO = startDateOverride ?? toISODate(new Date());
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const todayISO = toISODate(new Date());
+  // Marge : on ne cree pas un shift dont le debut est dans moins de 30 min.
+  const NOW_GUARD_MIN = 30;
+  function needStartInPast(dateISO: string, needStart: string): boolean {
+    if (dateISO !== todayISO) return false;
+    const [h, m] = needStart.split(":").map(Number);
+    return h * 60 + m <= nowMin + NOW_GUARD_MIN;
+  }
 
   const allHolidaysForCrescendo = allHolidays.map((h) => ({
     date: h.date,
@@ -669,12 +715,24 @@ export async function previewSitePlanAction(
           is_enabled: true,
         } as SiteNeed))
       : needs.filter((n) => n.day_of_week === dayJsDow);
+    // Karim 2026-05-21 v2 : tri par DUREE DESC d abord, criticite en
+    // tiebreaker. Raison : si on met critique d abord, le responsable
+    // (priorite absolue) est attrape par un besoin critique court (ex
+    // 14:30-17:30 = 3h) et ne peut plus prendre le besoin long de la
+    // journee (ex 10:00-20:00 = 10h) car chevauchement. Resultat : 3h au
+    // lieu de 10h pour le responsable. En tri DUREE DESC, le responsable
+    // est mis sur le long en premier, et les critiques courts sont couverts
+    // par les autres employes ensuite. Saturation max respectee.
     const dayNeeds = dayNeedsRaw
-      .filter((n) => n.headcount > 0) // override headcount=0 = ferme exceptionnellement
-      .sort(
-        (a, b) =>
-          slotHours(b.start_time, b.end_time) - slotHours(a.start_time, a.end_time),
-      );
+      .filter((n) => n.headcount > 0)
+      .sort((a, b) => {
+        const dA = slotHours(a.start_time, a.end_time);
+        const dB = slotHours(b.start_time, b.end_time);
+        if (dA !== dB) return dB - dA;
+        const ca = a.is_critical ?? 0;
+        const cb = b.is_critical ?? 0;
+        return cb - ca;
+      });
 
     // Multiplicateur d'effectif final.
     // Karim 16/05 : holiday, crescendo et pont sont 3 INTENSIFICATIONS du
@@ -716,6 +774,9 @@ export async function previewSitePlanAction(
     for (const need of dayNeeds) {
       const need_s = need.start_time.slice(0, 5);
       const need_e = need.end_time.slice(0, 5);
+      // Karim 2026-05-21 : skip si on est aujourd hui et l heure de debut
+      // du besoin est deja passee (avec marge de 30 min).
+      if (needStartInPast(dateISO, need_s)) continue;
       const slotH = slotHours(need_s, need_e); // brut (sans pause)
       // Karim 16/05 v7 : cap +1 par besoin + decrement par "alreadyCovered".
       // Cas reel : site B lundi 25 mai a 3 besoins IMBRIQUES (un grand slot
@@ -726,11 +787,15 @@ export async function previewSitePlanAction(
       // Avec alreadyCovered : on compte les drafts deja places ce jour qui
       // ENGLOBENT le creneau du besoin courant, et on decremente d autant.
       const targetWithMult = Math.ceil(need.headcount * combinedMult);
+      const isRushDay = dayJsDow === 0 || dayJsDow === 6 || specialDates.has(dateISO);
+      // Karim 22/05 v6 : sur-staffing de B au detriment de D/E. On limite
+      // strictement capExtra a +1 partout. Le rush boost +2 etait trop
+      // glouton sur le 1er site traite.
+      const capExtra = 1;
       const seasonalHeadcountFull = Math.min(
         targetWithMult,
-        need.headcount + 1,
+        need.headcount + capExtra,
       );
-      // Drafts deja places ce jour pour ce site, qui englobent [need_s, need_e].
       const alreadyCoveringNeed = drafts.filter(
         (d) =>
           d.date === dateISO &&
@@ -738,7 +803,83 @@ export async function previewSitePlanAction(
           d.start_time <= need_s &&
           d.end_time >= need_e,
       ).length;
-      const seasonalHeadcount = Math.max(0, seasonalHeadcountFull - alreadyCoveringNeed);
+      // Karim 2026-05-21 v3 : mode FULL ignore alreadyCoveringNeed dans 2 cas :
+      //   1. besoin critique (is_critical >= 1) — staff dedie sur la pointe
+      //   2. jour rush (weekend/ferie) — chaque besoin a son staff pour
+      //      garantir au moins 2 personnes sur le site les jours speciaux.
+      const ignoreAlreadyCovering =
+        mode === "full" && ((need.is_critical ?? 0) >= 1 || isRushDay);
+      let seasonalHeadcount = ignoreAlreadyCovering
+        ? seasonalHeadcountFull
+        : Math.max(0, seasonalHeadcountFull - alreadyCoveringNeed);
+      // Karim 2026-05-21 v3 : plancher 2 employes / site / jour rush en mode
+      // FULL. Garantit que B n est pas seul sur 10h-20h alors que D a 1
+      // seule personne. Compte les drafts deja places ce jour sur ce site
+      // (tous besoins confondus) et force +1 tant qu on est sous 2.
+      if (mode === "full" && isRushDay) {
+        const totalPlacedToday = drafts.filter(
+          (d) => d.date === dateISO && d.site_id === siteId,
+        ).length;
+        if (totalPlacedToday < 2 && seasonalHeadcount < 1) {
+          seasonalHeadcount = 1;
+        }
+      }
+      // Karim 22/05 v5 : ouverture +1 slot UNIQUEMENT pour force_full_quota
+      // non satures. La saturation universelle pour TOUS les ot_eligible
+      // creait du sur-staffing systematique (B sature au max, D vide).
+      // Compromis : on ne force que pour les responsables/force_full_quota
+      // declares, le reste s integre au pool normal selon besoins du site.
+      if (mode === "full" && seasonalHeadcount === 0) {
+        const forceFullPending = allEmployees.filter((e) => {
+          if (!e.force_full_quota) return false;
+          const used = plannedHours.get(e.id) ?? 0;
+          const otMult = Number(e.ot_max_multiplier) || 1.0;
+          const absMax = (e.weekly_hours ?? 38) * otMult;
+          if (used + slotH > absMax + 1e-6) return false;
+          const alreadyOnSimilar = drafts.some(
+            (d) =>
+              d.date === dateISO &&
+              d.site_id === siteId &&
+              d.employee_id === e.id &&
+              d.start_time <= need_s &&
+              d.end_time >= need_e,
+          );
+          return !alreadyOnSimilar;
+        });
+        if (forceFullPending.length > 0) {
+          seasonalHeadcount = 1;
+        }
+      }
+      // Karim 22/05 v5 : plafond strict effectif par besoin pour eviter
+      // sur-staffing systematique. seasonalHeadcount ne peut JAMAIS depasser
+      // headcount + 2 meme apres tous les boosts (mgr force, ff force, etc.).
+      seasonalHeadcount = Math.min(seasonalHeadcount, need.headcount + 2);
+      // Karim 2026-05-21 : si un responsable de CE site n est pas encore
+      // place ce jour ET aucun besoin couvert ce jour ne va le prendre, on
+      // force seasonalHeadcount +1 pour le slot pour qu il puisse l occuper
+      // en surplus (sur-staff volontaire pour saturer le reservoir du
+      // responsable). Repond a "Omaima doit travailler dimanche pcq quota
+      // non atteint".
+      const siteMgrPlacedTodayHere = drafts.some(
+        (d) =>
+          d.date === dateISO &&
+          d.site_id === siteId &&
+          siteManagerIds.has(d.employee_id),
+      );
+      let siteMgrForceSlot = false;
+      if (!siteMgrPlacedTodayHere && seasonalHeadcount === 0) {
+        // verifie qu un mgr est theoriquement disponible (pas en conge global)
+        const anyMgrAvailable = [...siteManagerIds].some((mgrId) => {
+          // pas en conge ce jour
+          return !offs.some(
+            (o) => o.employee_id === mgrId && dateISO >= o.start_date && dateISO <= o.end_date,
+          );
+        });
+        if (anyMgrAvailable) {
+          seasonalHeadcount = 1;
+          siteMgrForceSlot = true;
+        }
+      }
       if (seasonalHeadcount === 0) continue;
 
       // Pool unique des employés éligibles, filtrés sur :
@@ -751,12 +892,30 @@ export async function previewSitePlanAction(
       let countCapped = 0;
       let countAvailable = 0;
       for (const e of allEmployees) {
+        // Karim 2026-05-21 : sites INDISPONIBLES declares par l employe sur
+        // sa fiche -> verrou dur. Si ce site est dans la liste, on l exclut
+        // totalement du pool quel que soit son tier.
+        if ((e.unavailable_site_ids ?? []).includes(siteId)) {
+          countOff += 1;
+          continue;
+        }
+        // Karim 2026-05-21 : VERROU. Un responsable d un AUTRE site est
+        // exclu du pool de CE site (un responsable doit etre sature sur SON
+        // site, pas dilue en renfort cross-site).
+        if (otherSiteManagerIds.has(e.id)) {
+          countOff += 1;
+          continue;
+        }
+        const isSiteMgrHere = siteManagerIds.has(e.id);
+        // Karim 22/05 : RAPPEL - le jour OFF declaré dans la fiche (fixed_off_days)
+        // est RESPECTÉ PAR LE SOLVER pour TOUT LE MONDE (y compris responsables).
+        // L outrepasse n existe que pour les ajouts MANUELS via ShiftDialog
+        // qui ajoutent un warning visible cote client. Le solver ne fabrique
+        // PAS de shift sur un jour OFF, point.
         if (isOffOrLeave(e, dateISO, dayJsDow, offs, specialDates)) {
           countOff += 1;
           continue;
         }
-        // Indispos déclarées par l'employé (cours, examen, perso…) : si une
-        // indispo chevauche le créneau, on l'exclut comme s'il était off.
         if (hasUnavailabilityOverlap(e.id, dateISO, dayJsDow, need_s, need_e, unavail)) {
           countOff += 1;
           continue;
@@ -782,16 +941,64 @@ export async function previewSitePlanAction(
           countBusy += 1;
           continue;
         }
-        // HARD CAP contractuel (phase 1) : ne dépasse JAMAIS weekly_hours.
+        // Karim 2026-05-21 R1 + R5 + R7 : caps ergonomie. Les managers ET
+        // les responsables de site sont EXEMPTÉS des 2 caps (ils peuvent
+        // saturer leur réservoir, faire des journées longues). Les jours
+        // fériés exemptent tout le monde.
+        const isHoliday = specialDates.has(dateISO);
+        const isExemptErgo = (e.is_manager === true) || (e.is_site_manager === true);
+        // R1 : max jours consec (default 5, derogable via `derogation_max_consec_days`)
+        if (!isExemptErgo && !isHoliday) {
+          const maxConsec = e.derogation_max_consec_days ?? 5;
+          let consec = 0;
+          for (let back = 1; back <= 7; back++) {
+            const probe = parseISODate(dateISO);
+            probe.setDate(probe.getDate() - back);
+            const probeISO = toISODate(probe);
+            const hasShift = drafts.some((d) => d.employee_id === e.id && d.date === probeISO)
+              || existing.some((s) => s.employee_id === e.id && s.date === probeISO);
+            if (hasShift) consec += 1;
+            else break;
+          }
+          if (consec >= maxConsec) {
+            countOff += 1;
+            continue;
+          }
+        }
+        // R5 : cap 9h30/jour. Levé pour : managers, responsables, is_resistant, jour ferie.
+        if (!isExemptErgo && !e.is_resistant && !isHoliday) {
+          const hoursToday = drafts
+            .filter((d) => d.employee_id === e.id && d.date === dateISO)
+            .reduce((acc, d) => acc + slotHours(d.start_time, d.end_time), 0)
+            + existing
+              .filter((s) => s.employee_id === e.id && s.date === dateISO)
+              .reduce((acc, s) => acc + slotHours(s.start_time, s.end_time), 0);
+          if (hoursToday + slotH > 9.5 + 1e-6) {
+            countCapped += 1;
+            continue;
+          }
+        }
         const cap = e.weekly_hours ?? 38;
         const used = plannedHours.get(e.id) ?? 0;
-        // On compare en heures brutes (slotH) car la pause contractuelle est
-        // déjà incluse dans le créneau du besoin — l'employé réserve le slot
-        // entier sur sa semaine. C'est volontairement conservateur : si on
-        // veut tirer plus de monde, c'est exactement le rôle de la phase 2.
-        if (used + slotH > cap + 1e-6) {
-          countCapped += 1;
-          continue;
+        const otMult = Number(e.ot_max_multiplier) || 1.5;
+        if (isSiteMgrHere) {
+          const absoluteMax = cap * otMult;
+          if (used + slotH > absoluteMax + 1e-6) {
+            countCapped += 1;
+            continue;
+          }
+        } else if (used + slotH > cap + 1e-6) {
+          // Membre normal saturable : on accepte si ot_eligible (split fera
+          // contractuel + OT). Sinon HARD CAP strict comme avant.
+          if (!e.ot_eligible) {
+            countCapped += 1;
+            continue;
+          }
+          const absoluteMax = cap * otMult;
+          if (used + slotH > absoluteMax + 1e-6) {
+            countCapped += 1;
+            continue;
+          }
         }
         countAvailable += 1;
         eligible.push(e);
@@ -826,6 +1033,43 @@ export async function previewSitePlanAction(
       const mgrPriorityEnabled = isRuleEnabled(rulesCfg, "manager_priority");
       const siteMgrPriorityEnabled = isRuleEnabled(rulesCfg, "site_manager_priority");
       eligible.sort((a, b) => {
+        // Karim 2026-05-21 : ordre final apres clarification
+        //   1. Responsable de CE site (siteManagerIds) — priorite absolue
+        //   2. Tier d affectation au site (1=primary < 2=secondary < 3=externe)
+        //      "D abord l equipe du site, en cas de surbesoin alors renfort
+        //      ailleurs". Un externe (tier 3) ne passe JAMAIS avant un membre
+        //      du site (tier 1/2), meme si l externe est manager.
+        //   3. rRank (manager / site_manager global) DANS chaque tier
+        //   4. Senior d abord sur creneau exigeant (si rule active)
+        //   5. Etalement (moins de jours planifies)
+        //   6. Equite (moins d heures planifiees)
+        const aIsSiteMgr = siteManagerIds.has(a.id);
+        const bIsSiteMgr = siteManagerIds.has(b.id);
+        if (aIsSiteMgr !== bIsSiteMgr) return aIsSiteMgr ? -1 : 1;
+        // Karim 2026-05-21 v2 + 22/05 : avant tier, on prefere l employe qui
+        // ne basculera PAS en OT avec ce besoin. EXCEPTION : les employes
+        // marques `force_full_quota=true` doivent saturer jusqu a leur max
+        // OT, donc on ne les penalise PAS pour passage en OT (ils sont
+        // traites comme s ils etaient non-OT pour rester prioritaires).
+        const aUsed = plannedHours.get(a.id) ?? 0;
+        const bUsed = plannedHours.get(b.id) ?? 0;
+        const aCap = a.weekly_hours ?? 38;
+        const bCap = b.weekly_hours ?? 38;
+        const aWouldOT = aUsed + slotH > aCap + 1e-6;
+        const bWouldOT = bUsed + slotH > bCap + 1e-6;
+        const aPenalize = aWouldOT && !a.force_full_quota;
+        const bPenalize = bWouldOT && !b.force_full_quota;
+        if (aPenalize !== bPenalize) return aPenalize ? 1 : -1;
+        const ta = tierByEmp.get(a.id) ?? 3;
+        const tb = tierByEmp.get(b.id) ?? 3;
+        if (ta !== tb) return ta - tb;
+        // Karim 2026-05-21 : a tier egal, on prefere l employe qui a ce site
+        // dans ses "Sites preferes". Tag souple : si tu peux choisir entre 2
+        // candidats equivalents, prends celui qui a explicitement marque ce
+        // site comme preference.
+        const aPref = (a.preferred_site_ids ?? []).includes(siteId);
+        const bPref = (b.preferred_site_ids ?? []).includes(siteId);
+        if (aPref !== bPref) return aPref ? -1 : 1;
         const rRank = (e: EmployeeRow) => {
           if (siteMgrPriorityEnabled && e.is_site_manager) return 0;
           if (mgrPriorityEnabled && e.is_manager) return 1;
@@ -834,9 +1078,6 @@ export async function previewSitePlanAction(
         const ra = rRank(a);
         const rb = rRank(b);
         if (ra !== rb) return ra - rb;
-        const ta = tierByEmp.get(a.id) ?? 3;
-        const tb = tierByEmp.get(b.id) ?? 3;
-        if (ta !== tb) return ta - tb;
         if (requireSenior && isRuleEnabled(rulesCfg, "senior_first_on_demanding_slots")) {
           // Creneau a forte exigence : senior d'abord (lead/senior > confirme/junior).
           const sa = seniorScore(a);
@@ -846,6 +1087,15 @@ export async function previewSitePlanAction(
         const da = plannedDays.get(a.id)?.size ?? 0;
         const db = plannedDays.get(b.id)?.size ?? 0;
         if (da !== db) return da - db;
+        // Karim 2026-05-21 v3 : en mode FULL, pour favoriser la repartition
+        // equitable entre sites, on prefere l employe qui a le MOINS d
+        // shifts deja places sur CE site dans ce batch. Empeche un externe
+        // de rafler tous les shifts de B pendant que D reste vide.
+        if (mode === "full") {
+          const aOnSite = drafts.filter((d) => d.employee_id === a.id && d.site_id === siteId).length;
+          const bOnSite = drafts.filter((d) => d.employee_id === b.id && d.site_id === siteId).length;
+          if (aOnSite !== bOnSite) return aOnSite - bOnSite;
+        }
         const ha = plannedHours.get(a.id) ?? 0;
         const hb = plannedHours.get(b.id) ?? 0;
         return ha - hb;
@@ -855,7 +1105,7 @@ export async function previewSitePlanAction(
       // Construit la note explicative pour ce slot (commune a tous les
       // employes places dessus, individualisee ensuite avec le pool_tier).
       const noteParts: string[] = [];
-      noteParts.push(`Phase 1 contractuel · Site ${siteCode} · need ${need.role ?? "?"}`);
+      noteParts.push(`Mode ${mode.toUpperCase()} · Phase 1 contractuel · Site ${siteCode} · need ${need.role ?? "?"}`);
       noteParts.push(`Slot ${need_s}-${need_e} (${slotH.toFixed(2)}h)`);
       if (need.is_critical) {
         noteParts.push(`Need critique (${need.is_critical})`);
@@ -877,26 +1127,104 @@ export async function previewSitePlanAction(
         if (remaining <= 0) break;
         const tier = (tierByEmp.get(emp.id) ?? 3) as 1 | 2 | 3;
         const tierLbl = tier === 1 ? "Primary (assigné à ce site)" : tier === 2 ? "Secondary" : "Externe (renfort cross-site)";
-        const empNote = `${noteParts.join(" · ")} · Choisi : ${emp.full_name} (${tierLbl})${emp.is_site_manager ? " [resp. magasin]" : emp.is_manager ? " [manager]" : ""}`;
-        drafts.push({
-          employee_id: emp.id,
-          employee_name: emp.full_name,
-          date: dateISO,
-          start_time: need_s,
-          end_time: need_e,
-          break_minutes: emp.default_pause_minutes ?? 30,
-          position: need.role,
-          site_id: siteId,
-          need_id: need.id,
-          is_renfort: tier === 3,
-          pool_tier: tier,
-          is_overtime: false,
-          overtime_multiplier: null,
-          generation_note: empNote,
+        const isSiteMgrHere = siteManagerIds.has(emp.id);
+        const usedBefore = plannedHours.get(emp.id) ?? 0;
+        const cap = emp.weekly_hours ?? 38;
+        const breakMin = emp.default_pause_minutes ?? 30;
+        const otMult = Number(emp.ot_max_multiplier) || 1.5;
+
+        // Karim 2026-05-21 v2 : fractionnement auto au seuil quota. Si le
+        // besoin fait depasser le quota, on split en regular + OT au point
+        // exact d epuisement (regle "exhaust quota before OT").
+        const split = splitShiftForQuota({
+          startTime: need_s,
+          endTime: need_e,
+          breakMinutes: breakMin,
+          alreadyContractualHours: usedBefore,
+          weeklyTargetHours: cap,
+          otMultiplier: otMult,
         });
-        // Comptage : on incrémente en heures brutes (slotH) pour rester
-        // cohérent avec le HARD CAP qui filtre en brut.
-        plannedHours.set(emp.id, (plannedHours.get(emp.id) ?? 0) + slotH);
+
+        const baseNote = `${noteParts.join(" · ")} · Choisi : ${emp.full_name} (${tierLbl})${isSiteMgrHere ? " 👑 [RESPONSABLE - saturation max]" : emp.is_site_manager ? " [resp. magasin]" : emp.is_manager ? " [manager]" : ""}`;
+        const isSplit = !!(split.regular && split.overtime);
+        if (isSplit) {
+          // 2 segments : regular (jusqu au seuil) + OT (apres)
+          drafts.push({
+            employee_id: emp.id,
+            employee_name: emp.full_name,
+            date: dateISO,
+            start_time: split.regular!.start_time,
+            end_time: split.regular!.end_time,
+            break_minutes: split.regular!.break_minutes,
+            position: need.role,
+            site_id: siteId,
+            need_id: need.id,
+            is_renfort: tier === 3,
+            pool_tier: tier,
+            is_overtime: false,
+            overtime_multiplier: null,
+            generation_note: `${baseNote} · 📊 SPLIT QUOTA : segment regulier ${split.regular!.start_time}-${split.regular!.end_time} (${split.regularHours.toFixed(1)}h) - reservoir epuise au seuil ${cap}h`,
+          });
+          drafts.push({
+            employee_id: emp.id,
+            employee_name: emp.full_name,
+            date: dateISO,
+            start_time: split.overtime!.start_time,
+            end_time: split.overtime!.end_time,
+            break_minutes: split.overtime!.break_minutes,
+            position: need.role,
+            site_id: siteId,
+            need_id: need.id,
+            is_renfort: tier === 3,
+            pool_tier: tier,
+            is_overtime: true,
+            overtime_multiplier: otMult,
+            generation_note: `${baseNote} · 📊 SPLIT QUOTA : segment HEURES SUP ${split.overtime!.start_time}-${split.overtime!.end_time} (${split.overtimeHours.toFixed(1)}h x${otMult}) - apres epuisement reservoir`,
+          });
+        } else if (split.overtime && !split.regular) {
+          // Tout en OT (reservoir deja a 100%)
+          drafts.push({
+            employee_id: emp.id,
+            employee_name: emp.full_name,
+            date: dateISO,
+            start_time: split.overtime.start_time,
+            end_time: split.overtime.end_time,
+            break_minutes: split.overtime.break_minutes,
+            position: need.role,
+            site_id: siteId,
+            need_id: need.id,
+            is_renfort: tier === 3,
+            pool_tier: tier,
+            is_overtime: true,
+            overtime_multiplier: otMult,
+            generation_note: `${baseNote} · OT entier (reservoir contractuel deja epuise ${usedBefore.toFixed(1)}h/${cap}h)`,
+          });
+        } else {
+          // Tout regular (cas standard, pas de depassement)
+          drafts.push({
+            employee_id: emp.id,
+            employee_name: emp.full_name,
+            date: dateISO,
+            start_time: need_s,
+            end_time: need_e,
+            break_minutes: breakMin,
+            position: need.role,
+            site_id: siteId,
+            need_id: need.id,
+            is_renfort: tier === 3,
+            pool_tier: tier,
+            is_overtime: false,
+            overtime_multiplier: null,
+            generation_note: baseNote,
+          });
+        }
+        // Comptage : on incrémente plannedHours UNIQUEMENT avec les heures
+        // CONTRACTUELLES placees (split.regularHours). Les heures OT sont
+        // hors quota et ne saturent pas. Karim 2026-05-21 v2.
+        plannedHours.set(
+          emp.id,
+          (plannedHours.get(emp.id) ?? 0) + split.regularHours,
+        );
         const set = plannedDays.get(emp.id) ?? new Set<string>();
         set.add(dateISO);
         plannedDays.set(emp.id, set);
@@ -967,6 +1295,35 @@ export async function previewSitePlanAction(
       `[preview] semaine ${start} → ${end} : ${seasonal_active.length} saisonnalité(s) actives :`,
       seasonal_active.map((s) => `${s.name} ×${s.multiplier} sur ${s.days_in_week}j`).join(", "),
     );
+  }
+
+  // Karim 2026-05-21 : planification des pauses. Pour chaque draft (qui a
+  // une break_minutes > 0), calcule la fenetre de pause optimale au milieu
+  // du shift, en evitant les chevauchements avec d autres employes du meme
+  // site et en decalant entre sites (offset par code site). Le resultat
+  // est ecrit dans generation_note pour info RH.
+  {
+    const supabaseBreak = await createClient();
+    const allSitesData = await supabaseBreak
+      .from("sites")
+      .select("id, code")
+      .eq("is_active", true);
+    const siteOffsets = buildSiteOffsets(
+      (allSitesData.data ?? []) as Array<{ id: string; code: string }>,
+    );
+    const draftsWithKey = drafts.map((d) => ({
+      ...d,
+      _key: `${d.employee_id}|${d.date}|${d.start_time}`,
+    }));
+    const breakSlots = scheduleBreaks(draftsWithKey, siteOffsets);
+    for (const d of drafts) {
+      const key = `${d.employee_id}|${d.date}|${d.start_time}`;
+      const bs = breakSlots.get(key);
+      if (bs) {
+        d.generation_note = (d.generation_note ?? "") +
+          ` · ☕ Pause prévue ${bs.breakStart}-${bs.breakEnd}`;
+      }
+    }
   }
 
   return {

@@ -1,51 +1,11 @@
-import { AppShell, type NavSection } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
 import { requireRole } from "@/lib/auth";
-
-const sections: NavSection[] = [
-  {
-    items: [
-      { href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" },
-      { href: "/rh/inbox", label: "Inbox actions IA", icon: "Sparkles" },
-    ],
-  },
-  {
-    title: "Recrutement",
-    items: [
-      { href: "/rh/candidates", label: "Candidats", icon: "Users" },
-      { href: "/rh/pipeline", label: "Pipeline", icon: "KanbanSquare" },
-      { href: "/rh/jobs", label: "Offres d'emploi", icon: "Briefcase" },
-      { href: "/rh/agenda", label: "Agenda RDV", icon: "Calendar" },
-    ],
-  },
-  {
-    title: "GestiPlanning",
-    items: [
-      { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
-      { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
-      { href: "/planning/time-off", label: "Congés", icon: "CalendarOff" },
-      { href: "/onboarding", label: "Onboarding", icon: "UserCheck" },
-    ],
-  },
-  {
-    title: "Pilotage",
-    items: [
-      { href: "/scoring", label: "Scoring équipe", icon: "FileBarChart" },
-    ],
-  },
-  {
-    title: "Communication",
-    items: [
-      { href: "/chat", label: "Chat équipe (sites)", icon: "MessageSquare" },
-      { href: "/requests", label: "Demandes équipe", icon: "ShoppingBag" },
-      { href: "/rh/messages", label: "Messagerie email", icon: "Mail" },
-      { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
-      { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },
-      { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },
-    ],
-  },
-];
+import { getNavSections } from "@/lib/navigation";
+import { readCity } from "@/lib/city";
 
 export default async function RhLayout({ children }: { children: React.ReactNode }) {
   const { profile } = await requireRole(["admin", "rh"]);
-  return <AppShell sections={sections} user={profile}>{children}</AppShell>;
+  const groups = getNavSections(profile.role);
+  const city = await readCity();
+  return <AppShell groups={groups} user={profile} city={city}>{children}</AppShell>;
 }

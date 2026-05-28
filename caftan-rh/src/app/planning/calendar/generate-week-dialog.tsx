@@ -77,6 +77,8 @@ export function GenerateWeekDialog({
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowISO = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
   const [startDate, setStartDate] = useState<string>(tomorrowISO);
+  // Karim 2026-05-21 : mode solver (eco par defaut, full pour saturer le reservoir)
+  const [solverMode, setSolverMode] = useState<"eco" | "full">("eco");
 
   // Charge les prefs localStorage a l'ouverture (sites + periode)
   useEffect(() => {
@@ -110,6 +112,13 @@ export function GenerateWeekDialog({
     } catch {
       /* noop */
     }
+    // Mode solver
+    try {
+      const raw = localStorage.getItem("caftanrh.solver_mode");
+      if (raw === "eco" || raw === "full") setSolverMode(raw);
+    } catch {
+      /* noop */
+    }
   }, [open, sites]);
 
   function toggle(id: string) {
@@ -127,10 +136,11 @@ export function GenerateWeekDialog({
       toast.error("Coche au moins un site.");
       return;
     }
-    // Persiste les prefs (sites + periode)
+    // Persiste les prefs (sites + periode + mode)
     try {
       localStorage.setItem(SITES_PREF_KEY, JSON.stringify(Array.from(selected)));
       localStorage.setItem(WEEKS_PREF_KEY, String(weeksCount));
+      localStorage.setItem("caftanrh.solver_mode", solverMode);
     } catch {
       /* noop */
     }
@@ -143,7 +153,7 @@ export function GenerateWeekDialog({
       // Pour chaque semaine, preview multi-sites en parallele
       const allRows: PreviewRow[] = [];
       for (const wm of weekMondays) {
-        const r = await previewMultiSitePlanAction(codes, wm, startDate);
+        const r = await previewMultiSitePlanAction(codes, wm, startDate, solverMode);
         for (const it of r.items) {
           const site = sites.find((s) => s.code === it.site_code)!;
           allRows.push({
@@ -304,8 +314,42 @@ export function GenerateWeekDialog({
               </p>
             </div>
 
+            <div>
+              <h3 className="font-bold text-sm mb-2">⚙️ Mode du solver</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSolverMode("eco")}
+                  className={`p-3 rounded-md border text-left transition-colors ${
+                    solverMode === "eco"
+                      ? "border-gold bg-gold-light"
+                      : "border-line bg-surface hover:bg-surface-2"
+                  }`}
+                >
+                  <div className="font-bold text-sm">⚪ Mode Eco</div>
+                  <div className="text-[10px] text-ink-3 mt-0.5 leading-snug">
+                    Couverture stricte. Cap +1, OT réservé responsables/seniors. Masse salariale optimisée.
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSolverMode("full")}
+                  className={`p-3 rounded-md border text-left transition-colors ${
+                    solverMode === "full"
+                      ? "border-gold bg-gold-light"
+                      : "border-line bg-surface hover:bg-surface-2"
+                  }`}
+                >
+                  <div className="font-bold text-sm">🔥 Mode Full staff</div>
+                  <div className="text-[10px] text-ink-3 mt-0.5 leading-snug">
+                    Saturation max. Cap +2 weekends/fériés, staff dédié sur créneaux critiques, OT auto pour tous les éligibles.
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <p className="text-[11px] text-ink-3 italic">
-              Tes choix (sites + période) sont mémorisés pour la prochaine fois.
+              Tes choix (sites + période + mode) sont mémorisés pour la prochaine fois.
             </p>
           </div>
         ) : (

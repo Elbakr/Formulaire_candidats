@@ -1,0 +1,2 @@
+-- DEPRECATED 2026-05-24 : mauvais dossier. Voir
+-- Formulaire_candidats/supabase/migrations/20260620000400_tuya_pointage_classify.sql

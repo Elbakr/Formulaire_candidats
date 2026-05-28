@@ -549,7 +549,7 @@ export function WeeklyPlanningBoard({
                                           : "bg-gold-light text-gold-dark hover:bg-gold hover:text-white"
                                       }`}
                                       style={site?.color ? { boxShadow: `inset 3px 0 0 ${site.color}` } : undefined}
-                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"}${s.is_overtime ? ` — Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}` : ""} — tap pour editer, long-press (mobile) ou drag (desktop) pour deplacer`}
+                                      title={`${site ? `${site.name} (${site.code})` : "Aucun site"} — tap pour editer, long-press (mobile) ou drag (desktop) pour deplacer`}
                                     >
                                       <div className="font-bold flex items-center gap-1">
                                         <span>{s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}</span>
@@ -561,11 +561,7 @@ export function WeeklyPlanningBoard({
                                             {site.code}
                                           </span>
                                         ) : null}
-                                        {s.is_overtime ? (
-                                          <span className={`${site ? "" : "ml-auto"} text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-200 text-orange-700`}>
-                                            H. sup
-                                          </span>
-                                        ) : null}
+                                        {/* Karim 22/05 : couleur orange seule signale OT, pas de badge texte */}
                                       </div>
                                       {s.position ? <div className="text-[10px] truncate">{s.position}</div> : null}
                                     </button>

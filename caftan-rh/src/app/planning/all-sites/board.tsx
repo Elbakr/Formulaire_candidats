@@ -465,21 +465,12 @@ export function AllSitesBoard({
                                         ? "3px solid #f97316"
                                         : `3px solid ${site.color ?? "#c9a34d"}`,
                                     }}
-                                    title={
-                                      s.is_overtime
-                                        ? `Heures sup.${s.overtime_multiplier ? ` x${s.overtime_multiplier}` : ""}`
-                                        : "Tape ou glisse-depose pour deplacer"
-                                    }
+                                    title="Tape ou glisse-depose pour deplacer"
                                   >
                                     <div className="font-mono font-bold flex items-center gap-1">
                                       <span>
                                         {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
                                       </span>
-                                      {s.is_overtime ? (
-                                        <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700">
-                                          H. sup
-                                        </span>
-                                      ) : null}
                                     </div>
                                     <div className="text-[11px] mt-0.5" onClick={(e) => e.stopPropagation()}>
                                       <EmployeeQuickLink

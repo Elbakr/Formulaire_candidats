@@ -50,11 +50,17 @@ export type EmployeeQuickLinkProps = {
   suffix?: React.ReactNode;
   /** Si true, le composant entier prend toute la largeur. */
   fullWidth?: boolean;
+  /** Karim 2026-05-21 : actions custom a injecter en debut de menu (avant
+   * les liens generiques). Permet a la vue site d ajouter "Supprimer shift". */
+  extraMenuItems?: React.ReactNode;
 };
 
 function defaultPrimaryHref(role: string, employeeId: string): string {
+  // Karim 2026-05-24 : click sur nom employe -> page Prestations (jour/sem/mois)
+  // au lieu du calendrier. Karim consulte plus souvent les heures effectuees
+  // que le planning.
   if (role === "admin" || role === "rh" || role === "manager") {
-    return `/planning/employees/${employeeId}/calendar?view=week`;
+    return `/planning/employees/${employeeId}/prestations?view=week`;
   }
   return `/360/employee/${employeeId}`;
 }
@@ -82,6 +88,7 @@ export function EmployeeQuickLink({
   primaryHref,
   suffix,
   fullWidth = false,
+  extraMenuItems,
 }: EmployeeQuickLinkProps) {
   const role = useViewerRole();
   const myProfileId = useViewerProfileId();
@@ -167,9 +174,12 @@ export function EmployeeQuickLink({
       <Link
         href={href}
         className={cn(
-          "inline-flex items-center gap-2 min-w-0 hover:text-gold-dark transition-colors",
+          // Karim 2026-05-24 : nom employe TOUJOURS bleu et clairement clicable
+          // pour acceder a la page Prestations (jour/sem/mois).
+          "inline-flex items-center gap-2 min-w-0 text-blue-700 hover:text-blue-900 hover:underline transition-colors",
           fullWidth ? "flex-1" : "",
         )}
+        title="Voir prestations jour/semaine/mois"
       >
         {nameContent}
       </Link>
@@ -193,6 +203,13 @@ export function EmployeeQuickLink({
         <DropdownMenuContent align="end" className="min-w-[220px]">
           <DropdownMenuLabel className="truncate">{fullName}</DropdownMenuLabel>
           <DropdownMenuSeparator />
+
+          {extraMenuItems ? (
+            <>
+              {extraMenuItems}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
 
           {isManagerOrAbove ? (
             <>

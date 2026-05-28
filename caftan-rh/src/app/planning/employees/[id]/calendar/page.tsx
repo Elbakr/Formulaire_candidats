@@ -26,6 +26,13 @@ import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { ClearPlanningMenu } from "@/app/planning/calendar/clear-planning-menu";
 import { EmployeeAutoFillButton } from "@/app/planning/employees/[id]/auto-fill-button";
 import { EmployeeSiteNav } from "@/app/planning/employees/[id]/employee-site-nav";
+import { LeaveButton } from "@/app/planning/employees/[id]/leave-button";
+import { SiteStatsPanel } from "./site-stats-panel";
+import { EmployeeIncoherenceBanner } from "./incoherence-banner";
+import { loadSiteAnalyticsData, type SiteAnalyticsData } from "./site-analytics-loader";
+import { SiteIncoherenceBanner } from "@/app/planning/sites/[code]/incoherence-banner";
+import { ActiveLeavesBanner } from "./active-leaves-banner";
+import { SiteAllEmployeesAutoFillButton } from "./site-all-autofill-button";
 
 type View = "week" | "month" | "year";
 
@@ -52,7 +59,7 @@ function parseView(s: string | undefined): View {
 
 export default async function EmployeeCalendarPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string; date?: string; filter?: string; scope?: string }>;
+  searchParams: Promise<{ view?: string; date?: string; filter?: string; scope?: string; siteOnly?: string }>;
 }) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   // Le manager peut consulter le calendrier mais NE doit PAS imprimer la vue
@@ -60,8 +67,11 @@ export default async function EmployeeCalendarPage(props: {
   // l'option "Vue admin (avec h. sup)" dans le PrintMenu.
   const canSeeOvertime = profile.role === "admin" || profile.role === "rh";
   const { id } = await props.params;
-  const { view: vStr, date: dateStr, filter: fStr, scope: scopeStr } = await props.searchParams;
-  // Karim 20/05 : scope='site' affiche les WeekBoards de TOUS les collegues
+  const { view: vStr, date: dateStr, filter: fStr, scope: scopeStr, siteOnly: siteOnlyStr } = await props.searchParams;
+  // Karim 22/05 : siteOnly=true PAR DEFAUT (= n'afficher que les shifts faits
+  // sur ce site). Pour voir aussi les shifts cross-site des collegues, il
+  // faut explicitement siteOnly=0 dans l URL.
+  const siteOnly = siteOnlyStr !== "0";
   // du meme site primary empiles l un en dessous de l autre.
   const scope: "individual" | "site" = scopeStr === "site" ? "site" : "individual";
   const view = parseView(vStr);
@@ -72,7 +82,7 @@ export default async function EmployeeCalendarPage(props: {
   const supabase = await createClient();
   const { data: emp } = await supabase
     .from("employees")
-    .select("id, full_name, job_title, weekly_hours, status, department:departments(name)")
+    .select("id, full_name, job_title, weekly_hours, status, fixed_off_days, department:departments(name)")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
@@ -81,6 +91,7 @@ export default async function EmployeeCalendarPage(props: {
     full_name: string;
     job_title: string | null;
     weekly_hours: number | null;
+    fixed_off_days: number[] | null;
     status: string;
     department: { name: string } | null;
   };
@@ -133,24 +144,28 @@ export default async function EmployeeCalendarPage(props: {
   let siteCurrent: { id: string; code: string; name: string; color: string | null } | null = null;
   if (scope === "site" && primarySiteIdForScope && view === "week") {
     siteCurrent = sites.find((s) => s.id === primarySiteIdForScope) ?? null;
+    // Karim 2026-05-22 : la jointure embed Supabase ne ramene pas employee.
+    // Fetch en 2 requetes (assignments puis employees). Sans ce fix la
+    // page scope=site affichait 0 collegue.
     const { data: colleaguesRaw } = await supabase
       .from("site_assignments")
-      .select("employee_id, is_primary, employee:employees(id, full_name, job_title, weekly_hours, status)")
+      .select("employee_id, is_primary")
       .eq("site_id", primarySiteIdForScope)
       .lte("start_date", todayISO)
       .or(`end_date.is.null,end_date.gte.${todayISO}`)
       .order("is_primary", { ascending: false });
-    type CR = { employee_id: string; is_primary: boolean; employee: { id: string; full_name: string; job_title: string | null; weekly_hours: number | null; status: string } | null };
-    const rows = ((colleaguesRaw ?? []) as unknown as CR[])
-      .filter((c) => c.employee && c.employee.status === "active")
-      .map((c) => c.employee!);
-    // Dedupe par id (sites multiples)
-    const seen = new Set<string>();
-    const uniqCols = rows.filter((e) => {
-      if (seen.has(e.id)) return false;
-      seen.add(e.id);
-      return true;
-    });
+    const cIds = [...new Set(
+      ((colleaguesRaw ?? []) as Array<{ employee_id: string }>).map((r) => r.employee_id),
+    )];
+    let uniqCols: Array<{ id: string; full_name: string; job_title: string | null; weekly_hours: number | null; status: string }> = [];
+    if (cIds.length > 0) {
+      const { data: empsRaw } = await supabase
+        .from("employees")
+        .select("id, full_name, job_title, weekly_hours, status")
+        .in("id", cIds)
+        .eq("status", "active");
+      uniqCols = (empsRaw ?? []) as typeof uniqCols;
+    }
     // Place l employe courant en tête
     siteColleagues = [
       ...uniqCols.filter((e) => e.id === employee.id),
@@ -257,6 +272,7 @@ export default async function EmployeeCalendarPage(props: {
                 scopeLabel="pour cet employé"
               />
               <ClearPlanningMenu employeeId={employee.id} />
+              <LeaveButton employeeId={employee.id} employeeName={employee.full_name} />
               {preferredSiteIds[0] ? (
                 <Button asChild variant="outline" size="sm">
                   <Link
@@ -295,6 +311,31 @@ export default async function EmployeeCalendarPage(props: {
           </Button>
         </div>
       </div>
+
+      {view === "week" && primarySiteIdForScope ? (
+        // Karim 2026-05-22 : chargement mutualise pour SiteStatsPanel
+        // (et eventuellement d autres composants).
+        (await (async () => {
+          const analyticsData = await loadSiteAnalyticsData(
+            primarySiteIdForScope,
+            toISODate(rangeStart),
+            toISODate(rangeEnd),
+          );
+          return (
+            <SiteStatsPanel data={analyticsData} weekISO={toISODate(rangeStart)} />
+          );
+        })())
+      ) : null}
+
+      {view === "week" ? (
+        <EmployeeIncoherenceBanner
+          employeeId={employee.id}
+          weekStart={toISODate(rangeStart)}
+          weekEnd={toISODate(rangeEnd)}
+        />
+      ) : null}
+
+      <ActiveLeavesBanner employeeId={employee.id} />
 
       <div className="text-sm text-ink-2 flex items-center gap-2 flex-wrap">
         <span>
@@ -351,23 +392,67 @@ export default async function EmployeeCalendarPage(props: {
 
       {/* Karim 20/05 : toggle vue Individuel / Site (week only) */}
       {view === "week" && primarySiteIdForScope ? (
-        <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface text-xs">
-          <Link
-            href={`?view=week&date=${toISODate(rangeStart)}${filter !== "all" ? `&filter=${filter}` : ""}`}
-            className={`px-3 py-1.5 font-bold transition-colors ${
-              scope === "individual" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
-            }`}
-          >
-            Individuel
-          </Link>
-          <Link
-            href={`?view=week&date=${toISODate(rangeStart)}&scope=site${filter !== "all" ? `&filter=${filter}` : ""}`}
-            className={`px-3 py-1.5 font-bold transition-colors ${
-              scope === "site" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
-            }`}
-          >
-            👥 Tout le site {siteCurrent ? `(${siteCurrent.code})` : ""}
-          </Link>
+        <div className="flex items-center flex-wrap gap-2">
+          <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface text-xs">
+            <Link
+              href={`?view=week&date=${toISODate(rangeStart)}${filter !== "all" ? `&filter=${filter}` : ""}`}
+              className={`px-3 py-1.5 font-bold transition-colors ${
+                scope === "individual" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+              }`}
+            >
+              Individuel
+            </Link>
+            <Link
+              href={`?view=week&date=${toISODate(rangeStart)}&scope=site${filter !== "all" ? `&filter=${filter}` : ""}`}
+              className={`px-3 py-1.5 font-bold transition-colors ${
+                scope === "site" ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+              }`}
+            >
+              👥 Tout le site {siteCurrent ? `(${siteCurrent.code})` : ""}
+            </Link>
+            {/* Karim 22/05 : "Ce site uniquement" est dans le meme groupe que
+                "Tout le site" et active par defaut quand on passe sur scope=site. */}
+            {scope === "site" ? (
+              <Link
+                href={`?view=week&date=${toISODate(rangeStart)}&scope=site&siteOnly=0${filter !== "all" ? `&filter=${filter}` : ""}`}
+                className={`px-3 py-1.5 font-bold transition-colors border-l border-line ${
+                  !siteOnly ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+                }`}
+                title="Inclure les shifts cross-site des collègues"
+              >
+                +Cross-site
+              </Link>
+            ) : null}
+            {scope === "site" ? (
+              <Link
+                href={`?view=week&date=${toISODate(rangeStart)}&scope=site${filter !== "all" ? `&filter=${filter}` : ""}`}
+                className={`px-3 py-1.5 font-bold transition-colors border-l border-line ${
+                  siteOnly ? "bg-gold text-[#1a1a0d]" : "text-ink-2 hover:bg-surface-2"
+                }`}
+                title="N'affiche que les shifts faits sur ce site (défaut)"
+              >
+                🎯 Ce site uniquement
+              </Link>
+            ) : null}
+          </div>
+          {scope === "site" && siteCurrent ? (
+            <>
+              <SiteAllEmployeesAutoFillButton
+                siteId={siteCurrent.id}
+                siteCode={siteCurrent.code}
+                weekISO={toISODate(rangeStart)}
+              />
+              <Button asChild variant="outline" size="sm" title={`Vue imprimable du planning complet du site ${siteCurrent.code}`}>
+                <Link
+                  href={`/planning/sites/${siteCurrent.code}/display?week=${toISODate(rangeStart)}`}
+                  target="_blank"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Vue imprimable du site
+                </Link>
+              </Button>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -379,9 +464,15 @@ export default async function EmployeeCalendarPage(props: {
             </Card>
           ) : (
             siteColleagues.map((col) => {
-              const colShifts = (siteColleaguesShifts.get(col.id) ?? []).filter((s) =>
-                filter === "contract" ? !s.is_overtime : filter === "overtime" ? !!s.is_overtime : true,
-              );
+              const colShifts = (siteColleaguesShifts.get(col.id) ?? [])
+                .filter((s) =>
+                  filter === "contract" ? !s.is_overtime : filter === "overtime" ? !!s.is_overtime : true,
+                )
+                .filter((s) =>
+                  // Karim 20/05 : si siteOnly, on retire les shifts faits sur
+                  // un autre site (le collegue est multi-site).
+                  !siteOnly ? true : s.site?.code === siteCurrent?.code,
+                );
               const isCurrent = col.id === employee.id;
               return (
                 <div key={col.id} className={`border-l-4 ${isCurrent ? "border-gold" : "border-line"} pl-2`}>
@@ -420,6 +511,7 @@ export default async function EmployeeCalendarPage(props: {
           shifts={shifts}
           employeeId={employee.id}
           employeeName={employee.full_name}
+          fixedOffDays={(employee.fixed_off_days ?? []) as number[]}
           sites={sites}
           preferredSiteIds={preferredSiteIds}
           canEdit={canSeeOvertime}
@@ -515,11 +607,10 @@ function MonthView({ monthStart, shifts }: { monthStart: Date; shifts: Shift[] }
                         }}
                         title={
                           s.is_overtime
-                            ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}`
+                            ? "Heures sup."
                             : undefined
                         }
                       >
-                        {s.is_overtime ? "🔥 " : ""}
                         {s.start_time.slice(0, 5)} {s.site?.code ?? ""}
                       </div>
                     ))}

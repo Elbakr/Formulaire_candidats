@@ -1,0 +1,4 @@
+-- DEPRECATED 2026-05-24 : ce fichier est dans le mauvais dossier de migrations
+-- (caftan-rh/supabase/migrations/). Le script npm run migrate utilise le
+-- dossier Formulaire_candidats/supabase/migrations/ a la racine du repo.
+-- Migration reelle : Formulaire_candidats/supabase/migrations/20260620000400_tuya_pointage_classify.sql

@@ -70,15 +70,8 @@ function PresenceDot({
   presence: PresenceMap[string] | undefined;
   now: number;
 }) {
-  if (!employee.profile_id) {
-    return (
-      <span
-        title="Premier shift à venir (pas encore enrôlé)"
-        aria-label="Premier shift à venir"
-        className="inline-block w-2.5 h-2.5 rounded-full bg-ink-3/40 shrink-0"
-      />
-    );
-  }
+  // Karim 2026-05-24 : la presence prime sur profile_id. Un employe enrôle via
+  // pointage Tuya (sans compte web) peut etre present sans avoir de profile_id.
   if (presence) {
     const time = formatTimeHHMM(presence.in_at);
     const elapsed = formatElapsed(presence.in_at, now);
@@ -107,6 +100,15 @@ function PresenceDot({
           </span>
         ) : null}
       </span>
+    );
+  }
+  if (!employee.profile_id) {
+    return (
+      <span
+        title="Pas encore enrôlé (ni compte web ni empreinte Tuya mappée)"
+        aria-label="Pas enrôlé"
+        className="inline-block w-2.5 h-2.5 rounded-full bg-ink-3/40 shrink-0"
+      />
     );
   }
   return (

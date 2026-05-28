@@ -41,6 +41,7 @@ export function WeekBoard({
   sites,
   preferredSiteIds,
   canEdit,
+  fixedOffDays,
 }: {
   monday: Date;
   shifts: Shift[];
@@ -49,6 +50,8 @@ export function WeekBoard({
   sites: SiteOption[];
   preferredSiteIds: string[];
   canEdit: boolean;
+  // Karim 22/05 : jours OFF habituels (convention 0=Lun..6=Dim).
+  fixedOffDays?: number[];
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<
@@ -140,6 +143,11 @@ export function WeekBoard({
             const isDropHover = dropHover === dISO;
             const isMoveTarget = !!selectedId;
             const isSourceDay = selectedShift?.date === dISO;
+            // Karim 22/05 : signaler les jours OFF habituels (convention
+            // fixed_off_days 0=Lun..6=Dim, Date.getDay() 0=Dim..6=Sam).
+            const jsDow = d.getDay();
+            const isoDow = jsDow === 0 ? 6 : jsDow - 1;
+            const isOffDay = (fixedOffDays ?? []).includes(isoDow);
             return (
               <Card
                 key={i}
@@ -170,11 +178,18 @@ export function WeekBoard({
                   canEdit && isMoveTarget && !isSourceDay
                     ? "cursor-pointer hover:ring-2 hover:ring-gold/60 hover:bg-gold-light/20"
                     : ""
+                } ${
+                  isOffDay
+                    ? "bg-[repeating-linear-gradient(45deg,#f4f1ea,#f4f1ea_4px,#e8e2d0_4px,#e8e2d0_8px)] opacity-90"
+                    : ""
                 }`}
               >
                 <div className="px-3 py-2 border-b border-line">
-                  <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold">
+                  <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold flex items-center gap-1">
                     {d.toLocaleDateString("fr-BE", { weekday: "short" })}
+                    {isOffDay ? (
+                      <span className="text-[9px] bg-ink-3 text-white px-1 rounded font-bold">OFF</span>
+                    ) : null}
                   </div>
                   <div className="font-bold">
                     {d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
@@ -192,11 +207,6 @@ export function WeekBoard({
                         <>
                           <div className="font-bold font-mono flex items-center gap-1">
                             <span>{s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}</span>
-                            {s.is_overtime ? (
-                              <span className="ml-auto text-[8px] uppercase font-bold tracking-wider px-1 py-px rounded bg-orange-100 text-orange-700">
-                                H. sup{s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}
-                              </span>
-                            ) : null}
                           </div>
                           {s.site ? (
                             <div className="text-[10px] truncate">{s.site.code} · {s.site.name}</div>
@@ -218,11 +228,7 @@ export function WeekBoard({
                           ? "3px solid #f97316"
                           : `3px solid ${s.site?.color ?? "#c9a34d"}`,
                       };
-                      const title = s.is_overtime
-                        ? `Heures sup.${s.overtime_multiplier ? ` ×${s.overtime_multiplier}` : ""}${canEdit ? " — clique pour éditer" : ""}`
-                        : canEdit
-                          ? "Clique pour éditer"
-                          : undefined;
+                      const title = canEdit ? "Clique pour éditer" : undefined;
                       const isSel = selectedId === s.id;
                       return canEdit ? (
                         <button

@@ -15,6 +15,9 @@ const PUBLIC_ROUTES = [
   // redirige vers /login alors que le candidat n a aucun compte.
   "/pre-interview",
   "/api/pre-interview",
+  // Karim 22/05 : page signature digitale de contrat (token-protected).
+  // L employe n a peut-etre pas encore de compte au moment de la signature.
+  "/sign",
   // Routes cron : Vercel Cron Scheduler les appelle SANS cookie utilisateur.
   // Chaque route verifie son propre Bearer ${CRON_SECRET} cote handler.
   "/api/cron",

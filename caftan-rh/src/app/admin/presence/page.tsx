@@ -11,7 +11,13 @@ import { PresenceMapLoader } from "./presence-map-loader";
 
 export default async function AdminPresencePage() {
   const supabase = await createClient();
-  const [presents, { data: sitesRaw }] = await Promise.all([
+  // Karim 2026-05-25 : filtre par ville (cookie). BXL = A/B/D/E, Anvers = C/F.
+  // MAIS le panneau "Vue globale" en haut affiche TOUS les sites A-F
+  // (Karim 2026-05-25 v2 : visibilite cruciale multi-villes).
+  const { readCity, siteCodesForCity } = await import("@/lib/city");
+  const city = await readCity();
+  const cityCodes = siteCodesForCity(city);
+  const [presentsRaw, { data: sitesAllRaw }] = await Promise.all([
     loadCurrentlyIn(),
     supabase
       .from("sites")
@@ -19,6 +25,29 @@ export default async function AdminPresencePage() {
       .eq("is_active", true)
       .order("sort_order"),
   ]);
+  // Tous les sites (BXL + Anvers) pour la vue globale
+  const sitesAll = (sitesAllRaw ?? []) as Array<{
+    id: string;
+    code: string;
+    name: string;
+    color: string | null;
+    light_color: string | null;
+    sort_order: number;
+    lat: number | string | null;
+    lng: number | string | null;
+    geofence_radius_m: number | null;
+  }>;
+  // Compteur GLOBAL (toutes villes) pour le panneau d ensemble
+  const globalCountBySite = new Map<string, number>();
+  for (const p of presentsRaw) {
+    if (p.site_id) globalCountBySite.set(p.site_id, (globalCountBySite.get(p.site_id) ?? 0) + 1);
+  }
+  const globalNoSite = presentsRaw.filter((p) => !p.site_id).length;
+  // Filtre les presents par site de la ville (ou sans site) - pour la vue detail
+  const presents = presentsRaw.filter((p) =>
+    !p.site_code || cityCodes.includes(p.site_code as string),
+  );
+  const sitesRaw = sitesAll.filter((s) => cityCodes.includes(s.code));
 
   // Charge les selfie paths + coords GPS de l'entry "in" courante de chaque
   // present. La vue clock_currently_in n'expose ni selfie_storage_path ni
@@ -58,17 +87,7 @@ export default async function AdminPresencePage() {
     selfie_storage_path: selfieByEntryId.get(p.last_entry_id) ?? null,
   }));
 
-  const sites = (sitesRaw ?? []) as Array<{
-    id: string;
-    code: string;
-    name: string;
-    color: string | null;
-    light_color: string | null;
-    sort_order: number;
-    lat: number | string | null;
-    lng: number | string | null;
-    geofence_radius_m: number | null;
-  }>;
+  const sites = sitesRaw;
   const siteById = new Map(sites.map((s) => [s.id, s]));
 
   const countBySite = new Map<string, number>();
@@ -120,17 +139,65 @@ export default async function AdminPresencePage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Activity className="h-5 w-5 text-success" />
-          Présence en direct
-        </h1>
-        <p className="text-sm text-ink-2">
-          Qui est actuellement clocké-in. Mise à jour temps réel.
-        </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Activity className="h-5 w-5 text-success" />
+            Présence en direct
+          </h1>
+          <p className="text-sm text-ink-2">
+            Qui est actuellement clocké-in. Mise à jour temps réel.
+          </p>
+        </div>
+        <Link
+          href="/admin/heures-prestees"
+          className="text-xs px-3 py-1.5 rounded-md border border-gold bg-gold/10 text-gold-dark font-bold hover:bg-gold/20"
+        >
+          Heures prestées →
+        </Link>
       </div>
 
-      {/* Compteurs par site */}
+      {/* Vue globale tous sites (BXL + Anvers) - Karim 2026-05-25 */}
+      <Card>
+        <div className="px-3 py-2 border-b border-line flex items-center gap-2">
+          <MapPin className="h-4 w-4 text-gold-dark" />
+          <h2 className="font-bold text-sm">Vue globale — tous les sites</h2>
+          <span className="text-[10px] text-ink-3 ml-auto">
+            Total : <span className="font-bold text-ink-1">{presentsRaw.length}</span> employé(s) pointé(s)
+          </span>
+        </div>
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-px bg-line">
+          {sitesAll.map((s) => {
+            const c = globalCountBySite.get(s.id) ?? 0;
+            const isCurrentCity = cityCodes.includes(s.code);
+            return (
+              <Link
+                key={s.id}
+                href={`/planning/sites/${s.code}`}
+                className={`block px-2 py-3 bg-surface hover:bg-surface-2 transition-colors ${
+                  isCurrentCity ? "" : "opacity-70"
+                }`}
+                title={isCurrentCity ? `${s.name} (ville courante)` : `${s.name} (autre ville)`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <span
+                    className="inline-flex w-6 h-6 rounded items-center justify-center text-white font-bold text-xs"
+                    style={{ backgroundColor: s.color ?? "#666" }}
+                  >
+                    {s.code}
+                  </span>
+                  <div className="text-xl font-bold tabular-nums">{c}</div>
+                </div>
+                <div className="text-center text-[9px] uppercase tracking-wider text-ink-3 truncate mt-0.5">
+                  {s.name}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Compteurs par site (ville courante) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         {sites.map((s) => {
           const c = countBySite.get(s.id) ?? 0;

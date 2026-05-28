@@ -27,6 +27,7 @@ export async function getEmployeeWeeklyHoursAction(
   overtimeHoursThisWeek: number;
   weekStart: string;
   weekEnd: string;
+  fixedOffDays: number[];
 }> {
   await requireRole(["admin", "rh", "manager"]);
   const supabase = await createClient();
@@ -39,7 +40,7 @@ export async function getEmployeeWeeklyHoursAction(
   const [{ data: emp }, { data: shiftsRaw }] = await Promise.all([
     supabase
       .from("employees")
-      .select("weekly_hours")
+      .select("weekly_hours, fixed_off_days")
       .eq("id", employeeId)
       .maybeSingle(),
     supabase
@@ -73,12 +74,15 @@ export async function getEmployeeWeeklyHoursAction(
     else contractualHoursThisWeek += h;
   }
 
+  const fixedOffDays = ((emp as { fixed_off_days: number[] | null } | null)?.fixed_off_days ?? []) as number[];
+
   return {
     weeklyTarget,
     contractualHoursThisWeek,
     overtimeHoursThisWeek,
     weekStart,
     weekEnd,
+    fixedOffDays,
   };
 }
 
@@ -97,8 +101,9 @@ export async function upsertShiftAction(formData: FormData) {
   const siteId = siteIdRaw && siteIdRaw !== "none" ? siteIdRaw : null;
   const isOvertime = String(formData.get("is_overtime") ?? "") === "on";
   const overtimeMultiplierRaw = String(formData.get("overtime_multiplier") ?? "");
+  // Karim 2026-05-21 : default 1.0 (heures sup non majorees) si non fourni.
   const overtimeMultiplier = isOvertime
-    ? Number(overtimeMultiplierRaw) || 1.5
+    ? Number(overtimeMultiplierRaw) || 1.0
     : null;
 
   if (!employeeId || !date || !start || !end) return { error: "Employé, date et horaires requis." };
@@ -117,6 +122,53 @@ export async function upsertShiftAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+
+  // Karim 2026-05-21 : si l employe a un conge approuve couvrant cette date,
+  // on autorise la creation/modif mais on retourne un warning explicite.
+  let leaveWarning: { from: string; to: string; kind: string } | null = null;
+  {
+    const { data: leavesOnDate } = await supabase
+      .from("time_off_requests")
+      .select("kind, start_date, end_date")
+      .eq("employee_id", employeeId)
+      .eq("status", "approved")
+      .lte("start_date", date)
+      .gte("end_date", date)
+      .limit(1);
+    type L = { kind: string; start_date: string; end_date: string };
+    const l = ((leavesOnDate ?? []) as L[])[0];
+    if (l) {
+      leaveWarning = {
+        from: l.start_date,
+        to: l.end_date >= "9000-01-01" ? "sans fin" : l.end_date,
+        kind: l.kind,
+      };
+    }
+  }
+
+  // Karim 22/05 : REJET DUR si shift sur un fixed_off_days. "Personne ne
+  // travaille son jour OFF". Aucune exception (ni manuel, ni admin). Pour
+  // outrepasser exceptionnellement, l admin doit d abord retirer le jour
+  // de fixed_off_days sur la fiche employe.
+  {
+    const { data: empOff } = await supabase
+      .from("employees")
+      .select("fixed_off_days, full_name")
+      .eq("id", employeeId)
+      .maybeSingle();
+    const offDays = ((empOff as { fixed_off_days: number[] | null; full_name: string } | null)?.fixed_off_days ?? []) as number[];
+    const empName = (empOff as { full_name: string } | null)?.full_name ?? "Cet employé";
+    if (offDays.length > 0) {
+      const jsDow = new Date(date + "T12:00:00").getDay();
+      const isoDow = jsDow === 0 ? 6 : jsDow - 1;
+      if (offDays.includes(isoDow)) {
+        const labels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+        return {
+          error: `${labels[isoDow]} est un jour OFF habituel pour ${empName}. Création/modification refusée — personne ne travaille son jour OFF. Pour exception, retire d'abord ce jour de ses 'Jours OFF habituels' dans sa fiche.`,
+        };
+      }
+    }
+  }
 
   // Karim 15/05/2026 v2 : REJET des chevauchements pour un meme employe le
   // meme jour. Cas observe : 10:15-17:45 regulier + 11:00-18:30 OT pour le
@@ -291,6 +343,7 @@ export async function upsertShiftAction(formData: FormData) {
   return {
     ok: true,
     created_ids: createdIds,
+    leave_warning: leaveWarning,
     split:
       split.regular && split.overtime
         ? {

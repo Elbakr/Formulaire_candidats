@@ -59,7 +59,7 @@ export default async function EmployeesPage() {
     arr.sort((x, y) => Number(y.is_primary) - Number(x.is_primary));
   }
 
-  const employees = (emps ?? []) as unknown as Array<{
+  const employeesAll = (emps ?? []) as unknown as Array<{
     id: string;
     full_name: string;
     email: string;
@@ -72,6 +72,19 @@ export default async function EmployeesPage() {
     profile_id: string | null;
     department: { id: string; name: string } | null;
   }>;
+
+  // Karim 2026-05-25 : filtre par ville. Un employee est inclus si au moins
+  // un de ses sites assignes appartient a la ville selectionnee. Les employes
+  // sans aucune assignation restent visibles en BXL (default) pour ne pas
+  // les perdre lors de l'onboarding.
+  const { readCity, siteCodesForCity } = await import("@/lib/city");
+  const city = await readCity();
+  const cityCodes = new Set(siteCodesForCity(city));
+  const employees = employeesAll.filter((e) => {
+    const sites = sitesByEmp.get(e.id) ?? [];
+    if (sites.length === 0) return city === "bruxelles";
+    return sites.some((s) => cityCodes.has(s.code));
+  });
 
   // Map empId -> { in_at, site* } pour le voyant présence côté client.
   // L'admin doit voir non seulement *qui* est present mais aussi *où*.
@@ -107,7 +120,7 @@ export default async function EmployeesPage() {
         <div>
           <h1 className="text-2xl font-bold">Employés</h1>
           <p className="text-sm text-ink-2">
-            {active.length} actif·ve·s · {archived.length} archivé·e·s ·{" "}
+            {active.length} actif·ve·s ·{" "}
             <span className="text-success font-bold">
               {Object.keys(presenceByEmp).length} présent·e·s
             </span>{" "}
@@ -136,7 +149,7 @@ export default async function EmployeesPage() {
       </div>
 
       <EmployeesList
-        employees={employees}
+        employees={active}
         sitesByEmp={sitesByEmp}
         isAdmin={isAdmin}
         presenceByEmp={presenceByEmp}

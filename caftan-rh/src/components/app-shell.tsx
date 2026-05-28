@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LogOut, Settings, Menu, X,
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
@@ -10,11 +10,12 @@ import {
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
   Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
+  Upload,
+  ChevronDown, ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BRAND, ROLE_LABELS } from "@/lib/config";
-import { Button } from "./ui/button";
 import { NameAvatar } from "./ui/avatar";
 import { logoutAction } from "@/app/login/actions";
 import {
@@ -29,6 +30,7 @@ import { NotificationsBell } from "./notifications-bell";
 import { NotificationListener } from "./notification-listener";
 import { SoundToggle } from "./sound-toggle";
 import { LangToggle } from "./lang-toggle";
+import { CityToggle } from "./city-toggle";
 import { ViewerRoleProvider } from "./user-role-context";
 import { ShiftUndoProvider } from "./shift-undo-provider";
 
@@ -38,6 +40,7 @@ const ICONS: Record<string, LucideIcon> = {
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
   Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
+  Upload,
 };
 
 export type NavIconName = keyof typeof ICONS;
@@ -49,20 +52,107 @@ export type NavItem = {
   badge?: number;
 };
 
+/** Ancien format — conservé pour rétro-compat (titre + items à plat). */
 export type NavSection = { title?: string; items: NavItem[] };
+
+/** Nouveau format — sections collapsibles avec icône + label. */
+export type NavGroup = {
+  id: string;
+  label: string;
+  icon: NavIconName;
+  items: NavItem[];
+  alwaysOpen?: boolean;
+};
+
+const COLLAPSE_STORAGE_KEY = "caftanrh:nav:collapsed";
+
+function readCollapsed(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCollapsed(state: Record<string, boolean>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota / private mode errors
+  }
+}
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
+/** Convertit l'ancien format `sections` vers le nouveau format `groups`. */
+function sectionsToGroups(sections: NavSection[]): NavGroup[] {
+  return sections.map((s, idx) => ({
+    id: `legacy-${idx}-${s.title ?? "default"}`,
+    label: s.title ?? "",
+    icon: "LayoutDashboard" as NavIconName,
+    items: Array.isArray(s.items) ? s.items : [],
+    // L'ancien format n'avait pas de collapse : on garde les sections dépliées.
+    alwaysOpen: true,
+  }));
+}
 
 export function AppShell({
   sections,
+  groups,
   user,
+  city,
   children,
 }: {
-  sections: NavSection[];
+  /** Ancien format (déprécié) — utilisé par les anciens layouts. */
+  sections?: NavSection[];
+  /** Nouveau format avec sections collapsibles. */
+  groups?: NavGroup[];
   user: { id: string; full_name: string | null; email: string; role: string };
+  /** Karim 2026-05-25 : ville selectionnee (cookie). "bruxelles" par defaut. */
+  city?: "bruxelles" | "anvers";
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const displayName = user.full_name ?? user.email;
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Détermine les groupes à afficher : `groups` prioritaire, sinon conversion
+  // depuis le legacy `sections`. Force `items` à un array meme si un caller
+  // passe un group sans items (garde defensif contre runtime crash).
+  const resolvedGroups = useMemo<NavGroup[]>(() => {
+    const src = (groups && groups.length > 0)
+      ? groups
+      : (sections && sections.length > 0)
+        ? sectionsToGroups(sections)
+        : [];
+    return src.map((g) => ({ ...g, items: Array.isArray(g.items) ? g.items : [] }));
+  }, [groups, sections]);
+
+  // État collapse persisté dans localStorage. Une section dont un enfant est
+  // actif est forcée à "ouverte" pour ne pas masquer la page courante.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setCollapsed(readCollapsed());
+    setHydrated(true);
+  }, []);
+
+  const toggleGroup = (id: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      writeCollapsed(next);
+      return next;
+    });
+  };
 
   // Close drawer on route change.
   useEffect(() => {
@@ -102,6 +192,7 @@ export function AppShell({
             {ROLE_LABELS[user.role] ?? user.role}
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <CityToggle initial={city ?? "bruxelles"} />
             <LangToggle />
             <SoundToggle />
             <NotificationsBell userId={user.id} />
@@ -148,46 +239,92 @@ export function AppShell({
           className={cn(
             "shrink-0 border-r border-line bg-surface px-2 py-3 overflow-y-auto scrollbar-thin scroll-smooth-touch pb-safe",
             // Desktop: in-flow sticky sidebar
-            "md:w-[220px] md:sticky md:top-[calc(env(safe-area-inset-top)+49px)] md:h-[calc(100dvh-49px-env(safe-area-inset-top))] md:translate-x-0 md:block",
+            "md:w-[240px] md:sticky md:top-[calc(env(safe-area-inset-top)+49px)] md:h-[calc(100dvh-49px-env(safe-area-inset-top))] md:translate-x-0 md:block",
             // Mobile: off-canvas drawer
-            "fixed top-[calc(env(safe-area-inset-top)+49px)] left-0 bottom-0 w-[260px] z-40 transition-transform duration-200 ease-out",
+            "fixed top-[calc(env(safe-area-inset-top)+49px)] left-0 bottom-0 w-[280px] z-40 transition-transform duration-200 ease-out",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >
-          {sections.map((s, i) => (
-            <div key={i}>
-              {s.title ? (
-                <div className="px-2 mt-3 mb-1 text-[10px] font-bold tracking-[0.12em] uppercase text-ink-3">
-                  {s.title}
-                </div>
-              ) : null}
-              {s.items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                const Icon = ICONS[item.icon] ?? LayoutDashboard;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
+          {resolvedGroups.map((g) => {
+            const HeaderIcon = ICONS[g.icon] ?? LayoutDashboard;
+            const hasActiveChild = g.items.some((it) => isActive(pathname, it.href));
+            // Avant hydratation : tout est ouvert par défaut pour éviter un
+            // flash où le SSR montre tout puis le client referme. Après
+            // hydratation : on respecte le state localStorage + le forçage
+            // "ouvert si un enfant est actif".
+            const userCollapsed = hydrated ? !!collapsed[g.id] : false;
+            const open = g.alwaysOpen || hasActiveChild || !userCollapsed;
+            const isLegacy = g.id.startsWith("legacy-");
+
+            return (
+              <div key={g.id} className="mb-1">
+                {!isLegacy && !g.alwaysOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(g.id)}
+                    aria-expanded={open}
+                    aria-controls={`navgroup-${g.id}`}
                     className={cn(
-                      "flex items-center gap-2 px-2.5 py-2 md:py-1.5 rounded-md text-sm font-medium border-[1.5px] border-transparent mb-0.5",
+                      "w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-xs font-bold uppercase tracking-[0.08em]",
                       "transition-colors",
-                      active
-                        ? "bg-gold-light border-gold text-gold-dark font-bold"
+                      hasActiveChild
+                        ? "text-gold-dark"
                         : "text-ink-2 hover:bg-surface-2 hover:text-ink",
                     )}
                   >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                    {item.badge ? (
-                      <span className="ml-auto bg-gold text-white rounded-full px-1.5 text-[10px] font-bold min-w-[18px] text-center">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    <HeaderIcon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 text-left">{g.label}</span>
+                    {open ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                ) : isLegacy && g.label ? (
+                  <div className="px-2 mt-3 mb-1 text-[10px] font-bold tracking-[0.12em] uppercase text-ink-3">
+                    {g.label}
+                  </div>
+                ) : g.alwaysOpen && g.label ? (
+                  <div className="flex items-center gap-2 px-2.5 mt-2 mb-1 text-[10px] font-bold tracking-[0.12em] uppercase text-ink-3">
+                    <HeaderIcon className="h-3.5 w-3.5" />
+                    <span>{g.label}</span>
+                  </div>
+                ) : null}
+
+                {open ? (
+                  <div id={`navgroup-${g.id}`} className={cn(
+                    !isLegacy && !g.alwaysOpen ? "ml-1 pl-2 border-l border-line/60" : "",
+                  )}>
+                    {g.items.map((item) => {
+                      const active = isActive(pathname, item.href);
+                      const Icon = ICONS[item.icon] ?? LayoutDashboard;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={cn(
+                            "flex items-center gap-2 px-2.5 py-2 md:py-1.5 rounded-md text-sm font-medium border-l-[3px] border-transparent mb-0.5",
+                            "transition-colors",
+                            active
+                              ? "bg-gold-light border-gold text-gold-dark font-bold"
+                              : "text-ink-2 hover:bg-surface-2 hover:text-ink",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                          {item.badge ? (
+                            <span className="ml-auto bg-gold text-white rounded-full px-1.5 text-[10px] font-bold min-w-[18px] text-center">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </aside>
 
         <main className="flex-1 overflow-x-hidden p-3 sm:p-4 md:p-6 w-full min-w-0 pb-safe">{children}</main>

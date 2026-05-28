@@ -78,11 +78,10 @@ export function GenerateEmployeePlanButton({
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<EmpPlanPreview | null>(null);
   const [pending, startTransition] = useTransition();
-  // Karim 19/05 : date picker + selecteur periode.
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowISO = fmtDate(tomorrow);
-  const [startDate, setStartDate] = useState<string>(tomorrowISO);
+  // Karim 2026-05-21 : default aujourd hui. Les creneaux dont l heure est
+  // deja passee sont ignores cote serveur (marge 30 min), donc safe.
+  const todayISO = fmtDate(new Date());
+  const [startDate, setStartDate] = useState<string>(todayISO);
   const [period, setPeriod] = useState<Period>("this_week");
   // Karim 19/05 : overrides duree/jour, nb jours/semaine, heure de debut.
   const [shiftHoursPerDay, setShiftHoursPerDay] = useState<string>("");
@@ -293,7 +292,7 @@ export function GenerateEmployeePlanButton({
                 className="w-full px-2 py-1 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
               />
               <p className="text-[10px] text-ink-3 mt-1">
-                Défaut : demain (J+1). Choisis aujourd'hui pour re-planifier après un vidage.
+                Défaut : aujourd'hui. Les créneaux dont l'heure est déjà passée (+30 min) sont automatiquement ignorés.
                 {period === "rest_of_month" ? " Le 'Reste du mois' part de cette date jusqu'à fin du mois." : ""}
               </p>
             </div>

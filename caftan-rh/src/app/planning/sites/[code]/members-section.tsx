@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Users, X } from "lucide-react";
+import { Plus, Users, X, UserMinus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { EmployeeQuickLink } from "@/components/employee-quick-link";
 import {
   assignEmployeeToSiteAction,
   endAssignmentAction,
+  deleteAssignmentAction,
 } from "@/app/planning/employees/[id]/site-actions";
 
 type Member = {
@@ -66,16 +67,50 @@ export function MembersSection({
     });
   }
 
-  function endNow(m: Member) {
+  function retirerImmediat(m: Member) {
+    // Karim 2026-05-21 : "Retirer du site" cloture avec end_date = hier
+    // pour que l affectation soit instantanement HORS de la fenetre active
+    // (end_date >= today). Sinon avec end_date=today, l affectation reste
+    // visible toute la journee, et l UX dit "rien ne se passe".
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yISO = yesterday.toISOString().slice(0, 10);
+    // Confirmation simple
+    if (
+      !window.confirm(
+        `Retirer ${m.full_name} de ce site ? L'affectation sera clôturée hier (${yISO}). Visible dans l'historique de l'employé mais plus dans la liste active.`,
+      )
+    )
+      return;
     startTransition(async () => {
       const r = await endAssignmentAction({
         assignmentId: m.assignment_id,
         employeeId: m.employee_id,
-        endDate: todayISO,
+        endDate: yISO,
       });
       if (r.error) toast.error(r.error);
       else {
-        toast.success("Affectation clôturée.");
+        toast.success(`${m.full_name} retiré du site (clôturé au ${yISO}).`);
+        router.refresh();
+      }
+    });
+  }
+
+  function supprimerDef(m: Member) {
+    if (
+      !window.confirm(
+        `Supprimer DÉFINITIVEMENT l'affectation de ${m.full_name} à ce site ? Action irréversible — préfère "Retirer" si tu veux garder l'historique.`,
+      )
+    )
+      return;
+    startTransition(async () => {
+      const r = await deleteAssignmentAction({
+        assignmentId: m.assignment_id,
+        employeeId: m.employee_id,
+      });
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success(`Affectation supprimée.`);
         router.refresh();
       }
     });
@@ -167,14 +202,28 @@ export function MembersSection({
                   }
                 />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => endNow(m)}
-                disabled={pending}
-              >
-                Clôturer
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => retirerImmediat(m)}
+                  disabled={pending}
+                  title="Clôture l'affectation à hier — disparaît immédiatement de la liste, garde l'historique"
+                >
+                  <UserMinus className="h-3.5 w-3.5" />
+                  Retirer
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => supprimerDef(m)}
+                  disabled={pending}
+                  className="text-danger hover:bg-danger-light"
+                  title="Supprime définitivement l'affectation (aucune trace)"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </li>
           ))}
         </ul>

@@ -26,6 +26,9 @@ type Phase = "contractual" | "overtime";
 
 // Karim 20/05 : mini-shifts en 2 phases (rush first puis reste)
 type MiniPhase = "rush" | "non_rush";
+// Karim 22/05 : extend en 2 phases (forward jusqu a fermeture, puis backward
+// depuis l ouverture)
+type ExtendPhase = "forward" | "backward";
 
 export function EmployeeAutoFillButton({
   employeeId,
@@ -37,6 +40,7 @@ export function EmployeeAutoFillButton({
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("contractual");
   const [miniPhase, setMiniPhase] = useState<MiniPhase>("rush");
+  const [extendPhase, setExtendPhase] = useState<ExtendPhase>("forward");
   const [pending, startTransition] = useTransition();
 
   function exec() {
@@ -94,24 +98,36 @@ export function EmployeeAutoFillButton({
 
   // Karim 20/05 : strategies residuel (extend / mini-shifts)
   function execExtend() {
+    // Karim 22/05 : 1er clic = forward (jusqu a fermeture), 2e clic = backward
+    // (depuis ouverture). Le label du menu item bascule entre les 2.
+    const direction = extendPhase;
     startTransition(async () => {
-      const r = await fillExtendExistingShiftsAction({ employeeId, weekISO });
+      const r = await fillExtendExistingShiftsAction({ employeeId, weekISO, direction });
       if (r.error) { toast.error(r.error); return; }
       const ext = r.extended ?? 0;
       const min = r.minutes_added ?? 0;
       const remMin = r.remaining_min ?? 0;
+      const dirLbl = direction === "forward" ? "fermeture" : "ouverture";
       if (ext === 0) {
         toast.warning(
           remMin > 0
-            ? `Aucun shift n a pu etre rallonge (conflits). Reste ${(remMin/60).toFixed(1)}h. Essaie 'Mini-shifts'.`
+            ? direction === "forward"
+              ? `Aucun shift rallonge cote fermeture. Reste ${(remMin/60).toFixed(1)}h. Bascule sur 'dès l'ouverture'…`
+              : `Aucun shift rallonge cote ouverture. Reste ${(remMin/60).toFixed(1)}h. Essaie 'Mini-shifts'.`
             : "Quota deja sature, rien a rallonger.",
           { duration: 8000 },
         );
+        // Si forward a echoue mais il reste des heures, bascule sur backward
+        if (direction === "forward" && remMin > 0) setExtendPhase("backward");
+        else setExtendPhase("forward");
       } else {
         toast.success(
-          `${ext} shift(s) rallonge(s), +${min} min ajoutees.${remMin > 0 ? ` Reste ${(remMin/60).toFixed(1)}h non placees.` : ""}`,
+          `${ext} shift(s) rallonge(s) vers ${dirLbl}, +${min} min ajoutees.${remMin > 0 ? ` Reste ${(remMin/60).toFixed(1)}h non placees.` : ""}`,
           { duration: 7000 },
         );
+        // Si forward a saturé partiellement et il reste, propose backward au prochain clic
+        if (direction === "forward" && remMin > 0) setExtendPhase("backward");
+        else setExtendPhase("forward");
       }
       router.refresh();
     });
@@ -183,10 +199,15 @@ export function EmployeeAutoFillButton({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={execExtend} className="flex-col items-start gap-0.5 cursor-pointer">
             <span className="font-bold text-sm flex items-center gap-1">
-              <Maximize2 className="h-3.5 w-3.5" /> Rallonger les shifts existants
+              <Maximize2 className="h-3.5 w-3.5" />
+              {extendPhase === "forward"
+                ? "Rallonger les shifts existants"
+                : "Rallonger les shifts dès l'ouverture"}
             </span>
             <span className="text-[11px] text-ink-3 leading-snug">
-              Étire le end_time des shifts contractuels existants jusqu'à saturer le quota (plafond 23h59 ou prochain shift).
+              {extendPhase === "forward"
+                ? "1er passage : étire le end_time jusqu'à fermeture du site (ou prochain shift)."
+                : "2e passage : étire le start_time en amont jusqu'à l'heure d'ouverture du site (ou shift précédent)."}
             </span>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={execMini} className="flex-col items-start gap-0.5 cursor-pointer">

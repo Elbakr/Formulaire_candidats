@@ -1,24 +1,11 @@
-import { AppShell, type NavSection } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
 import { requireRole } from "@/lib/auth";
-
-const sections: NavSection[] = [
-  {
-    title: "Vue 360°",
-    items: [
-      { href: "/rh/candidates", label: "Candidats", icon: "Users" },
-      { href: "/planning/employees", label: "Employés", icon: "UserCheck" },
-    ],
-  },
-  {
-    title: "Retour",
-    items: [
-      { href: "/rh", label: "Recrutement RH", icon: "Briefcase" },
-      { href: "/planning/calendar", label: "Planning", icon: "CalendarDays" },
-    ],
-  },
-];
+import { getNavSections } from "@/lib/navigation";
+import { readCity } from "@/lib/city";
 
 export default async function Profile360Layout({ children }: { children: React.ReactNode }) {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
-  return <AppShell sections={sections} user={profile}>{children}</AppShell>;
+  const groups = getNavSections(profile.role);
+  const city = await readCity();
+  return <AppShell groups={groups} user={profile} city={city}>{children}</AppShell>;
 }
