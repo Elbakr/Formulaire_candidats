@@ -202,4 +202,68 @@ export async function updateClockEntrySiteAction(args: {
   return { ok: true };
 }
 
+/**
+ * Karim 2026-05-28 : encode en BULK les pointages manquants pour plusieurs
+ * shifts d un coup. Pour chaque shift fourni, insère 1 IN + 1 OUT aux heures
+ * specifiees (par defaut = start_time/end_time du shift). Source manual_admin.
+ */
+export async function bulkEncodeShiftsAction(args: {
+  entries: Array<{
+    employeeId: string;
+    shiftId: string;
+    siteId: string | null;
+    date: string; // YYYY-MM-DD
+    inTime: string; // HH:MM
+    outTime: string; // HH:MM
+  }>;
+  reason?: string;
+}): Promise<{ ok?: true; inserted: number; errors: string[] }> {
+  const { profile } = await requireRole(["admin", "rh"]);
+  const supabase = await createClient();
+  const errors: string[] = [];
+  let inserted = 0;
+
+  for (const e of args.entries) {
+    const inIso = new Date(`${e.date}T${e.inTime}:00+02:00`).toISOString();
+    const outIso = new Date(`${e.date}T${e.outTime}:00+02:00`).toISOString();
+    const note = `[Encodage bulk par ${profile.full_name ?? "RH"}] ${args.reason ?? "Shift non pointe, encode manuellement"}`;
+    // IN
+    const { error: inErr } = await supabase.from("clock_entries").insert({
+      employee_id: e.employeeId,
+      shift_id: e.shiftId,
+      site_id: e.siteId,
+      kind: "in",
+      occurred_at: inIso,
+      entry_method: "manager_override",
+      source: "manual_admin",
+      notes: note,
+    });
+    if (inErr) {
+      errors.push(`${e.employeeId} ${e.date} IN: ${inErr.message}`);
+      continue;
+    }
+    // OUT
+    const { error: outErr } = await supabase.from("clock_entries").insert({
+      employee_id: e.employeeId,
+      shift_id: e.shiftId,
+      site_id: e.siteId,
+      kind: "out",
+      occurred_at: outIso,
+      entry_method: "manager_override",
+      source: "manual_admin",
+      notes: note,
+    });
+    if (outErr) {
+      errors.push(`${e.employeeId} ${e.date} OUT: ${outErr.message}`);
+      continue;
+    }
+    inserted++;
+  }
+
+  revalidatePath("/admin/presence");
+  revalidatePath("/admin/heures-prestees");
+  revalidatePath("/admin/encode-shifts");
+  return { ok: true, inserted, errors };
+}
+
 export { formatDurationMin };

@@ -168,6 +168,7 @@ export function getNavSections(role: Role): NavGroup[] {
     const pointageItems: NavItem[] = [
       { href: "/admin/presence", label: "Présence live", icon: "Activity" },
       { href: "/admin/heures-prestees", label: "Heures prestées", icon: "Clock" },
+      { href: "/admin/encode-shifts", label: "Encoder shifts manqués", icon: "ClipboardEdit" },
       { href: "/admin/anomalies", label: "Anomalies pointage", icon: "AlertTriangle" },
     ];
     if (isAdmin(role)) {
