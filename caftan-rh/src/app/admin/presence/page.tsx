@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadCurrentlyIn } from "@/lib/clock";
 import { haversineKm } from "@/lib/distance";
 import { PresenceLiveTable } from "./presence-table";
+import { ExpectedPresentPanel } from "./expected-present-panel";
 // Next.js 16 interdit ssr:false dans un Server Component -> on passe par un
 // wrapper Client Component qui fait le dynamic import.
 import { PresenceMapLoader } from "./presence-map-loader";
@@ -109,6 +110,50 @@ export default async function AdminPresencePage() {
       radius_m: s.geofence_radius_m ?? 100,
       presents_count: countBySite.get(s.id) ?? 0,
     }));
+  // Karim 2026-05-28 : panneau "Devraient etre presents" - shifts today sans IN.
+  // Permet de pointer en 1-clic les employes presents physiquement mais sans
+  // pointage Tuya (slot non mappe, oubli, panne).
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const { data: shiftsTodayRaw } = await supabase
+    .from("shifts")
+    .select("id, employee_id, site_id, start_time, end_time")
+    .eq("date", todayISO);
+  type ShiftRow = { id: string; employee_id: string; site_id: string | null; start_time: string; end_time: string };
+  const shiftsToday = (shiftsTodayRaw ?? []) as ShiftRow[];
+  const presentEmpIds = new Set(presentsRaw.map((p) => p.employee_id));
+  const expectedNotPresent: Array<{ employee_id: string; full_name: string; site_code: string | null; site_id: string | null; start_time: string; end_time: string }> = [];
+  if (shiftsToday.length > 0) {
+    const empIds = [...new Set(shiftsToday.map((s) => s.employee_id))].filter((id) => !presentEmpIds.has(id));
+    if (empIds.length > 0) {
+      const { data: empsRaw } = await supabase
+        .from("employees")
+        .select("id, full_name, status")
+        .in("id", empIds)
+        .eq("status", "active");
+      const empById = new Map(((empsRaw ?? []) as Array<{ id: string; full_name: string; status: string }>).map((e) => [e.id, e]));
+      for (const sh of shiftsToday) {
+        if (presentEmpIds.has(sh.employee_id)) continue;
+        const emp = empById.get(sh.employee_id);
+        if (!emp) continue;
+        const site = sh.site_id ? sitesAll.find((s) => s.id === sh.site_id) : null;
+        // Filtre par ville courante (mais pas pour scope all)
+        if (site && !cityCodes.includes(site.code)) continue;
+        expectedNotPresent.push({
+          employee_id: sh.employee_id,
+          full_name: emp.full_name,
+          site_code: site?.code ?? null,
+          site_id: sh.site_id,
+          start_time: sh.start_time,
+          end_time: sh.end_time,
+        });
+      }
+    }
+  }
+  // Dedup par employee (un emp peut avoir 2 shifts)
+  const expectedUnique = Array.from(
+    new Map(expectedNotPresent.map((e) => [e.employee_id, e])).values(),
+  );
+
   const employeesForMap = presents
     .filter((p) => geoByEntryId.has(p.last_entry_id))
     .map((p) => {
@@ -266,6 +311,8 @@ export default async function AdminPresencePage() {
       ) : null}
 
       <PresenceLiveTable initial={presentsWithSelfie} sites={sites} />
+
+      <ExpectedPresentPanel expected={expectedUnique} />
     </div>
   );
 }
