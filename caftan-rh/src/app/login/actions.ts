@@ -55,9 +55,13 @@ export async function logoutAction() {
 }
 
 /**
- * Karim 2026-05-29 : envoie un mail de reset password via Supabase Auth.
- * L utilisateur recoit un lien qui le mene vers /login/reset-password ou
- * il peut definir un nouveau mot de passe.
+ * Karim 2026-05-29 : envoie un mail de reset password.
+ *
+ * IMPORTANT : on n utilise PAS supabase.auth.resetPasswordForEmail() car le
+ * SMTP partage Supabase est rate-limite a ~3-4 mails/heure.
+ * A la place : supabase.auth.admin.generateLink() recupere le magic link
+ * directement (Supabase le genere sans l envoyer), puis on l envoie via
+ * EmailJS depuis hr@caftanfactory.com (pas de rate limit, transport propre).
  */
 export async function requestPasswordResetAction(
   formData: FormData,
@@ -67,18 +71,75 @@ export async function requestPasswordResetAction(
     return { error: "Email invalide." };
   }
 
-  const supabase = await createClient();
   // Construit l URL de redirection apres clic sur le lien dans le mail
   const origin = process.env.NEXT_PUBLIC_SITE_URL
     || process.env.VERCEL_URL
     || "http://localhost:3000";
   const redirectTo = `${origin.startsWith("http") ? "" : "https://"}${origin}/login/reset-password`;
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo,
+  // Genere le magic link via Supabase Admin (n envoie PAS de mail SMTP)
+  const supabaseAdmin = await import("@supabase/supabase-js").then((m) =>
+    m.createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    ),
+  );
+
+  const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo },
   });
-  if (error) return { error: error.message };
-  return { ok: true };
+  if (linkErr) {
+    // Pour des raisons de securite, on ne revele pas si l email existe ou non
+    if (linkErr.message?.includes("not found") || linkErr.message?.includes("User not found")) {
+      return { ok: true };
+    }
+    return { error: linkErr.message };
+  }
+
+  const actionLink = linkData?.properties?.action_link;
+  if (!actionLink) return { error: "Impossible de générer le lien." };
+
+  // Envoie via EmailJS depuis hr@caftanfactory.com (pas de rate limit)
+  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) {
+    return { error: "EmailJS non configure (NEXT_PUBLIC_EMAILJS_*)." };
+  }
+  const body = `Bonjour,\n\nTu as demandé à réinitialiser ton mot de passe CaftanRH.\n\n` +
+    `Clique sur le lien sécurisé ci-dessous pour définir un nouveau mot de passe :\n\n` +
+    `👉 ${actionLink}\n\n` +
+    `Ce lien expire dans 1 heure. Si tu n'as rien demandé, ignore simplement ce mail.\n\n` +
+    `L'équipe CaftanRH`;
+  const params = {
+    to_email: email, email, user_email: email, candidate_email: email,
+    to: email, to_name: email, name: email, candidate_name: email,
+    from_name: "CaftanRH", reply_to: "hr@caftanfactory.com",
+    subject: "Réinitialisation de ton mot de passe CaftanRH",
+    message: body, html_message: body.replace(/\n/g, "<br>"),
+    body, html: body.replace(/\n/g, "<br>"), content: body,
+    reset_url: actionLink,
+  };
+  try {
+    const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+      body: JSON.stringify({
+        service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY,
+        template_params: params,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      return { error: `EmailJS HTTP ${res.status}: ${txt.slice(0, 150)}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /**
