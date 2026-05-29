@@ -223,7 +223,7 @@ export function EmployeeAdminForm({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">—</SelectItem>
-                {TRANSPORT_MODES.map((m) => (
+                {(TRANSPORT_MODES ?? []).map((m) => (
                   <SelectItem key={m} value={m}>{m}</SelectItem>
                 ))}
               </SelectContent>
