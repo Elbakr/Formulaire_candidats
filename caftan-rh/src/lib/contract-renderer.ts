@@ -128,7 +128,7 @@ export function buildContractVariables(input: {
     : "";
   const workplace = input.primarySite
     ? `${input.primarySite.code} — ${input.primarySite.name}${input.primarySite.address ? `, ${input.primarySite.address}` : ""}${input.primarySite.city ? ` ${input.primarySite.city}` : ""}`
-    : "";
+    : `${org.address}, ${org.locality}`;
   // Karim 2026-05-29 : politique metier - jamais de CDI. Si une fiche
   // contient encore 'CDI' (legacy), on l interprete comme 'CDD' pour eviter
   // d emettre un contrat non conforme.
