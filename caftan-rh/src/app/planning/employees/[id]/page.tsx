@@ -26,6 +26,7 @@ import { EmployeeAvailabilitySection } from "./availability-section";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
+import { SignContractButton } from "./sign-contract-button";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -141,6 +142,11 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
               <Building2 className="h-3.5 w-3.5" /> Secrétariat social
             </Link>
           </Button>
+          <SignContractButton
+            employeeId={id}
+            employeeName={(emp as { full_name: string }).full_name}
+            employeeEmail={(emp as { email: string | null }).email ?? ""}
+          />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>
               <CalendarDays className="h-3.5 w-3.5" /> Calendrier (sem/mois/année)
