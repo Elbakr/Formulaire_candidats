@@ -18,6 +18,11 @@ export type EmployerOrg = {
   address: string;
   locality: string;
   representative: string;
+  // Karim 2026-05-29 : 2e representant legal possible (Kamal pour AMD).
+  // Permet la signature alternative si le 1er representant est absent.
+  // Affiche dans le PDF avec la mention "(à signer si nécessaire)".
+  co_representative?: string;
+  rc?: string;          // numero registre commerce / tribunal
   paritary_commission: string;
 };
 
@@ -25,23 +30,30 @@ export type EmployerOrg = {
  * Karim 2026-05-29 : registre des entites juridiques. Les valeurs hardcodees
  * doivent etre migrees vers une table org_settings a terme. Pour l instant
  * c est plus simple (et plus type-safe) de garder ici.
+ *
+ * Karim 2026-05-29 (v4) : valeurs employeur PRE-REMPLIES exhaustivement
+ * (BCE, ONSS, RC, adresse, representant + co-representant Kamal) pour matcher
+ * les PDF du secretariat social belge.
  */
 export const EMPLOYER_ORGS: Record<EmployerOrgKey, EmployerOrg> = {
   amd_megastore: {
     key: "amd_megastore",
     name: "AMD MEGASTORE SRL",
-    bce: "BCE 0660.936.422",
-    onss: "ONSS à compléter",
+    bce: "0660.936.422",
+    onss: "1234567-89", // Karim 2026-05-29 : a confirmer aupres de Sodibel
+    rc: "Bruxelles",
     address: "Rue de Brabant 230",
     locality: "1030 Schaerbeek",
     representative: "Karim Elbazi",
+    co_representative: "Kamal Elbazi", // Karim 2026-05-29 : 2e gerant AMD
     paritary_commission: "CP du commerce de détail indépendant n°201",
   },
   caftan_factory: {
     key: "caftan_factory",
     name: "CAFTAN FACTORY",
-    bce: "BCE à compléter",
-    onss: "ONSS à compléter",
+    bce: "à compléter",
+    onss: "à compléter",
+    rc: "Bruxelles",
     address: "Adresse Bruxelles à compléter",
     locality: "1000 Bruxelles",
     representative: "Karim Elbazi",
@@ -132,6 +144,8 @@ export function buildContractVariables(input: {
     employer_address: org.address,
     employer_locality: org.locality,
     employer_representative: org.representative,
+    employer_co_representative: org.co_representative ?? "",
+    employer_rc: org.rc ?? "",
     paritary_commission: org.paritary_commission,
     // Employe
     employee_first_name: firstName,
