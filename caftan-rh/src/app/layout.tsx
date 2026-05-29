@@ -4,6 +4,7 @@ import { DM_Sans, DM_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { InstallPrompt } from "@/components/install-prompt";
 import { PushActivationBanner } from "@/components/push-activation-banner";
+import { HashRecoveryRedirect } from "@/components/hash-recovery-redirect";
 import { getPublicVapidKey } from "@/lib/push-notify";
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-canvas text-ink">
         {children}
         <Toaster position="top-right" richColors closeButton />
+        <HashRecoveryRedirect />
         <InstallPrompt />
         <PushActivationBanner publicKey={vapidPublic} />
         <Script id="sw-register" strategy="afterInteractive">
