@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Preview DocuSeal layout - Contrat employe</title>
+<!--
+  Karim 2026-05-29 : preview statique du rendu HTML produit par
+  docuseal-flow.ts (fonction buildContractHtmlForDocuseal).
+  Ouvre ce fichier dans Chrome/Edge pour voir le rendu sans envoyer
+  un vrai contrat a DocuSeal. Utiliser File > Print > Save as PDF pour
+  verifier que la pagination A4 est propre.
+
+  Les <signature-field> et <date-field> sont rendus comme des cases
+  visibles (CSS de fallback) puisqu ils ne sont interpretes que par
+  DocuSeal. Dans le PDF final ils seront remplaces par les signatures
+  reelles + dates des signataires.
+-->
+<style>
+  @page { size: A4 portrait; margin: 2.5cm 2.5cm 2cm 2.5cm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Calibri', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.35;
+    color: #000;
+    background: #fff;
+    max-width: 21cm;
+    margin: 0 auto;
+    padding: 2.5cm 2.5cm 2cm 2.5cm;
+  }
+  .doc-title {
+    border: 1px solid #000;
+    padding: 0.55cm 0.4cm;
+    margin-bottom: 0.6cm;
+    text-align: center;
+    page-break-after: avoid;
+  }
+  .doc-title h1 {
+    margin: 0;
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .doc-title-annexe { margin-top: 1cm; }
+  .doc-title-annexe h2 {
+    margin: 0;
+    font-size: 14pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .parties-block { margin: 0.5cm 0 0.6cm 0; page-break-inside: avoid; }
+  .parties-block .parties-line { display: flex; margin-bottom: 0.1cm; align-items: baseline; }
+  .parties-block .col-prefix { width: 1.5cm; font-weight: bold; flex-shrink: 0; }
+  .parties-block .col-label  { width: 2.6cm; font-weight: bold; flex-shrink: 0; }
+  .parties-block .col-value  { flex: 1; }
+  .parties-block .col-value strong { font-weight: bold; }
+  .parties-block .dotted-line { flex: 1; border-bottom: 1px dotted #555; height: 1em; margin-left: 0.2cm; }
+  .convenu-line { font-weight: bold; margin: 0.6cm 0 0.4cm 0; font-size: 10.5pt; }
+  h2.article-head { font-size: 11pt; font-weight: bold; text-decoration: underline; margin: 0.45cm 0 0.15cm 0; page-break-after: avoid; }
+  h2.section-head { font-size: 11pt; font-weight: bold; margin: 0.5cm 0 0.2cm 0; }
+  h3.subsection-head { font-size: 10.5pt; font-weight: bold; text-decoration: underline; margin: 0.4cm 0 0.15cm 0; }
+  p { margin: 0.1cm 0 0.18cm 0; text-align: left; }
+  ul.md-list { margin: 0.1cm 0 0.25cm 0.5cm; padding-left: 0.4cm; list-style-type: square; }
+  ul.md-list li { margin-bottom: 0.08cm; padding-left: 0.1cm; }
+  hr.md-sep { border: 0; border-top: 1px solid #bbb; margin: 0.5cm 0; }
+  table.md-table { width: 100%; border-collapse: collapse; margin: 0.25cm 0; font-size: 10pt; }
+  table.md-table th, table.md-table td { border: 1px solid #000; padding: 0.15cm 0.25cm; text-align: center; vertical-align: middle; }
+  table.md-table th { background: #f3f3f3; font-weight: bold; }
+  .signatures { margin-top: 1cm; display: table; width: 100%; table-layout: fixed; page-break-inside: avoid; }
+  .signatures .sig-row { display: table-row; }
+  .signatures .sig-cell { display: table-cell; width: 50%; padding: 0.2cm; vertical-align: top; }
+  .signatures .sig-frame { border: 1px solid #000; padding: 0.3cm; min-height: 3.5cm; text-align: center; }
+  .signatures .sig-title { font-size: 10pt; font-weight: normal; margin-bottom: 0.05cm; }
+  .signatures .sig-sub { font-size: 9pt; font-style: italic; color: #333; margin-bottom: 0.3cm; }
+  .signatures .sig-date { font-size: 9pt; color: #333; margin-top: 0.25cm; text-align: left; }
+  .closing-line { margin-top: 0.7cm; font-size: 10.5pt; }
+  .closing-line strong { font-weight: bold; }
+  .footer-mentions { margin-top: 1cm; font-size: 8pt; color: #444; border-top: 1px solid #ccc; padding-top: 0.2cm; text-align: center; }
+
+  /* Fallback visuel des fields DocuSeal en mode preview navigateur */
+  signature-field, date-field {
+    border: 1px dashed #888;
+    background: #fafafa;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  signature-field::before { content: "[ signature ]"; font-size: 8pt; color: #888; }
+  date-field::before { content: "[ date ]"; font-size: 8pt; color: #888; }
+
+  /* Bandeau d info (preview only) */
+  .preview-banner {
+    background: #fff4ce;
+    border: 1px solid #d4b800;
+    padding: 0.4cm;
+    margin-bottom: 0.6cm;
+    font-size: 9pt;
+    color: #5b4a00;
+  }
+  @media print {
+    .preview-banner { display: none; }
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  <strong>Aperçu statique</strong> &mdash; ce fichier simule le rendu HTML que CaftanRH envoie à DocuSeal.
+  Les zones <code>[signature]</code> et <code>[date]</code> seront remplacées par les signatures réelles dans le PDF final.
+  Pour vérifier la pagination A4 : <em>Imprimer &gt; Enregistrer en PDF</em>.
+</div>
+
+<div class="doc-title"><h1>CONTRAT DE TRAVAIL D'EMPLOYÉ</h1></div>
+
+<div class="parties-block">
+  <div class="parties-line">
+    <span class="col-prefix">Entre</span>
+    <span class="col-label">L'employeur</span>
+    <span class="col-value">: <strong>AMD MEGASTORE SRL</strong></span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">Adresse</span>
+    <span class="col-value">: Rue de Brabant 230</span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">Localité</span>
+    <span class="col-value">: 1030 Schaerbeek</span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">Représenté par</span>
+    <span class="col-value">: <span class="dotted-line"></span></span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix">Et</span>
+    <span class="col-label">L'employé</span>
+    <span class="col-value">: <strong>EBERTITAN Lina</strong></span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">NISS</span>
+    <span class="col-value">: 97.06.30 360-43</span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">Adresse</span>
+    <span class="col-value">: Avenue Chazal 145 boîte B30</span>
+  </div>
+  <div class="parties-line">
+    <span class="col-prefix"></span>
+    <span class="col-label">Localité</span>
+    <span class="col-value">: 1030 Schaerbeek</span>
+  </div>
+</div>
+
+<p class="convenu-line">IL EST CONVENU CE QUI SUIT :</p>
+
+<h2 class="article-head">Article 1.</h2>
+<p>L'employeur engage l'employé dans les liens d'un contrat de travail à partir du <strong>01-05-26</strong>.</p>
+
+<h2 class="article-head">Article 2.</h2>
+<p>L'employé assume la fonction suivante : <strong>Employée de vente</strong><br>
+Cette fonction comporte entre autres l'exécution des tâches suivantes :<br>
+Accueil clients, vente, encaissement, mise en rayon, gestion stock</p>
+<p><em>Hormis l'hypothèse où le contrat est conclu pour un travail nettement défini, la liste reprise ci-dessus est indicative, mais non limitative ; l'employé pourra donc être affecté à d'autres tâches compatibles avec ses capacités professionnelles, dans la mesure où ce changement ne lui cause aucun préjudice matériel ou moral.</em></p>
+
+<h2 class="article-head">Article 3.</h2>
+<p>Le lieu de travail est situé à : <strong>Rue de Brabant 230, 1030 Schaerbeek</strong>.<br>
+Les parties conviennent que le lieu de travail n'est pas une condition de travail essentielle du présent contrat de travail et pourra donc être modifié de façon unilatérale par l'employeur en fonction des nécessités de l'entreprise.</p>
+
+<h2 class="article-head">Article 4.</h2>
+<p>L'engagement est conclu pour <strong>une durée déterminée</strong> du 01-05-26 au 31-05-26.</p>
+
+<h2 class="article-head">Article 5.</h2>
+<p>La durée du travail est fixée à <strong>38 heures par semaine</strong>, répartie comme suit :</p>
+<table class="md-table">
+  <thead><tr><th>Lundi</th><th>Mardi</th><th>Mercredi</th><th>Jeudi</th><th>Vendredi</th><th>Samedi</th><th>Dimanche</th></tr></thead>
+  <tbody>
+    <tr><td>9h-13h<br>14h-18h</td><td>9h-13h<br>14h-18h</td><td>9h-13h<br>14h-18h</td><td>9h-13h<br>14h-18h</td><td>9h-13h<br>14h-18h</td><td>repos</td><td>repos</td></tr>
+  </tbody>
+</table>
+<p>Un repos est accordé au cours de la journée de travail.</p>
+
+<h2 class="article-head">Article 6.</h2>
+<p>À la date du présent contrat, la rémunération convenue est fixée à <strong>1.997,85 € bruts par mois</strong>.</p>
+
+<h2 class="article-head">Article 7.</h2>
+<p>Avantages convenus : Néant</p>
+
+<h2 class="article-head">Article 8.</h2>
+<p>Le paiement de la rémunération sera effectué par banque sur le compte :</p>
+<ul class="md-list">
+  <li><strong>IBAN</strong> : BE59 9531 3253 6826</li>
+  <li><strong>BIC</strong> : CTBKBEBX</li>
+</ul>
+
+<h2 class="article-head">Article 9.</h2>
+<p>Les conditions de travail et de rémunération sont établies sur base des décisions de la commission paritaire <strong>CP du commerce de détail indépendant n°201</strong>.</p>
+
+<h2 class="article-head">Article 10.</h2>
+<ul class="md-list">
+  <li>Le travailleur défendra toujours les intérêts de l'employeur.</li>
+  <li>Le travailleur ne peut transmettre, prêter ou céder à quiconque des documents propriété de l'employeur.</li>
+  <li>Toute invention/amélioration auxquelles le travailleur aurait collaboré est de plein droit propriété de l'employeur.</li>
+  <li>Tant pendant qu'après l'exécution du contrat, le travailleur n'aura pas le droit de révéler les secrets concernant l'entreprise.</li>
+  <li>Le travailleur consacrera l'intégralité de son activité professionnelle à l'exécution du présent contrat.</li>
+  <li>Le travailleur s'engage à respecter la confidentialité des données personnelles (RGPD 2016/679).</li>
+</ul>
+
+<h2 class="article-head">Article 11.</h2>
+<p>Le travailleur avisera immédiatement l'employeur de tout retard ou absence. L'incapacité par suite de maladie ou accident doit être justifiée par certificat médical dans les 2 jours ouvrables.</p>
+
+<h2 class="article-head">Article 12.</h2>
+<p>Si le présent contrat a été conclu pour une <strong>durée indéterminée</strong>, l'employeur et le travailleur peuvent y mettre fin moyennant un préavis écrit conforme aux articles 37/2 et suivants de la loi du 3 juillet 1978.</p>
+
+<h2 class="article-head">Article 13.</h2>
+<p>Si le présent contrat a été conclu pour une <strong>durée déterminée</strong> ou un <strong>travail nettement défini</strong>, il prend fin automatiquement au terme fixé. Durant la première moitié de la durée convenue, chaque partie peut résilier moyennant préavis (article 37/2).</p>
+
+<h2 class="article-head">Article 14.</h2>
+<p>Le présent contrat est soumis aux dispositions de la loi du 3 juillet 1978 et du règlement de travail.</p>
+
+<h2 class="article-head">Article 15.</h2>
+<p>Conditions particulières : _______________</p>
+
+<h2 class="article-head">Article 16.</h2>
+<p>Le travailleur reconnaît avoir reçu un exemplaire du règlement de travail.</p>
+
+<hr class="md-sep">
+
+<p class="closing-line">
+  Fait en deux exemplaires à <strong>Schaerbeek</strong>, le
+  <date-field name="Date contrat" role="Employer" required="true" default-value="2026-05-29" style="display: inline-block; width: 130px; height: 22px;"></date-field>.
+  <br>Chacune des parties reconnaît avoir reçu un exemplaire original.
+</p>
+
+<div class="signatures">
+  <div class="sig-row">
+    <div class="sig-cell">
+      <div class="sig-frame">
+        <div class="sig-title">Signature du travailleur</div>
+        <div class="sig-sub">(et parapher toutes les pages)</div>
+        <signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto 4px;"></signature-field>
+        <div class="sig-date">Date :
+          <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 110px; height: 20px;"></date-field>
+        </div>
+      </div>
+    </div>
+    <div class="sig-cell">
+      <div class="sig-frame">
+        <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+        <div class="sig-sub">(et parapher toutes les pages)</div>
+        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto 4px;"></signature-field>
+        <div class="sig-date">Date :
+          <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 20px;"></date-field>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-mentions">
+  *Biffer la mention inutile &middot; AMD MEGASTORE SRL &middot; Contrat soumis à la loi du 3 juillet 1978
+</div>
+
+</body>
+</html>
