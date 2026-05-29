@@ -117,7 +117,7 @@ export function AppShell({
   groups?: NavGroup[];
   user: { id: string; full_name: string | null; email: string; role: string };
   /** Karim 2026-05-25 : ville selectionnee (cookie). "bruxelles" par defaut. */
-  city?: "bruxelles" | "anvers";
+  city?: "bruxelles" | "anvers" | "all";
   children: React.ReactNode;
 }) {
   const pathname = usePathname();

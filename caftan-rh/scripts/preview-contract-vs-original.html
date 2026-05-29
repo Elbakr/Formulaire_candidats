@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Preview DocuSeal Contract vs Original PDF</title>
+<style>
+  /* ---------------- Page de comparaison ---------------- */
+  html, body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #e9eaee; }
+  .topbar {
+    background: #1a1a1a; color: #fff; padding: 10px 20px;
+    font-size: 14px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .topbar h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  .topbar .meta { font-size: 12px; opacity: 0.75; }
+  .compare {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; padding: 16px; min-height: calc(100vh - 60px);
+  }
+  .pane {
+    background: #fff; border: 1px solid #c4c6cb; border-radius: 4px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .pane > header {
+    background: #f3f4f6; padding: 8px 14px; font-size: 12px;
+    font-weight: 600; color: #1f2937; border-bottom: 1px solid #d1d5db;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pane > header .tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 500; }
+  .pane.original > header .tag { background: #dcfce7; color: #15803d; }
+  .pane.rendered > header .tag { background: #dbeafe; color: #1d4ed8; }
+  .pane > .body { flex: 1; overflow: auto; background: #fff; }
+
+  /* Cadre A4 simule (~21cm a 96dpi = 794px) */
+  .a4 {
+    background: #fff; margin: 18px auto; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    width: 21cm; min-height: 29.7cm;
+  }
+
+  /* ---------------- Pane gauche : reproduction de l original PDF ---------------- */
+  .orig-page {
+    padding: 2cm 1.8cm 1.5cm 1.8cm;
+    font-family: 'Calibri', 'Arial', sans-serif;
+    font-size: 10pt; color: #000; line-height: 1.25;
+  }
+  .orig-title { text-align: center; font-size: 14pt; font-weight: bold; text-transform: uppercase; margin-bottom: 0.5cm; }
+  .orig-parties { margin: 0.3cm 0 0.4cm; }
+  .orig-parties .ln { display: flex; margin-bottom: 0.18cm; font-size: 10pt; }
+  .orig-parties .p1 { width: 1.3cm; }
+  .orig-parties .p2 { width: 3.2cm; }
+  .orig-parties .p3 { width: 0.4cm; }
+  .orig-parties .p4 { flex: 1; font-weight: bold; }
+  .orig-parties .dots { flex: 1; border-bottom: 1px dotted #000; height: 0.8em; vertical-align: bottom; display: inline-block; }
+  .orig-convenu { margin: 0.5cm 0 0.4cm; font-size: 10pt; }
+  .orig-art { font-weight: bold; margin: 0.35cm 0 0.05cm 0; font-size: 10pt; }
+  .orig-p { margin: 0.05cm 0 0.15cm 0; text-align: left; font-size: 10pt; }
+  .orig-foot { margin-top: 0.7cm; font-size: 8pt; font-style: italic; }
+
+  /* Bloc signatures de l original */
+  .orig-sigs { margin-top: 0.8cm; display: table; width: 100%; table-layout: fixed; }
+  .orig-sigs .row { display: table-row; }
+  .orig-sigs .cell { display: table-cell; width: 50%; padding: 0.15cm 0.3cm; text-align: center; }
+  .orig-sigs .sig-t { font-size: 10pt; }
+  .orig-sigs .sig-s { font-size: 9pt; font-style: italic; }
+  .orig-sigs .sig-z { min-height: 2.2cm; border-bottom: 1px solid #000; margin-bottom: 0.1cm; }
+  .orig-sigs .sig-d { font-size: 9pt; text-align: left; margin-top: 0.1cm; }
+
+  .legend {
+    background: #fef3c7; border-left: 4px solid #d97706;
+    padding: 10px 14px; margin: 14px; border-radius: 3px;
+    font-size: 12px; color: #78350f; line-height: 1.5;
+  }
+  .legend strong { color: #92400e; }
+  .legend ul { margin: 6px 0 0 18px; padding: 0; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>Preview DocuSeal Contract Layout — v3 (Karim 2026-05-29)</h1>
+  <div class="meta">Gauche : reproduction PDF original | Droite : rendu CSS docuseal-flow.ts</div>
+</div>
+
+<div class="legend">
+  <strong>Differences-cles avec le 1er essai (rejete) :</strong>
+  <ul>
+    <li>Titre : encadre noir SUPPRIME, taille 14pt (vs 16pt), centre simple</li>
+    <li>Articles : souligne SUPPRIME, juste gras 10pt</li>
+    <li>Signatures : cadres rectangulaires SUPPRIMES, juste ligne basse comme dans le PDF</li>
+    <li>Police : 10pt corps (vs 10.5pt), interligne 1.25 (vs 1.35)</li>
+    <li>Marges : 1.8cm horizontal (vs 2.5cm), document plus dense</li>
+    <li>Footer : "*Biffer la mention inutile" simple en italique, PAS de border-top</li>
+    <li>Listes : style-type none avec retrait (vs square bullet noir)</li>
+    <li>Champs vides : lignes pointillees (typique original) au lieu d ellipses ...</li>
+    <li>Couleurs : 100% noir/blanc, aucun gris pour conformite admin belge</li>
+    <li>"Et" sur sa propre ligne + label "L employe" en dessous (comme PDF)</li>
+  </ul>
+</div>
+
+<div class="compare">
+  <!-- ============== PANE GAUCHE : ORIGINAL PDF SIMULE ============== -->
+  <div class="pane original">
+    <header>
+      <span>PDF ORIGINAL (reproduction)</span>
+      <span class="tag">REFERENCE</span>
+    </header>
+    <div class="body">
+      <div class="a4">
+        <div class="orig-page">
+          <div class="orig-title">CONTRAT DE TRAVAIL D'EMPLOYE</div>
+
+          <div class="orig-parties">
+            <div class="ln"><div class="p1">Entre</div><div class="p2">L'employeur</div><div class="p3">:</div><div class="p4">AMD MEGASTORE SRL</div></div>
+            <div class="ln"><div class="p1">Et</div><div class="p2"></div><div class="p3"></div><div class="p4"></div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">Adresse</div><div class="p3">:</div><div class="p4">Rue de Brabant 230</div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">Localité</div><div class="p3">:</div><div class="p4">1030 Schaerbeek</div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">Représenté par</div><div class="p3">:</div><div class="dots"></div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">L'employé</div><div class="p3">:</div><div class="p4">EBERTITAN Lina</div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">NISS</div><div class="p3">:</div><div class="p4">97.06.30 360-43</div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">Adresse</div><div class="p3">:</div><div class="p4">Avenue Chazal 145 boite B30</div></div>
+            <div class="ln"><div class="p1"></div><div class="p2">Localité</div><div class="p3">:</div><div class="p4">1030 Schaerbeek</div></div>
+          </div>
+
+          <div class="orig-convenu">IL EST CONVENU CE QUI SUIT :</div>
+
+          <div class="orig-art">Article 1.</div>
+          <div class="orig-p">L'employeur engage l'employé dans les liens d'un contrat de travail à partir du 01-05-26</div>
+
+          <div class="orig-art">Article 2.</div>
+          <div class="orig-p">L'employé assume la fonction suivante : Employée de vente</div>
+          <div class="orig-p">Cette fonction comporte entre autres l'exécution des tâches suivantes :</div>
+          <div class="orig-p" style="border-bottom:1px dotted #000; height:0.6em;"></div>
+          <div class="orig-p" style="border-bottom:1px dotted #000; height:0.6em;"></div>
+
+          <div class="orig-art">Article 3.</div>
+          <div class="orig-p">Le lieu de travail est situé à : <span style="border-bottom:1px dotted #000; display:inline-block; width: 70%; height:0.8em;"></span></div>
+
+          <div class="orig-art">Article 4.</div>
+          <div class="orig-p">L'engagement est conclu :</div>
+          <div class="orig-p" style="padding-left:1cm;">Pour une durée indéterminée*</div>
+          <div class="orig-p" style="padding-left:1cm;">Pour une durée déterminée* du 01-05-26 au 31-05-26</div>
+
+          <div class="orig-foot">*Biffer la mention inutile <span style="float:right;">Page 1 sur 3</span></div>
+
+          <!-- Bloc signature simule comme dans le PDF original (sans cadre) -->
+          <div class="orig-sigs">
+            <div class="row">
+              <div class="cell">
+                <div class="sig-t">Signature du travailleur</div>
+                <div class="sig-s">(et parapher toutes les pages)</div>
+                <div class="sig-z"></div>
+                <div class="sig-d">Date : ..............</div>
+              </div>
+              <div class="cell">
+                <div class="sig-t">Signature de l'employeur ou de son délégué</div>
+                <div class="sig-s">(et parapher toutes les pages)</div>
+                <div class="sig-z"></div>
+                <div class="sig-d">Date : ..............</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== PANE DROITE : RENDU CSS docuseal-flow.ts v3 ============== -->
+  <div class="pane rendered">
+    <header>
+      <span>RENDU NOUVEAU CSS (docuseal-flow.ts v3)</span>
+      <span class="tag">VERSION CORRIGEE</span>
+    </header>
+    <div class="body">
+      <div class="a4" id="rendered-frame">
+        <iframe id="docuseal-render" srcdoc="" style="width:100%; height: 29.7cm; border: 0; display: block;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- Copie du CSS de docuseal-flow.ts (v3) ----
+const CONTRACT_CSS = `
+  @page { size: A4 portrait; margin: 2cm 1.8cm 1.5cm 1.8cm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Calibri', 'Carlito', 'Arial', 'Helvetica', sans-serif;
+    font-size: 10pt;
+    line-height: 1.25;
+    color: #000;
+    background: #fff;
+    max-width: 21cm;
+    margin: 0 auto;
+    padding: 2cm 1.8cm 1.5cm 1.8cm;
+  }
+  .doc-title { margin: 0 0 0.5cm 0; text-align: center; page-break-after: avoid; }
+  .doc-title h1 { margin: 0; font-family: 'Calibri', 'Arial', sans-serif; font-size: 14pt; font-weight: bold; letter-spacing: 0; text-transform: uppercase; color: #000; }
+  .doc-subtitle { text-align: center; font-size: 9pt; font-style: italic; margin: 0 0 0.5cm 0; line-height: 1.3; color: #000; }
+  .parties-block { margin: 0.3cm 0 0.4cm 0; page-break-inside: avoid; }
+  .parties-block .parties-line { display: flex; margin-bottom: 0.18cm; align-items: baseline; font-size: 10pt; }
+  .parties-block .col-prefix { width: 1.3cm; font-weight: normal; flex-shrink: 0; }
+  .parties-block .col-label  { width: 3.2cm; font-weight: normal; flex-shrink: 0; }
+  .parties-block .col-sep    { width: 0.4cm; flex-shrink: 0; }
+  .parties-block .col-value  { flex: 1; font-weight: bold; }
+  .dotted-fill { flex: 1; display: inline-block; border-bottom: 1px dotted #000; height: 0.8em; vertical-align: bottom; }
+  .convenu-line { font-weight: normal; margin: 0.5cm 0 0.4cm 0; font-size: 10pt; }
+  h2.article-head { font-size: 10pt; font-weight: bold; text-decoration: none; margin: 0.35cm 0 0.05cm 0; page-break-after: avoid; color: #000; }
+  h2.section-head { font-size: 10pt; font-weight: bold; margin: 0.4cm 0 0.15cm 0; color: #000; }
+  h3.subsection-head { font-size: 10pt; font-weight: bold; text-decoration: none; margin: 0.3cm 0 0.1cm 0; color: #000; }
+  p { margin: 0.05cm 0 0.15cm 0; text-align: left; }
+  ul.md-list { margin: 0.1cm 0 0.2cm 0.6cm; padding-left: 0.4cm; list-style-type: none; }
+  ul.md-list li { margin-bottom: 0.1cm; padding-left: 0.4cm; text-indent: -0.4cm; }
+  .signatures { margin-top: 0.8cm; display: table; width: 100%; table-layout: fixed; page-break-inside: avoid; }
+  .signatures .sig-row { display: table-row; }
+  .signatures .sig-cell { display: table-cell; width: 50%; padding: 0.15cm 0.3cm; vertical-align: top; text-align: center; }
+  .signatures .sig-title { font-size: 10pt; font-weight: normal; margin-bottom: 0.05cm; color: #000; }
+  .signatures .sig-sub { font-size: 9pt; font-style: italic; color: #000; margin-bottom: 0.2cm; }
+  .signatures .sig-zone { min-height: 2.2cm; border-bottom: 1px solid #000; margin-bottom: 0.1cm; }
+  .signatures .sig-date { font-size: 9pt; color: #000; margin-top: 0.1cm; text-align: left; }
+  .closing-line { margin-top: 0.6cm; font-size: 10pt; }
+  .footer-mentions { margin-top: 0.7cm; font-size: 8pt; color: #000; border-top: 0; padding-top: 0.15cm; text-align: left; font-style: italic; }
+`;
+
+const HTML = `
+<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><style>${CONTRACT_CSS}</style></head><body>
+<div class="doc-title"><h1>CONTRAT DE TRAVAIL D'EMPLOYE</h1></div>
+
+<div class="parties-block">
+  <div class="parties-line"><span class="col-prefix">Entre</span><span class="col-label">L'employeur</span><span class="col-sep">:</span><span class="col-value"><strong>AMD MEGASTORE SRL</strong></span></div>
+  <div class="parties-line"><span class="col-prefix">Et</span><span class="col-label"></span><span class="col-sep"></span><span class="col-value"></span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">Adresse</span><span class="col-sep">:</span><span class="col-value">Rue de Brabant 230</span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">Localité</span><span class="col-sep">:</span><span class="col-value">1030 Schaerbeek</span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">Représenté par</span><span class="col-sep">:</span><span class="dotted-fill"></span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">L'employé</span><span class="col-sep">:</span><span class="col-value"><strong>EBERTITAN Lina</strong></span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">NISS</span><span class="col-sep">:</span><span class="col-value">97.06.30 360-43</span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">Adresse</span><span class="col-sep">:</span><span class="col-value">Avenue Chazal 145 boite B30</span></div>
+  <div class="parties-line"><span class="col-prefix"></span><span class="col-label">Localité</span><span class="col-sep">:</span><span class="col-value">1030 Schaerbeek</span></div>
+</div>
+<p class="convenu-line">IL EST CONVENU CE QUI SUIT :</p>
+
+<h2 class="article-head">Article 1.</h2>
+<p>L'employeur engage l'employé dans les liens d'un contrat de travail à partir du 01-05-26</p>
+
+<h2 class="article-head">Article 2.</h2>
+<p>L'employé assume la fonction suivante : <strong>Employée de vente</strong></p>
+<p>Cette fonction comporte entre autres l'exécution des tâches suivantes :</p>
+
+<h2 class="article-head">Article 3.</h2>
+<p>Le lieu de travail est situé à : Schaerbeek (Rue de Brabant 230).</p>
+
+<h2 class="article-head">Article 4.</h2>
+<p>L'engagement est conclu :</p>
+<ul class="md-list">
+<li>Pour une durée indéterminée*</li>
+<li>Pour une durée déterminée* du 01-05-26 au 31-05-26</li>
+</ul>
+
+<p class="closing-line">
+  Fait en deux exemplaires à <strong>Schaerbeek</strong>, le <strong>2026-05-29</strong>.<br>
+  Chacune des parties reconnaît avoir reçu un exemplaire original.
+</p>
+
+<div class="signatures"><div class="sig-row">
+  <div class="sig-cell">
+    <div class="sig-title">Signature du travailleur</div>
+    <div class="sig-sub">(et parapher toutes les pages)</div>
+    <div class="sig-zone"></div>
+    <div class="sig-date">Date : ..............</div>
+  </div>
+  <div class="sig-cell">
+    <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+    <div class="sig-sub">(et parapher toutes les pages)</div>
+    <div class="sig-zone"></div>
+    <div class="sig-date">Date : ..............</div>
+  </div>
+</div></div>
+
+<div class="footer-mentions">*Biffer la mention inutile</div>
+</body></html>`;
+
+document.getElementById('docuseal-render').srcdoc = HTML;
+</script>
+</body>
+</html>
