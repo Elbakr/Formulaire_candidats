@@ -211,102 +211,108 @@ function markdownToHtml(md: string): string {
 }
 
 /**
- * Karim 2026-05-29 (v4) : refonte CSS pixel-perfect apres analyse fine des
- * 3 PDF originaux du secretariat social belge (Sodibel / SD Worx) :
- *   - 003.00 FR - CT - employe (3 pages)
- *   - 004.00 FR - CT - employe temps partiel (4 pages, avec annexe horaires)
+ * Karim 2026-05-29 (v8) : reproduction PIXEL-PERFECT des PDF originaux SD Worx
+ * apres analyse visuelle directe des 3 modeles :
+ *   - 003.00 FR - CT - employe (3 pages, plein temps)
+ *   - 004.00 FR - CT - employe temps partiel (4 pages, avec annexe)
  *   - 006.00 FR - CT - occupation d etudiant (2 pages)
  *
- * Differences MAJEURES corrigees vs v3 :
- *  1. Titre principal ENCADRE par un rectangle noir (border 1pt). v3 n avait
- *     PAS d encadre. C est l element visuel le plus reconnaissable du PDF.
- *  2. Articles : "Article N." en GRAS + SOULIGNE (pas juste gras). v3 disait
- *     gras simple - erreur. Le PDF utilise text-decoration: underline.
- *  3. Bloc parties : 2 sous-labels "L'employeur" / "L'employé" en GRAS suivis
- *     de la valeur. v3 mettait tout sur une seule ligne, perdant la structure.
- *  4. Cadres signature : VRAIS rectangles bordures noires 1pt (PAS juste une
- *     ligne du bas). C est tres visible dans les PDF.
- *  5. Footer : "*Biffer la mention inutile" gauche + "Page X sur Y" DROITE,
- *     sur la meme ligne. v3 n avait pas le "Page X sur Y".
- *  6. Article 10 : retrait + puce carre noir (▪) selon style PDF original.
- *  7. Mentions italiques discretes (8.5pt) sous les articles : "Hormis...",
- *     "La partie qui met fin...", "Preciser les eventuels...".
- *  8. Police : Calibri 10pt corps, 14pt titre, 8pt footer, 9pt mentions ital.
- *  9. Cases a cocher ☐ et ☒ : caracteres unicode (font "Segoe UI Symbol" fallback).
- * 10. Sauts de page calcules : signature TOUJOURS sur derniere page (page-break).
+ * Mesures observees sur les originaux (proportions calculees vs hauteur page A4 = 29.7cm) :
+ *  - Police : Calibri (defauts Word/SD Worx), corps 10pt, line-height ~1.25
+ *  - Titre : ~18pt MAJUSCULES gras, dans rectangle bordure 0.5pt, hauteur ~1.3cm
+ *           padding interne vertical ~0.4cm, largeur pleine (marges page)
+ *  - Marges page : ~2cm top, 1.8cm bas, 2.5cm gauche/droite (typique Word)
+ *  - Espace TITRE -> "Entre" : large ~1.5cm (saut visuel important)
+ *  - Bloc Entre/Et : "Entre" gras col ~1.5cm, "L'employeur" gras col ~2.5cm,
+ *    ":" col 0.3cm, valeur reste. Padding vertical ligne 0.04cm (tres serre)
+ *  - Espace bloc parties -> "IL EST CONVENU" : ~1cm (saut net)
+ *  - "IL EST CONVENU CE QUI SUIT :" en gras 10pt
+ *  - Espace -> Article 1 : ~0.8cm
+ *  - Articles : "Article N." SOULIGNE + GRAS 10pt sur sa propre ligne
+ *    (pas inline avec le corps !), corps de l article en dessous
+ *  - Espace inter-articles : ~0.5cm
+ *  - Mentions italiques (Hormis.../La partie.../Preciser...) : 8.5pt italique
+ *  - Cases a cocher ☐ : Calibri/Arial unicode 10pt, indentation ~1cm
+ *  - Tableaux : bordure 0.5pt noir, padding cellule 0.1cm, en-tetes gras centres
+ *  - "Fait en deux exemplaires..." : 10pt non gras (sauf lieu) avec saut visuel ~0.8cm
+ *  - Cadres signature : 2 rectangles 50/50 separes par gap ~0.5cm,
+ *    bordure 0.5pt, hauteur ~3.5cm, padding interne 0.2cm,
+ *    titre "Signature du travailleur" centre 10pt non gras + sous-titre italique 9pt
+ *  - Footer : "*Biffer la mention inutile" gauche italique 8pt
+ *           "Page N sur M" droite, N et M en GRAS 8pt
  */
 const CONTRACT_CSS = `
   @page {
     size: A4 portrait;
-    /* Karim v6 : marges reduites pour minimiser le nb de pages */
-    margin: 1.2cm 1.3cm 1cm 1.3cm;
-    /* Footer "Biffer la mention inutile" + "Page X sur Y" via paged media */
+    /* Karim v8 : marges proches des originaux SD Worx */
+    margin: 1.8cm 2cm 1.6cm 2cm;
+    /* Footer "*Biffer la mention inutile" gauche, "Page X sur Y" droite */
     @bottom-left {
       content: "*Biffer la mention inutile";
       font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
       font-size: 8pt;
       color: #000;
+      vertical-align: top;
     }
     @bottom-right {
       content: "Page " counter(page) " sur " counter(pages);
       font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
       font-size: 8pt;
       color: #000;
+      vertical-align: top;
     }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: 'Calibri', 'Carlito', 'Arial', 'Helvetica', sans-serif;
-    font-size: 9.5pt;
-    line-height: 1.2;
+    font-size: 10pt;
+    line-height: 1.25;
     color: #000;
     background: #fff;
   }
-  /* Karim 2026-05-29 (v5 COMPACT) : rendu beaucoup plus dense pour tenir
-     sur 2-3 pages comme les PDF originaux (vs 5 pages du v4 trop aere).
-     Marges et paddings TRES reduits, line-height 1.2, font 9.5pt. */
+  /* Karim v8 : TITRE en rectangle large bordure 0.5pt, ~1.3cm de haut */
   .doc-title {
-    margin: 0 0 0.3cm 0;
+    margin: 0 0 1.4cm 0;
     text-align: center;
     page-break-after: avoid;
-    border: 1pt solid #000;
-    padding: 0.18cm 0.3cm;
+    border: 0.5pt solid #000;
+    padding: 0.35cm 0.4cm;
   }
   .doc-title h1 {
     margin: 0;
     font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
-    font-size: 13pt;
+    font-size: 18pt;
     font-weight: bold;
     letter-spacing: 0;
     text-transform: uppercase;
     color: #000;
     line-height: 1.1;
   }
-  /* Sous-titre informatif sous le titre (ex: mention etudiant) */
+  /* Sous-titre etudiant : italique gras centre sous le titre */
   .doc-subtitle {
     text-align: center;
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-style: italic;
     font-weight: bold;
-    margin: 0 0 0.5cm 0;
+    margin: -0.9cm 0 1cm 0;
     line-height: 1.3;
     color: #000;
     padding: 0 1cm;
   }
-  .doc-title-annexe { margin-top: 0.5cm; }
+  .doc-title-annexe { margin-top: 0; margin-bottom: 1cm; }
   .doc-title-annexe h2 {
     margin: 0;
-    font-size: 16pt;
+    font-size: 18pt;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0;
     color: #000;
     line-height: 1.1;
   }
-  /* Bloc "Entre / Et" : structure tableau aligne 4 colonnes */
+  /* Bloc "Entre / Et" : alignement 4 colonnes type tableau */
   .parties-block {
-    margin: 0.3cm 0 0.4cm 0;
+    margin: 0 0 1cm 0;
     page-break-inside: avoid;
     font-size: 10pt;
   }
@@ -315,104 +321,112 @@ const CONTRACT_CSS = `
     border-collapse: collapse;
   }
   .parties-block td {
-    padding: 0.05cm 0;
+    padding: 0.02cm 0;
     vertical-align: top;
+    line-height: 1.3;
   }
   .parties-block .col-prefix {
     width: 1.5cm;
     font-weight: bold;
+    padding-left: 0.3cm;
   }
   .parties-block .col-label {
-    width: 3.2cm;
+    width: 2.6cm;
     font-weight: bold;
   }
   .parties-block .col-sep {
-    width: 0.3cm;
+    width: 0.25cm;
   }
   .parties-block .col-value {
     font-weight: normal;
   }
-  /* Ligne pointillee pour champ vide */
+  /* Ligne pointillee pour champ vide (s etend a 100% de la cellule) */
   .dotted-fill {
     display: inline-block;
     width: 100%;
-    border-bottom: 1pt dotted #000;
-    height: 0.9em;
+    border-bottom: 0;
+    height: 0.85em;
     vertical-align: bottom;
+    overflow: hidden;
+    letter-spacing: 0.05em;
   }
-  /* "IL EST CONVENU CE QUI SUIT :" : en GRAS dans le PDF original */
+  .dotted-fill::after {
+    content: "..........................................................................................................................................................................................................";
+    color: #000;
+    font-size: 10pt;
+    letter-spacing: 0;
+  }
+  /* "IL EST CONVENU CE QUI SUIT :" : gras 10pt, espace large dessous */
   .convenu-line {
     font-weight: bold;
-    margin: 0.25cm 0 0.2cm 0;
-    font-size: 9.5pt;
+    margin: 0 0 0.8cm 0;
+    font-size: 10pt;
   }
-  /* Karim v5 : articles en GRAS SIMPLE (pas souligne), tres compact */
+  /* Karim v8 : articles "Article N." SOULIGNE + GRAS sur sa propre ligne */
   h2.article-head {
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-weight: bold;
-    text-decoration: none;
-    margin: 0.18cm 0 0.04cm 0;
+    text-decoration: underline;
+    margin: 0.5cm 0 0.15cm 0;
     page-break-after: avoid;
     color: #000;
-    display: inline-block; /* style "Article 1." inline avec le contenu */
+    display: block;
   }
   h2.section-head {
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-weight: bold;
-    text-decoration: none;
-    margin: 0.18cm 0 0.04cm 0;
+    text-decoration: underline;
+    margin: 0.5cm 0 0.15cm 0;
     color: #000;
   }
   h3.subsection-head {
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-weight: bold;
     text-decoration: none;
-    margin: 0.15cm 0 0.04cm 0;
+    margin: 0.3cm 0 0.1cm 0;
     color: #000;
   }
   p {
-    margin: 0 0 0.08cm 0;
+    margin: 0 0 0.15cm 0;
     text-align: left;
   }
-  /* Listes a tirets / puces : utilisation d un carre noir ▪ comme article 10
-     du PDF original (style Word "wingdings square") */
+  /* Listes a puces carre noir (article 10) */
   ul.md-list {
-    margin: 0.15cm 0 0.2cm 0.6cm;
+    margin: 0.15cm 0 0.2cm 1.2cm;
     padding-left: 0.4cm;
     list-style-type: none;
   }
   ul.md-list li {
-    margin-bottom: 0.12cm;
+    margin-bottom: 0.18cm;
     padding-left: 0.5cm;
     position: relative;
+    line-height: 1.3;
   }
   ul.md-list li::before {
-    content: "\\25AA"; /* unicode small black square ▪ */
+    content: "\\25AA";
     position: absolute;
     left: 0;
     top: 0;
-    font-size: 9pt;
+    font-size: 10pt;
   }
-  /* Separateur horizontal markdown --- */
+  /* Separateur horizontal markdown --- (juste un espace visuel) */
   hr.md-sep {
     border: 0;
-    border-top: 0;
-    margin: 0.2cm 0;
+    margin: 0.3cm 0;
     height: 0;
-    /* Karim v5 : pas de saut de page sur ---, juste un espace visuel */
   }
-  /* Tables markdown (preavis etudiant, schema horaire, etc.) :
-     bordures fines noires, en-tetes gras centres */
+  /* Tables markdown (preavis etudiant, schema horaire) :
+     bordure fine 0.5pt noir, padding cellule 0.1cm */
   table.md-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.25cm 0 0.2cm 0;
-    font-size: 9.5pt;
+    margin: 0.3cm 0 0.3cm 0;
+    font-size: 10pt;
   }
   table.md-table th,
   table.md-table td {
-    border: 1pt solid #000;
-    padding: 0.15cm 0.2cm;
+    border: 0.5pt solid #000;
+    padding: 0.12cm 0.2cm;
     text-align: center;
     vertical-align: middle;
   }
@@ -420,17 +434,16 @@ const CONTRACT_CSS = `
     background: #fff;
     font-weight: bold;
   }
-  /* Bloc signature : 2 cadres ENCADRES cote a cote, style strict du PDF */
-  /* Karim v6 : cadres signature COMPACTS pour ne pas debordre sur une nouvelle page */
+  /* Bloc signature : 2 cadres separes par gap ~0.5cm, hauteur ~3.5cm */
   .signatures {
-    margin-top: 0.3cm;
+    margin-top: 1cm;
     display: table;
     width: 100%;
     table-layout: fixed;
     page-break-inside: avoid;
-    border-spacing: 0.3cm 0;
-    margin-left: -0.15cm;
-    margin-right: -0.15cm;
+    border-spacing: 0.5cm 0;
+    margin-left: -0.25cm;
+    margin-right: -0.25cm;
   }
   .signatures .sig-row { display: table-row; }
   .signatures .sig-cell {
@@ -440,58 +453,58 @@ const CONTRACT_CSS = `
     padding: 0;
   }
   .signatures .sig-box {
-    border: 1pt solid #000;
-    padding: 0.12cm 0.2cm;
-    min-height: 2.6cm;
+    border: 0.5pt solid #000;
+    padding: 0.2cm 0.25cm;
+    min-height: 3.5cm;
   }
   .signatures .sig-title {
-    font-size: 9pt;
-    font-weight: bold;
+    font-size: 10pt;
+    font-weight: normal;
     text-align: center;
-    margin-bottom: 0;
+    margin: 0;
     color: #000;
+    line-height: 1.3;
   }
   .signatures .sig-sub {
-    font-size: 8pt;
+    font-size: 9pt;
     font-style: italic;
     text-align: center;
     color: #000;
-    margin-bottom: 0.1cm;
+    margin: 0 0 0.15cm 0;
+    line-height: 1.3;
   }
   .signatures .sig-zone {
-    min-height: 1.4cm;
-    margin: 0.05cm 0;
+    min-height: 1.8cm;
+    margin: 0.1cm 0;
     text-align: center;
   }
   .signatures .sig-date {
-    font-size: 8.5pt;
+    font-size: 9pt;
     color: #000;
-    margin-top: 0.05cm;
+    margin-top: 0.1cm;
     text-align: left;
   }
   .co-rep-note {
-    font-size: 8pt;
+    font-size: 9pt;
     font-style: italic;
     text-align: center;
     color: #000;
-    margin-top: 0.08cm;
+    margin-top: 0.1cm;
   }
-  /* "Fait en deux exemplaires a ... le ..." : taille corps, marge moderee */
+  /* "Fait en deux exemplaires a ... le ..." : 10pt avec marge top large */
   .closing-line {
-    margin-top: 0.7cm;
+    margin-top: 1cm;
+    margin-bottom: 0;
     font-size: 10pt;
     line-height: 1.3;
   }
   .closing-line strong { font-weight: bold; }
-  /* Mentions italiques (commentaires legaux 9pt) */
+  /* Mentions italiques (Hormis... / La partie... / Preciser...) : 8.5pt italique */
   p em {
     font-style: italic;
-    font-size: 9pt;
+    font-size: 8.5pt;
   }
-  /* Inline strong */
   strong { font-weight: bold; }
-  /* Bloc article 10 a puces : retrait normal sans li::marker affichage */
-  /* Styles imprimables (DocuSeal convertit HTML -> PDF cote serveur) */
   @media print {
     body { padding: 0; margin: 0; }
     .signatures { page-break-inside: avoid; }

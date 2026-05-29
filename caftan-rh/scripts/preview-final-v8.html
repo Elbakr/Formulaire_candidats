@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Preview v8 - Contrat reproduction PDF SD Worx</title>
+<style>
+  /* === CSS reproduit de docuseal-flow.ts (CONTRACT_CSS v8) === */
+  @page {
+    size: A4 portrait;
+    margin: 1.8cm 2cm 1.6cm 2cm;
+    @bottom-left {
+      content: "*Biffer la mention inutile";
+      font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
+      font-size: 8pt;
+      color: #000;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " sur " counter(pages);
+      font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
+      font-size: 8pt;
+      color: #000;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Calibri', 'Carlito', 'Arial', 'Helvetica', sans-serif;
+    font-size: 10pt;
+    line-height: 1.25;
+    color: #000;
+    background: #ccc;
+  }
+  /* simulation page A4 dans le navigateur */
+  .page {
+    background: #fff;
+    width: 21cm;
+    min-height: 29.7cm;
+    padding: 1.8cm 2cm 1.6cm 2cm;
+    margin: 1cm auto;
+    box-shadow: 0 0 8px rgba(0,0,0,.2);
+    position: relative;
+  }
+  .page-footer {
+    position: absolute;
+    bottom: 0.8cm;
+    left: 2cm;
+    right: 2cm;
+    font-size: 8pt;
+    display: flex;
+    justify-content: space-between;
+  }
+  .doc-title {
+    margin: 0 0 1.4cm 0;
+    text-align: center;
+    border: 0.5pt solid #000;
+    padding: 0.35cm 0.4cm;
+  }
+  .doc-title h1 {
+    margin: 0;
+    font-size: 18pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+  .parties-block {
+    margin: 0 0 1cm 0;
+    font-size: 10pt;
+  }
+  .parties-block table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .parties-block td {
+    padding: 0.02cm 0;
+    vertical-align: top;
+    line-height: 1.3;
+  }
+  .parties-block .col-prefix {
+    width: 1.5cm;
+    font-weight: bold;
+    padding-left: 0.3cm;
+  }
+  .parties-block .col-label {
+    width: 2.6cm;
+    font-weight: bold;
+  }
+  .parties-block .col-sep {
+    width: 0.25cm;
+  }
+  .dotted-fill {
+    display: inline-block;
+    width: 100%;
+    height: 0.85em;
+    vertical-align: bottom;
+    overflow: hidden;
+  }
+  .dotted-fill::after {
+    content: "..........................................................................................................................................................................................................";
+    color: #000;
+    font-size: 10pt;
+  }
+  .convenu-line {
+    font-weight: bold;
+    margin: 0 0 0.8cm 0;
+    font-size: 10pt;
+  }
+  h2.article-head {
+    font-size: 10pt;
+    font-weight: bold;
+    text-decoration: underline;
+    margin: 0.5cm 0 0.15cm 0;
+    display: block;
+  }
+  p { margin: 0 0 0.15cm 0; text-align: left; }
+  ul.md-list {
+    margin: 0.15cm 0 0.2cm 1.2cm;
+    padding-left: 0.4cm;
+    list-style-type: none;
+  }
+  ul.md-list li {
+    margin-bottom: 0.18cm;
+    padding-left: 0.5cm;
+    position: relative;
+    line-height: 1.3;
+  }
+  ul.md-list li::before {
+    content: "\25AA";
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 10pt;
+  }
+  table.md-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.3cm 0;
+    font-size: 10pt;
+  }
+  table.md-table th,
+  table.md-table td {
+    border: 0.5pt solid #000;
+    padding: 0.12cm 0.2cm;
+    text-align: center;
+    vertical-align: middle;
+  }
+  table.md-table th { font-weight: bold; }
+  .closing-line {
+    margin-top: 1cm;
+    font-size: 10pt;
+    line-height: 1.3;
+  }
+  .signatures {
+    margin-top: 1cm;
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-spacing: 0.5cm 0;
+    margin-left: -0.25cm;
+    margin-right: -0.25cm;
+  }
+  .signatures .sig-row { display: table-row; }
+  .signatures .sig-cell {
+    display: table-cell;
+    width: 50%;
+    vertical-align: top;
+  }
+  .signatures .sig-box {
+    border: 0.5pt solid #000;
+    padding: 0.2cm 0.25cm;
+    min-height: 3.5cm;
+  }
+  .signatures .sig-title {
+    font-size: 10pt;
+    font-weight: normal;
+    text-align: center;
+    line-height: 1.3;
+  }
+  .signatures .sig-sub {
+    font-size: 9pt;
+    font-style: italic;
+    text-align: center;
+    margin: 0 0 0.15cm 0;
+  }
+  .signatures .sig-zone {
+    min-height: 1.8cm;
+    text-align: center;
+  }
+  .signatures .sig-date {
+    font-size: 9pt;
+    text-align: left;
+    margin-top: 0.1cm;
+  }
+  p em { font-style: italic; font-size: 8.5pt; }
+  strong { font-weight: bold; }
+  .checkbox-line { margin-left: 1cm; margin-bottom: 0.15cm; }
+</style>
+</head>
+<body>
+
+<!-- === PAGE 1 === -->
+<div class="page">
+  <div class="doc-title">
+    <h1>CONTRAT DE TRAVAIL D'EMPLOYÉ</h1>
+  </div>
+
+  <div class="parties-block">
+    <table>
+      <tr>
+        <td class="col-prefix">Entre</td>
+        <td class="col-label">L'employeur</td>
+        <td class="col-sep">:</td>
+        <td class="col-value"><strong>AMD MEGASTORE SRL</strong></td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">Adresse</td>
+        <td class="col-sep">:</td>
+        <td>Rue de Brabant 230</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">Localité</td>
+        <td class="col-sep">:</td>
+        <td>1030 Schaerbeek</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">Représenté par</td>
+        <td class="col-sep">:</td>
+        <td><span class="dotted-fill"></span></td>
+      </tr>
+      <tr>
+        <td class="col-prefix">Et</td>
+        <td class="col-label">L'employé</td>
+        <td class="col-sep">:</td>
+        <td><strong>ELBAZI Karim</strong></td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">NISS</td>
+        <td class="col-sep">:</td>
+        <td>85.01.15 234-67</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">Adresse</td>
+        <td class="col-sep">:</td>
+        <td>Avenue de la Paix 42</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td class="col-label">Localité</td>
+        <td class="col-sep">:</td>
+        <td>1030 Schaerbeek</td>
+      </tr>
+    </table>
+  </div>
+
+  <p class="convenu-line">IL EST CONVENU CE QUI SUIT :</p>
+
+  <h2 class="article-head">Article 1.</h2>
+  <p>L'employeur engage l'employé dans les liens d'un contrat de travail à partir du 01-06-26</p>
+
+  <h2 class="article-head">Article 2.</h2>
+  <p>L'employé assume la fonction suivante : Employé de vente</p>
+  <p>Cette fonction comporte entre autres l'exécution des tâches suivantes :</p>
+  <p><span class="dotted-fill"></span></p>
+  <p><span class="dotted-fill"></span></p>
+  <p><span class="dotted-fill"></span></p>
+  <p><em>Hormis l'hypothèse où le contrat est conclu pour un travail nettement défini, la liste reprise ci-dessus est indicative, mais non limitative ; l'employé pourra donc être affecté à d'autres tâches compatibles avec ses capacités professionnelles, dans la mesure où ce changement ne lui cause aucun préjudice matériel ou moral.</em></p>
+
+  <h2 class="article-head">Article 3.</h2>
+  <p>Le lieu de travail est situé à : <span class="dotted-fill"></span></p>
+  <p>Les parties conviennent que le lieu de travail n'est pas une condition de travail essentielle du présent contrat de travail et pourra donc être modifié de façon unilatérale par l'employeur en fonction des nécessités de l'entreprise.</p>
+
+  <h2 class="article-head">Article 4.</h2>
+  <p>L'engagement est conclu :</p>
+  <p class="checkbox-line">&#9744; Pour une <strong>durée indéterminée</strong>*</p>
+  <p class="checkbox-line">&#9744; Pour une <strong>durée déterminée</strong>* du 01-06-26 au 30-06-26</p>
+  <p class="checkbox-line">&#9744; Pour un <strong>travail nettement défini</strong>* : <span class="dotted-fill"></span></p>
+
+  <div class="page-footer">
+    <span>*Biffer la mention inutile</span>
+    <span>Page <strong>1</strong> sur <strong>2</strong></span>
+  </div>
+</div>
+
+<!-- === PAGE 2 === -->
+<div class="page">
+  <h2 class="article-head">Article 5.</h2>
+  <p>La durée du travail est fixée (complétez la rubrique concerné) :</p>
+  <p class="checkbox-line">&#9744; À 38,00 heures par semaine et est repartie comme suit* :</p>
+  <table class="md-table">
+    <thead>
+      <tr>
+        <th colspan="2">Lundi</th><th colspan="2">Mardi</th><th colspan="2">Mercredi</th>
+        <th colspan="2">Jeudi</th><th colspan="2">Vendredi</th><th colspan="2">Samedi</th><th colspan="2">Dimanche</th>
+      </tr>
+      <tr>
+        <th>de</th><th>à</th><th>de</th><th>à</th><th>de</th><th>à</th>
+        <th>de</th><th>à</th><th>de</th><th>à</th><th>de</th><th>à</th><th>de</th><th>à</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td></td><td></td><td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+      </tr>
+      <tr>
+        <td><strong>TOTAL</strong></td><td></td><td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="article-head">Article 10.</h2>
+  <ul class="md-list">
+    <li>Le travailleur défendra toujours les intérêts de l'employeur. Il veillera à ce qu'aucun discrédit ne soit jeté sur la renommée et la réputation de ce dernier et de sa politique.</li>
+    <li>Le travailleur ne peut transmettre, prêter ou céder à quiconque des documents ou de la documentation, des formulaires, des tableaux, des dessins ou des diagrammes, de la correspondance, des listes de clients ou de fournisseurs, des logiciels ou autres supports de données, les originaux ou des copies de ceux-ci, qui sont la propriété de l'employeur.</li>
+    <li>Toute invention et / ou amélioration, de quelle nature qu'elles soient, auxquelles le travailleur aurait collaboré, sont de plein droit la propriété de l'employeur.</li>
+  </ul>
+
+  <h2 class="article-head">Article 12.</h2>
+  <p>Si le présent contrat a été conclu pour une <strong>durée indéterminée</strong>, l'employeur et le travailleur ont le droit de mettre fin au contrat de travail moyennant un préavis écrit notifié à l'autre partie et dont le délai est conforme aux prescriptions des articles 37/2 et suivants de la loi du 3 juillet 1978 relative aux contrats de travail. Ce délai prend cours le lundi suivant le jour où la lettre de préavis est censée être réceptionnée.</p>
+  <p><em>La partie qui met fin au contrat sans motif grave ou sans respecter le délai dont question ci-avant est tenue de payer à l'autre partie une indemnité égale à la rémunération en cours correspondant soit au délai de préavis, soit à la partie de ce délai restant à courir.</em></p>
+
+  <p class="closing-line">
+    Fait en deux exemplaires à <strong>Schaerbeek</strong>, le <strong>2026-05-29</strong>.<br>
+    Chacune des parties reconnaît avoir reçu un exemplaire original.
+  </p>
+
+  <div class="signatures">
+    <div class="sig-row">
+      <div class="sig-cell">
+        <div class="sig-box">
+          <div class="sig-title">Signature du travailleur</div>
+          <div class="sig-sub">(et parapher toutes les pages)</div>
+          <div class="sig-zone">[Signature employee placeholder]</div>
+          <div class="sig-date">Date : __________</div>
+        </div>
+      </div>
+      <div class="sig-cell">
+        <div class="sig-box">
+          <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+          <div class="sig-sub">(et parapher toutes les pages)</div>
+          <div class="sig-zone">[Signature employer placeholder]</div>
+          <div class="sig-date">Date : __________</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>*Biffer la mention inutile</span>
+    <span>Page <strong>2</strong> sur <strong>2</strong></span>
+  </div>
+</div>
+
+</body>
+</html>
