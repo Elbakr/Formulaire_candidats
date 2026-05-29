@@ -91,22 +91,31 @@ function mdToHtml(md) {
 }
 
 const bodyHtml = mdToHtml(rendered);
+// Karim 2026-05-29 v2 : FIX signatures visibles. DocuSeal exige INLINE styles
+// width/height/display sur les fields pour les placer dans le PDF final.
 const fullHtml = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Contrat ${emp.full_name}</title>
-<style>body{font-family:sans-serif;line-height:1.5;max-width:800px;margin:2rem auto;padding:0 2rem}.signatures{margin-top:4rem;display:grid;grid-template-columns:1fr 1fr;gap:4rem;page-break-before:always}.sig-block{border-top:1px solid #888;padding-top:1rem}.sig-label{font-size:0.85rem;color:#555;font-weight:bold}</style>
+<style>body{font-family:'Calibri','Segoe UI',Arial,sans-serif;line-height:1.5;max-width:800px;margin:2rem auto;padding:0 2rem}h1{font-size:1.6rem;border-bottom:2px solid #ddd;padding-bottom:0.5rem}.signatures{margin-top:4rem;display:table;width:100%;page-break-before:always}.sig-row{display:table-row}.sig-cell{display:table-cell;width:50%;padding:1rem;vertical-align:top;border-top:1px solid #888}.sig-label{font-size:0.85rem;color:#555;font-weight:bold;margin-bottom:0.5rem;display:block}</style>
 </head><body>
 ${bodyHtml}
 <div class="signatures">
-  <div class="sig-block">
-    <div class="sig-label">Pour l'employeur (AMD MEGASTORE SRL)</div>
-    <signature-field name="Signature employeur" role="Employer" required="true"></signature-field>
-    <date-field name="Date employeur" role="Employer" required="true"></date-field>
-  </div>
-  <div class="sig-block">
-    <div class="sig-label">Pour le travailleur (${emp.full_name})</div>
-    <signature-field name="Signature employee" role="Employee" required="true"></signature-field>
-    <date-field name="Date employee" role="Employee" required="true"></date-field>
+  <div class="sig-row">
+    <div class="sig-cell">
+      <span class="sig-label">Pour l'employeur (AMD MEGASTORE SRL)</span>
+      <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 250px; height: 80px; margin-bottom: 8px;"></signature-field>
+      <span style="font-size: 0.8rem; color: #666;">Date :</span>
+      <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 130px; height: 24px;"></date-field>
+    </div>
+    <div class="sig-cell">
+      <span class="sig-label">Pour le travailleur (${emp.full_name})</span>
+      <signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 250px; height: 80px; margin-bottom: 8px;"></signature-field>
+      <span style="font-size: 0.8rem; color: #666;">Date :</span>
+      <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 130px; height: 24px;"></date-field>
+    </div>
   </div>
 </div>
+<p style="text-align: center; margin-top: 3rem; font-size: 0.9rem; color: #444;">
+  Fait à <strong>Schaerbeek</strong> le <date-field name="Date contrat" role="Employer" required="true" default-value="${today}" style="display: inline-block; width: 130px; height: 22px;"></date-field>
+</p>
 </body></html>`;
 
 console.log(`\nHTML genere : ${fullHtml.length} chars`);

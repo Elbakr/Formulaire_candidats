@@ -473,8 +473,31 @@ function buildContractHtmlForDocuseal(args: {
   employerName: string;
   employeeName: string;
   contractLocation: string;
+  // Karim 2026-05-29 : si fourni, la signature employeur est INTEGREE dans le
+  // PDF (image base64) au lieu d etre un champ a signer. Karim n a plus besoin
+  // d intervenir, le contrat part directement a l employee deja signe.
+  employerSignatureDataUrl?: string | null;
+  employerRepresentativeName?: string;
 }): string {
   const today = new Date().toISOString().slice(0, 10);
+  const preSigned = !!args.employerSignatureDataUrl;
+
+  // Bloc signature employeur : soit champ a signer, soit image deja apposee
+  const employerSignatureBlock = preSigned
+    ? `
+        <img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 80px; margin: 0 auto 4px;">
+        <div class="sig-date">Pré-signé par <strong>${escapeHtml(args.employerRepresentativeName ?? "")}</strong> le ${today}</div>`
+    : `
+        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto 4px;"></signature-field>
+        <div class="sig-date">Date :
+          <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 20px;"></date-field>
+        </div>`;
+
+  // Date contrat : si pre-signe, on inscrit la date du jour directement
+  const dateContrat = preSigned
+    ? `<strong>${today}</strong>`
+    : `<date-field name="Date contrat" role="Employer" required="true" default-value="${today}" style="display: inline-block; width: 130px; height: 22px;"></date-field>`;
+
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -486,8 +509,7 @@ function buildContractHtmlForDocuseal(args: {
 ${args.contractBodyHtml}
 
 <p class="closing-line">
-  Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le
-  <date-field name="Date contrat" role="Employer" required="true" default-value="${today}" style="display: inline-block; width: 130px; height: 22px;"></date-field>.
+  Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le ${dateContrat}.
   <br>Chacune des parties reconnaît avoir reçu un exemplaire original.
 </p>
 
@@ -506,11 +528,7 @@ ${args.contractBodyHtml}
     <div class="sig-cell">
       <div class="sig-frame">
         <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-        <div class="sig-sub">(et parapher toutes les pages)</div>
-        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto 4px;"></signature-field>
-        <div class="sig-date">Date :
-          <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 20px;"></date-field>
-        </div>
+        <div class="sig-sub">${preSigned ? "(pré-signée numériquement)" : "(et parapher toutes les pages)"}</div>${employerSignatureBlock}
       </div>
     </div>
   </div>
@@ -532,6 +550,10 @@ export async function createDocusealTemplateFromContract(args: {
   employeeData: Parameters<typeof buildContractVariables>[0]["employee"];
   employerOrg: EmployerOrgKey;
   primarySite?: Parameters<typeof buildContractVariables>[0]["primarySite"];
+  // Karim 2026-05-29 : signature stockee de l employeur. Si fournie, le PDF
+  // est genere avec la signature deja apposee et l employee est le seul
+  // signataire DocuSeal.
+  employerSignatureDataUrl?: string | null;
 }): Promise<{ ok: true; templateId: number; templateName: string } | { ok: false; error: string }> {
   const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.DOCUSEAL_API_KEY;
@@ -558,6 +580,8 @@ export async function createDocusealTemplateFromContract(args: {
     employerName,
     employeeName: args.employeeData.full_name,
     contractLocation,
+    employerSignatureDataUrl: args.employerSignatureDataUrl,
+    employerRepresentativeName: EMPLOYER_ORGS[args.employerOrg].representative,
   });
 
   const templateName = `${args.templateCode}_${args.employeeData.full_name.replace(/\s+/g, "_")}_${Date.now()}`;
@@ -654,6 +678,33 @@ function extractPartiesAndConvenu(
  * Cree une submission DocuSeal a partir d un template existant.
  * Envoie le mail de signature aux 2 signataires (employee + employer).
  */
+// Karim 2026-05-29 : messages mail dans la langue de l employee.
+const MAIL_MESSAGES = {
+  fr: {
+    subject: (org: string) => `Votre contrat de travail ${org} — à signer`,
+    bodyPresigned: (employeeFirstName: string, employerName: string) =>
+      `Bonjour ${employeeFirstName},\n\nNous vous souhaitons la bienvenue dans l'équipe ${employerName} !\n\nVeuillez trouver ci-joint votre contrat de travail, déjà signé par notre département RH. Il ne vous reste qu'à le signer électroniquement à votre tour en cliquant sur le lien ci-dessous.\n\nN'hésitez pas à nous contacter pour toute question.\n\nCordialement,\nL'équipe RH`,
+    bodyDual: (employeeFirstName: string, employerName: string) =>
+      `Bonjour ${employeeFirstName},\n\nBienvenue dans l'équipe ${employerName} ! Veuillez trouver ci-joint votre contrat de travail à signer électroniquement.\n\nCordialement,\nL'équipe RH`,
+  },
+  nl: {
+    subject: (org: string) => `Uw arbeidsovereenkomst ${org} — te ondertekenen`,
+    bodyPresigned: (employeeFirstName: string, employerName: string) =>
+      `Beste ${employeeFirstName},\n\nWelkom bij het team van ${employerName}!\n\nHierbij vindt u uw arbeidsovereenkomst, reeds ondertekend door onze HR-afdeling. U hoeft hem enkel nog elektronisch te ondertekenen door op onderstaande link te klikken.\n\nAarzel niet om ons te contacteren bij vragen.\n\nMet vriendelijke groet,\nHet HR-team`,
+    bodyDual: (employeeFirstName: string, employerName: string) =>
+      `Beste ${employeeFirstName},\n\nWelkom bij het team van ${employerName}! Hierbij vindt u uw arbeidsovereenkomst die u elektronisch dient te ondertekenen.\n\nMet vriendelijke groet,\nHet HR-team`,
+  },
+  en: {
+    subject: (org: string) => `Your employment contract ${org} — to be signed`,
+    bodyPresigned: (employeeFirstName: string, employerName: string) =>
+      `Hello ${employeeFirstName},\n\nWelcome to the ${employerName} team!\n\nPlease find your employment contract attached, already signed by our HR department. All that remains is for you to sign it electronically by clicking the link below.\n\nFeel free to contact us with any questions.\n\nBest regards,\nThe HR team`,
+    bodyDual: (employeeFirstName: string, employerName: string) =>
+      `Hello ${employeeFirstName},\n\nWelcome to the ${employerName} team! Please find your employment contract to be signed electronically.\n\nBest regards,\nThe HR team`,
+  },
+} as const;
+
+export type ContractLang = keyof typeof MAIL_MESSAGES;
+
 export async function createSubmissionForContract(args: {
   templateId: number;
   employeeName: string;
@@ -661,12 +712,51 @@ export async function createSubmissionForContract(args: {
   employerName: string;
   employerEmail: string;
   metadata?: Record<string, string>;
+  // Karim 2026-05-29 :
+  language?: ContractLang;
+  preSigned?: boolean; // si true : 1 seul submitter (employee). Karim deja signe.
+  replyTo?: string; // ex: hr@caftanfactory.com
 }): Promise<{ ok: true; submissionId: number; signingUrls: Array<{ role: string; email: string; url?: string }> } | { ok: false; error: string }> {
   const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.DOCUSEAL_API_KEY;
   if (!baseUrl || !apiKey) return { ok: false, error: "DocuSeal non configure" };
 
+  const lang: ContractLang = args.language ?? "fr";
+  const msg = MAIL_MESSAGES[lang];
+  const firstName = args.employeeName.split(/\s+/)[0] ?? args.employeeName;
+  const subject = msg.subject(args.employerName);
+  const body = args.preSigned
+    ? msg.bodyPresigned(firstName, args.employerName)
+    : msg.bodyDual(firstName, args.employerName);
+
+  // Submitters : si pre-signed -> uniquement employee. Sinon -> employer + employee.
+  const submitters = args.preSigned
+    ? [
+        {
+          role: "Employee",
+          name: args.employeeName,
+          email: args.employeeEmail,
+          message: { subject, body },
+        },
+      ]
+    : [
+        {
+          role: "Employer",
+          name: args.employerName,
+          email: args.employerEmail,
+        },
+        {
+          role: "Employee",
+          name: args.employeeName,
+          email: args.employeeEmail,
+          message: { subject, body },
+        },
+      ];
+
   try {
+    // Karim 2026-05-29 : DocuSeal n envoie PAS le mail (send_email=false).
+    // C est hr@caftanfactory.com qui envoie le mail via EmailJS depuis CaftanRH
+    // avec le lien de signature embed_src de la submission.
     const res = await fetch(`${baseUrl}/submissions`, {
       method: "POST",
       headers: {
@@ -675,20 +765,10 @@ export async function createSubmissionForContract(args: {
       },
       body: JSON.stringify({
         template_id: args.templateId,
-        send_email: true,
+        send_email: false,
         order: "preserved",
-        submitters: [
-          {
-            role: "Employer",
-            name: args.employerName,
-            email: args.employerEmail,
-          },
-          {
-            role: "Employee",
-            name: args.employeeName,
-            email: args.employeeEmail,
-          },
-        ],
+        reply_to: args.replyTo,
+        submitters,
         metadata: args.metadata,
       }),
     });

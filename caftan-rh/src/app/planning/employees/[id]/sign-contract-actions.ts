@@ -12,8 +12,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createDocusealTemplateFromContract,
   createSubmissionForContract,
+  type ContractLang,
 } from "@/lib/docuseal-flow";
 import { EMPLOYER_ORGS, type EmployerOrgKey } from "@/lib/contract-renderer";
+import { sendContractSignatureMail } from "@/lib/hr-mail";
 
 type Args = {
   employeeId: string;
@@ -33,10 +35,10 @@ export async function sendContractViaDocusealAction(
 
   const supabase = await createClient();
 
-  // 1. Charge l employee + son site primaire
+  // 1. Charge l employee + son site primaire + langue
   const { data: empRaw } = await supabase
     .from("employees")
-    .select("id, full_name, email, nrn, address, postal_code, city, job_title, weekly_hours, hourly_rate, contract_type, start_date, end_date, iban, bic")
+    .select("id, full_name, email, nrn, address, postal_code, city, job_title, weekly_hours, hourly_rate, contract_type, start_date, end_date, iban, bic, preferred_language")
     .eq("id", args.employeeId)
     .maybeSingle();
   if (!empRaw) return { error: "Employé introuvable." };
@@ -56,7 +58,17 @@ export async function sendContractViaDocusealAction(
     end_date: string | null;
     iban: string | null;
     bic: string | null;
+    preferred_language: string | null;
   };
+  const lang: ContractLang = (employee.preferred_language === "nl" || employee.preferred_language === "en") ? employee.preferred_language : "fr";
+
+  // 1b. Charge la signature stockee de Karim (si elle existe)
+  const { data: sigRaw } = await supabase
+    .from("profiles")
+    .select("signature_data_url")
+    .eq("id", profile.id)
+    .maybeSingle();
+  const employerSignatureDataUrl = (sigRaw as { signature_data_url: string | null } | null)?.signature_data_url ?? null;
   if (!employee.email) return { error: "Email employé manquant - complète la fiche d'abord." };
 
   // Site primaire (optionnel)
@@ -81,7 +93,7 @@ export async function sendContractViaDocusealAction(
   if (!tplRaw) return { error: `Template ${args.templateCode} introuvable ou inactif.` };
   const template = tplRaw as { code: string; name: string; body_markdown: string };
 
-  // 3. Cree le template DocuSeal a partir du markdown rendu
+  // 3. Cree le template DocuSeal a partir du markdown rendu (pré-signé si possible)
   const orgInfo = EMPLOYER_ORGS[args.orgKey];
   const tplResult = await createDocusealTemplateFromContract({
     templateCode: args.templateCode,
@@ -89,24 +101,49 @@ export async function sendContractViaDocusealAction(
     employeeData: employee,
     employerOrg: args.orgKey,
     primarySite: primarySite ? { code: primarySite.code, name: primarySite.name, address: primarySite.address, city: primarySite.city } : null,
+    employerSignatureDataUrl, // ← signature stockee Karim
   });
   if (!tplResult.ok) return { error: tplResult.error };
 
-  // 4. Cree la submission avec 2 signataires
+  // 4. Cree la submission - 1 seul signataire (employee) si Karim deja pre-signe
+  // - send_email: false -> CaftanRH envoie le mail lui-meme via hr@caftanfactory.com
   const subResult = await createSubmissionForContract({
     templateId: tplResult.templateId,
     employeeName: employee.full_name,
     employeeEmail: employee.email,
     employerName: orgInfo.representative,
     employerEmail: args.employerEmail,
+    language: lang,
+    preSigned: !!employerSignatureDataUrl,
+    replyTo: "hr@caftanfactory.com",
     metadata: {
       employee_id: employee.id,
       template_code: args.templateCode,
       org_key: args.orgKey,
       sent_by: profile.full_name ?? "RH",
+      language: lang,
+      pre_signed: employerSignatureDataUrl ? "true" : "false",
     },
   });
   if (!subResult.ok) return { error: subResult.error };
+
+  // 4b. Envoie le mail via EmailJS depuis hr@caftanfactory.com avec le lien signature
+  const employeeSigningUrl = subResult.signingUrls.find((u) => u.role === "Employee")?.url;
+  if (employeeSigningUrl) {
+    const mailRes = await sendContractSignatureMail({
+      employeeName: employee.full_name,
+      employeeEmail: employee.email,
+      signingUrl: employeeSigningUrl,
+      employerName: orgInfo.name,
+      language: lang,
+    });
+    if (mailRes.error) {
+      console.warn("[sendContractViaDocuseal] mail err:", mailRes.error);
+      // non-bloquant : la submission est creee, le RH peut renvoyer le mail manuellement
+    }
+  } else {
+    console.warn("[sendContractViaDocuseal] pas d URL de signature trouvee dans la submission");
+  }
 
   // 5. Persist en employee_contracts (track docuseal_submission_id)
   try {
