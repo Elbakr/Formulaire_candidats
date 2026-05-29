@@ -58,7 +58,7 @@ export async function createDocusealSubmission(
   }
 
   try {
-    const res = await fetch(`${cfg.baseUrl}/api/submissions`, {
+    const res = await fetch(`${cfg.baseUrl}/submissions`, {
       method: "POST",
       headers: {
         "X-Auth-Token": cfg.apiKey,
@@ -91,7 +91,7 @@ export async function getDocusealSubmission(
   const cfg = getConfig();
   if (!cfg) return { ok: false, error: "DocuSeal non configure" };
   try {
-    const res = await fetch(`${cfg.baseUrl}/api/submissions/${submissionId}`, {
+    const res = await fetch(`${cfg.baseUrl}/submissions/${submissionId}`, {
       headers: { "X-Auth-Token": cfg.apiKey },
     });
     if (!res.ok) {

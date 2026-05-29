@@ -11,7 +11,15 @@ import { verifyDocusealWebhook } from "@/lib/docuseal-client";
 export const dynamic = "force-dynamic";
 
 type DocusealEvent = {
-  event_type: "form.viewed" | "form.started" | "form.completed" | "form.declined" | "form.signed";
+  // form.* = action d un signer individuel
+  // submission.* = etat global de l envelope (tous signers)
+  event_type:
+    | "form.viewed"
+    | "form.started"
+    | "form.completed"
+    | "form.declined"
+    | "submission.completed"
+    | "submission.expired";
   timestamp: string;
   data: {
     id: number;
@@ -49,7 +57,20 @@ export async function POST(request: NextRequest) {
   const employeeId = event.data.metadata?.employee_id;
   const contractId = event.data.metadata?.contract_id;
 
-  if (event.event_type === "form.completed" || event.event_type === "form.signed") {
+  if (event.event_type === "submission.completed") {
+    // Tous les signers ont signe -> contrat 100% finalise
+    if (contractId) {
+      await admin
+        .from("employee_contracts")
+        .update({
+          signed_at: event.data.completed_at ?? new Date().toISOString(),
+          signed_pdf_url: event.data.combined_document_url,
+          docuseal_submission_id: submissionId,
+          docuseal_status: "completed",
+        })
+        .eq("id", contractId);
+    }
+  } else if (event.event_type === "form.completed") {
     // Le contrat a ete signe - update employee_contracts
     if (contractId) {
       await admin
