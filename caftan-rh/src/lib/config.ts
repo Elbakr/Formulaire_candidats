@@ -29,3 +29,17 @@ export const COUNTRIES = [
   { code: "MA", name: "Maroc" },
   { code: "NL", name: "Pays-Bas" },
 ];
+
+// Modes de transport pour la fiche secrétariat social.
+export const TRANSPORT_MODES = [
+  "STIB-MIVB",
+  "De Lijn",
+  "SNCB",
+  "TEC",
+  "vélo",
+  "voiture personnelle",
+  "marche",
+  "scooter/moto",
+  "covoiturage",
+] as const;
+export type TransportMode = typeof TRANSPORT_MODES[number];

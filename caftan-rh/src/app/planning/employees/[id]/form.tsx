@@ -10,6 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { saveEmployeeAdminAction } from "../actions-admin";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { TRANSPORT_MODES } from "@/lib/config";
 import {
   validateNRN,
   formatNRN,
@@ -47,11 +48,17 @@ type Employee = {
   bank_holder: string | null;
   transport_type: string | null;
   transport_price: string | null;
+  transport_frequency: string | null;
   nrn: string | null;
   address: string | null;
   postal_code: string | null;
   city: string | null;
   notes_admin: string | null;
+  // contrat / secrétariat social
+  birth_date: string | null;
+  birth_place: string | null;
+  signature_place: string | null;
+  work_time_kind: string | null;
   // planning
   fixed_off_days: number[] | null;
   preferred_site_ids: string[] | null;
@@ -147,7 +154,7 @@ export function EmployeeAdminForm({
               </SelectContent>
             </Select>
           </div>
-          <Field label="Contrat" name="contract_type" defaultValue={employee.contract_type ?? "CDI"} />
+          <Field label="Contrat" name="contract_type" defaultValue={employee.contract_type ?? "CDD"} />
           <Field label="Statut" name="status" defaultValue={employee.status} />
           <Field label="Heures/semaine" name="weekly_hours" defaultValue={String(employee.weekly_hours ?? 38)} type="number" />
           <Field label="Taux horaire (€)" name="hourly_rate" defaultValue={employee.hourly_rate != null ? String(employee.hourly_rate) : ""} type="number" />
@@ -155,6 +162,10 @@ export function EmployeeAdminForm({
           <Field label="Date de sortie" name="end_date" defaultValue={employee.end_date ?? ""} type="date" />
           <Field label="Fin période d'essai" name="trial_end_date" defaultValue={employee.trial_end_date ?? ""} type="date" />
           <Field label="Quota annuel (étudiant — heures)" name="annual_hours_budget" defaultValue={employee.annual_hours_budget != null ? String(employee.annual_hours_budget) : ""} type="number" />
+          <WorkTimeKindField
+            defaultValue={employee.work_time_kind}
+            weeklyHours={employee.weekly_hours}
+          />
         </div>
       </Section>
 
@@ -169,6 +180,18 @@ export function EmployeeAdminForm({
             formatter={formatNRN}
           />
           <Field label="N° carte d'identité" name="cin_number" defaultValue={employee.cin_number ?? ""} />
+          <Field label="Date de naissance" name="birth_date" defaultValue={employee.birth_date ?? ""} type="date" />
+          <Field label="Lieu de naissance" name="birth_place" defaultValue={employee.birth_place ?? ""} placeholder="ex. Bruxelles" />
+          <div>
+            <Label>Lieu de signature</Label>
+            <Select name="signature_place" defaultValue={employee.signature_place ?? "Bruxelles"}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Bruxelles">Bruxelles</SelectItem>
+                <SelectItem value="Anvers">Anvers</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Field label="Adresse" name="address" defaultValue={employee.address ?? ""} />
           <ValidatedField
             label="Code postal"
@@ -194,8 +217,36 @@ export function EmployeeAdminForm({
           />
           <Field label="BIC" name="bic" defaultValue={employee.bic ?? ""} />
           <Field label="Titulaire compte" name="bank_holder" defaultValue={employee.bank_holder ?? ""} />
-          <Field label="Type transport" name="transport_type" defaultValue={employee.transport_type ?? ""} />
-          <Field label="Prix transport" name="transport_price" defaultValue={employee.transport_price ?? ""} placeholder="ex. 52€/mois" />
+          <div>
+            <Label>Type transport</Label>
+            <Select name="transport_type" defaultValue={employee.transport_type ?? "none"}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">—</SelectItem>
+                {TRANSPORT_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Field
+            label="Prix transport (€)"
+            name="transport_price"
+            defaultValue={employee.transport_price ?? ""}
+            type="number"
+            step="0.01"
+            placeholder="52.00"
+          />
+          <div>
+            <Label>Fréquence transport</Label>
+            <Select name="transport_frequency" defaultValue={employee.transport_frequency ?? "mensuel"}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mensuel">Mensuel</SelectItem>
+                <SelectItem value="annuel">Annuel</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Section>
 
@@ -345,12 +396,56 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Field({
-  label, name, defaultValue = "", type = "text", placeholder,
-}: { label: string; name: string; defaultValue?: string; type?: string; placeholder?: string }) {
+  label, name, defaultValue = "", type = "text", placeholder, step,
+}: { label: string; name: string; defaultValue?: string; type?: string; placeholder?: string; step?: string }) {
   return (
     <div>
       <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} defaultValue={defaultValue} type={type} placeholder={placeholder} />
+      <Input
+        id={name}
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        placeholder={placeholder}
+        step={step}
+      />
+    </div>
+  );
+}
+
+// Sélection plein temps / temps partiel, pré-remplie selon weekly_hours (>= 38 = full).
+function WorkTimeKindField({
+  defaultValue,
+  weeklyHours,
+}: {
+  defaultValue: string | null;
+  weeklyHours: number | null;
+}) {
+  const inferred: "full" | "part" = (weeklyHours ?? 0) >= 38 ? "full" : "part";
+  const value = (defaultValue === "full" || defaultValue === "part") ? defaultValue : inferred;
+  return (
+    <div>
+      <Label>Temps de travail</Label>
+      <div className="flex gap-2 mt-1">
+        <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
+          <input
+            type="radio"
+            name="work_time_kind"
+            value="full"
+            defaultChecked={value === "full"}
+          />
+          Plein temps
+        </label>
+        <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
+          <input
+            type="radio"
+            name="work_time_kind"
+            value="part"
+            defaultChecked={value === "part"}
+          />
+          Temps partiel
+        </label>
+      </div>
     </div>
   );
 }

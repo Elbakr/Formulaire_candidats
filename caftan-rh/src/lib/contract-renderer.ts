@@ -2,8 +2,54 @@
 // les variables {{xxx}} dans le markdown du template avec les donnees
 // reelles de l employe. Supporte aussi les blocs conditionnels minimaux
 // {{#if var}}...{{/if}} pour les sections optionnelles (end_date, etc.).
+//
+// Karim 2026-05-29 : support multi-entites juridiques. AMD Megastore (existant)
+// + Caftan Factory (nouveau). Le choix se fait via input.employerOrg.
 
 export type ContractVariables = Record<string, string | number | null | undefined>;
+
+export type EmployerOrgKey = "amd_megastore" | "caftan_factory";
+
+export type EmployerOrg = {
+  key: EmployerOrgKey;
+  name: string;
+  bce: string;          // numero d entreprise BCE/KBO
+  onss: string;         // numero ONSS employeur
+  address: string;
+  locality: string;
+  representative: string;
+  paritary_commission: string;
+};
+
+/**
+ * Karim 2026-05-29 : registre des entites juridiques. Les valeurs hardcodees
+ * doivent etre migrees vers une table org_settings a terme. Pour l instant
+ * c est plus simple (et plus type-safe) de garder ici.
+ */
+export const EMPLOYER_ORGS: Record<EmployerOrgKey, EmployerOrg> = {
+  amd_megastore: {
+    key: "amd_megastore",
+    name: "AMD MEGASTORE SRL",
+    bce: "BCE 0660.936.422",
+    onss: "ONSS à compléter",
+    address: "Rue de Brabant 230",
+    locality: "1030 Schaerbeek",
+    representative: "Karim Elbazi",
+    paritary_commission: "CP du commerce de détail indépendant n°201",
+  },
+  caftan_factory: {
+    key: "caftan_factory",
+    name: "CAFTAN FACTORY",
+    bce: "BCE à compléter",
+    onss: "ONSS à compléter",
+    address: "Adresse Bruxelles à compléter",
+    locality: "1000 Bruxelles",
+    representative: "Karim Elbazi",
+    paritary_commission: "CP du commerce de détail indépendant n°201",
+  },
+};
+
+export const DEFAULT_EMPLOYER_ORG: EmployerOrgKey = "amd_megastore";
 
 /**
  * Substitue {{var}} par sa valeur et applique {{#if x}}...{{/if}}.
@@ -18,7 +64,7 @@ export function renderContractTemplate(
     /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
     (_match, varName: string, inner: string) => {
       const v = variables[varName];
-      if (v == null || v === "" || v === false || v === "0") return "";
+      if (v == null || v === "" || v === "0") return "";
       return inner;
     },
   );
@@ -53,8 +99,11 @@ export function buildContractVariables(input: {
     bic?: string | null;
   };
   primarySite?: { code: string; name: string; address?: string | null; city?: string | null } | null;
+  employerOrg?: EmployerOrgKey;
   overrides?: Partial<ContractVariables>;
 }): ContractVariables {
+  // Karim 2026-05-29 : selectionne l entite juridique. Default AMD Megastore.
+  const org = EMPLOYER_ORGS[input.employerOrg ?? DEFAULT_EMPLOYER_ORG];
   const e = input.employee;
   // Split nom complet en first + last (heuristique simple : 1er mot = prenom)
   const parts = (e.full_name ?? "").trim().split(/\s+/);
@@ -66,21 +115,24 @@ export function buildContractVariables(input: {
   const workplace = input.primarySite
     ? `${input.primarySite.code} — ${input.primarySite.name}${input.primarySite.address ? `, ${input.primarySite.address}` : ""}${input.primarySite.city ? ` ${input.primarySite.city}` : ""}`
     : "";
+  // Karim 2026-05-29 : politique metier - jamais de CDI. Si une fiche
+  // contient encore 'CDI' (legacy), on l interprete comme 'CDD' pour eviter
+  // d emettre un contrat non conforme.
   const contractDuration =
-    e.contract_type === "CDI"
-      ? "une durée indéterminée"
-      : e.contract_type === "CDD"
-        ? "une durée déterminée"
-        : "un travail nettement défini";
+    e.contract_type === "Étudiant" || e.contract_type === "Etudiant"
+      ? "un travail nettement défini (contrat d'occupation étudiant)"
+      : "une durée déterminée";
   const today = new Date().toISOString().slice(0, 10);
 
   return {
-    // Employeur (fixe)
-    employer_name: "AMD MEGASTORE SRL",
-    employer_address: "Rue de Brabant 230",
-    employer_locality: "1030 Schaerbeek",
-    employer_representative: "Karim Elbazi",
-    paritary_commission: "CP du commerce de détail indépendant n°201",
+    // Karim 2026-05-29 : Employeur depuis EMPLOYER_ORGS (multi-entites)
+    employer_name: org.name,
+    employer_bce: org.bce,
+    employer_onss: org.onss,
+    employer_address: org.address,
+    employer_locality: org.locality,
+    employer_representative: org.representative,
+    paritary_commission: org.paritary_commission,
     // Employe
     employee_first_name: firstName,
     employee_last_name: lastName,
@@ -105,8 +157,8 @@ export function buildContractVariables(input: {
     benefits: "Néant",
     iban: e.iban ?? "",
     bic: e.bic ?? "",
-    // Date / lieu contrat
-    contract_location: "Schaerbeek",
+    // Date / lieu contrat - depend du signature_place de l employe (Karim 2026-05-29)
+    contract_location: org.locality.replace(/^\d+\s*/, "") || "Schaerbeek",
     contract_date: today,
     special_conditions: "",
     // Overrides (ecrasent les defaults)

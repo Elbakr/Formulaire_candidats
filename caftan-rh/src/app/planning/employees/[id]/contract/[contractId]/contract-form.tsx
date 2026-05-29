@@ -38,7 +38,8 @@ export type ContractEditable = {
   notes: string | null;
 };
 
-const KINDS = ["CDI", "CDD", "Étudiant", "Intérim", "Freelance"] as const;
+// Politique métier : jamais de CDI ni de contrats hors paie interne.
+const KINDS = ["CDD", "Étudiant"] as const;
 
 export function ContractForm({ contract }: { contract: ContractEditable }) {
   const router = useRouter();

@@ -10,6 +10,7 @@ import {
   FileText,
   ShieldCheck,
   Activity,
+  Building2,
 } from "lucide-react";
 import { tenureLabel, seniorTier, seniorTierLabel, nextAnniversary } from "@/lib/tenure";
 import { requireRole } from "@/lib/auth";
@@ -133,6 +134,11 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           <Button asChild variant="gold" size="sm">
             <Link href={`/planning/employees/${id}/contract`}>
               <FileText className="h-3.5 w-3.5" /> Contrat &amp; dossier
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/planning/employees/${id}/secsoc`}>
+              <Building2 className="h-3.5 w-3.5" /> Secrétariat social
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">

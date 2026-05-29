@@ -21,6 +21,10 @@ export async function saveEmployeeAdminAction(employeeId: string, formData: Form
 
   const dept = STR(formData.get("department_id"));
   const manager = STR(formData.get("manager_id"));
+  const transportType = STR(formData.get("transport_type"));
+  const signaturePlace = STR(formData.get("signature_place"));
+  const transportFrequency = STR(formData.get("transport_frequency"));
+  const workTimeKind = STR(formData.get("work_time_kind"));
 
   const payload = {
     full_name: STR(formData.get("full_name")),
@@ -45,8 +49,14 @@ export async function saveEmployeeAdminAction(employeeId: string, formData: Form
     iban: STR(formData.get("iban")),
     bic: STR(formData.get("bic")),
     bank_holder: STR(formData.get("bank_holder")),
-    transport_type: STR(formData.get("transport_type")),
+    transport_type: transportType === "none" ? null : transportType,
     transport_price: STR(formData.get("transport_price")),
+    transport_frequency: transportFrequency === "none" ? null : transportFrequency,
+    // contrat / secrétariat social
+    birth_date: STR(formData.get("birth_date")),
+    birth_place: STR(formData.get("birth_place")),
+    signature_place: signaturePlace === "none" ? null : signaturePlace,
+    work_time_kind: workTimeKind === "none" ? null : workTimeKind,
     fixed_off_days: ARR(formData.get("fixed_off_days")),
     preferred_site_ids: ARR(formData.get("preferred_site_ids")),
     unavailable_site_ids: ARR(formData.get("unavailable_site_ids")),
