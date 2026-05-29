@@ -4,11 +4,8 @@ import { ArrowLeft, Building2, AlertTriangle, CheckCircle2, Mail } from "lucide-
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  loadSecsocEmployee,
-  listMissingFields,
-} from "./actions";
-import { getSecsocOrgs } from "./orgs";
+import { loadSecsocEmployee } from "./actions";
+import { getSecsocOrgs, listMissingFields } from "./orgs";
 import { SecsocSendButton } from "./send-button";
 
 /**
