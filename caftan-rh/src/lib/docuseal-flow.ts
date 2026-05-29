@@ -238,7 +238,8 @@ function markdownToHtml(md: string): string {
 const CONTRACT_CSS = `
   @page {
     size: A4 portrait;
-    margin: 1.8cm 1.8cm 1.5cm 1.8cm;
+    /* Karim v6 : marges reduites pour minimiser le nb de pages */
+    margin: 1.2cm 1.3cm 1cm 1.3cm;
     /* Footer "Biffer la mention inutile" + "Page X sur Y" via paged media */
     @bottom-left {
       content: "*Biffer la mention inutile";
@@ -420,15 +421,16 @@ const CONTRACT_CSS = `
     font-weight: bold;
   }
   /* Bloc signature : 2 cadres ENCADRES cote a cote, style strict du PDF */
+  /* Karim v6 : cadres signature COMPACTS pour ne pas debordre sur une nouvelle page */
   .signatures {
-    margin-top: 0.6cm;
+    margin-top: 0.3cm;
     display: table;
     width: 100%;
     table-layout: fixed;
     page-break-inside: avoid;
-    border-spacing: 0.4cm 0;
-    margin-left: -0.2cm;
-    margin-right: -0.2cm;
+    border-spacing: 0.3cm 0;
+    margin-left: -0.15cm;
+    margin-right: -0.15cm;
   }
   .signatures .sig-row { display: table-row; }
   .signatures .sig-cell {
@@ -439,41 +441,40 @@ const CONTRACT_CSS = `
   }
   .signatures .sig-box {
     border: 1pt solid #000;
-    padding: 0.2cm 0.3cm;
-    min-height: 4cm;
+    padding: 0.12cm 0.2cm;
+    min-height: 2.6cm;
   }
   .signatures .sig-title {
-    font-size: 9.5pt;
-    font-weight: normal;
+    font-size: 9pt;
+    font-weight: bold;
     text-align: center;
-    margin-bottom: 0.05cm;
+    margin-bottom: 0;
     color: #000;
   }
   .signatures .sig-sub {
-    font-size: 9pt;
+    font-size: 8pt;
     font-style: italic;
     text-align: center;
     color: #000;
-    margin-bottom: 0.3cm;
+    margin-bottom: 0.1cm;
   }
   .signatures .sig-zone {
-    min-height: 2.5cm;
-    margin: 0.15cm 0;
+    min-height: 1.4cm;
+    margin: 0.05cm 0;
     text-align: center;
   }
   .signatures .sig-date {
-    font-size: 9pt;
+    font-size: 8.5pt;
     color: #000;
-    margin-top: 0.15cm;
+    margin-top: 0.05cm;
     text-align: left;
   }
-  /* Co-signataire (Kamal) : note italique sous le cadre principal */
   .co-rep-note {
-    font-size: 8.5pt;
+    font-size: 8pt;
     font-style: italic;
     text-align: center;
     color: #000;
-    margin-top: 0.15cm;
+    margin-top: 0.08cm;
   }
   /* "Fait en deux exemplaires a ... le ..." : taille corps, marge moderee */
   .closing-line {
@@ -624,9 +625,9 @@ function buildContractHtmlForDocuseal(args: {
     : "";
 
   const employerSignatureBlock = preSigned
-    ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 80px; margin: 0 auto;"></div>
+    ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 50px; margin: 0 auto;"></div>
        <div class="sig-date">Pré-signé par <strong>${escapeHtml(args.employerRepresentativeName ?? "")}</strong> le ${today}</div>`
-    : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto;"></signature-field></div>
+    : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>
        <div class="sig-date">Date : <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>`;
 
   // Date contrat : si pre-signe, on inscrit la date du jour directement
@@ -655,7 +656,7 @@ Chacune des parties reconnaît avoir reçu un exemplaire original.
       <div class="sig-box">
         <div class="sig-title">Signature du travailleur</div>
         <div class="sig-sub">(et parapher toutes les pages)</div>
-        <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto;"></signature-field></div>
+        <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>
         <div class="sig-date">Date : <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>
       </div>
     </div>
@@ -703,7 +704,18 @@ export async function createDocusealTemplateFromContract(args: {
   // Le markdown templates contient des lignes "Entre" .. "IL EST CONVENU"
   // qu on detache pour les remplacer.
   const { bodyWithoutHeader, partiesBlock } = extractPartiesAndConvenu(rendered, args);
-  const bodyHtml = partiesBlock + markdownToHtml(bodyWithoutHeader);
+  // Karim 2026-05-29 (v6) : ordre correct = TITRE en haut, puis parties Entre/Et,
+  // puis articles. Le markdownToHtml rend le `# CONTRAT...` comme bloc encadre,
+  // donc l ordre est titre (dans bodyWithoutHeader) + partiesBlock + reste.
+  // On split donc le bodyHtml en : "tete jusqu au titre" + partiesBlock + "reste"
+  const bodyHtmlFull = markdownToHtml(bodyWithoutHeader);
+  // Cherche la fin du bloc titre (premier </div> apres doc-title)
+  const titleEndMatch = bodyHtmlFull.match(/<div class="doc-title">[\s\S]*?<\/div>/);
+  const bodyHtml = titleEndMatch
+    ? bodyHtmlFull.slice(0, titleEndMatch.index! + titleEndMatch[0].length)
+      + partiesBlock
+      + bodyHtmlFull.slice(titleEndMatch.index! + titleEndMatch[0].length)
+    : partiesBlock + bodyHtmlFull;
 
   const org = EMPLOYER_ORGS[args.employerOrg];
   const employerName = org.name;
