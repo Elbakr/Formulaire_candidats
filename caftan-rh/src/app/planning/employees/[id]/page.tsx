@@ -27,6 +27,7 @@ import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
 import { SignContractButton } from "./sign-contract-button";
+import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -39,6 +40,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     { data: managers },
     { data: sitesRaw },
     { data: assignsRaw },
+    { data: tuyaDevicesRaw },
   ] = await Promise.all([
     supabase.from("employees").select("*, department:departments(id, name)").eq("id", id).single(),
     supabase.from("departments").select("id, name").order("name"),
@@ -49,7 +51,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       .select("id, site_id, start_date, end_date, is_primary, pct, is_site_manager, substitute_employee_id, site:sites(id, code, name, color), substitute:employees!substitute_employee_id(id, full_name)")
       .eq("employee_id", id)
       .order("start_date", { ascending: false }),
+    supabase.from("tuya_devices").select("tuya_device_id, tuya_device_name").eq("is_active", true).eq("is_pointage", true).order("tuya_device_name"),
   ]);
+  const tuyaDevices = (tuyaDevicesRaw ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>;
   const sites = (sitesRaw ?? []) as Array<{
     id: string; code: string; name: string; color: string | null;
   }>;
@@ -242,6 +246,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         employeeId={id}
         assignments={assignments}
         sites={sites}
+      />
+
+      {/* Karim 2026-05-29 : multi-empreintes Tuya (1 doigt IN + 1 doigt OUT,
+          ou multi-terminaux, tous agreges sous l employee unique) */}
+      <TuyaFingerprintsSection
+        employeeId={id}
+        employeeName={(emp as { full_name: string }).full_name}
+        devices={(tuyaDevices ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>}
       />
 
       <DangerZone
