@@ -19,7 +19,12 @@ const c = new pg.Client({ connectionString: DB, ssl: { rejectUnauthorized: false
 await c.connect();
 const { rows: emps } = await c.query("select * from employees where id = $1", ["cbc6d63a-ff65-44b7-bc6c-120c07f5a743"]);
 const emp = emps[0];
-const { rows: profs } = await c.query("select id, signature_data_url from profiles limit 1");
+// Karim 2026-05-29 fix : charge la signature de KARIM ELBAZI admin
+// (avant on faisait LIMIT 1 qui choisissait un profile au hasard)
+const { rows: profs } = await c.query(
+  "select id, signature_data_url from profiles where id = $1 or (role = 'admin' and signature_data_url is not null) order by case when id = $1 then 0 else 1 end limit 1",
+  ["ae584efa-0c7d-4ccf-be30-3f49a28fb0c5"],
+);
 const sig = profs[0]?.signature_data_url ?? null;
 const { rows: tpls } = await c.query("select body_markdown from contract_templates where code = 'employee'");
 const template = tpls[0].body_markdown;
