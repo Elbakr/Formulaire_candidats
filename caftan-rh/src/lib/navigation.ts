@@ -241,6 +241,7 @@ export function getNavSections(role: Role): NavGroup[] {
         { href: "/admin/settings/kpi-weights", label: "Pondération KPI", icon: "FileBarChart" },
         { href: "/admin/settings/autoplaner-rules", label: "Règles auto-planning", icon: "Sliders" },
         { href: "/admin/settings/aid-dates", label: "Dates Aïd", icon: "Calendar" },
+        { href: "/admin/settings/signature", label: "Signature contrats", icon: "FileSignature" },
         { href: "/admin/bonus", label: "Primes & concours", icon: "Star" },
         { href: "/admin/vip-clients", label: "Clientes VIP", icon: "Users" },
         { href: "/admin/broadcasts", label: "Annonces broadcast", icon: "Megaphone" },
