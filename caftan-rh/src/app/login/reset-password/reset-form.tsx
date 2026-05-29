@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Save, KeyRound } from "lucide-react";
+import { Save, KeyRound, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { createBrowserClient } from "@supabase/ssr";
 import { updatePasswordAction } from "../actions";
 
 export function ResetPasswordForm() {
@@ -14,6 +15,54 @@ export function ResetPasswordForm() {
   const [pending, startTransition] = useTransition();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  // Karim 2026-05-29 : Supabase envoie le token dans le HASH FRAGMENT
+  // (#access_token=...&refresh_token=...&type=recovery). Le serveur ne voit
+  // pas le hash. On doit lire window.location.hash cote client et appeler
+  // supabase.auth.setSession() avant que l action server-side puisse marcher.
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+    // Cherche les tokens dans l URL hash
+    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    const type = params.get("type");
+    const errorDesc = params.get("error_description");
+
+    if (errorDesc) {
+      setSessionError(decodeURIComponent(errorDesc.replace(/\+/g, " ")));
+      return;
+    }
+
+    if (type !== "recovery" || !accessToken || !refreshToken) {
+      // Peut-etre l user est deja connecte (session active) - on verifie
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session) {
+          setSessionReady(true);
+        } else {
+          setSessionError("Lien invalide ou expiré. Demande un nouveau lien depuis /login/forgot-password.");
+        }
+      });
+      return;
+    }
+
+    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+      .then(({ error }) => {
+        if (error) {
+          setSessionError(error.message);
+        } else {
+          setSessionReady(true);
+          // Nettoie le hash de l URL pour ne pas leak les tokens
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      });
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +78,27 @@ export function ResetPasswordForm() {
       router.push("/");
       router.refresh();
     });
+  }
+
+  if (sessionError) {
+    return (
+      <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-center">
+        <AlertTriangle className="h-8 w-8 text-rose-600 mx-auto mb-2" />
+        <h2 className="font-bold text-sm text-rose-900 mb-1">Lien invalide</h2>
+        <p className="text-xs text-rose-800 mb-3">{sessionError}</p>
+        <a href="/login/forgot-password" className="text-xs text-blue-700 hover:underline">
+          Demander un nouveau lien
+        </a>
+      </div>
+    );
+  }
+
+  if (!sessionReady) {
+    return (
+      <div className="bg-surface border border-line rounded-lg p-4 text-center text-xs text-ink-3">
+        Vérification du lien en cours…
+      </div>
+    );
   }
 
   return (

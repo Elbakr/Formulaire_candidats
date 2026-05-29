@@ -70,6 +70,32 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", contractId);
     }
+
+    // Karim 2026-05-29 : envoi du contrat signe final aux 2 parties
+    // (employee + hr@caftanfactory.com) via EmailJS.
+    if (employeeId && event.data.combined_document_url) {
+      const { data: emp } = await admin
+        .from("employees")
+        .select("full_name, email, preferred_language")
+        .eq("id", employeeId)
+        .maybeSingle();
+      const employee = (emp as { full_name?: string; email?: string; preferred_language?: string } | null);
+      if (employee?.email) {
+        await sendSignedContractCopy({
+          to: employee.email,
+          recipientName: employee.full_name ?? "Travailleur",
+          signedPdfUrl: event.data.combined_document_url,
+          language: (employee.preferred_language === "nl" || employee.preferred_language === "en") ? employee.preferred_language : "fr",
+        });
+      }
+      // Copie HR
+      await sendSignedContractCopy({
+        to: "hr@caftanfactory.com",
+        recipientName: "HR Team",
+        signedPdfUrl: event.data.combined_document_url,
+        language: "fr",
+      });
+    }
   } else if (event.event_type === "form.completed") {
     // Le contrat a ete signe - update employee_contracts
     if (contractId) {
@@ -123,4 +149,69 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+// Karim 2026-05-29 : envoi du contrat signe final via EmailJS depuis
+// hr@caftanfactory.com. EmailJS ne gere pas les attachements PDF facilement,
+// donc on envoie le LIEN vers le PDF signe (hebergee chez DocuSeal).
+async function sendSignedContractCopy(args: {
+  to: string;
+  recipientName: string;
+  signedPdfUrl: string;
+  language: "fr" | "nl" | "en";
+}) {
+  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) return;
+
+  const MSG = {
+    fr: {
+      subject: "Votre contrat signé — Caftan Factory",
+      body: (name: string, url: string) =>
+        `Bonjour ${name},\n\nVotre contrat a été signé par toutes les parties. ` +
+        `Vous pouvez le télécharger ici :\n\n👉 ${url}\n\n` +
+        `Conservez précieusement ce document — il fait office d'original.\n\n` +
+        `Bien à vous,\nL'équipe RH`,
+    },
+    nl: {
+      subject: "Uw ondertekende overeenkomst — Caftan Factory",
+      body: (name: string, url: string) =>
+        `Beste ${name},\n\nUw overeenkomst werd door alle partijen ondertekend. ` +
+        `U kan ze hier downloaden:\n\n👉 ${url}\n\n` +
+        `Bewaar dit document zorgvuldig — het geldt als origineel.\n\n` +
+        `Met vriendelijke groet,\nHet HR-team`,
+    },
+    en: {
+      subject: "Your signed contract — Caftan Factory",
+      body: (name: string, url: string) =>
+        `Hello ${name},\n\nYour contract has been signed by all parties. ` +
+        `You can download it here:\n\n👉 ${url}\n\n` +
+        `Keep this document safely — it serves as the original.\n\n` +
+        `Best regards,\nThe HR team`,
+    },
+  } as const;
+
+  const msg = MSG[args.language];
+  const firstName = args.recipientName.split(/\s+/)[0] ?? args.recipientName;
+  const body = msg.body(firstName, args.signedPdfUrl);
+  const params = {
+    to_email: args.to, email: args.to, user_email: args.to, candidate_email: args.to,
+    to: args.to, to_name: args.recipientName, name: args.recipientName, candidate_name: args.recipientName,
+    from_name: "HR Caftan Factory", reply_to: "hr@caftanfactory.com",
+    subject: msg.subject, message: body, html_message: body.replace(/\n/g, "<br>"),
+    body, html: body.replace(/\n/g, "<br>"), content: body,
+    signed_pdf_url: args.signedPdfUrl,
+  };
+  try {
+    await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+      body: JSON.stringify({
+        service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params,
+      }),
+    });
+  } catch (e) {
+    console.warn("[docuseal/webhook] sendSignedContractCopy err:", e);
+  }
 }
