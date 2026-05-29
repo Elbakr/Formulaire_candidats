@@ -22,6 +22,7 @@ export type EmployerOrg = {
   // Permet la signature alternative si le 1er representant est absent.
   // Affiche dans le PDF avec la mention "(à signer si nécessaire)".
   co_representative?: string;
+  co_representative_email?: string; // pour signature optionnelle DocuSeal
   rc?: string;          // numero registre commerce / tribunal
   paritary_commission: string;
 };
@@ -46,6 +47,7 @@ export const EMPLOYER_ORGS: Record<EmployerOrgKey, EmployerOrg> = {
     locality: "1030 Schaerbeek",
     representative: "Karim Elbazi",
     co_representative: "Kamal Elbazi", // Karim 2026-05-29 : 2e gerant AMD
+    co_representative_email: "kamal@elbazi.com",
     paritary_commission: "CP du commerce de détail indépendant n°201",
   },
   caftan_factory: {

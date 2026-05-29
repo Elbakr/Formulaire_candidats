@@ -124,6 +124,70 @@ export async function POST(request: NextRequest) {
         signedPdfUrl,
         language: "fr",
       });
+
+      // Karim 2026-05-29 : NOTIFICATION URGENTE DIMONA
+      // Apres signature : creer une notif "Dimona a declarer" pour tous les
+      // admin/rh + envoyer mail rappel via EmailJS.
+      try {
+        const { data: empData } = await admin
+          .from("employees")
+          .select("full_name")
+          .eq("id", employeeId)
+          .maybeSingle();
+        const empName = (empData as { full_name?: string } | null)?.full_name ?? "?";
+        const { data: hrs } = await admin
+          .from("profiles")
+          .select("id, email")
+          .in("role", ["admin", "rh"]);
+        const hrList = ((hrs ?? []) as Array<{ id: string; email: string | null }>);
+        if (hrList.length > 0) {
+          // Notifications dans l app
+          const inserts = hrList.map((hr) => ({
+            recipient_id: hr.id,
+            kind: "dimona_to_do",
+            title: `🚨 DIMONA URGENTE — ${empName}`,
+            body: `Le contrat de ${empName} est signé. La Dimona IN doit être déclarée AVANT le 1er jour de travail (sanctions ONSS). Va sur la fiche pour déclarer.`,
+            link: `/planning/employees/${employeeId}`,
+            data: { employeeId, contractId, urgent: true },
+          }));
+          await admin.from("notifications").insert(inserts);
+
+          // Mail rappel a hr@caftanfactory.com + chaque RH
+          const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+          const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+          const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+          if (SERVICE && TEMPLATE && PUBLIC_KEY) {
+            const recipients = new Set(["hr@caftanfactory.com", ...hrList.map((h) => h.email).filter((e): e is string => !!e)]);
+            const subject = `🚨 DIMONA URGENTE — Contrat signé ${empName}`;
+            const body = `Bonjour,\n\nLe contrat de ${empName} vient d'être signé électroniquement.\n\n` +
+              `⚠ La Dimona IN doit être déclarée AVANT le 1er jour de travail (obligation légale ONSS).\n\n` +
+              `Actions disponibles sur la fiche employé :\n` +
+              `• Ouvrir le portail ONSS Dimona (déclaration manuelle)\n` +
+              `• Auto-Dimona (étape 2 — en développement)\n` +
+              `• Marquer Dimona traitée une fois fait\n\n` +
+              `Lien direct : https://caftan-rh-v2-prod.vercel.app/planning/employees/${employeeId}\n\n` +
+              `L'équipe CaftanRH`;
+            for (const to of recipients) {
+              const params = {
+                to_email: to, email: to, user_email: to, candidate_email: to,
+                to, to_name: "RH", name: "RH", candidate_name: "RH",
+                from_name: "CaftanRH - Alerte Dimona", reply_to: "hr@caftanfactory.com",
+                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
+                body, html: body.replace(/\n/g, "<br>"), content: body,
+              };
+              try {
+                await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+                  body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params }),
+                });
+              } catch { /* non bloquant */ }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[docuseal/webhook] dimona reminder err:", e);
+      }
     }
   } else if (event.event_type === "form.completed") {
     // Le contrat a ete signe - update employee_contracts

@@ -28,6 +28,7 @@ import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
 import { SignContractButton } from "./sign-contract-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
+import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -92,7 +93,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   const [{ data: latestContractRaw }, { data: latestDimonaRaw }] = await Promise.all([
     supabase
       .from("employee_contracts")
-      .select("id, status, contract_kind")
+      .select("id, status, contract_kind, signed_at")
       .eq("employee_id", id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -106,11 +107,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       .maybeSingle(),
   ]);
   const latestContract = latestContractRaw as
-    | { id: string; status: "draft" | "ready_to_sign" | "signed" | "archived"; contract_kind: string }
+    | { id: string; status: "draft" | "ready_to_sign" | "signed" | "archived"; contract_kind: string; signed_at: string | null }
     | null;
   const latestDimona = latestDimonaRaw as
-    | { id: string; status: "pending" | "declared_onss" | "confirmed" | "rejected" }
+    | { id: string; status: "pending" | "declared_onss" | "confirmed" | "completed" | "rejected" }
     | null;
+  const dimonaDone = !!latestDimona && (latestDimona.status === "completed" || latestDimona.status === "confirmed" || latestDimona.status === "declared_onss");
   const contractStatusLabel: Record<string, string> = {
     draft: "Brouillon",
     ready_to_sign: "Prêt à signer",
@@ -127,6 +129,15 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   return (
     <div className="space-y-4">
       <EmployeeSiteNav currentEmployeeId={id} basePath="" />
+
+      {/* Karim 2026-05-29 : banniere urgente Dimona post-signature */}
+      <DimonaReminderBanner
+        employeeId={id}
+        employeeName={(emp as { full_name: string }).full_name}
+        contractSignedAt={latestContract?.signed_at ?? null}
+        dimonaDone={dimonaDone}
+      />
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Button asChild variant="ghost" size="sm">
           <Link href="/planning/employees"><ArrowLeft className="h-3.5 w-3.5" /> Retour liste</Link>

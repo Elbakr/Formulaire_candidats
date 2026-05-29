@@ -211,247 +211,312 @@ function markdownToHtml(md: string): string {
 }
 
 /**
- * Karim 2026-05-29 (v3) : feuille de style refondue pour matcher pixel-pres
- * les PDF du secretariat social belge (Sodibel/SD Worx style).
+ * Karim 2026-05-29 (v4) : refonte CSS pixel-perfect apres analyse fine des
+ * 3 PDF originaux du secretariat social belge (Sodibel / SD Worx) :
+ *   - 003.00 FR - CT - employe (3 pages)
+ *   - 004.00 FR - CT - employe temps partiel (4 pages, avec annexe horaires)
+ *   - 006.00 FR - CT - occupation d etudiant (2 pages)
  *
- * Observations cles des PDF originaux analyses :
- *   - Pas d encadre autour du titre principal : centre simple, MAJUSCULES,
- *     ~14pt, gras (pas 16pt qui etait trop gros dans le 1er essai)
- *   - Aucune couleur d accent : 100% noir et blanc, style administratif strict
- *   - "Entre" / "Et" en bloc colonnes alignees avec lignes pointillees pour
- *     les champs vides (caractere typique : ".....................")
- *   - Articles : "Article 1." en gras simple (PAS souligne), avec un petit
- *     espace vertical avant. Le 1er essai mettait du souligne partout.
- *   - Listes a puce : marker tres discret (utilisation d alineas / retraits
- *     marques par espaces dans le PDF original, pas de bullet noir)
- *   - Footer original : ligne tres fine "*Biffer la mention inutile" a
- *     gauche + "Page X sur Y" a droite, taille 8pt, separes par espace
- *     blanc (PAS de border-top epais comme dans le 1er essai)
- *   - Signature : 2 colonnes COTE A COTE sans encadre noir epais, juste
- *     titre centre au-dessus + sous-titre italique "(et parapher...)"
- *   - Police : Calibri/Arial sans-serif, corps 10pt (pas 10.5pt)
- *   - Marges A4 : ~1.8cm gauche/droite, 2cm haut, 1.5cm bas (le 1er essai
- *     avait des marges trop grandes a 2.5cm)
- *   - Interligne serre 1.25, comme un document Word standard belge
+ * Differences MAJEURES corrigees vs v3 :
+ *  1. Titre principal ENCADRE par un rectangle noir (border 1pt). v3 n avait
+ *     PAS d encadre. C est l element visuel le plus reconnaissable du PDF.
+ *  2. Articles : "Article N." en GRAS + SOULIGNE (pas juste gras). v3 disait
+ *     gras simple - erreur. Le PDF utilise text-decoration: underline.
+ *  3. Bloc parties : 2 sous-labels "L'employeur" / "L'employé" en GRAS suivis
+ *     de la valeur. v3 mettait tout sur une seule ligne, perdant la structure.
+ *  4. Cadres signature : VRAIS rectangles bordures noires 1pt (PAS juste une
+ *     ligne du bas). C est tres visible dans les PDF.
+ *  5. Footer : "*Biffer la mention inutile" gauche + "Page X sur Y" DROITE,
+ *     sur la meme ligne. v3 n avait pas le "Page X sur Y".
+ *  6. Article 10 : retrait + puce carre noir (▪) selon style PDF original.
+ *  7. Mentions italiques discretes (8.5pt) sous les articles : "Hormis...",
+ *     "La partie qui met fin...", "Preciser les eventuels...".
+ *  8. Police : Calibri 10pt corps, 14pt titre, 8pt footer, 9pt mentions ital.
+ *  9. Cases a cocher ☐ et ☒ : caracteres unicode (font "Segoe UI Symbol" fallback).
+ * 10. Sauts de page calcules : signature TOUJOURS sur derniere page (page-break).
  */
 const CONTRACT_CSS = `
-  @page { size: A4 portrait; margin: 2cm 1.8cm 1.5cm 1.8cm; }
+  @page {
+    size: A4 portrait;
+    margin: 1.8cm 1.8cm 1.5cm 1.8cm;
+    /* Footer "Biffer la mention inutile" + "Page X sur Y" via paged media */
+    @bottom-left {
+      content: "*Biffer la mention inutile";
+      font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
+      font-size: 8pt;
+      color: #000;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " sur " counter(pages);
+      font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
+      font-size: 8pt;
+      color: #000;
+    }
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: 'Calibri', 'Carlito', 'Arial', 'Helvetica', sans-serif;
     font-size: 10pt;
-    line-height: 1.25;
+    line-height: 1.3;
     color: #000;
     background: #fff;
-    max-width: 21cm;
-    margin: 0 auto;
-    padding: 2cm 1.8cm 1.5cm 1.8cm;
   }
-  /* Titre principal : centre simple MAJUSCULES, PAS d encadre. */
+  /* Titre principal : ENCADRE par un rectangle noir 1pt comme dans le PDF
+     d origine. Centre, MAJUSCULES, GRAS, ~16pt. */
   .doc-title {
-    margin: 0 0 0.5cm 0;
+    margin: 0 0 0.7cm 0;
     text-align: center;
     page-break-after: avoid;
+    border: 1pt solid #000;
+    padding: 0.35cm 0.3cm;
   }
   .doc-title h1 {
     margin: 0;
-    font-family: 'Calibri', 'Arial', sans-serif;
-    font-size: 14pt;
+    font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
+    font-size: 16pt;
     font-weight: bold;
     letter-spacing: 0;
     text-transform: uppercase;
     color: #000;
+    line-height: 1.1;
   }
-  /* Sous-titre informatif sous le titre principal (ex: contrat etudiant) */
+  /* Sous-titre informatif sous le titre (ex: mention etudiant) */
   .doc-subtitle {
     text-align: center;
-    font-size: 9pt;
+    font-size: 9.5pt;
     font-style: italic;
+    font-weight: bold;
     margin: 0 0 0.5cm 0;
     line-height: 1.3;
     color: #000;
+    padding: 0 1cm;
   }
-  .doc-title-annexe { margin-top: 0.8cm; }
+  .doc-title-annexe { margin-top: 0.5cm; }
   .doc-title-annexe h2 {
     margin: 0;
-    font-size: 12pt;
+    font-size: 16pt;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0;
     color: #000;
+    line-height: 1.1;
   }
-  /* Encart "Entre / Et" : alignement strict en 3 colonnes type "tab" Word */
+  /* Bloc "Entre / Et" : structure tableau aligne 4 colonnes */
   .parties-block {
     margin: 0.3cm 0 0.4cm 0;
     page-break-inside: avoid;
-  }
-  .parties-block .parties-line {
-    display: flex;
-    margin-bottom: 0.18cm;
-    align-items: baseline;
     font-size: 10pt;
   }
-  .parties-block .col-prefix { width: 1.3cm; font-weight: normal; flex-shrink: 0; }
-  .parties-block .col-label  { width: 3.2cm; font-weight: normal; flex-shrink: 0; }
-  .parties-block .col-sep    { width: 0.4cm; flex-shrink: 0; }
-  .parties-block .col-value  { flex: 1; font-weight: bold; }
-  /* Ligne pointillee pour champ vide, motif du PDF d origine */
+  .parties-block table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .parties-block td {
+    padding: 0.05cm 0;
+    vertical-align: top;
+  }
+  .parties-block .col-prefix {
+    width: 1.5cm;
+    font-weight: bold;
+  }
+  .parties-block .col-label {
+    width: 3.2cm;
+    font-weight: bold;
+  }
+  .parties-block .col-sep {
+    width: 0.3cm;
+  }
+  .parties-block .col-value {
+    font-weight: normal;
+  }
+  /* Ligne pointillee pour champ vide */
   .dotted-fill {
-    flex: 1;
     display: inline-block;
-    border-bottom: 1px dotted #000;
-    height: 0.8em;
+    width: 100%;
+    border-bottom: 1pt dotted #000;
+    height: 0.9em;
     vertical-align: bottom;
   }
-  /* "IL EST CONVENU CE QUI SUIT :" : ligne non en gras dans le PDF original,
-     juste un saut visuel, espacement standard */
+  /* "IL EST CONVENU CE QUI SUIT :" : en GRAS dans le PDF original */
   .convenu-line {
-    font-weight: normal;
-    margin: 0.5cm 0 0.4cm 0;
+    font-weight: bold;
+    margin: 0.7cm 0 0.5cm 0;
     font-size: 10pt;
   }
-  /* Headers d articles : "Article N." en GRAS simple (PAS souligne) */
+  /* Headers d articles : GRAS + SOULIGNE, c est la signature visuelle des
+     PDF du secretariat social belge */
   h2.article-head {
     font-size: 10pt;
     font-weight: bold;
-    text-decoration: none;
-    margin: 0.35cm 0 0.05cm 0;
+    text-decoration: underline;
+    margin: 0.4cm 0 0.15cm 0;
     page-break-after: avoid;
     color: #000;
   }
   h2.section-head {
     font-size: 10pt;
     font-weight: bold;
+    text-decoration: underline;
     margin: 0.4cm 0 0.15cm 0;
     color: #000;
   }
   h3.subsection-head {
     font-size: 10pt;
     font-weight: bold;
-    text-decoration: none;
+    text-decoration: underline;
     margin: 0.3cm 0 0.1cm 0;
     color: #000;
   }
   p {
     margin: 0.05cm 0 0.15cm 0;
     text-align: left;
-    text-justify: inter-word;
   }
-  /* Listes a puces : style discret avec retrait, pas de marker gros et noir */
+  /* Listes a tirets / puces : utilisation d un carre noir ▪ comme article 10
+     du PDF original (style Word "wingdings square") */
   ul.md-list {
-    margin: 0.1cm 0 0.2cm 0.6cm;
+    margin: 0.15cm 0 0.2cm 0.6cm;
     padding-left: 0.4cm;
     list-style-type: none;
   }
   ul.md-list li {
-    margin-bottom: 0.1cm;
-    padding-left: 0.4cm;
-    text-indent: -0.4cm;
+    margin-bottom: 0.12cm;
+    padding-left: 0.5cm;
     position: relative;
   }
   ul.md-list li::before {
-    content: "";
-    display: inline-block;
-    width: 0.4cm;
+    content: "\\25AA"; /* unicode small black square ▪ */
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 9pt;
   }
-  /* Separateur horizontal markdown --- : ligne tres fine */
+  /* Separateur horizontal markdown --- */
   hr.md-sep {
     border: 0;
-    border-top: 1px solid #000;
-    margin: 0.4cm 0;
+    border-top: 0;
+    margin: 0.5cm 0;
+    height: 0;
+    page-break-after: always; /* saut de page entre contrat et annexe */
   }
-  /* Tables markdown (preavis etudiant, etc.) : bordures fines noires */
+  /* Tables markdown (preavis etudiant, schema horaire, etc.) :
+     bordures fines noires, en-tetes gras centres */
   table.md-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.2cm 0;
+    margin: 0.25cm 0 0.2cm 0;
     font-size: 9.5pt;
   }
   table.md-table th,
   table.md-table td {
-    border: 1px solid #000;
-    padding: 0.12cm 0.2cm;
-    text-align: left;
-    vertical-align: top;
+    border: 1pt solid #000;
+    padding: 0.15cm 0.2cm;
+    text-align: center;
+    vertical-align: middle;
   }
   table.md-table th {
     background: #fff;
     font-weight: bold;
   }
-  /* Bloc signature : 2 colonnes COTE A COTE sans cadre noir epais */
+  /* Bloc signature : 2 cadres ENCADRES cote a cote, style strict du PDF */
   .signatures {
-    margin-top: 0.8cm;
+    margin-top: 0.6cm;
     display: table;
     width: 100%;
     table-layout: fixed;
     page-break-inside: avoid;
+    border-spacing: 0.4cm 0;
+    margin-left: -0.2cm;
+    margin-right: -0.2cm;
   }
   .signatures .sig-row { display: table-row; }
   .signatures .sig-cell {
     display: table-cell;
     width: 50%;
-    padding: 0.15cm 0.3cm 0.15cm 0.3cm;
     vertical-align: top;
-    text-align: center;
+    padding: 0;
+  }
+  .signatures .sig-box {
+    border: 1pt solid #000;
+    padding: 0.2cm 0.3cm;
+    min-height: 4cm;
   }
   .signatures .sig-title {
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: normal;
+    text-align: center;
     margin-bottom: 0.05cm;
     color: #000;
   }
   .signatures .sig-sub {
     font-size: 9pt;
     font-style: italic;
+    text-align: center;
     color: #000;
-    margin-bottom: 0.2cm;
+    margin-bottom: 0.3cm;
   }
   .signatures .sig-zone {
-    min-height: 2.2cm;
-    border-bottom: 1px solid #000;
-    margin-bottom: 0.1cm;
+    min-height: 2.5cm;
+    margin: 0.15cm 0;
+    text-align: center;
   }
   .signatures .sig-date {
     font-size: 9pt;
     color: #000;
-    margin-top: 0.1cm;
+    margin-top: 0.15cm;
     text-align: left;
   }
-  /* "Fait en deux exemplaires a ... le ..." : taille normale, marge moderee */
+  /* Co-signataire (Kamal) : note italique sous le cadre principal */
+  .co-rep-note {
+    font-size: 8.5pt;
+    font-style: italic;
+    text-align: center;
+    color: #000;
+    margin-top: 0.15cm;
+  }
+  /* "Fait en deux exemplaires a ... le ..." : taille corps, marge moderee */
   .closing-line {
-    margin-top: 0.6cm;
+    margin-top: 0.7cm;
     font-size: 10pt;
+    line-height: 1.3;
   }
   .closing-line strong { font-weight: bold; }
-  /* Pied de page : juste une ligne 8pt, PAS de border-top */
-  .footer-mentions {
-    margin-top: 0.7cm;
-    font-size: 8pt;
-    color: #000;
-    border-top: 0;
-    padding-top: 0.15cm;
-    text-align: left;
+  /* Mentions italiques (commentaires legaux 9pt) */
+  p em {
     font-style: italic;
+    font-size: 9pt;
   }
+  /* Inline strong */
+  strong { font-weight: bold; }
+  /* Bloc article 10 a puces : retrait normal sans li::marker affichage */
   /* Styles imprimables (DocuSeal convertit HTML -> PDF cote serveur) */
   @media print {
-    body { padding: 0; }
+    body { padding: 0; margin: 0; }
     .signatures { page-break-inside: avoid; }
     h2.article-head { page-break-after: avoid; }
     .doc-title { page-break-after: avoid; }
+    .parties-block { page-break-inside: avoid; }
   }
 `;
 
 /**
- * Karim 2026-05-29 : construit le bloc "Entre / Et" (parties au contrat)
- * en HTML structure (vs le rendu markdown standard, qui ne preserve pas
- * l alignement des PDF originaux).
+ * Karim 2026-05-29 (v4) : construit le bloc "Entre / Et" (parties au contrat)
+ * en HTML structure tableau, alignement strict des 4 colonnes selon le PDF :
+ *   col 1 : "Entre" / "Et" (prefix gras)
+ *   col 2 : "L'employeur", "Adresse", "Localité", "Représenté par",
+ *           "L'employé", "NISS", "Adresse", "Localité" (label gras)
+ *   col 3 : ":"
+ *   col 4 : valeur (employeur en gras, le reste normal)
+ *
+ * "Représenté par" est PRE-REMPLI avec le representant Karim, et si un
+ * co-representant Kamal existe, une 2e ligne s ajoute.
  */
 function buildPartiesBlockHtml(args: {
   employerName: string;
   employerAddress: string;
   employerLocality: string;
+  employerRepresentative: string;
+  employerCoRepresentative?: string;
   employeeRoleLabel: string; // "L'employé", "L'ouvrier" (etudiant)
   employeeName: string;
   employeeNiss: string;
@@ -461,64 +526,65 @@ function buildPartiesBlockHtml(args: {
   const e = (s: string) => escapeHtml(s);
   // Helper : valeur ou ligne pointillee si vide (style PDF original)
   const v = (val: string) => val
-    ? `<span class="col-value">${e(val)}</span>`
+    ? e(val)
     : `<span class="dotted-fill"></span>`;
+  // Karim 2026-05-29 : si Kamal est defini, on liste les 2 representants
+  // separes par "ou" (signature alternative possible).
+  const repText = args.employerCoRepresentative && args.employerCoRepresentative.trim() !== ""
+    ? `${e(args.employerRepresentative)} <em>ou</em> ${e(args.employerCoRepresentative)} <em>(à signer si nécessaire)</em>`
+    : e(args.employerRepresentative);
   return `
 <div class="parties-block">
-  <div class="parties-line">
-    <span class="col-prefix">Entre</span>
-    <span class="col-label">L'employeur</span>
-    <span class="col-sep">:</span>
-    <span class="col-value"><strong>${e(args.employerName)}</strong></span>
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix">Et</span>
-    <span class="col-label"></span>
-    <span class="col-sep"></span>
-    <span class="col-value"></span>
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">Adresse</span>
-    <span class="col-sep">:</span>
-    ${v(args.employerAddress)}
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">Localité</span>
-    <span class="col-sep">:</span>
-    ${v(args.employerLocality)}
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">Représenté par</span>
-    <span class="col-sep">:</span>
-    <span class="dotted-fill"></span>
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">${e(args.employeeRoleLabel)}</span>
-    <span class="col-sep">:</span>
-    <span class="col-value"><strong>${e(args.employeeName)}</strong></span>
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">NISS</span>
-    <span class="col-sep">:</span>
-    ${v(args.employeeNiss)}
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">Adresse</span>
-    <span class="col-sep">:</span>
-    ${v(args.employeeAddress)}
-  </div>
-  <div class="parties-line">
-    <span class="col-prefix"></span>
-    <span class="col-label">Localité</span>
-    <span class="col-sep">:</span>
-    ${v(args.employeeLocality)}
-  </div>
+  <table>
+    <tr>
+      <td class="col-prefix">Entre</td>
+      <td class="col-label">L'employeur</td>
+      <td class="col-sep">:</td>
+      <td class="col-value"><strong>${e(args.employerName)}</strong></td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">Adresse</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employerAddress)}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">Localité</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employerLocality)}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">Représenté par</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${repText}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix">Et</td>
+      <td class="col-label">${e(args.employeeRoleLabel)}</td>
+      <td class="col-sep">:</td>
+      <td class="col-value"><strong>${e(args.employeeName)}</strong></td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">NISS</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employeeNiss)}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">Adresse</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employeeAddress)}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">Localité</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employeeLocality)}</td>
+    </tr>
+  </table>
 </div>
 <p class="convenu-line">IL EST CONVENU CE QUI SUIT :</p>
 `.trim();
@@ -543,22 +609,24 @@ function buildContractHtmlForDocuseal(args: {
   // d intervenir, le contrat part directement a l employee deja signe.
   employerSignatureDataUrl?: string | null;
   employerRepresentativeName?: string;
+  employerCoRepresentativeName?: string;
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
 
-  // Bloc signature employeur : soit champ a signer, soit image deja apposee.
-  // Style matche l original : pas d encadre, juste une zone delimitee par
-  // une fine ligne du bas (sig-zone) + date en dessous.
+  // Karim 2026-05-29 (v4) : bloc signature employeur dans un CADRE BORDURE
+  // (style PDF original) avec titre centre au-dessus + sous-titre italique
+  // "(et parapher...)". Si Kamal est defini, note italique "ou Kamal..." en
+  // dessous du cadre (signature alternative).
+  const coRepNote = args.employerCoRepresentativeName
+    ? `<div class="co-rep-note">ou <strong>${escapeHtml(args.employerCoRepresentativeName)}</strong> (à signer si nécessaire)</div>`
+    : "";
+
   const employerSignatureBlock = preSigned
-    ? `
-        <div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 70px; margin: 0 auto;"></div>
-        <div class="sig-date">Pré-signé par <strong>${escapeHtml(args.employerRepresentativeName ?? "")}</strong> le ${today}</div>`
-    : `
-        <div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 70px; margin: 0 auto;"></signature-field></div>
-        <div class="sig-date">Date :
-          <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field>
-        </div>`;
+    ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 80px; margin: 0 auto;"></div>
+       <div class="sig-date">Pré-signé par <strong>${escapeHtml(args.employerRepresentativeName ?? "")}</strong> le ${today}</div>`
+    : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto;"></signature-field></div>
+       <div class="sig-date">Date : <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>`;
 
   // Date contrat : si pre-signe, on inscrit la date du jour directement
   const dateContrat = preSigned
@@ -576,29 +644,29 @@ function buildContractHtmlForDocuseal(args: {
 ${args.contractBodyHtml}
 
 <p class="closing-line">
-  Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le ${dateContrat}.<br>
-  Chacune des parties reconnaît avoir reçu un exemplaire original.
+Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le ${dateContrat}.<br>
+Chacune des parties reconnaît avoir reçu un exemplaire original.
 </p>
 
 <div class="signatures">
   <div class="sig-row">
     <div class="sig-cell">
-      <div class="sig-title">Signature du travailleur</div>
-      <div class="sig-sub">(et parapher toutes les pages)</div>
-      <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 70px; margin: 0 auto;"></signature-field></div>
-      <div class="sig-date">Date :
-        <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field>
+      <div class="sig-box">
+        <div class="sig-title">Signature du travailleur</div>
+        <div class="sig-sub">(et parapher toutes les pages)</div>
+        <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 80px; margin: 0 auto;"></signature-field></div>
+        <div class="sig-date">Date : <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>
       </div>
     </div>
     <div class="sig-cell">
-      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      <div class="sig-sub">${preSigned ? "(pré-signée numériquement)" : "(et parapher toutes les pages)"}</div>${employerSignatureBlock}
+      <div class="sig-box">
+        <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+        <div class="sig-sub">${preSigned ? "(pré-signée numériquement)" : "(et parapher toutes les pages)"}</div>
+        ${employerSignatureBlock}
+      </div>
+      ${coRepNote}
     </div>
   </div>
-</div>
-
-<div class="footer-mentions">
-  *Biffer la mention inutile
 </div>
 </body>
 </html>`;
@@ -636,7 +704,8 @@ export async function createDocusealTemplateFromContract(args: {
   const { bodyWithoutHeader, partiesBlock } = extractPartiesAndConvenu(rendered, args);
   const bodyHtml = partiesBlock + markdownToHtml(bodyWithoutHeader);
 
-  const employerName = EMPLOYER_ORGS[args.employerOrg].name;
+  const org = EMPLOYER_ORGS[args.employerOrg];
+  const employerName = org.name;
   const contractLocation = String(vars.contract_location ?? "Bruxelles");
   const fullHtml = buildContractHtmlForDocuseal({
     contractBodyHtml: bodyHtml,
@@ -644,7 +713,8 @@ export async function createDocusealTemplateFromContract(args: {
     employeeName: args.employeeData.full_name,
     contractLocation,
     employerSignatureDataUrl: args.employerSignatureDataUrl,
-    employerRepresentativeName: EMPLOYER_ORGS[args.employerOrg].representative,
+    employerRepresentativeName: org.representative,
+    employerCoRepresentativeName: org.co_representative,
   });
 
   const templateName = `${args.templateCode}_${args.employeeData.full_name.replace(/\s+/g, "_")}_${Date.now()}`;
@@ -728,6 +798,8 @@ function extractPartiesAndConvenu(
     employerName: org.name,
     employerAddress: org.address,
     employerLocality: org.locality,
+    employerRepresentative: org.representative,
+    employerCoRepresentative: org.co_representative,
     employeeRoleLabel: args.templateCode === "student" ? "L'ouvrier" : "L'employé",
     employeeName: formattedName,
     employeeNiss: e.nrn ?? "",
