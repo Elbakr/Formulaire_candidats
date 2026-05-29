@@ -646,7 +646,8 @@ function buildContractHtmlForDocuseal(args: {
 ${args.contractBodyHtml}
 
 <p class="closing-line">
-Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le ${dateContrat}.
+Fait en deux exemplaires à <strong>${escapeHtml(args.contractLocation)}</strong>, le ${dateContrat}.<br>
+Chacune des parties reconnaît avoir reçu un exemplaire original.
 </p>
 
 <div class="signatures">
