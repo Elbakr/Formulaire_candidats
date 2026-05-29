@@ -60,7 +60,7 @@ export function DimonaReminderBanner({
     startTransition(async () => {
       const res = await dimonaAutoSubmitAction(employeeId);
       if (res.error) { toast.error(res.error); return; }
-      toast.success(`Dimona auto-soumise ! Période : ${res.periodId}`);
+      toast.success(`Dimona auto-soumise ! Période : ${res.dimonaPeriodId}`);
       router.refresh();
     });
   }

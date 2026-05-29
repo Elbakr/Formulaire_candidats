@@ -257,24 +257,25 @@ const CONTRACT_CSS = `
   html, body { margin: 0; padding: 0; }
   body {
     font-family: 'Calibri', 'Carlito', 'Arial', 'Helvetica', sans-serif;
-    font-size: 10pt;
-    line-height: 1.3;
+    font-size: 9.5pt;
+    line-height: 1.2;
     color: #000;
     background: #fff;
   }
-  /* Titre principal : ENCADRE par un rectangle noir 1pt comme dans le PDF
-     d origine. Centre, MAJUSCULES, GRAS, ~16pt. */
+  /* Karim 2026-05-29 (v5 COMPACT) : rendu beaucoup plus dense pour tenir
+     sur 2-3 pages comme les PDF originaux (vs 5 pages du v4 trop aere).
+     Marges et paddings TRES reduits, line-height 1.2, font 9.5pt. */
   .doc-title {
-    margin: 0 0 0.7cm 0;
+    margin: 0 0 0.3cm 0;
     text-align: center;
     page-break-after: avoid;
     border: 1pt solid #000;
-    padding: 0.35cm 0.3cm;
+    padding: 0.18cm 0.3cm;
   }
   .doc-title h1 {
     margin: 0;
     font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
-    font-size: 16pt;
+    font-size: 13pt;
     font-weight: bold;
     letter-spacing: 0;
     text-transform: uppercase;
@@ -341,35 +342,35 @@ const CONTRACT_CSS = `
   /* "IL EST CONVENU CE QUI SUIT :" : en GRAS dans le PDF original */
   .convenu-line {
     font-weight: bold;
-    margin: 0.7cm 0 0.5cm 0;
-    font-size: 10pt;
+    margin: 0.25cm 0 0.2cm 0;
+    font-size: 9.5pt;
   }
-  /* Headers d articles : GRAS + SOULIGNE, c est la signature visuelle des
-     PDF du secretariat social belge */
+  /* Karim v5 : articles en GRAS SIMPLE (pas souligne), tres compact */
   h2.article-head {
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: bold;
-    text-decoration: underline;
-    margin: 0.4cm 0 0.15cm 0;
+    text-decoration: none;
+    margin: 0.18cm 0 0.04cm 0;
     page-break-after: avoid;
     color: #000;
+    display: inline-block; /* style "Article 1." inline avec le contenu */
   }
   h2.section-head {
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: bold;
-    text-decoration: underline;
-    margin: 0.4cm 0 0.15cm 0;
+    text-decoration: none;
+    margin: 0.18cm 0 0.04cm 0;
     color: #000;
   }
   h3.subsection-head {
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: bold;
-    text-decoration: underline;
-    margin: 0.3cm 0 0.1cm 0;
+    text-decoration: none;
+    margin: 0.15cm 0 0.04cm 0;
     color: #000;
   }
   p {
-    margin: 0.05cm 0 0.15cm 0;
+    margin: 0 0 0.08cm 0;
     text-align: left;
   }
   /* Listes a tirets / puces : utilisation d un carre noir ▪ comme article 10
@@ -395,9 +396,9 @@ const CONTRACT_CSS = `
   hr.md-sep {
     border: 0;
     border-top: 0;
-    margin: 0.5cm 0;
+    margin: 0.2cm 0;
     height: 0;
-    page-break-after: always; /* saut de page entre contrat et annexe */
+    /* Karim v5 : pas de saut de page sur ---, juste un espace visuel */
   }
   /* Tables markdown (preavis etudiant, schema horaire, etc.) :
      bordures fines noires, en-tetes gras centres */
