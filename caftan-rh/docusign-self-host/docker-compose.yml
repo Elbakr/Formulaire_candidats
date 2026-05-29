@@ -1,0 +1,36 @@
+# Karim 2026-05-29 : DocuSeal self-hosted pour CaftanRH
+# Deploiement Docker Compose - lance avec : docker compose up -d
+#
+# URL : http://localhost:3001 (ou ton domaine via reverse proxy)
+# Admin signup au premier acces : choisir email + mot de passe
+# Apres signup : Admin > API > generer API Key, puis copier dans .env.local
+# (DOCUSEAL_BASE_URL + DOCUSEAL_API_KEY) du projet CaftanRH
+
+services:
+  docuseal:
+    image: docuseal/docuseal:latest
+    container_name: caftanrh-docuseal
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      # URL publique (a adapter en prod)
+      HOST: http://localhost:3001
+      # Sessions / cookies
+      SECRET_KEY_BASE: ${DOCUSEAL_SECRET_KEY_BASE:?missing - generate via: openssl rand -hex 64}
+      # Force SSL en prod si Caddy/nginx en front
+      FORCE_SSL: "false"
+    volumes:
+      - docuseal_data:/data
+      - docuseal_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  docuseal_data:
+    name: caftanrh-docuseal-data
+  docuseal_storage:
+    name: caftanrh-docuseal-storage
