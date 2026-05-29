@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import {
   loadSecsocEmployee,
   listMissingFields,
-  getSecsocOrgs,
 } from "./actions";
+import { getSecsocOrgs } from "./orgs";
 import { SecsocSendButton } from "./send-button";
 
 /**

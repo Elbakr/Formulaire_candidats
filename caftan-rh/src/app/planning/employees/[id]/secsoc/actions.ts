@@ -22,30 +22,9 @@
 
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { ORGS, type SecsocOrg, type OrgInfo } from "./orgs";
 
-export type SecsocOrg = "amd_megastore" | "caftan_factory";
-
-type OrgInfo = {
-  name: string;
-  bce: string | null;
-  address: string;
-  cp: string;
-};
-
-const ORGS: Record<SecsocOrg, OrgInfo> = {
-  amd_megastore: {
-    name: "AMD Megastore SRL",
-    bce: "0660.936.422",
-    address: "Schaerbeek",
-    cp: "201",
-  },
-  caftan_factory: {
-    name: "Caftan Factory",
-    bce: null,
-    address: "Bruxelles",
-    cp: "201",
-  },
-};
+export type { SecsocOrg } from "./orgs";
 
 export type SecsocEmployeeSnapshot = {
   id: string;
@@ -256,9 +235,3 @@ export async function recordSecsocSendAction(input: {
   return { ok: true, sentAt };
 }
 
-export function getSecsocOrgs(): Array<{ key: SecsocOrg; name: string }> {
-  return (Object.keys(ORGS) as SecsocOrg[]).map((k) => ({
-    key: k,
-    name: ORGS[k].name,
-  }));
-}
