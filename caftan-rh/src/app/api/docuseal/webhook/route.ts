@@ -30,9 +30,39 @@ type DocusealEvent = {
     completed_at?: string;
     audit_log_url?: string;
     combined_document_url?: string;
+    // Karim 2026-05-29 : DocuSeal stocke le PDF signe dans documents[0].url
+    // (pas combined_document_url qui est souvent null)
+    documents?: Array<{ name: string; url: string }>;
     metadata?: Record<string, string>;
   };
 };
+
+/**
+ * Karim 2026-05-29 : recupere l URL du PDF signe. Priorite :
+ * 1. documents[0].url (le contrat signe avec toutes les signatures)
+ * 2. combined_document_url (legacy)
+ * 3. fallback : refetch /submissions/{id} si besoin
+ */
+async function getSignedPdfUrl(data: DocusealEvent["data"]): Promise<string | null> {
+  if (data.documents && data.documents.length > 0) return data.documents[0].url;
+  if (data.combined_document_url) return data.combined_document_url;
+  // Fallback : refetch
+  const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
+  const apiKey = process.env.DOCUSEAL_API_KEY;
+  const submissionId = data.submission_id ?? data.id;
+  if (!baseUrl || !apiKey || !submissionId) return null;
+  try {
+    const res = await fetch(`${baseUrl}/submissions/${submissionId}`, {
+      headers: { "X-Auth-Token": apiKey },
+    });
+    if (!res.ok) return null;
+    const body = await res.json() as { documents?: Array<{ url: string }>; combined_document_url?: string };
+    if (body.documents && body.documents.length > 0) return body.documents[0].url;
+    return body.combined_document_url ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -59,21 +89,21 @@ export async function POST(request: NextRequest) {
 
   if (event.event_type === "submission.completed") {
     // Tous les signers ont signe -> contrat 100% finalise
+    const signedPdfUrl = await getSignedPdfUrl(event.data);
     if (contractId) {
       await admin
         .from("employee_contracts")
         .update({
           signed_at: event.data.completed_at ?? new Date().toISOString(),
-          signed_pdf_url: event.data.combined_document_url,
+          signed_pdf_url: signedPdfUrl,
           docuseal_submission_id: submissionId,
           docuseal_status: "completed",
         })
         .eq("id", contractId);
     }
 
-    // Karim 2026-05-29 : envoi du contrat signe final aux 2 parties
-    // (employee + hr@caftanfactory.com) via EmailJS.
-    if (employeeId && event.data.combined_document_url) {
+    // Envoi du contrat signe final aux 2 parties
+    if (employeeId && signedPdfUrl) {
       const { data: emp } = await admin
         .from("employees")
         .select("full_name, email, preferred_language")
@@ -84,15 +114,14 @@ export async function POST(request: NextRequest) {
         await sendSignedContractCopy({
           to: employee.email,
           recipientName: employee.full_name ?? "Travailleur",
-          signedPdfUrl: event.data.combined_document_url,
+          signedPdfUrl,
           language: (employee.preferred_language === "nl" || employee.preferred_language === "en") ? employee.preferred_language : "fr",
         });
       }
-      // Copie HR
       await sendSignedContractCopy({
         to: "hr@caftanfactory.com",
         recipientName: "HR Team",
-        signedPdfUrl: event.data.combined_document_url,
+        signedPdfUrl,
         language: "fr",
       });
     }
@@ -167,28 +196,28 @@ async function sendSignedContractCopy(args: {
 
   const MSG = {
     fr: {
-      subject: "Votre contrat signé — Caftan Factory",
+      subject: "Votre contrat signé — Caftan Factory (By AMD Megastore)",
       body: (name: string, url: string) =>
         `Bonjour ${name},\n\nVotre contrat a été signé par toutes les parties. ` +
         `Vous pouvez le télécharger ici :\n\n👉 ${url}\n\n` +
         `Conservez précieusement ce document — il fait office d'original.\n\n` +
-        `Bien à vous,\nL'équipe RH`,
+        `Bien à vous,\nL'équipe Caftan Factory (By AMD Megastore)`,
     },
     nl: {
-      subject: "Uw ondertekende overeenkomst — Caftan Factory",
+      subject: "Uw ondertekende overeenkomst — Caftan Factory (By AMD Megastore)",
       body: (name: string, url: string) =>
         `Beste ${name},\n\nUw overeenkomst werd door alle partijen ondertekend. ` +
         `U kan ze hier downloaden:\n\n👉 ${url}\n\n` +
         `Bewaar dit document zorgvuldig — het geldt als origineel.\n\n` +
-        `Met vriendelijke groet,\nHet HR-team`,
+        `Met vriendelijke groet,\nHet Caftan Factory team (By AMD Megastore)`,
     },
     en: {
-      subject: "Your signed contract — Caftan Factory",
+      subject: "Your signed contract — Caftan Factory (By AMD Megastore)",
       body: (name: string, url: string) =>
         `Hello ${name},\n\nYour contract has been signed by all parties. ` +
         `You can download it here:\n\n👉 ${url}\n\n` +
         `Keep this document safely — it serves as the original.\n\n` +
-        `Best regards,\nThe HR team`,
+        `Best regards,\nThe Caftan Factory team (By AMD Megastore)`,
     },
   } as const;
 
@@ -198,7 +227,7 @@ async function sendSignedContractCopy(args: {
   const params = {
     to_email: args.to, email: args.to, user_email: args.to, candidate_email: args.to,
     to: args.to, to_name: args.recipientName, name: args.recipientName, candidate_name: args.recipientName,
-    from_name: "HR Caftan Factory", reply_to: "hr@caftanfactory.com",
+    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
     subject: msg.subject, message: body, html_message: body.replace(/\n/g, "<br>"),
     body, html: body.replace(/\n/g, "<br>"), content: body,
     signed_pdf_url: args.signedPdfUrl,

@@ -19,7 +19,7 @@ const SIGN_MESSAGES = {
       `Une fois signé, vous recevrez automatiquement une copie complète du contrat par mail.\n\n` +
       `Si vous avez la moindre question, répondez simplement à ce mail.\n\n` +
       `Bien à vous,\n` +
-      `L'équipe RH de ${employerName}`,
+      `L'équipe Caftan Factory (By AMD Megastore)`,
   },
   nl: {
     subject: (org: string) => `Welkom bij ${org} — Uw te ondertekenen overeenkomst`,
@@ -32,7 +32,7 @@ const SIGN_MESSAGES = {
       `Eenmaal ondertekend ontvangt u automatisch een volledig exemplaar van de overeenkomst per mail.\n\n` +
       `Aarzel niet om op deze mail te antwoorden bij vragen.\n\n` +
       `Met vriendelijke groet,\n` +
-      `Het HR-team van ${employerName}`,
+      `Het Caftan Factory team (By AMD Megastore)`,
   },
   en: {
     subject: (org: string) => `Welcome to ${org} — Your contract to sign`,
@@ -45,7 +45,7 @@ const SIGN_MESSAGES = {
       `Once signed, you will automatically receive a full copy of the contract by email.\n\n` +
       `If you have any questions, just reply to this email.\n\n` +
       `Best regards,\n` +
-      `The HR team of ${employerName}`,
+      `The Caftan Factory team (By AMD Megastore)`,
   },
 } as const;
 
@@ -82,7 +82,8 @@ export async function sendContractSignatureMail(args: {
     to_name: args.employeeName,
     name: args.employeeName,
     candidate_name: args.employeeName,
-    from_name: `HR ${args.employerName}`,
+    // Karim 2026-05-29 : branding unifie "Caftan Factory (By AMD Megastore)"
+    from_name: "Caftan Factory (By AMD Megastore)",
     reply_to: "hr@caftanfactory.com",
     subject,
     message: body,
