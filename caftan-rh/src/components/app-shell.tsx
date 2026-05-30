@@ -10,7 +10,7 @@ import {
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
   Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
-  Upload, ClipboardEdit, FileSignature,
+  Upload, ClipboardEdit, FileSignature, Wallet,
   ChevronDown, ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -40,7 +40,7 @@ const ICONS: Record<string, LucideIcon> = {
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
   Activity, ShoppingBag, ArrowRightLeft, AlertCircle, Megaphone,
   Star, RefreshCw, TrendingUp, LifeBuoy, Stethoscope, ShieldCheck,
-  Upload, ClipboardEdit, FileSignature,
+  Upload, ClipboardEdit, FileSignature, Wallet,
 };
 
 export type NavIconName = keyof typeof ICONS;

@@ -206,6 +206,7 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/admin/analytics/sites", label: "Analytics par site", icon: "FileBarChart" },
       { href: "/admin/cockpit", label: "Cockpit exécutif", icon: "LayoutDashboard" },
       { href: "/admin/payroll", label: "Paie & exports", icon: "FileText" },
+      { href: "/admin/payslips", label: "Fiches de paie + QR EPC", icon: "Wallet" },
       { href: "/admin/documents", label: "Documents centralisés", icon: "FileText" },
       { href: "/admin/overtime-audit", label: "Audit heures sup", icon: "Activity" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },

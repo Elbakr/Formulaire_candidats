@@ -71,29 +71,58 @@ export async function extractPagesText(pdfBytes: Uint8Array | ArrayBuffer): Prom
  * Tolerant aux variations : "ELBAZI Karim", "ELBAZI, Karim", "KARIM ELBAZI".
  */
 export function detectEmployeeName(pageText: string): { name: string | null; niss: string | null } {
-  // NISS : 11 chiffres avec separateurs optionnels
-  const nissMatch = pageText.match(/\b(\d{2})[.\s-]?(\d{2})[.\s-]?(\d{2})[\s-]?(\d{3})[.\s-]?(\d{2})\b/);
+  // HR Consult specifique : NISS au format "No.Rég.Nat.: 06.05.31 374-50"
+  // (espace entre les 2 derniers groupes, pas tiret comme NISS standard)
+  const nissHr = pageText.match(/No\.?\s*R[ée�]?g\.?\s*Nat\.?\s*:?\s*(\d{2})[.\s]?(\d{2})[.\s]?(\d{2})\s+(\d{3})[\s-]?(\d{2})/i);
+  // Fallback NISS generique (11 chiffres avec separateurs)
+  const nissGen = pageText.match(/\b(\d{2})[.\s-](\d{2})[.\s-](\d{2})[\s-]?(\d{3})[.\s-]?(\d{2})\b/);
+  const nissMatch = nissHr ?? nissGen;
   const niss = nissMatch ? `${nissMatch[1]}.${nissMatch[2]}.${nissMatch[3]}-${nissMatch[4]}.${nissMatch[5]}` : null;
 
-  // Nom : cherche des sequences de mots majuscules (>= 2 char chacun)
-  // Patterns possibles :
-  //   "ELBAZI Karim"
-  //   "EL BAZI Karim"
-  //   "KARIM ELBAZI"
-  // On prend le 1er match plausible en debut de doc
+  // HR Consult specifique : le nom apparait apres "Régime/Système:" ou
+  // dans la colonne droite, format "NOM Prenom" ou "NOM PrenomA PrenomB".
+  // Le nom est toujours en debut de mot avec NOM = 2+ chars majuscules.
+  // Ex : "ELBAZI Hidaya", "EL BAZI Karim", "VAN DEN BERG Pierre"
+
+  // 1ere tentative : pattern HR Consult typique (nom apres /Mois ou /Heure)
+  const hrPattern = /(?:\/Mois|\/Heure)\s+([A-ZÀ-Ý]{2,}(?:\s+[A-ZÀ-Ý]{2,}){0,2})\s+([A-ZÀ-Ý][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ý][a-zà-ÿ]+)*)/;
+  const m1 = pageText.match(hrPattern);
+  if (m1) return { name: `${m1[1]} ${m1[2]}`.trim(), niss };
+
+  // 2eme : pattern generique NOM Prenom
   const namePatterns = [
-    // NOM Prenom (NOM = 2+ chars majuscules, Prenom = capitalize)
     /\b([A-ZÀ-Ý]{2,}(?:\s+[A-ZÀ-Ý]{2,}){0,2})\s+([A-ZÀ-Ý][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ý][a-zà-ÿ]+)*)\b/,
-    // Prenom NOM
     /\b([A-ZÀ-Ý][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ý][a-zà-ÿ]+)*)\s+([A-ZÀ-Ý]{2,}(?:\s+[A-ZÀ-Ý]{2,}){0,2})\b/,
   ];
   for (const pat of namePatterns) {
     const m = pageText.match(pat);
     if (m) {
-      return { name: `${m[1]} ${m[2]}`.trim(), niss };
+      // Exclure faux positifs typiques HR Consult :
+      // "AMD MEGASTORE SRL", "FEUILLE DE PAIE", "HUMAN RESOURCES CONSULT"
+      const candidate = `${m[1]} ${m[2]}`.trim();
+      if (/^(AMD|HUMAN|FEUILLE|RUE|ROUTE|HR\s)/i.test(candidate)) continue;
+      return { name: candidate, niss };
     }
   }
   return { name: null, niss };
+}
+
+/**
+ * Karim 2026-05-29 : detecte si une page commence une nouvelle fiche de paie
+ * (utile pour le groupement des pages multiples d une meme fiche).
+ */
+export function isPayslipStartPage(pageText: string): boolean {
+  return /FEUILLE\s+DE\s+PAIE/i.test(pageText);
+}
+
+/**
+ * Karim 2026-05-29 : extrait l IBAN beneficiaire depuis la "FORMULE DE PAIEMENT".
+ * Ex : "FORMULE DE PAIEMENT / 82,39 EUR par liste paiements sur compte
+ *       bancaire BE80 0637 2116 0477 de ELBAZI Hidaya"
+ */
+export function detectEmployeeIban(pageText: string): string | null {
+  const m = pageText.match(/compte\s+bancaire\s+(BE\d{2}(?:\s*\d{4}){3})/i);
+  return m ? m[1].replace(/\s+/g, " ").trim() : null;
 }
 
 /**
@@ -112,35 +141,45 @@ export function detectAmountsAndPeriod(pageText: string): {
 } {
   const txt = pageText.replace(/\s+/g, " ");
 
-  // Net : cherche "Net a payer", "Net", "Total net", "Net imposable"
-  const netRe = /(?:net\s*a\s*payer|net\s+imposable|total\s+net|salaire\s+net|net)\s*[:\s]*([0-9]{1,3}(?:[\s,.][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i;
-  const netM = txt.match(netRe);
+  // HR Consult : "Salaire net  EUR 82,39" - prioritaire sur les autres
+  const netHr = txt.match(/Salaire\s+net\s+EUR\s+([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
+  // Fallback "A payer EUR ..."
+  const netAp = txt.match(/A\s+payer\s+EUR\s+([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
+  // Fallback generique "Net a payer ..."
+  const netGen = txt.match(/(?:net\s*a\s*payer|net\s+imposable|total\s+net)\s*[:\s]*([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i);
+  const netM = netHr ?? netAp ?? netGen;
   const net = netM ? parseAmountFr(netM[1]) : null;
 
-  // Brut : cherche "Brut imposable", "Salaire brut", "Total brut"
-  const grossRe = /(?:salaire\s+brut|brut\s+imposable|total\s+brut|brut)\s*[:\s]*([0-9]{1,3}(?:[\s,.][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i;
-  const grossM = txt.match(grossRe);
+  // HR Consult : "BRUT SOUMIS A L'ONSS:  EUR 84,68"
+  const grossHr = txt.match(/BRUT\s+SOUMIS\s+A\s+L['’]?ONSS\s*:?\s*(?:EUR\s+)?([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
+  const grossGen = txt.match(/(?:salaire\s+brut|brut\s+imposable|total\s+brut)\s*[:\s]*([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i);
+  const grossM = grossHr ?? grossGen;
   const gross = grossM ? parseAmountFr(grossM[1]) : null;
 
-  // Periode : "05/2026" ou "05-2026" ou "Mai 2026"
-  const monthYearRe = /\b(0?[1-9]|1[0-2])[\/\-\.\s]+(20[0-9]{2})\b/;
-  const monthNameRe = /\b(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(20[0-9]{2})\b/i;
-
+  // HR Consult : "Période: 01-05-2026 - 31-05-2026" ou "P�riode" si encodage casse
+  const periodHr = txt.match(/P[ée�]?riode\s*:?\s*\d{1,2}[-\/]([0-1]?\d)[-\/](\d{4})/);
   let periodMonth: number | null = null;
   let periodYear: number | null = null;
-
-  const mY = txt.match(monthYearRe);
-  if (mY) {
-    periodMonth = parseInt(mY[1], 10);
-    periodYear = parseInt(mY[2], 10);
+  if (periodHr) {
+    periodMonth = parseInt(periodHr[1], 10);
+    periodYear = parseInt(periodHr[2], 10);
   } else {
-    const mn = txt.match(monthNameRe);
-    if (mn) {
-      const monthNames = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
-      const idx = monthNames.indexOf(mn[1].toLowerCase().replace(/[éè]/g, "e").replace(/û/g, "u"));
-      if (idx >= 0) {
-        periodMonth = idx + 1;
-        periodYear = parseInt(mn[2], 10);
+    const monthYearRe = /\b(0?[1-9]|1[0-2])[\/\-\.\s]+(20[0-9]{2})\b/;
+    const monthNameRe = /\b(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+(20[0-9]{2})\b/i;
+    const mY = txt.match(monthYearRe);
+    if (mY) {
+      periodMonth = parseInt(mY[1], 10);
+      periodYear = parseInt(mY[2], 10);
+    } else {
+      const mn = txt.match(monthNameRe);
+      if (mn) {
+        const monthNames = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+        const norm = mn[1].toLowerCase().replace(/[éè]/g, "e").replace(/û/g, "u");
+        const idx = monthNames.indexOf(norm);
+        if (idx >= 0) {
+          periodMonth = idx + 1;
+          periodYear = parseInt(mn[2], 10);
+        }
       }
     }
   }
@@ -164,12 +203,18 @@ export function groupPagesByEmployee(pages: PageText[]): SplitGroup[] {
   const groups: SplitGroup[] = [];
   let current: SplitGroup | null = null;
   for (const p of pages) {
+    const isStart = isPayslipStartPage(p.text);
     const { name, niss } = detectEmployeeName(p.text);
-    const matchesCurrent =
-      current &&
-      ((niss && current.niss && niss === current.niss) ||
-        (name && current.employeeNameRaw && normalizeName(name) === normalizeName(current.employeeNameRaw)));
-    if (matchesCurrent && current) {
+
+    // HR Consult : chaque page "FEUILLE DE PAIE" = nouvelle fiche
+    // (sauf si meme NISS que la fiche en cours -> continuation)
+    let startsNewGroup = isStart;
+    if (current && isStart && niss && current.niss && niss === current.niss) {
+      // Meme NISS = continuation de la meme fiche (rare, ex : annexes)
+      startsNewGroup = false;
+    }
+
+    if (!startsNewGroup && current && (niss === current.niss || (!niss && !name))) {
       current.endPage = p.pageNumber;
       current.pages.push(p);
     } else {

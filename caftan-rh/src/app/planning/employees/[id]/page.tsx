@@ -29,6 +29,7 @@ import { LeaveButton } from "./leave-button";
 import { SignContractButton } from "./sign-contract-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
+import { SalaryAdvanceSection } from "./salary-advance-section";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -265,6 +266,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         employeeId={id}
         employeeName={(emp as { full_name: string }).full_name}
         devices={(tuyaDevices ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>}
+      />
+
+      {/* Karim 2026-05-29 : avance salariale - deduite du net lors prochain paye */}
+      <SalaryAdvanceSection
+        employeeId={id}
+        initialAmount={Number((emp as { salary_advance_amount: number | null }).salary_advance_amount ?? 0)}
+        initialNote={(emp as { salary_advance_note: string | null }).salary_advance_note ?? null}
+        updatedAt={(emp as { salary_advance_updated_at: string | null }).salary_advance_updated_at ?? null}
       />
 
       <DangerZone
