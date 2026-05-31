@@ -160,11 +160,42 @@ export async function sendPayslipToEmployeeAction(
   const destEmail = recipientEmail?.trim() || emp.email;
   if (!destEmail) return { ok: false, error: "Pas d email destinataire" };
 
-  // Genere URL signee 7 jours pour le PDF (privé)
-  const { data: signed } = await admin.storage
-    .from("payslips")
-    .createSignedUrl(payslip.pdf_storage_path, 7 * 24 * 3600);
-  if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer URL PDF" };
+  // Karim 2026-05-31 : watermark dynamique anti-fuite avant envoi.
+  // On télécharge le PDF original, on tatoue (destinataire + date), on
+  // upload sur un path partagé, et on signe sur cette version. Fallback
+  // safe : si watermark échoue, on retombe sur le PDF original.
+  let signedUrl: string | null = null;
+  try {
+    const { data: blob } = await admin.storage.from("payslips").download(payslip.pdf_storage_path);
+    if (blob) {
+      const origBytes = new Uint8Array(await blob.arrayBuffer());
+      const { applyDynamicWatermark } = await import("@/lib/pdf-watermark");
+      const wmBytes = await applyDynamicWatermark(origBytes, {
+        recipientName: emp.full_name ?? destEmail,
+        recipientEmail: destEmail,
+        docRef: payslipId.slice(0, 8),
+        diagonalText: "COPIE PERSONNELLE",
+      });
+      const wmPath = `${payslip.pdf_storage_path.replace(/\.pdf$/i, "")}__wm__${Date.now()}.pdf`;
+      const up = await admin.storage
+        .from("payslips")
+        .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
+      if (!up.error) {
+        const signedWm = await admin.storage.from("payslips").createSignedUrl(wmPath, 7 * 24 * 3600);
+        if (signedWm.data?.signedUrl) signedUrl = signedWm.data.signedUrl;
+      }
+    }
+  } catch (e) {
+    console.warn("[sendPayslipToEmployeeAction] watermark fallback:", (e as Error).message);
+  }
+  if (!signedUrl) {
+    const { data: signed } = await admin.storage
+      .from("payslips")
+      .createSignedUrl(payslip.pdf_storage_path, 7 * 24 * 3600);
+    if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer URL PDF" };
+    signedUrl = signed.signedUrl;
+  }
+  const signed = { signedUrl };
 
   // Envoi via EmailJS
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
