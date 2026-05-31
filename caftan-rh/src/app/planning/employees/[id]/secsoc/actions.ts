@@ -85,7 +85,7 @@ function buildBody(emp: SecsocEmployeeSnapshot, org: OrgInfo): string {
     "",
     "═════════ TRANSPORT ═════════",
     line("Type", emp.transport_type),
-    line("Frequence", emp.transport_frequency),
+    line("Période tarif", emp.transport_frequency),
     line("Prix", emp.transport_price),
     "",
     "Merci d'encoder cette fiche et de confirmer la prise en compte.",

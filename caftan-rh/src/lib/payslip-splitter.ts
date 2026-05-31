@@ -12,15 +12,9 @@
 
 import { PDFDocument } from "pdf-lib";
 
-// pdfjs-dist v4+ : import dynamique car package ESM only
-type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
-
-let pdfjs: PdfJsModule | null = null;
-async function getPdfjs(): Promise<PdfJsModule> {
-  if (pdfjs) return pdfjs;
-  pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  return pdfjs;
-}
+// Karim 2026-05-30 : on utilise unpdf (wrap pdfjs-dist pour Node sans worker)
+// car Turbopack ne resoud pas pdf.worker.mjs et "fake worker" plante.
+// unpdf est concu pour Next.js / Edge / serverless.
 
 export interface PageText {
   pageNumber: number;
@@ -44,22 +38,26 @@ export interface SplitPayslipResult {
   grossAmount: number | null;
   periodMonth: number | null;
   periodYear: number | null;
+  // Karim 2026-05-30 : texte concatene des pages du groupe (debug parser)
+  rawText?: string;
 }
 
 /**
  * Karim 2026-05-29 : extrait le texte de chaque page d un PDF.
+ * Utilise unpdf (wrap pdfjs-dist pour Node sans worker).
+ *
+ * Karim 2026-05-30 : clone les bytes pour eviter que unpdf detache le buffer
+ * (sinon pdf-lib n a plus rien a charger ensuite -> "No PDF header found").
  */
 export async function extractPagesText(pdfBytes: Uint8Array | ArrayBuffer): Promise<PageText[]> {
-  const lib = await getPdfjs();
-  const doc = await lib.getDocument({ data: pdfBytes }).promise;
-  const result: PageText[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const text = content.items.map((it: { str?: string }) => it.str ?? "").join(" ");
-    result.push({ pageNumber: i, text });
-  }
-  return result;
+  const { getDocumentProxy, extractText } = await import("unpdf");
+  const src = pdfBytes instanceof ArrayBuffer ? new Uint8Array(pdfBytes) : pdfBytes;
+  // Clone : unpdf detache le buffer source apres usage
+  const data = new Uint8Array(src);
+  const pdf = await getDocumentProxy(data);
+  const { text } = await extractText(pdf, { mergePages: false });
+  const pages = Array.isArray(text) ? text : [text];
+  return pages.map((t, i) => ({ pageNumber: i + 1, text: t ?? "" }));
 }
 
 /**
@@ -84,7 +82,16 @@ export function detectEmployeeName(pageText: string): { name: string | null; nis
   // Le nom est toujours en debut de mot avec NOM = 2+ chars majuscules.
   // Ex : "ELBAZI Hidaya", "EL BAZI Karim", "VAN DEN BERG Pierre"
 
-  // 1ere tentative : pattern HR Consult typique (nom apres /Mois ou /Heure)
+  // Karim 2026-05-30 : pattern principal unpdf - le nom apparait juste apres
+  // "Période: DD-MM-YYYY - DD-MM-YYYY" et avant l adresse (rue type).
+  // Ex : "Période: 01-05-2026 - 10-05-2026 ELBAZI Hidaya Kammestraat 37A"
+  // Le Prenom est limite a UN mot (pas chainer "Hidaya Kammestraat") sauf si
+  // c est un Prenom compose avec tiret ("Marie-Claire").
+  const periodePattern = /P[ée]riode\s*:?\s*\d{1,2}-\d{1,2}-\d{4}\s+-\s+\d{1,2}-\d{1,2}-\d{4}\s+([A-ZÀ-Ý]{2,}(?:\s+[A-ZÀ-Ý]{2,}){0,2})\s+([A-ZÀ-Ý][a-zà-ÿ]+(?:-[A-ZÀ-Ý][a-zà-ÿ]+)?)/;
+  const m0 = pageText.match(periodePattern);
+  if (m0) return { name: `${m0[1]} ${m0[2]}`.trim(), niss };
+
+  // Fallback HR Consult : pattern legacy (nom apres /Mois ou /Heure)
   const hrPattern = /(?:\/Mois|\/Heure)\s+([A-ZÀ-Ý]{2,}(?:\s+[A-ZÀ-Ý]{2,}){0,2})\s+([A-ZÀ-Ý][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ý][a-zà-ÿ]+)*)/;
   const m1 = pageText.match(hrPattern);
   if (m1) return { name: `${m1[1]} ${m1[2]}`.trim(), niss };
@@ -112,7 +119,8 @@ export function detectEmployeeName(pageText: string): { name: string | null; nis
  * (utile pour le groupement des pages multiples d une meme fiche).
  */
 export function isPayslipStartPage(pageText: string): boolean {
-  return /FEUILLE\s+DE\s+PAIE/i.test(pageText);
+  // Karim 2026-05-31 : supporte FR (FEUILLE DE PAIE) + NL (LOONBRIEF) pour sites Anvers
+  return /FEUILLE\s+DE\s+PAIE/i.test(pageText) || /LOONBRIEF/i.test(pageText);
 }
 
 /**
@@ -121,7 +129,8 @@ export function isPayslipStartPage(pageText: string): boolean {
  *       bancaire BE80 0637 2116 0477 de ELBAZI Hidaya"
  */
 export function detectEmployeeIban(pageText: string): string | null {
-  const m = pageText.match(/compte\s+bancaire\s+(BE\d{2}(?:\s*\d{4}){3})/i);
+  // Karim 2026-05-31 : FR "compte bancaire" + NL "op rekening"
+  const m = pageText.match(/(?:compte\s+bancaire|op\s+rekening)\s+(BE\d{2}(?:\s*\d{4}){3})/i);
   return m ? m[1].replace(/\s+/g, " ").trim() : null;
 }
 
@@ -141,23 +150,32 @@ export function detectAmountsAndPeriod(pageText: string): {
 } {
   const txt = pageText.replace(/\s+/g, " ");
 
-  // HR Consult : "Salaire net  EUR 82,39" - prioritaire sur les autres
-  const netHr = txt.match(/Salaire\s+net\s+EUR\s+([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
-  // Fallback "A payer EUR ..."
-  const netAp = txt.match(/A\s+payer\s+EUR\s+([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
-  // Fallback generique "Net a payer ..."
-  const netGen = txt.match(/(?:net\s*a\s*payer|net\s+imposable|total\s+net)\s*[:\s]*([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i);
-  const netM = netHr ?? netAp ?? netGen;
+  // Karim 2026-05-30 : unpdf renvoie "Salaire net 82,39EUR" (EUR colle au montant)
+  // au lieu de "Salaire net EUR 82,39" comme pdftotext layout.
+  // Karim 2026-05-31 : ajout patterns NL pour sites Anvers
+  // (Netto loon, Te betalen, BETAALWIJZE).
+  const amountRe = `([0-9]{1,3}(?:[\\s.,][0-9]{3})*[,.][0-9]{2})`;
+  // FR
+  const netHr = txt.match(new RegExp(`Salaire\\s+net\\s+(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const netAp = txt.match(new RegExp(`A\\s+payer\\s+(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const netGen = txt.match(new RegExp(`(?:net\\s*a\\s*payer|net\\s+imposable|total\\s+net)\\s*[:\\s]*${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const netFormule = txt.match(new RegExp(`FORMULE\\s+DE\\s+PAIEMENT\\s+${amountRe}\\s*EUR`, "i"));
+  // NL (LOONBRIEF Anvers)
+  const netNlLoon = txt.match(new RegExp(`Netto\\s+loon\\s+(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const netNlTe = txt.match(new RegExp(`Te\\s+betalen\\s+(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const netNlBet = txt.match(new RegExp(`BETAALWIJZE[\\s\\S]{0,50}?${amountRe}\\s+EUR`, "i"));
+  const netM = netHr ?? netAp ?? netGen ?? netFormule ?? netNlLoon ?? netNlTe ?? netNlBet;
   const net = netM ? parseAmountFr(netM[1]) : null;
 
-  // HR Consult : "BRUT SOUMIS A L'ONSS:  EUR 84,68"
-  const grossHr = txt.match(/BRUT\s+SOUMIS\s+A\s+L['’]?ONSS\s*:?\s*(?:EUR\s+)?([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})/i);
-  const grossGen = txt.match(/(?:salaire\s+brut|brut\s+imposable|total\s+brut)\s*[:\s]*([0-9]{1,3}(?:[\s.,][0-9]{3})*[,.][0-9]{2})\s*(?:€|EUR)?/i);
-  const grossM = grossHr ?? grossGen;
+  // HR Consult : "BRUT SOUMIS A L'ONSS: EUR 84,68" ou "84,68EUR" + NL "BRUTO ONDERWORPEN AAN RSZ"
+  const grossHr = txt.match(new RegExp(`BRUT\\s+SOUMIS\\s+A\\s+L['’]?ONSS\\s*:?\\s*(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const grossNl = txt.match(new RegExp(`BRUTO\\s+ONDERWORPEN\\s+AAN\\s+RSZ\\s*:?\\s*(?:EUR\\s+)?${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const grossGen = txt.match(new RegExp(`(?:salaire\\s+brut|brut\\s+imposable|total\\s+brut)\\s*[:\\s]*${amountRe}\\s*(?:EUR|€)?`, "i"));
+  const grossM = grossHr ?? grossNl ?? grossGen;
   const gross = grossM ? parseAmountFr(grossM[1]) : null;
 
-  // HR Consult : "Période: 01-05-2026 - 31-05-2026" ou "P�riode" si encodage casse
-  const periodHr = txt.match(/P[ée�]?riode\s*:?\s*\d{1,2}[-\/]([0-1]?\d)[-\/](\d{4})/);
+  // HR Consult : "Période: 01-05-2026 - 31-05-2026" (FR) ou "Periode: 19-05-2026 - 31-05-2026" (NL)
+  const periodHr = txt.match(/P[ée�]?riode\s*:?\s*\d{1,2}[-\/]([0-1]?\d)[-\/](\d{4})/i);
   let periodMonth: number | null = null;
   let periodYear: number | null = null;
   if (periodHr) {
@@ -206,15 +224,14 @@ export function groupPagesByEmployee(pages: PageText[]): SplitGroup[] {
     const isStart = isPayslipStartPage(p.text);
     const { name, niss } = detectEmployeeName(p.text);
 
-    // HR Consult : chaque page "FEUILLE DE PAIE" = nouvelle fiche
-    // (sauf si meme NISS que la fiche en cours -> continuation)
-    let startsNewGroup = isStart;
-    if (current && isStart && niss && current.niss && niss === current.niss) {
-      // Meme NISS = continuation de la meme fiche (rare, ex : annexes)
-      startsNewGroup = false;
-    }
+    // Karim 2026-05-30 : CHAQUE "FEUILLE DE PAIE" = NOUVELLE fiche, sans exception.
+    // Meme si 2 fiches d affilee pour le meme employee (cas double fiche legitime
+    // ou regularisation), elles DOIVENT etre splittees pour pouvoir appliquer la
+    // regle "la plus petite est differee j+6". Pas de regroupement par NISS.
+    const startsNewGroup = isStart;
 
-    if (!startsNewGroup && current && (niss === current.niss || (!niss && !name))) {
+    if (!startsNewGroup && current && (!isStart) && (!name || (name === current.employeeNameRaw))) {
+      // Page CONTINUATION (pas de "FEUILLE DE PAIE" detectee) - rare, ex: annexe
       current.endPage = p.pageNumber;
       current.pages.push(p);
     } else {
@@ -241,9 +258,12 @@ function normalizeName(s: string): string {
  * un par employee, avec metadonnees extraites.
  */
 export async function splitPayslipPdf(pdfBytes: Uint8Array): Promise<SplitPayslipResult[]> {
-  const pages = await extractPagesText(pdfBytes);
+  // Karim 2026-05-30 : clone explicite pour chaque consumer (unpdf detache le buffer)
+  const bytesForUnpdf = new Uint8Array(pdfBytes);
+  const bytesForPdfLib = new Uint8Array(pdfBytes);
+  const pages = await extractPagesText(bytesForUnpdf);
   const groups = groupPagesByEmployee(pages);
-  const srcDoc = await PDFDocument.load(pdfBytes);
+  const srcDoc = await PDFDocument.load(bytesForPdfLib);
   const results: SplitPayslipResult[] = [];
 
   for (const g of groups) {
@@ -265,6 +285,7 @@ export async function splitPayslipPdf(pdfBytes: Uint8Array): Promise<SplitPaysli
       grossAmount: amounts.gross,
       periodMonth: amounts.periodMonth,
       periodYear: amounts.periodYear,
+      rawText: fullText,
     });
   }
 

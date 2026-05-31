@@ -154,33 +154,40 @@ export function EmployeeAdminForm({
               </SelectContent>
             </Select>
           </div>
-          <Field label="Contrat" name="contract_type" defaultValue={employee.contract_type ?? "CDD"} />
+          {/* Karim 2026-05-30 : CONTRAT = UNIQUEMENT CDD ou Etudiant (politique no-CDI) */}
+          <div>
+            <Label>Contrat</Label>
+            <Select name="contract_type" defaultValue={employee.contract_type === "Étudiant" || employee.contract_type === "Etudiant" ? "Étudiant" : "CDD"}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CDD">CDD</SelectItem>
+                <SelectItem value="Étudiant">Étudiant</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-ink-3 mt-0.5">CDI non disponible (politique CaftanRH)</p>
+          </div>
           <Field label="Statut" name="status" defaultValue={employee.status} />
-          <Field label="Heures/semaine" name="weekly_hours" defaultValue={String(employee.weekly_hours ?? 38)} type="number" />
+          <WorkTimeAndHours
+            defaultKind={employee.work_time_kind}
+            defaultHours={employee.weekly_hours}
+            contractType={employee.contract_type}
+          />
           <Field label="Taux horaire (€)" name="hourly_rate" defaultValue={employee.hourly_rate != null ? String(employee.hourly_rate) : ""} type="number" />
           <Field label="Date d'entrée" name="start_date" defaultValue={employee.start_date ?? ""} type="date" />
           <Field label="Date de sortie" name="end_date" defaultValue={employee.end_date ?? ""} type="date" />
           <Field label="Fin période d'essai" name="trial_end_date" defaultValue={employee.trial_end_date ?? ""} type="date" />
           <Field label="Quota annuel (étudiant — heures)" name="annual_hours_budget" defaultValue={employee.annual_hours_budget != null ? String(employee.annual_hours_budget) : ""} type="number" />
-          <WorkTimeKindField
-            defaultValue={employee.work_time_kind}
-            weeklyHours={employee.weekly_hours}
-          />
         </div>
       </Section>
 
       <Section title="🪪 Identification">
         <div className="grid md:grid-cols-3 gap-3">
-          <ValidatedField
-            label="NRN"
-            name="nrn"
-            defaultValue={employee.nrn ?? ""}
-            placeholder="XX.XX.XX-XXX.XX"
-            validator={validateNRN}
-            formatter={formatNRN}
+          {/* Karim 2026-05-30 : date naissance EN PREMIER pour pre-remplir le NRN. */}
+          <BirthDateAndNrn
+            defaultBirthDate={employee.birth_date ?? ""}
+            defaultNrn={employee.nrn ?? ""}
           />
           <Field label="N° carte d'identité" name="cin_number" defaultValue={employee.cin_number ?? ""} />
-          <Field label="Date de naissance" name="birth_date" defaultValue={employee.birth_date ?? ""} type="date" />
           <Field label="Lieu de naissance" name="birth_place" defaultValue={employee.birth_place ?? ""} placeholder="ex. Bruxelles" />
           <div>
             <Label>Lieu de signature</Label>
@@ -238,14 +245,15 @@ export function EmployeeAdminForm({
             placeholder="52.00"
           />
           <div>
-            <Label>Fréquence transport</Label>
+            <Label>Période du tarif transport</Label>
             <Select name="transport_frequency" defaultValue={employee.transport_frequency ?? "mensuel"}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="mensuel">Mensuel</SelectItem>
-                <SelectItem value="annuel">Annuel</SelectItem>
+                <SelectItem value="mensuel">Tarif mensuel</SelectItem>
+                <SelectItem value="annuel">Tarif annuel</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-[10px] text-ink-3 mt-0.5">Le prix saisi ci-dessus correspond à un abonnement…</p>
           </div>
         </div>
       </Section>
@@ -413,40 +421,180 @@ function Field({
   );
 }
 
-// Sélection plein temps / temps partiel, pré-remplie selon weekly_hours (>= 38 = full).
-function WorkTimeKindField({
-  defaultValue,
-  weeklyHours,
+// Karim 2026-05-30 : date naissance + NRN couplés.
+// Loi belge : NRN (6 premiers chiffres) = YYMMDD inversé de la date de naissance.
+// Quand on saisit la date, on auto-prefill le NRN avec "YY.MM.DD-" (modifiable
+// pour les rares exceptions : changement de nom, naturalisation, etc.).
+function BirthDateAndNrn({
+  defaultBirthDate,
+  defaultNrn,
 }: {
-  defaultValue: string | null;
-  weeklyHours: number | null;
+  defaultBirthDate: string;
+  defaultNrn: string;
 }) {
-  const inferred: "full" | "part" = (weeklyHours ?? 0) >= 38 ? "full" : "part";
-  const value = (defaultValue === "full" || defaultValue === "part") ? defaultValue : inferred;
+  const [birthDate, setBirthDate] = useState(defaultBirthDate);
+  const [nrn, setNrn] = useState(defaultNrn);
+
+  function onBirthDateChange(newDate: string) {
+    setBirthDate(newDate);
+    // Si NRN vide ou ne match pas la date, propose le nouveau préfixe
+    if (newDate && newDate.length >= 10) {
+      const [y, m, d] = newDate.split("-");
+      const yy = y.slice(2);
+      const prefix = `${yy}.${m}.${d}-`;
+      // Si le NRN actuel correspond a l ancienne date (memes 6 chiffres), update
+      // Si NRN vide, prefill
+      const cleaned = nrn.replace(/[.\-\s]/g, "");
+      if (!nrn || (cleaned.length >= 6 && cleaned.slice(0, 6) !== prefix.slice(0, 8).replace(/[.\-]/g, ""))) {
+        setNrn(prefix);
+      } else if (cleaned.length < 6) {
+        setNrn(prefix);
+      }
+    }
+  }
+
+  // Cohérence : si NRN saisi ne match pas birth_date, warning visuel
+  let warning: string | null = null;
+  if (birthDate && nrn) {
+    const cleaned = nrn.replace(/[.\-\s]/g, "");
+    if (cleaned.length >= 6) {
+      const [y, m, d] = birthDate.split("-");
+      const expected = `${y.slice(2)}${m}${d}`;
+      if (cleaned.slice(0, 6) !== expected) {
+        warning = `Les 6 premiers chiffres NRN (${cleaned.slice(0, 6)}) ne matchent pas la date ${birthDate} (attendu ${expected}). Exception ou erreur ?`;
+      }
+    }
+  }
+
   return (
-    <div>
-      <Label>Temps de travail</Label>
-      <div className="flex gap-2 mt-1">
-        <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
-          <input
-            type="radio"
-            name="work_time_kind"
-            value="full"
-            defaultChecked={value === "full"}
-          />
-          Plein temps
-        </label>
-        <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
-          <input
-            type="radio"
-            name="work_time_kind"
-            value="part"
-            defaultChecked={value === "part"}
-          />
-          Temps partiel
-        </label>
+    <>
+      <div>
+        <Label htmlFor="birth_date">Date de naissance</Label>
+        <Input
+          id="birth_date"
+          name="birth_date"
+          type="date"
+          value={birthDate}
+          onChange={(e) => onBirthDateChange(e.target.value)}
+        />
       </div>
-    </div>
+      <div>
+        <Label htmlFor="nrn">NRN</Label>
+        <Input
+          id="nrn"
+          name="nrn"
+          value={nrn}
+          onChange={(e) => setNrn(e.target.value)}
+          placeholder="XX.XX.XX-XXX.XX"
+        />
+        {warning && (
+          <p className="text-[10px] text-amber-700 mt-0.5">⚠️ {warning}</p>
+        )}
+        {!warning && birthDate && nrn && nrn.length >= 13 && (
+          <p className="text-[10px] text-green-700 mt-0.5">✓ NRN cohérent avec la date de naissance</p>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Karim 2026-05-30 : composant unifié pour piloter ensemble :
+//   - Temps plein -> force 38h (CP 201, loi belge)
+//   - Temps partiel -> clamp [13, 30]h
+//   - Étudiant -> libre [1, 38]h (règles 600h/an gérées séparément)
+// Le trigger BD applique la même logique en backup si jamais le form contourné.
+function WorkTimeAndHours({
+  defaultKind,
+  defaultHours,
+  contractType,
+}: {
+  defaultKind: string | null;
+  defaultHours: number | null;
+  contractType: string | null;
+}) {
+  const isStudent = contractType === "Étudiant" || contractType === "Etudiant";
+  const inferredKind: "full" | "part" =
+    (defaultHours ?? 0) >= 30 ? "full" : "part";
+  const initialKind =
+    defaultKind === "full" || defaultKind === "part" ? defaultKind : inferredKind;
+  const [kind, setKind] = useState<"full" | "part">(initialKind);
+  const [hours, setHours] = useState<string>(String(defaultHours ?? (initialKind === "full" ? 38 : 20)));
+
+  function setKindAndHours(newKind: "full" | "part") {
+    setKind(newKind);
+    if (isStudent) return;
+    if (newKind === "full") {
+      setHours("38");
+    } else {
+      const cur = parseInt(hours, 10);
+      if (!Number.isFinite(cur) || cur < 13) setHours("13");
+      else if (cur > 30) setHours("30");
+    }
+  }
+
+  function onHoursBlur() {
+    if (isStudent) return;
+    const n = parseInt(hours, 10);
+    if (!Number.isFinite(n)) return;
+    if (kind === "full" && n !== 38) setHours("38");
+    if (kind === "part") {
+      if (n < 13) setHours("13");
+      else if (n > 30) setHours("30");
+    }
+  }
+
+  const hoursDisabled = !isStudent && kind === "full";
+  const min = isStudent ? 1 : kind === "full" ? 38 : 13;
+  const max = isStudent ? 38 : kind === "full" ? 38 : 30;
+
+  return (
+    <>
+      <div>
+        <Label>Temps de travail</Label>
+        <div className="flex gap-2 mt-1">
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
+            <input
+              type="radio"
+              name="work_time_kind"
+              value="full"
+              checked={kind === "full"}
+              onChange={() => setKindAndHours("full")}
+            />
+            Plein temps {!isStudent && <span className="text-[10px] text-ink-3">(38h)</span>}
+          </label>
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded border border-line cursor-pointer text-sm">
+            <input
+              type="radio"
+              name="work_time_kind"
+              value="part"
+              checked={kind === "part"}
+              onChange={() => setKindAndHours("part")}
+            />
+            Temps partiel {!isStudent && <span className="text-[10px] text-ink-3">(13–30h)</span>}
+          </label>
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="weekly_hours">Heures/semaine</Label>
+        <input
+          id="weekly_hours"
+          name="weekly_hours"
+          type="number"
+          min={min}
+          max={max}
+          value={hours}
+          onChange={(e) => setHours(e.target.value)}
+          onBlur={onHoursBlur}
+          disabled={hoursDisabled}
+          className="mt-1 w-full px-2 py-1.5 text-sm rounded border border-line bg-surface disabled:bg-muted disabled:opacity-60"
+        />
+        {!isStudent && (
+          <p className="text-[10px] text-ink-3 mt-0.5">
+            {kind === "full" ? "Auto-figé à 38h (CP 201)" : "Min 13h / max 30h (loi belge)"}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 

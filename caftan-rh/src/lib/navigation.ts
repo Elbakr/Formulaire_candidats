@@ -74,6 +74,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/me/swaps", label: "Échanges shifts", icon: "ArrowRightLeft" },
     { href: "/me/absence", label: "Signaler absence", icon: "AlertCircle" },
     { href: "/me/onboarding", label: "Mon onboarding", icon: "FileText" },
+    { href: "/me/screening", label: "Questionnaire profilage", icon: "Sparkles" },
     { href: "/me/scoring", label: "Mon score", icon: "FileBarChart" },
     { href: "/me/my-bonus", label: "Mes primes", icon: "Star" },
     { href: "/me/my-clients", label: "Mes clientes VIP", icon: "Users" },
@@ -140,6 +141,7 @@ export function getNavSections(role: Role): NavGroup[] {
   if (isHR(role)) {
     rhItems.push(
       { href: "/rh/messages", label: "Messagerie email", icon: "Mail" },
+      { href: "/rh/screening", label: "Profilage candidats", icon: "Sparkles" },
       { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
       { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },
       { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },
@@ -207,6 +209,7 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/admin/cockpit", label: "Cockpit exécutif", icon: "LayoutDashboard" },
       { href: "/admin/payroll", label: "Paie & exports", icon: "FileText" },
       { href: "/admin/payslips", label: "Fiches de paie + QR EPC", icon: "Wallet" },
+      { href: "/admin/legal-rules", label: "Règles légales", icon: "ShieldCheck" },
       { href: "/admin/documents", label: "Documents centralisés", icon: "FileText" },
       { href: "/admin/overtime-audit", label: "Audit heures sup", icon: "Activity" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },

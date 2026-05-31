@@ -207,7 +207,36 @@ function markdownToHtml(md: string): string {
   }
   flushParagraph();
   closeList();
-  return out.join("\n");
+  // Karim 2026-05-30 : wrapper chaque article (h2.article-head + paragraphes
+  // suivants) dans <section class="article-block"> avec page-break-inside: avoid.
+  // Garantit qu un article qui commence sur une page y finit (pas a cheval).
+  return wrapArticlesInSections(out.join("\n"));
+}
+
+/**
+ * Karim 2026-05-30 : post-process - wrap chaque article-head + ses paragraphes
+ * suivants dans une <section class="article-block">. Le CSS applique alors
+ * page-break-inside: avoid pour qu'un article ne soit jamais coupe en 2.
+ */
+function wrapArticlesInSections(html: string): string {
+  const ARTICLE_RE = /<h2 class="article-head">/g;
+  const parts: string[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const indexes: number[] = [];
+  while ((match = ARTICLE_RE.exec(html)) !== null) {
+    indexes.push(match.index);
+  }
+  if (indexes.length === 0) return html;
+  // Tout ce qui precede le premier article (titre, parties, convenu)
+  parts.push(html.slice(0, indexes[0]));
+  for (let k = 0; k < indexes.length; k++) {
+    const start = indexes[k];
+    const end = k + 1 < indexes.length ? indexes[k + 1] : html.length;
+    const block = html.slice(start, end);
+    parts.push(`<section class="article-block">${block}</section>`);
+  }
+  return parts.join("\n");
 }
 
 /**
@@ -241,19 +270,38 @@ function markdownToHtml(md: string): string {
  *  - Footer : "*Biffer la mention inutile" gauche italique 8pt
  *           "Page N sur M" droite, N et M en GRAS 8pt
  */
+// Karim 2026-05-30 v3 : police 10pt (= meme taille que les autres contrats).
+// Compense par marges page legerement reduites + paragraphes plus compacts.
+// Article-block page-break-inside:avoid hérité du CSS global -> aucun article
+// coupé entre 2 pages.
+const STUDENT_COMPACT_OVERRIDE = `
+  @page {
+    /* Karim 2026-05-30 : marges page legerement reduites pour student uniquement */
+    margin: 1.5cm 1.8cm 1.3cm 1.8cm;
+  }
+  body.contract-student {
+    font-size: 10pt;
+    line-height: 1.2;
+  }
+  body.contract-student .doc-title h1 { font-size: 17pt; }
+  body.contract-student .doc-title { margin-bottom: 0.35cm; padding: 0.2cm 0.4cm; }
+  body.contract-student .parties-block { margin-bottom: 0.3cm; }
+  body.contract-student .parties-block td { line-height: 1.2; }
+  body.contract-student h2.article-head { margin: 0.25cm 0 0.06cm 0; }
+  body.contract-student p { margin: 0 0 0.06cm 0; }
+  body.contract-student .convenu-line { margin: 0 0 0.3cm 0; }
+  body.contract-student .closing-line { margin-top: 0.35cm; }
+  body.contract-student .signatures { margin-top: 0.35cm; }
+  body.contract-student .sig-box { min-height: 2cm; padding: 0.12cm 0.25cm; }
+  body.contract-student .sig-zone { min-height: 1.1cm; }
+`;
+
 const CONTRACT_CSS = `
   @page {
     size: A4 portrait;
     /* Karim v8 : marges proches des originaux SD Worx */
     margin: 1.8cm 2cm 1.6cm 2cm;
-    /* Footer "*Biffer la mention inutile" gauche, "Page X sur Y" droite */
-    @bottom-left {
-      content: "*Biffer la mention inutile";
-      font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
-      font-size: 8pt;
-      color: #000;
-      vertical-align: top;
-    }
+    /* Karim 2026-05-30 : contrat signe electroniquement = pas de mention biffer */
     @bottom-right {
       content: "Page " counter(page) " sur " counter(pages);
       font-family: 'Calibri', 'Carlito', 'Arial', sans-serif;
@@ -272,12 +320,13 @@ const CONTRACT_CSS = `
     background: #fff;
   }
   /* Karim v8 : TITRE en rectangle large bordure 0.5pt, ~1.3cm de haut */
+  /* Karim 2026-05-30 REVERT v8.1 : 0.7cm (v8.2 cassait Article 5) */
   .doc-title {
-    margin: 0 0 1.4cm 0;
+    margin: 0 0 0.7cm 0;
     text-align: center;
     page-break-after: avoid;
     border: 0.5pt solid #000;
-    padding: 0.35cm 0.4cm;
+    padding: 0.3cm 0.4cm;
   }
   .doc-title h1 {
     margin: 0;
@@ -311,19 +360,23 @@ const CONTRACT_CSS = `
     line-height: 1.1;
   }
   /* Bloc "Entre / Et" : alignement 4 colonnes type tableau */
+  /* Karim 2026-05-30 REVERT v8.1 : 0.6cm */
   .parties-block {
-    margin: 0 0 1cm 0;
+    margin: 0 0 0.6cm 0;
     page-break-inside: avoid;
     font-size: 10pt;
   }
   .parties-block table {
     width: 100%;
-    border-collapse: collapse;
+    /* Karim 2026-05-30 : separate + spacing horizontal pour aerer entre cellules
+       (Entre / L employeur / : / AMD MEGASTORE) sans bouger la pagination */
+    border-collapse: separate;
+    border-spacing: 0.15cm 0;
   }
   .parties-block td {
     padding: 0.02cm 0;
     vertical-align: top;
-    line-height: 1.3;
+    line-height: 1.25;
   }
   .parties-block .col-prefix {
     width: 1.5cm;
@@ -362,12 +415,18 @@ const CONTRACT_CSS = `
     margin: 0 0 0.8cm 0;
     font-size: 10pt;
   }
+  /* Karim 2026-05-30 : chaque article wrapper -> ne peut pas etre coupe en 2 pages */
+  .article-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
   /* Karim v8 : articles "Article N." SOULIGNE + GRAS sur sa propre ligne */
+  /* Karim 2026-05-30 REVERT v8.1 : 0.4/0.1 (v8.2 cassait Article 5) */
   h2.article-head {
     font-size: 10pt;
     font-weight: bold;
     text-decoration: underline;
-    margin: 0.5cm 0 0.15cm 0;
+    margin: 0.4cm 0 0.1cm 0;
     page-break-after: avoid;
     color: #000;
     display: block;
@@ -386,8 +445,9 @@ const CONTRACT_CSS = `
     margin: 0.3cm 0 0.1cm 0;
     color: #000;
   }
+  /* Karim 2026-05-30 REVERT v8.1 : 0.12 (v8.2 cassait Article 5) */
   p {
-    margin: 0 0 0.15cm 0;
+    margin: 0 0 0.12cm 0;
     text-align: left;
   }
   /* Listes a puces carre noir (article 10) */
@@ -434,9 +494,10 @@ const CONTRACT_CSS = `
     background: #fff;
     font-weight: bold;
   }
-  /* Bloc signature : 2 cadres separes par gap ~0.5cm, hauteur ~3.5cm */
+  /* Bloc signature : 2 cadres separes par gap ~0.5cm */
+  /* Karim 2026-05-30 REVERT v8.1 : margin-top 0.7cm */
   .signatures {
-    margin-top: 1cm;
+    margin-top: 0.7cm;
     display: table;
     width: 100%;
     table-layout: fixed;
@@ -445,17 +506,23 @@ const CONTRACT_CSS = `
     margin-left: -0.25cm;
     margin-right: -0.25cm;
   }
-  .signatures .sig-row { display: table-row; }
+  /* Karim 2026-05-30 : hack table pour forcer hauteur identique des 2 cellules
+     (sinon le sig-box employeur pre-signe deborde par rapport a employee) */
+  .signatures .sig-row { display: table-row; height: 1px; }
   .signatures .sig-cell {
     display: table-cell;
     width: 50%;
     vertical-align: top;
     padding: 0;
+    height: 100%;
   }
+  /* Karim 2026-05-30 : encadré signature reduit (3.5cm -> 2.5cm) + height 100% symetrie */
   .signatures .sig-box {
     border: 0.5pt solid #000;
-    padding: 0.2cm 0.25cm;
-    min-height: 3.5cm;
+    padding: 0.15cm 0.25cm;
+    min-height: 2.5cm;
+    height: 100%;
+    box-sizing: border-box;
   }
   .signatures .sig-title {
     font-size: 10pt;
@@ -473,9 +540,10 @@ const CONTRACT_CSS = `
     margin: 0 0 0.15cm 0;
     line-height: 1.3;
   }
+  /* Karim 2026-05-30 : zone signature reduite (1.8cm -> 1.4cm) */
   .signatures .sig-zone {
-    min-height: 1.8cm;
-    margin: 0.1cm 0;
+    min-height: 1.4cm;
+    margin: 0.05cm 0;
     text-align: center;
   }
   .signatures .sig-date {
@@ -492,8 +560,9 @@ const CONTRACT_CSS = `
     margin-top: 0.1cm;
   }
   /* "Fait en deux exemplaires a ... le ..." : 10pt avec marge top large */
+  /* Karim 2026-05-30 REVERT v8.1 : margin-top 0.7cm */
   .closing-line {
-    margin-top: 1cm;
+    margin-top: 0.7cm;
     margin-bottom: 0;
     font-size: 10pt;
     line-height: 1.3;
@@ -532,7 +601,7 @@ function buildPartiesBlockHtml(args: {
   employerLocality: string;
   employerRepresentative: string;
   employerCoRepresentative?: string;
-  employeeRoleLabel: string; // "L'employé", "L'ouvrier" (etudiant)
+  employeeRoleLabel: string; // toujours "L'employé" (Karim 2026-05-30)
   employeeName: string;
   employeeNiss: string;
   employeeAddress: string;
@@ -543,11 +612,9 @@ function buildPartiesBlockHtml(args: {
   const v = (val: string) => val
     ? e(val)
     : `<span class="dotted-fill"></span>`;
-  // Karim 2026-05-29 : si Kamal est defini, on liste les 2 representants
-  // separes par "ou" (signature alternative possible).
-  const repText = args.employerCoRepresentative && args.employerCoRepresentative.trim() !== ""
-    ? `${e(args.employerRepresentative)} <em>ou</em> ${e(args.employerCoRepresentative)} <em>(à signer si nécessaire)</em>`
-    : e(args.employerRepresentative);
+  // Karim 2026-05-30 : UN SEUL representant (l admin/rh connecte qui envoie).
+  // Jamais "Karim ou Kamal" - choix fait a l envoi selon qui est present.
+  const repText = e(args.employerRepresentative);
   return `
 <div class="parties-block">
   <table>
@@ -616,6 +683,10 @@ function buildPartiesBlockHtml(args: {
  */
 function buildContractHtmlForDocuseal(args: {
   contractBodyHtml: string;
+  // Karim 2026-05-30 : permet override CSS par type de contrat (ex: student
+  // legerement compact pour tenir en 2 pages au lieu de 3, sans toucher au
+  // layout des autres templates)
+  templateCode?: "employee" | "employee_pt" | "student";
   employerName: string;
   employeeName: string;
   contractLocation: string;
@@ -629,19 +700,13 @@ function buildContractHtmlForDocuseal(args: {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
 
-  // Karim 2026-05-29 (v4) : bloc signature employeur dans un CADRE BORDURE
-  // (style PDF original) avec titre centre au-dessus + sous-titre italique
-  // "(et parapher...)". Si Kamal est defini, note italique "ou Kamal..." en
-  // dessous du cadre (signature alternative).
-  const coRepNote = args.employerCoRepresentativeName
-    ? `<div class="co-rep-note">ou <strong>${escapeHtml(args.employerCoRepresentativeName)}</strong> (à signer si nécessaire)</div>`
-    : "";
+  // Karim 2026-05-30 : UN SEUL representant - pas de note "ou Kamal" sous la signature
+  const coRepNote = "";
 
+  // Karim 2026-05-30 : date retiree (déjà stipulée dans la closing-line "Fait... le DD-MM-YYYY")
   const employerSignatureBlock = preSigned
-    ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 50px; margin: 0 auto;"></div>
-       <div class="sig-date">Pré-signé par <strong>${escapeHtml(args.employerRepresentativeName ?? "")}</strong> le ${today}</div>`
-    : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>
-       <div class="sig-date">Date : <date-field name="Date employeur" role="Employer" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>`;
+    ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 50px; margin: 0 auto;"></div>`
+    : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>`;
 
   // Date contrat : si pre-signe, on inscrit la date du jour directement
   const dateContrat = preSigned
@@ -653,9 +718,9 @@ function buildContractHtmlForDocuseal(args: {
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}</style>
+<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : ""}</style>
 </head>
-<body>
+<body class="contract-${args.templateCode ?? "employee"}">
 ${args.contractBodyHtml}
 
 <p class="closing-line">
@@ -668,15 +733,13 @@ Chacune des parties reconnaît avoir reçu un exemplaire original.
     <div class="sig-cell">
       <div class="sig-box">
         <div class="sig-title">Signature du travailleur</div>
-        <div class="sig-sub">(et parapher toutes les pages)</div>
         <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>
-        <div class="sig-date">Date : <date-field name="Date employee" role="Employee" required="true" style="display: inline-block; width: 110px; height: 18px;"></date-field></div>
       </div>
     </div>
     <div class="sig-cell">
       <div class="sig-box">
         <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-        <div class="sig-sub">${preSigned ? "(pré-signée numériquement)" : "(et parapher toutes les pages)"}</div>
+        ${preSigned ? `<div class="sig-sub">(pré-signée numériquement)</div>` : ""}
         ${employerSignatureBlock}
       </div>
       ${coRepNote}
@@ -685,6 +748,50 @@ Chacune des parties reconnaît avoir reçu un exemplaire original.
 </div>
 </body>
 </html>`;
+}
+
+/**
+ * Karim 2026-05-30 : retourne juste le HTML rendu (zero appel DocuSeal externe)
+ * pour preview iframe. Reutilise toute la logique de rendu : markdown ->
+ * parties block -> articles -> CSS pixel-perfect.
+ */
+export async function buildContractHtmlForDocuseal_publicForPreview(args: {
+  templateCode: "employee" | "employee_pt" | "student";
+  templateBodyMarkdown: string;
+  employeeData: Parameters<typeof buildContractVariables>[0]["employee"];
+  employerOrg: EmployerOrgKey;
+  primarySite?: Parameters<typeof buildContractVariables>[0]["primarySite"];
+  employerSignatureDataUrl?: string | null;
+  employerRepresentativeOverride?: string;
+}): Promise<string> {
+  const vars = buildContractVariables({
+    employee: args.employeeData,
+    primarySite: args.primarySite,
+    employerOrg: args.employerOrg,
+  });
+  const rendered = renderContractTemplate(args.templateBodyMarkdown, vars);
+  const { bodyWithoutHeader, partiesBlock } = extractPartiesAndConvenu(rendered, {
+    templateCode: args.templateCode,
+    employeeData: args.employeeData,
+    employerOrg: args.employerOrg,
+  });
+  const bodyHtmlFull = markdownToHtml(bodyWithoutHeader);
+  const titleEndMatch = bodyHtmlFull.match(/<div class="doc-title">[\s\S]*?<\/div>/);
+  const bodyHtml = titleEndMatch
+    ? bodyHtmlFull.slice(0, titleEndMatch.index! + titleEndMatch[0].length)
+      + partiesBlock
+      + bodyHtmlFull.slice(titleEndMatch.index! + titleEndMatch[0].length)
+    : partiesBlock + bodyHtmlFull;
+  const org = EMPLOYER_ORGS[args.employerOrg];
+  return buildContractHtmlForDocuseal({
+    contractBodyHtml: bodyHtml,
+    templateCode: args.templateCode,
+    employerName: org.name,
+    employeeName: args.employeeData.full_name,
+    contractLocation: String(vars.contract_location ?? "Bruxelles"),
+    employerSignatureDataUrl: args.employerSignatureDataUrl,
+    employerRepresentativeName: args.employerRepresentativeOverride ?? org.representative,
+  });
 }
 
 /**
@@ -700,6 +807,9 @@ export async function createDocusealTemplateFromContract(args: {
   // est genere avec la signature deja apposee et l employee est le seul
   // signataire DocuSeal.
   employerSignatureDataUrl?: string | null;
+  // Karim 2026-05-30 : nom du representant (admin/rh connecte qui envoie le contrat).
+  // Remplace le defaut org.representative dans le bloc parties et la signature.
+  employerRepresentativeOverride?: string;
 }): Promise<{ ok: true; templateId: number; templateName: string } | { ok: false; error: string }> {
   const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.DOCUSEAL_API_KEY;
@@ -735,12 +845,13 @@ export async function createDocusealTemplateFromContract(args: {
   const contractLocation = String(vars.contract_location ?? "Bruxelles");
   const fullHtml = buildContractHtmlForDocuseal({
     contractBodyHtml: bodyHtml,
+    templateCode: args.templateCode,
     employerName,
     employeeName: args.employeeData.full_name,
     contractLocation,
     employerSignatureDataUrl: args.employerSignatureDataUrl,
-    employerRepresentativeName: org.representative,
-    employerCoRepresentativeName: org.co_representative,
+    // Karim 2026-05-30 : override si fourni (= admin/rh connecté), sinon defaut org
+    employerRepresentativeName: args.employerRepresentativeOverride ?? org.representative,
   });
 
   const templateName = `${args.templateCode}_${args.employeeData.full_name.replace(/\s+/g, "_")}_${Date.now()}`;
@@ -824,9 +935,9 @@ function extractPartiesAndConvenu(
     employerName: org.name,
     employerAddress: org.address,
     employerLocality: org.locality,
-    employerRepresentative: org.representative,
-    employerCoRepresentative: org.co_representative,
-    employeeRoleLabel: args.templateCode === "student" ? "L'ouvrier" : "L'employé",
+    employerRepresentative: args.employerRepresentativeOverride ?? org.representative,
+    // Karim 2026-05-30 : harmonise "L'employé" pour tous les contrats (y compris student)
+    employeeRoleLabel: "L'employé",
     employeeName: formattedName,
     employeeNiss: e.nrn ?? "",
     employeeAddress: e.address ?? "",

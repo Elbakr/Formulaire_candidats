@@ -12,6 +12,17 @@ export function HashRecoveryRedirect() {
   const router = useRouter();
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Karim 2026-05-30 : en dev, unregister tous les service workers au
+    // mount pour eviter le cache poisoning post-Turbopack-rebuild qui casse
+    // les chunks et oblige des hard reload constants.
+    if (process.env.NODE_ENV === "development" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        for (const r of regs) r.unregister();
+      });
+      if ("caches" in window) {
+        caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+      }
+    }
     const hash = window.location.hash;
     if (!hash || hash.length < 2) return;
     const params = new URLSearchParams(hash.slice(1));

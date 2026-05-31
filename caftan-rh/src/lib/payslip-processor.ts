@@ -15,7 +15,7 @@
 //   5. Update payslip_batches.status='completed' + payslips_count
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { splitPayslipPdf, matchEmployee, type SplitPayslipResult, type EmployeeBd } from "@/lib/payslip-splitter";
+import { splitPayslipPdf, matchEmployee, detectEmployeeIban, type EmployeeBd } from "@/lib/payslip-splitter";
 import { generateEpcQr, defaultSalaryRemittance } from "@/lib/qr-epc";
 
 export interface ProcessBatchInput {
@@ -107,40 +107,57 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
     const processed: ProcessedPayslip[] = [];
     let matchedCount = 0;
     let unmatchedCount = 0;
+    let insertedCount = 0;
+    const debugLog: string[] = [];
+    debugLog.push(`Splitter detected ${groups.length} groups`);
+    debugLog.push(`Pool employees actifs : ${employees.length}`);
+    // Karim 2026-05-30 : sample texte page 1 + fin de page pour diagnostic
+    if (groups[0]?.rawText) {
+      const rt = groups[0].rawText.replace(/\s+/g, " ");
+      debugLog.push(`\n--- SAMPLE debut (300 chars) ---`);
+      debugLog.push(rt.slice(0, 300));
+      debugLog.push(`--- SAMPLE FIN (last 400 chars) ---`);
+      debugLog.push(rt.slice(-400));
+      debugLog.push(`---`);
+    }
 
     // 4. Process each group
     for (const g of groups) {
       const matched = matchEmployee(g.employeeNameRaw, g.niss, employees);
+      // Karim 2026-05-30 : on cree TOUJOURS la payslip, meme si unmatched.
+      // L UI affiche les orphelines avec un bouton "Associer manuellement".
       if (!matched) {
         unmatchedCount++;
-        processed.push({
-          payslipId: "",
-          employeeId: null,
-          employeeName: g.employeeNameRaw,
-          pageRange: g.pageRange,
-          netAmount: g.netAmount,
-          advanceDeducted: 0,
-          amountToPay: g.netAmount ?? 0,
-          isSecondary: false,
-          scheduledPaymentDate: null,
-          matched: false,
-        });
-        continue;
+        debugLog.push(`p${g.pageRange[0]}-${g.pageRange[1]} : UNMATCHED nom='${g.employeeNameRaw ?? "null"}' niss='${g.niss ?? "null"}' net=${g.netAmount ?? "null"} -> orpheline cree`);
+      } else {
+        matchedCount++;
+        debugLog.push(`p${g.pageRange[0]}-${g.pageRange[1]} : MATCHED '${g.employeeNameRaw}' -> ${matched.full_name} (id ${matched.id.slice(0, 8)}) net=${g.netAmount ?? "null"} period=${g.periodMonth}/${g.periodYear}`);
       }
-      matchedCount++;
-      const emp = employees.find((e) => e.id === matched.id)!;
-      const advance = Number(emp.salary_advance_amount ?? 0);
+      const emp = matched ? employees.find((e) => e.id === matched.id)! : null;
+      const advance = emp ? Number(emp.salary_advance_amount ?? 0) : 0;
       const net = g.netAmount ?? 0;
       const periodMonth = g.periodMonth ?? new Date().getMonth() + 1;
       const periodYear = g.periodYear ?? new Date().getFullYear();
 
+      // Karim 2026-05-30 : extrait IBAN beneficiaire du PDF (FORMULE DE PAIEMENT BE...)
+      // et l auto-set sur employees.iban s il est vide en BD.
+      const pdfIban = g.rawText ? detectEmployeeIban(g.rawText) : null;
+      if (pdfIban && emp && !emp.iban) {
+        await admin.from("employees").update({ iban: pdfIban }).eq("id", emp.id);
+        emp.iban = pdfIban;
+        debugLog.push(`  -> IBAN auto-saved on employee ${emp.full_name}: ${pdfIban}`);
+      }
+      const effectiveIban = emp?.iban ?? pdfIban ?? null;
+      const effectiveHolder = emp?.full_name ?? g.employeeNameRaw ?? null;
+
       // Detect double fiche : existe-t-il deja une payslip pour cet employee + mois ?
-      const { data: existing } = await admin
+      // (skip pour les orphelines : pas de matching periode/employee possible)
+      const { data: existing } = emp ? await admin
         .from("payslips")
         .select("id, net_amount, is_secondary")
         .eq("employee_id", emp.id)
         .eq("period_year", periodYear)
-        .eq("period_month", periodMonth);
+        .eq("period_month", periodMonth) : { data: [] as Array<{ id: string; net_amount: number; is_secondary: boolean }> };
 
       let isSecondary = false;
       let pairedWith: string | null = null;
@@ -172,40 +189,136 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
       const advanceDeducted = isSecondary ? 0 : Math.min(advance, net);
       const amountToPay = Math.max(0, net - advanceDeducted);
 
-      // Genere QR EPC (sauf si secondaire avec date future > today)
+      // Genere QR EPC (utilise IBAN BD ou IBAN extrait du PDF)
       let qrPayload: string | null = null;
       let qrPng: string | null = null;
       const shouldGenerateQr = !isSecondary || (scheduledPaymentDate && scheduledPaymentDate <= todayISO());
-      if (shouldGenerateQr && emp.iban && amountToPay > 0) {
-        const lang = (emp.preferred_language ?? "fr") as "fr" | "nl" | "en";
+      if (shouldGenerateQr && effectiveIban && effectiveHolder && amountToPay > 0) {
+        const lang = (emp?.preferred_language ?? "fr") as "fr" | "nl" | "en";
         try {
           const epc = await generateEpcQr({
-            beneficiaryName: emp.full_name,
-            iban: emp.iban,
-            bic: emp.bic ?? undefined,
+            beneficiaryName: effectiveHolder,
+            iban: effectiveIban,
+            bic: emp?.bic ?? undefined,
             amountEur: amountToPay,
             remittanceInfo: defaultSalaryRemittance(periodMonth, periodYear, lang),
             purposeCode: "SALA",
           });
           qrPayload = epc.payload;
           qrPng = epc.qrPngDataUrl;
+          debugLog.push(`  -> QR genere pour ${effectiveHolder} (${effectiveIban})`);
         } catch (e) {
-          console.error(`QR gen failed for ${emp.full_name}:`, e);
+          console.error(`QR gen failed:`, e);
+          debugLog.push(`  -> QR FAIL : ${(e as Error).message}`);
         }
+      } else if (!effectiveIban) {
+        debugLog.push(`  -> Pas de QR : IBAN absent (BD et PDF)`);
+      }
+
+      // Karim 2026-05-30 : DEDUP - cherche si une fiche existe deja pour la
+      // meme periode + meme montant + meme employee (ou meme IBAN PDF si orpheline).
+      // Si trouvee : MISE A JOUR (preserve avance/statut paye/asso manuelle).
+      // Sinon : INSERT normal.
+      type DuplicateRow = {
+        id: string;
+        employee_id: string | null;
+        advance_deducted: number;
+        payment_status: string;
+        paid_at: string | null;
+        paid_amount: number | null;
+        payment_note: string | null;
+        pdf_storage_path: string | null;
+      };
+      let duplicate: DuplicateRow | null = null;
+      if (emp?.id) {
+        const { data } = await admin
+          .from("payslips")
+          .select("id, employee_id, advance_deducted, payment_status, paid_at, paid_amount, payment_note, pdf_storage_path")
+          .eq("employee_id", emp.id)
+          .eq("period_year", periodYear)
+          .eq("period_month", periodMonth)
+          .eq("net_amount", net)
+          .eq("is_secondary", isSecondary)
+          .limit(1);
+        if (data && data.length > 0) duplicate = data[0] as DuplicateRow;
+      } else if (pdfIban) {
+        const { data } = await admin
+          .from("payslips")
+          .select("id, employee_id, advance_deducted, payment_status, paid_at, paid_amount, payment_note, pdf_storage_path")
+          .eq("payment_iban", pdfIban)
+          .eq("period_year", periodYear)
+          .eq("period_month", periodMonth)
+          .eq("net_amount", net)
+          .eq("is_secondary", isSecondary)
+          .limit(1);
+        if (data && data.length > 0) duplicate = data[0] as DuplicateRow;
       }
 
       // Upload PDF chunk -> Storage
-      const chunkPath = `${input.employerOrgKey}/${periodYear}-${String(periodMonth).padStart(2, "0")}/${slugify(emp.full_name)}_${batchId.slice(0, 8)}.pdf`;
+      const slug = emp ? slugify(emp.full_name) : `orphan-p${g.pageRange[0]}`;
+      const chunkPath = `${input.employerOrgKey}/${periodYear}-${String(periodMonth).padStart(2, "0")}/${slug}_${batchId.slice(0, 8)}.pdf`;
       await admin.storage.from(BUCKET_PAYSLIPS).upload(chunkPath, g.pdfBytes, {
         contentType: "application/pdf",
         upsert: true,
       });
 
-      // Insert payslip row
+      // Si DOUBLON : UPDATE en preservant les decisions (avance + paiement +
+      // assoc. manuelle). Supprime l ancien PDF storage du duplicate.
+      if (duplicate) {
+        const preservedAdvance = Number(duplicate.advance_deducted);
+        const preservedPaid = duplicate.payment_status === "paid";
+        // Recalcule amount_to_pay si pas paye (sinon on garde tel quel)
+        const newAmountToPay = preservedPaid
+          ? amountToPay
+          : Math.max(0, net - preservedAdvance);
+        // employee_id : garde celui existant si pas detecte ce coup-ci
+        const finalEmployeeId = emp?.id ?? duplicate.employee_id;
+        await admin.from("payslips").update({
+          employee_id: finalEmployeeId,
+          employer_org_key: input.employerOrgKey,
+          period_label: defaultSalaryRemittance(periodMonth, periodYear, "fr").replace(/^Salaire\s+/i, ""),
+          gross_amount: g.grossAmount,
+          // PRESERVE : advance_deducted, payment_status, paid_at, paid_amount, payment_note
+          amount_to_pay: newAmountToPay,
+          pdf_storage_path: chunkPath,
+          pdf_filename: emp
+            ? `Fiche_paie_${slug}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`
+            : `Orphan_p${g.pageRange[0]}-${g.pageRange[1]}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`,
+          source_batch_id: batchId,
+          qr_epc_payload: preservedPaid ? null : qrPayload,
+          qr_png_data_url: preservedPaid ? null : qrPng,
+          scheduled_payment_date: scheduledPaymentDate,
+          paired_with_payslip_id: pairedWith,
+          hrconsult_doc_ref: finalEmployeeId ? null : (g.employeeNameRaw ? `Nom detecte: ${g.employeeNameRaw}` : "Nom non detecte"),
+          payment_iban: pdfIban ?? null,
+          payment_holder_name: effectiveHolder,
+        }).eq("id", duplicate.id);
+        // Cleanup ancien PDF storage (si different du nouveau path)
+        if (duplicate.pdf_storage_path && duplicate.pdf_storage_path !== chunkPath) {
+          await admin.storage.from(BUCKET_PAYSLIPS).remove([duplicate.pdf_storage_path]);
+        }
+        insertedCount++;
+        debugLog.push(`  -> DEDUP : fusionne avec payslip ${duplicate.id.slice(0, 8)} (paye=${preservedPaid}, avance preservee=${preservedAdvance})`);
+        processed.push({
+          payslipId: duplicate.id,
+          employeeId: finalEmployeeId,
+          employeeName: emp?.full_name ?? g.employeeNameRaw,
+          pageRange: g.pageRange,
+          netAmount: net,
+          advanceDeducted: preservedAdvance,
+          amountToPay: newAmountToPay,
+          isSecondary,
+          scheduledPaymentDate,
+          matched: !!finalEmployeeId,
+        });
+        continue;
+      }
+
+      // Sinon : INSERT normal (employee_id null si orpheline)
       const { data: payslipRow, error: psErr } = await admin
         .from("payslips")
         .insert({
-          employee_id: emp.id,
+          employee_id: emp?.id ?? null,
           employer_org_key: input.employerOrgKey,
           period_year: periodYear,
           period_month: periodMonth,
@@ -215,7 +328,9 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
           advance_deducted: advanceDeducted,
           amount_to_pay: amountToPay,
           pdf_storage_path: chunkPath,
-          pdf_filename: `Fiche_paie_${slugify(emp.full_name)}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`,
+          pdf_filename: emp
+            ? `Fiche_paie_${slug}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`
+            : `Orphan_p${g.pageRange[0]}-${g.pageRange[1]}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`,
           source_batch_id: batchId,
           qr_epc_payload: qrPayload,
           qr_png_data_url: qrPng,
@@ -223,13 +338,19 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
           scheduled_payment_date: scheduledPaymentDate,
           paired_with_payslip_id: pairedWith,
           payment_status: isSecondary && scheduledPaymentDate && scheduledPaymentDate > todayISO() ? "scheduled" : "pending",
+          hrconsult_doc_ref: emp ? null : (g.employeeNameRaw ? `Nom detecte: ${g.employeeNameRaw}` : "Nom non detecte"),
+          payment_iban: pdfIban,
+          payment_holder_name: effectiveHolder,
         })
         .select("id")
         .single();
       if (psErr || !payslipRow) {
         console.error("Payslip insert failed:", psErr);
+        debugLog.push(`  -> INSERT FAILED : ${psErr?.message ?? "no row returned"}`);
         continue;
       }
+      insertedCount++;
+      debugLog.push(`  -> INSERTED payslip ${payslipRow.id.slice(0, 8)} amount_to_pay=${amountToPay}`);
 
       // Si on a paired et qu'on est la principale, set paired_with sur l autre
       if (pairedWith && !isSecondary) {
@@ -238,26 +359,28 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
 
       processed.push({
         payslipId: payslipRow.id,
-        employeeId: emp.id,
-        employeeName: emp.full_name,
+        employeeId: emp?.id ?? null,
+        employeeName: emp?.full_name ?? g.employeeNameRaw,
         pageRange: g.pageRange,
         netAmount: net,
         advanceDeducted,
         amountToPay,
         isSecondary,
         scheduledPaymentDate,
-        matched: true,
+        matched: !!emp,
       });
     }
 
     // 5. Update batch status
+    debugLog.push(`\n=== BILAN : ${insertedCount}/${groups.length} inseres, ${matchedCount} matched, ${unmatchedCount} unmatched ===`);
     await admin
       .from("payslip_batches")
       .update({
-        status: "completed",
-        payslips_count: processed.length,
+        status: insertedCount > 0 ? "completed" : "failed",
+        payslips_count: insertedCount,
         total_pages: groups.reduce((sum, g) => sum + (g.pageRange[1] - g.pageRange[0] + 1), 0),
         completed_at: new Date().toISOString(),
+        error_message: debugLog.join("\n"),
       })
       .eq("id", batchId);
 

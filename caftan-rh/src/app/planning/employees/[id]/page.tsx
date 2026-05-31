@@ -30,6 +30,7 @@ import { SignContractButton } from "./sign-contract-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { SalaryAdvanceSection } from "./salary-advance-section";
+import { MissingFieldsBanner } from "./missing-fields-banner";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -131,6 +132,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     <div className="space-y-4">
       <EmployeeSiteNav currentEmployeeId={id} basePath="" />
 
+      {/* Karim 2026-05-30 : banner rouge clignotant si champs requis manquants */}
+      <MissingFieldsBanner
+        employeeRecord={emp as Record<string, unknown>}
+        contractType={(emp as { contract_type: string | null }).contract_type}
+      />
+
       {/* Karim 2026-05-29 : banniere urgente Dimona post-signature */}
       <DimonaReminderBanner
         employeeId={id}
@@ -162,6 +169,10 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             employeeId={id}
             employeeName={(emp as { full_name: string }).full_name}
             employeeEmail={(emp as { email: string | null }).email ?? ""}
+            contractType={(emp as { contract_type: string | null }).contract_type}
+            workTimeKind={(emp as { work_time_kind: string | null }).work_time_kind}
+            weeklyHours={(emp as { weekly_hours: number | null }).weekly_hours}
+            employeeRecord={emp as Record<string, unknown>}
           />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>

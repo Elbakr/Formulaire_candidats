@@ -57,8 +57,11 @@ export async function sendContractSignatureMail(args: {
   employeeName: string;
   employeeEmail: string;
   signingUrl: string;
-  employerName: string; // ex: AMD Megastore SRL
+  employerName: string;
   language: ContractLang;
+  // Karim 2026-05-30 : body personnalisé éditable depuis la modale.
+  // Variables {first_name}, {employer_name}, {signing_url} sont remplacées.
+  customBody?: string;
 }): Promise<{ ok?: true; error?: string }> {
   const serviceId = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const templateId = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
@@ -71,7 +74,13 @@ export async function sendContractSignatureMail(args: {
   const msg = SIGN_MESSAGES[lang];
   const firstName = args.employeeName.split(/\s+/)[0] ?? args.employeeName;
   const subject = msg.subject(args.employerName);
-  const body = msg.body(firstName, args.employerName, args.signingUrl);
+  // Karim 2026-05-30 : custom body si fourni par la modale, sinon default
+  const body = args.customBody
+    ? args.customBody
+        .replaceAll("{first_name}", firstName)
+        .replaceAll("{employer_name}", args.employerName)
+        .replaceAll("{signing_url}", args.signingUrl)
+    : msg.body(firstName, args.employerName, args.signingUrl);
 
   const params = {
     to_email: args.employeeEmail,

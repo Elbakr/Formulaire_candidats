@@ -48,7 +48,7 @@ export default async function SecsocPage(
     { label: "Date fin", val: emp.end_date },
     { label: "Lieu signature", val: emp.signature_place },
     { label: "Transport — type", val: emp.transport_type },
-    { label: "Transport — frequence", val: emp.transport_frequency },
+    { label: "Transport — période tarif", val: emp.transport_frequency },
     { label: "Transport — prix", val: emp.transport_price },
   ];
 

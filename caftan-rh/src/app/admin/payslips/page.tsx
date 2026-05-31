@@ -7,13 +7,17 @@ import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, AlertTriangle, CheckCircle2, Clock, Calendar } from "lucide-react";
-import { PayslipsTable, type PayslipRow } from "./payslips-table";
+import { FileText, AlertTriangle, CheckCircle2, Clock, Calendar, Users, Euro, Hourglass } from "lucide-react";
+import { type PayslipRow } from "./payslips-table";
 import { UploadDropzone } from "./upload-dropzone";
+import { BatchRow } from "./batch-row";
+import { PayslipsView } from "./payslips-view";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminPayslipsPage() {
+export default async function AdminPayslipsPage(props: {
+  searchParams: Promise<{ filter?: string }>;
+}) {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
 
@@ -25,11 +29,12 @@ export default async function AdminPayslipsPage() {
         gross_amount, net_amount, advance_deducted, amount_to_pay,
         pdf_storage_path, pdf_filename, qr_png_data_url, qr_epc_payload,
         is_secondary, scheduled_payment_date, paired_with_payslip_id,
-        payment_status, paid_at, paid_amount, created_at,
-        employee:employees!inner(id, full_name, email, iban, preferred_language)
+        payment_status, paid_at, paid_amount, created_at, hrconsult_doc_ref,
+        employee:employees(id, full_name, email, iban, preferred_language)
       `)
       .order("period_year", { ascending: false })
       .order("period_month", { ascending: false })
+      .order("employee_id", { ascending: true, nullsFirst: true })
       .order("is_secondary", { ascending: true })
       .limit(500),
     admin
@@ -42,13 +47,62 @@ export default async function AdminPayslipsPage() {
       .select("employer_org_key, holder_name, iban, bic, bank_name"),
   ]);
 
-  const rows = (payslips ?? []) as unknown as PayslipRow[];
-  const totalPending = rows.filter((r) => r.payment_status === "pending").length;
-  const totalScheduled = rows.filter((r) => r.payment_status === "scheduled").length;
-  const totalPaid = rows.filter((r) => r.payment_status === "paid").length;
-  const totalAmount = rows
+  const allRowsRaw = (payslips ?? []) as unknown as PayslipRow[];
+
+  // Karim 2026-05-31 : enrichit chaque payslip avec city du site primaire de l employee.
+  // Pour les sites Schaerbeek/Molenbeek -> Bruxelles, Anvers -> Anvers.
+  const empIds = Array.from(new Set(allRowsRaw.map((r) => r.employee_id).filter((x): x is string => !!x)));
+  const cityByEmployee = new Map<string, string>();
+  if (empIds.length > 0) {
+    const { data: assigns } = await admin
+      .from("site_assignments")
+      .select("employee_id, is_primary, site:sites(city)")
+      .in("employee_id", empIds)
+      .eq("is_primary", true);
+    for (const a of (assigns ?? []) as Array<{ employee_id: string; site: { city: string | null } | null }>) {
+      if (a.site?.city) {
+        const c = a.site.city.toLowerCase();
+        const normalized = c.includes("anver") ? "Anvers" : "Bruxelles";
+        cityByEmployee.set(a.employee_id, normalized);
+      }
+    }
+  }
+  const allRows: PayslipRow[] = allRowsRaw.map((r) => ({
+    ...r,
+    employee_city: r.employee_id ? cityByEmployee.get(r.employee_id) ?? null : null,
+  }));
+  // Karim 2026-05-30 : init filter via query param ?filter=unpaid|paid|all
+  // Le state filtre est ensuite gere CLIENT-SIDE (PayslipsView) pour
+  // changement instantané sans refresh.
+  const filterParam = ((await props?.searchParams)?.filter ?? "all") as "all" | "unpaid" | "paid";
+
+  const totalPending = allRows.filter((r) => r.payment_status === "pending").length;
+  const totalScheduled = allRows.filter((r) => r.payment_status === "scheduled").length;
+  const totalPaid = allRows.filter((r) => r.payment_status === "paid").length;
+  // Karim 2026-05-30 : fiches "à venir" (scheduled avec date future)
+  const todayMs = Date.now();
+  const upcomingFiches = allRows.filter(
+    (r) => r.payment_status === "scheduled" && r.scheduled_payment_date && new Date(r.scheduled_payment_date).getTime() > todayMs,
+  );
+  const nextUpcoming = upcomingFiches
+    .map((r) => ({ ...r, daysAway: Math.ceil((new Date(r.scheduled_payment_date!).getTime() - todayMs) / 86_400_000) }))
+    .sort((a, b) => a.daysAway - b.daysAway);
+  const nextUpcomingDays = nextUpcoming[0]?.daysAway ?? null;
+  // Montant restant a payer (pending + scheduled)
+  const amountToPay = allRows
     .filter((r) => r.payment_status === "pending" || r.payment_status === "scheduled")
     .reduce((sum, r) => sum + Number(r.amount_to_pay ?? 0), 0);
+  // Montant deja paye (toutes fiches payees, sum paid_amount ou amount_to_pay)
+  const amountPaid = allRows
+    .filter((r) => r.payment_status === "paid")
+    .reduce((sum, r) => sum + Number(r.paid_amount ?? r.amount_to_pay ?? 0), 0);
+  // Nombre de personnes distinctes payées vs restant
+  const paidEmployees = new Set(allRows.filter((r) => r.payment_status === "paid" && r.employee_id).map((r) => r.employee_id));
+  const unpaidEmployees = new Set(
+    allRows
+      .filter((r) => (r.payment_status === "pending" || r.payment_status === "scheduled") && r.employee_id)
+      .map((r) => r.employee_id),
+  );
 
   const amdBank = bankAccounts?.find((b) => b.employer_org_key === "amd_megastore");
   const ibanReady = amdBank && !amdBank.iban.includes("BE00 0000");
@@ -77,34 +131,72 @@ export default async function AdminPayslipsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      {upcomingFiches.length > 0 && (
+        <Card className="border-purple-300 bg-purple-50 p-4 flex items-center gap-3">
+          <Hourglass className="w-6 h-6 text-purple-600 flex-shrink-0" />
+          <div className="flex-1">
+            <div className="text-sm font-bold text-purple-900">
+              {upcomingFiches.length} fiche{upcomingFiches.length > 1 ? "s" : ""} de paie à venir
+              {nextUpcomingDays !== null && (
+                <span className="ml-2 text-purple-700">
+                  (la prochaine dans {nextUpcomingDays} jour{nextUpcomingDays > 1 ? "s" : ""})
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-purple-800 mt-1 space-y-0.5">
+              {nextUpcoming.slice(0, 3).map((r) => (
+                <div key={r.id}>
+                  • {r.employee?.full_name ?? "Non associée"} —{" "}
+                  {Number(r.amount_to_pay).toFixed(2)} € — disponible le{" "}
+                  <strong>{r.scheduled_payment_date}</strong> (dans {r.daysAway} j)
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="p-4">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5" /> En attente paiement
+            <Euro className="w-3.5 h-3.5 text-amber-600" /> Reste à payer
+          </div>
+          <div className="text-2xl font-bold mt-1 text-amber-700">{amountToPay.toFixed(2)} €</div>
+          <div className="text-xs text-muted-foreground">
+            {totalPending + totalScheduled} fiches · {unpaidEmployees.size} personne{unpaidEmployees.size > 1 ? "s" : ""}
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> Déjà payé
+          </div>
+          <div className="text-2xl font-bold mt-1 text-green-700">{amountPaid.toFixed(2)} €</div>
+          <div className="text-xs text-muted-foreground">
+            {totalPaid} fiche{totalPaid > 1 ? "s" : ""} · {paidEmployees.size} personne{paidEmployees.size > 1 ? "s" : ""}
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> En attente
           </div>
           <div className="text-2xl font-bold mt-1">{totalPending}</div>
-          <div className="text-xs text-muted-foreground">
-            {totalAmount.toFixed(2)} € total
-          </div>
+          {totalScheduled > 0 && (
+            <div className="text-xs text-amber-700 flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> +{totalScheduled} différées (J+6)
+            </div>
+          )}
         </Card>
         <Card className="p-4">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5" /> Différées (double fiche)
+            <Users className="w-3.5 h-3.5" /> Total fiches
           </div>
-          <div className="text-2xl font-bold mt-1">{totalScheduled}</div>
-          <div className="text-xs text-muted-foreground">notif J+6 min</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> Payées
-          </div>
-          <div className="text-2xl font-bold mt-1">{totalPaid}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-xs text-muted-foreground">Total fiches</div>
-          <div className="text-2xl font-bold mt-1">{rows.length}</div>
+          <div className="text-2xl font-bold mt-1">{allRows.length}</div>
+          <div className="text-xs text-muted-foreground">{paidEmployees.size + unpaidEmployees.size} employees</div>
         </Card>
       </div>
+
+      {/* Karim 2026-05-30 : filtres CLIENT-SIDE instantanés (statut + employeur) */}
+      <PayslipsView allRows={allRows} initialStatusFilter={filterParam} />
 
       <UploadDropzone />
 
@@ -113,23 +205,12 @@ export default async function AdminPayslipsPage() {
           <h2 className="text-sm font-semibold mb-3">Derniers imports</h2>
           <div className="space-y-2">
             {batches.slice(0, 5).map((b) => (
-              <div key={b.id} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <Badge variant={b.status === "completed" ? "default" : b.status === "failed" ? "destructive" : "secondary"}>
-                    {b.status}
-                  </Badge>
-                  <span className="font-mono text-xs">{b.source_filename ?? "—"}</span>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {b.payslips_count ?? 0} fiches · {new Date(b.created_at).toLocaleString("fr-BE")}
-                </div>
-              </div>
+              <BatchRow key={b.id} batch={b} />
             ))}
           </div>
         </Card>
       )}
 
-      <PayslipsTable rows={rows} />
     </div>
   );
 }

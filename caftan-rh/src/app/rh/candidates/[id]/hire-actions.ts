@@ -305,6 +305,26 @@ export async function hireCandidateAction(
         (u) => u.email?.toLowerCase() === candidate.email.toLowerCase(),
       );
       if (existing) {
+        // Karim 2026-05-30 : SECURITY - si l email du candidat correspond a
+        // un user existant en role admin/rh/manager, REFUSER l ecrasement.
+        // Sans ce garde, embaucher un candidat avec l email du patron
+        // ecrasait son mdp et dégradait son rôle a 'candidate'.
+        const { data: existingProfile } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", existing.id)
+          .maybeSingle();
+        const protectedRole = existingProfile?.role && ["admin", "rh", "manager"].includes(existingProfile.role);
+        const { data: adminEmail } = await admin
+          .from("admin_emails")
+          .select("email")
+          .eq("email", candidate.email.toLowerCase())
+          .maybeSingle();
+        if (protectedRole || adminEmail) {
+          throw new Error(
+            `L'email ${candidate.email} correspond a un compte ${existingProfile?.role ?? "admin"} existant et ne peut pas etre transforme en compte employee. Utilise un autre email pour ce candidat.`,
+          );
+        }
         userId = existing.id;
         await admin.auth.admin.updateUserById(existing.id, {
           password,
@@ -320,15 +340,25 @@ export async function hireCandidateAction(
         if (error) throw error;
         userId = data.user.id;
       }
-      await admin.from("profiles").upsert(
-        {
-          id: userId!,
-          email: candidate.email,
-          full_name: candidate.full_name,
-          role: "candidate",
-        },
-        { onConflict: "id" },
-      );
+      // Karim 2026-05-30 : preserve le role existant si superieur a 'candidate'
+      // (utilise insert + on conflict do nothing si role plus eleve deja en place)
+      await admin
+        .from("profiles")
+        .upsert(
+          {
+            id: userId!,
+            email: candidate.email,
+            full_name: candidate.full_name,
+            role: "candidate",
+          },
+          { onConflict: "id", ignoreDuplicates: false },
+        );
+      // Garde-fou supplementaire : ne JAMAIS degrader un admin/rh/manager
+      await admin
+        .from("profiles")
+        .update({ role: "candidate" })
+        .eq("id", userId!)
+        .not("role", "in", "(admin,rh,manager)");
       await admin
         .from("employees")
         .update({ profile_id: userId })

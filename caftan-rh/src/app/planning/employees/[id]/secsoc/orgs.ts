@@ -71,7 +71,7 @@ export const REQUIRED_FIELDS: RequiredField[] = [
   { key: "end_date", label: "Date de fin" },
   { key: "signature_place", label: "Lieu de signature" },
   { key: "transport_type", label: "Type de transport" },
-  { key: "transport_frequency", label: "Frequence transport" },
+  { key: "transport_frequency", label: "Période du tarif transport" },
   { key: "transport_price", label: "Prix transport" },
 ];
 

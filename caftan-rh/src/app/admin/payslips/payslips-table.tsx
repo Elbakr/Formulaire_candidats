@@ -8,13 +8,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { QrCode, CheckCircle2, Mail, AlertCircle, Calendar, Loader2 } from "lucide-react";
-import { markPayslipPaidAction, sendPayslipToEmployeeAction } from "./actions";
+import { QrCode, CheckCircle2, Mail, AlertCircle, Calendar, Loader2, Link2, Edit3, FileText, Wallet, Hourglass } from "lucide-react";
+import {
+  markPayslipPaidAction,
+  sendPayslipToEmployeeAction,
+  reassignPayslipAction,
+  updatePayslipAmountAction,
+  listActiveEmployeesAction,
+  getPayslipPdfUrlAction,
+  setAdvanceAndRecomputeAction,
+} from "./actions";
 import { toast } from "sonner";
 
 export interface PayslipRow {
   id: string;
-  employee_id: string;
+  employee_id: string | null;
   employer_org_key: string;
   period_year: number;
   period_month: number;
@@ -34,13 +42,16 @@ export interface PayslipRow {
   paid_at: string | null;
   paid_amount: number | null;
   created_at: string;
+  hrconsult_doc_ref: string | null;
+  // Karim 2026-05-31 : enrichi cote server depuis site primaire
+  employee_city?: "Bruxelles" | "Anvers" | null;
   employee: {
     id: string;
     full_name: string;
     email: string | null;
     iban: string | null;
     preferred_language: string | null;
-  };
+  } | null;
 }
 
 const MONTH_NAMES_FR = [
@@ -93,6 +104,7 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
     ? new Date(row.scheduled_payment_date).getTime() <= Date.now()
     : true;
   const isLocked = row.is_secondary && !todayLeq;
+  const isOrphan = !row.employee;
   const statusLabel = {
     pending: { label: "En attente", className: "bg-blue-100 text-blue-800" },
     scheduled: { label: `Différée → ${row.scheduled_payment_date ?? ""}`, className: "bg-amber-100 text-amber-800" },
@@ -100,11 +112,35 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
     cancelled: { label: "Annulée", className: "bg-gray-100 text-gray-800" },
   }[row.payment_status];
 
+  // Karim 2026-05-30 : style distinct pour les fiches a venir (scheduled future)
+  const isUpcoming = row.payment_status === "scheduled" && isLocked;
+  const rowBg = isOrphan
+    ? "bg-amber-50/50"
+    : isUpcoming
+    ? "bg-purple-50/60 opacity-70"
+    : "";
   return (
-    <div className="p-4 flex items-center gap-3 hover:bg-muted/20">
+    <div className={`p-4 flex items-center gap-3 hover:bg-muted/20 ${rowBg}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-medium truncate">{row.employee.full_name}</span>
+          {isUpcoming && (
+            <Hourglass className="w-4 h-4 text-purple-600 flex-shrink-0" />
+          )}
+          {isOrphan ? (
+            <>
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span className="font-medium truncate text-amber-900">
+                Non associée
+                {row.hrconsult_doc_ref && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    ({row.hrconsult_doc_ref})
+                  </span>
+                )}
+              </span>
+            </>
+          ) : (
+            <span className="font-medium truncate">{row.employee!.full_name}</span>
+          )}
           {row.is_secondary && (
             <Badge variant="outline" className="text-xs">
               <Calendar className="w-3 h-3 mr-1" />
@@ -120,8 +156,8 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
           <span className="font-semibold text-foreground">
             À payer : {Number(row.amount_to_pay).toFixed(2)} €
           </span>
-          {row.employee.iban && (
-            <span className="font-mono text-xs">{row.employee.iban}</span>
+          {row.employee?.iban && (
+            <span className="font-mono text-xs">{row.employee!.iban}</span>
           )}
         </div>
       </div>
@@ -129,11 +165,192 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
       <Badge className={statusLabel.className}>{statusLabel.label}</Badge>
 
       <div className="flex items-center gap-1">
+        {!isOrphan && <AdvanceInlineInput row={row} />}
+        <ViewPdfButton row={row} />
+        <EditAmountButton row={row} />
+        <AssignButton row={row} />
         <QrButton row={row} isLocked={isLocked} />
         <PayButton row={row} isLocked={isLocked} />
         <SendButton row={row} />
       </div>
     </div>
+  );
+}
+
+function ViewPdfButton({ row }: { row: PayslipRow }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      title="Voir / Télécharger le PDF"
+      disabled={pending}
+      onClick={() => {
+        startTransition(async () => {
+          const res = await getPayslipPdfUrlAction(row.id);
+          if (res.ok && res.url) window.open(res.url, "_blank");
+          else toast.error(res.error ?? "PDF indisponible");
+        });
+      }}
+    >
+      {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+    </Button>
+  );
+}
+
+function AdvanceInlineInput({ row }: { row: PayslipRow }) {
+  const [value, setValue] = useState(String(row.advance_deducted ?? 0));
+  const [pending, startTransition] = useTransition();
+  const initial = String(row.advance_deducted ?? 0);
+  const dirty = value !== initial;
+  return (
+    <div className="flex items-center gap-1" title="Avance déduite (Enter pour sauver + regénérer QR)">
+      <Wallet className="w-3.5 h-3.5 text-amber-600" />
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          if (!dirty) return;
+          const n = parseFloat(value.replace(",", "."));
+          if (!Number.isFinite(n) || n < 0) {
+            setValue(initial);
+            toast.error("Montant invalide");
+            return;
+          }
+          startTransition(async () => {
+            const res = await setAdvanceAndRecomputeAction(row.id, n);
+            if (res.ok) toast.success(`Avance ${n.toFixed(2)} € → QR regénéré`);
+            else toast.error(res.error ?? "Erreur");
+          });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        }}
+        className={`w-20 text-xs px-1.5 py-0.5 border rounded ${dirty ? "border-amber-500 bg-amber-50" : "border-transparent"}`}
+        placeholder="0.00"
+        disabled={pending}
+      />
+      {pending && <Loader2 className="w-3 h-3 animate-spin" />}
+    </div>
+  );
+}
+
+function AssignButton({ row }: { row: PayslipRow }) {
+  const [open, setOpen] = useState(false);
+  const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; iban: string | null; status: string }>>([]);
+  const [selected, setSelected] = useState(row.employee_id ?? "");
+  const [search, setSearch] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function loadEmployees() {
+    if (employees.length > 0) return;
+    listActiveEmployeesAction().then(setEmployees);
+  }
+
+  const filtered = search
+    ? employees.filter((e) => e.full_name.toLowerCase().includes(search.toLowerCase()))
+    : employees;
+  const activeCount = employees.filter((e) => e.status === "active").length;
+  const onLeaveCount = employees.filter((e) => e.status === "on_leave").length;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) loadEmployees(); }}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" title={row.employee ? "Re-affecter" : "Associer à un employé"}>
+          <Link2 className={`w-4 h-4 ${!row.employee ? "text-amber-600" : ""}`} />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{row.employee ? "Re-affecter la fiche" : "Associer la fiche à un employé"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input placeholder="Chercher..." value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+          {employees.length > 0 && (
+            <div className="text-[10px] text-muted-foreground">
+              {activeCount} actifs · {onLeaveCount} en congé · {employees.length} au total
+            </div>
+          )}
+          <div className="max-h-72 overflow-y-auto border rounded">
+            {filtered.map((e) => (
+              <label key={e.id} className="flex items-center gap-2 p-2 hover:bg-muted/30 cursor-pointer">
+                <input type="radio" name="emp" value={e.id} checked={selected === e.id} onChange={() => setSelected(e.id)} />
+                <span className="text-sm">{e.full_name}</span>
+                {e.status === "on_leave" && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">en congé</span>
+                )}
+                {e.iban && <span className="text-xs text-muted-foreground font-mono ml-auto">{e.iban}</span>}
+              </label>
+            ))}
+            {filtered.length === 0 && <div className="p-3 text-xs text-muted-foreground">Aucun employé</div>}
+          </div>
+          <Button
+            disabled={!selected || pending}
+            className="w-full"
+            onClick={() => {
+              startTransition(async () => {
+                const res = await reassignPayslipAction(row.id, selected);
+                if (res.ok) {
+                  toast.success("Fiche associée");
+                  setOpen(false);
+                } else toast.error(res.error ?? "Erreur");
+              });
+            }}
+          >
+            {pending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Link2 className="w-4 h-4 mr-2" />}
+            Associer + générer QR
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditAmountButton({ row }: { row: PayslipRow }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(String(row.net_amount));
+  const [pending, startTransition] = useTransition();
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" title="Modifier le montant net">
+          <Edit3 className="w-4 h-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Modifier le montant net</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Label className="text-xs">Net (€) — sera reduit de l avance puis le QR sera regenere</Label>
+          <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Button
+            disabled={pending}
+            className="w-full"
+            onClick={() => {
+              const n = parseFloat(amount.replace(",", "."));
+              if (!Number.isFinite(n) || n < 0) {
+                toast.error("Montant invalide");
+                return;
+              }
+              startTransition(async () => {
+                const res = await updatePayslipAmountAction(row.id, n);
+                if (res.ok) {
+                  toast.success("Montant mis à jour");
+                  setOpen(false);
+                } else toast.error(res.error ?? "Erreur");
+              });
+            }}
+          >
+            {pending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Edit3 className="w-4 h-4 mr-2" />}
+            Enregistrer + regénérer QR
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -156,7 +373,7 @@ function QrButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Paiement {Number(row.amount_to_pay).toFixed(2)} € → {row.employee.full_name}
+            Paiement {Number(row.amount_to_pay).toFixed(2)} € → {row.employee?.full_name ?? "(non associée)"}
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col items-center gap-3">
@@ -188,7 +405,7 @@ function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
       disabled={isLocked || pending}
       title="Marquer payé"
       onClick={() => {
-        if (!confirm(`Confirmer le paiement de ${Number(row.amount_to_pay).toFixed(2)} € à ${row.employee.full_name} ?`)) return;
+        if (!confirm(`Confirmer le paiement de ${Number(row.amount_to_pay).toFixed(2)} € à ${row.employee?.full_name ?? "(non associée)"} ?`)) return;
         startTransition(async () => {
           const res = await markPayslipPaidAction(row.id);
           if (res.ok) toast.success("Marqué payé");
@@ -203,13 +420,14 @@ function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
 
 function SendButton({ row }: { row: PayslipRow }) {
   const [open, setOpen] = useState(false);
-  const [recipient, setRecipient] = useState(row.employee.email ?? "");
+  const [recipient, setRecipient] = useState(row.employee?.email ?? "");
   const [pending, startTransition] = useTransition();
+  const disabled = !row.employee;
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => !disabled && setOpen(o)}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" title="Envoyer la fiche par mail">
-          <Mail className="w-4 h-4" />
+        <Button variant="ghost" size="sm" disabled={disabled} title={disabled ? "Associe d'abord à un employé" : "Envoyer la fiche par mail"}>
+          <Mail className={`w-4 h-4 ${disabled ? "opacity-30" : ""}`} />
         </Button>
       </DialogTrigger>
       <DialogContent>
