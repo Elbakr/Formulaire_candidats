@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { Mail, Paperclip, AlertCircle, Send, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-log";
+import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-types";
 import { MailsFilters } from "./mails-filters";
 
 export const dynamic = "force-dynamic";

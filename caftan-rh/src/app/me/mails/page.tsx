@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Mail, Paperclip, ExternalLink, Inbox } from "lucide-react";
-import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-log";
+import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-types";
 
 export const dynamic = "force-dynamic";
 

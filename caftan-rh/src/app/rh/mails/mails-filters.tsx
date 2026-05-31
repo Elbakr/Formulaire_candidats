@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Mail, Paperclip, AlertCircle, ExternalLink } from "lucide-react";
-import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-log";
+import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-types";
 
 interface OutboundMail {
   id: string;

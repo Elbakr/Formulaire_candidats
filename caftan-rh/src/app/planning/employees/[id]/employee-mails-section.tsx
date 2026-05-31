@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Mail, Paperclip, AlertCircle, Plus } from "lucide-react";
-import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-log";
+import { SOURCE_LABELS, SOURCE_COLORS, type MailSource } from "@/lib/outbound-mail-types";
 
 export async function EmployeeMailsSection({ employeeId }: { employeeId: string }) {
   const admin = createAdminClient();
