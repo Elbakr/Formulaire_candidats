@@ -1,7 +1,7 @@
 // Karim 2026-05-31 : page candidat "Mails reçus" - liste des mails que CaftanRH
 // lui a envoyés (contrats, fiches paie, demandes infos, magic links, etc.).
 
-import { requireAuthenticated } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card } from "@/components/ui/card";
@@ -23,7 +23,7 @@ interface OutboundMail {
 }
 
 export default async function MyMailsPage() {
-  await requireAuthenticated();
+  await requireUser();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");

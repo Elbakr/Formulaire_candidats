@@ -1,7 +1,7 @@
 // Karim 2026-05-31 : page candidat /me/screening
 // Affiche les questions par categorie et permet de repondre.
 
-import { requireAuthenticated } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ScreeningForm } from "./screening-form";
@@ -10,7 +10,7 @@ import { CATEGORY_LABELS } from "@/lib/screening-scoring";
 export const dynamic = "force-dynamic";
 
 export default async function MyScreeningPage() {
-  await requireAuthenticated();
+  await requireUser();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");

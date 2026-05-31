@@ -37,6 +37,71 @@ export async function uploadPayslipBatchAction(formData: FormData): Promise<
   }
 }
 
+/**
+ * Karim 2026-05-31 : bulk - marque plusieurs fiches payées + reset les avances.
+ */
+export async function markPayslipsPaidBulkAction(
+  payslipIds: string[],
+  note?: string,
+): Promise<{ ok: boolean; updated?: number; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (payslipIds.length === 0) return { ok: false, error: "Aucune fiche selectionnée" };
+  const admin = createAdminClient();
+  const { data: rows } = await admin
+    .from("payslips")
+    .select("id, employee_id, amount_to_pay, advance_deducted")
+    .in("id", payslipIds);
+  if (!rows || rows.length === 0) return { ok: false, error: "Fiches introuvables" };
+
+  const nowISO = new Date().toISOString();
+  for (const r of rows) {
+    await admin
+      .from("payslips")
+      .update({
+        payment_status: "paid",
+        paid_at: nowISO,
+        paid_amount: r.amount_to_pay,
+        payment_note: note ?? "Marqué payé en bloc",
+      })
+      .eq("id", r.id);
+    if (Number(r.advance_deducted) > 0 && r.employee_id) {
+      await admin
+        .from("employees")
+        .update({ salary_advance_amount: 0, salary_advance_updated_at: nowISO })
+        .eq("id", r.employee_id);
+    }
+  }
+  revalidatePath("/admin/payslips");
+  return { ok: true, updated: rows.length };
+}
+
+/**
+ * Karim 2026-05-31 : bulk - envoie plusieurs fiches par mail séquentiellement.
+ */
+export async function sendPayslipsToEmployeesBulkAction(
+  payslipIds: string[],
+): Promise<{ ok: boolean; sent?: number; skipped?: number; errors?: string[] }> {
+  await requireRole(["admin", "rh"]);
+  if (payslipIds.length === 0) return { ok: false, errors: ["Aucune fiche selectionnée"] };
+  let sent = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  for (const id of payslipIds) {
+    try {
+      const r = await sendPayslipToEmployeeAction(id);
+      if (r.ok) sent++;
+      else {
+        skipped++;
+        if (r.error) errors.push(`${id.slice(0, 8)}: ${r.error}`);
+      }
+    } catch (e) {
+      skipped++;
+      errors.push(`${id.slice(0, 8)}: ${(e as Error).message}`);
+    }
+  }
+  return { ok: true, sent, skipped, errors };
+}
+
 export async function markPayslipPaidAction(payslipId: string, note?: string): Promise<{ ok: boolean; error?: string }> {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();

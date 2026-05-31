@@ -33,6 +33,7 @@ import { LangToggle } from "./lang-toggle";
 import { CityToggle } from "./city-toggle";
 import { ViewerRoleProvider } from "./user-role-context";
 import { ShiftUndoProvider } from "./shift-undo-provider";
+import { CommandPalette } from "./command-palette";
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
@@ -174,6 +175,7 @@ export function AppShell({
     <ShiftUndoProvider>
     <div className="flex flex-col min-h-screen min-h-screen-mobile">
       <NotificationListener profileId={user.id} />
+      <CommandPalette />
       <header className="sticky top-0 z-30 border-b border-white/10 bg-ink/95 backdrop-blur-xl text-white pt-safe">
         <div className="flex items-center gap-2 px-3 sm:px-5 py-3 px-safe">
           <button

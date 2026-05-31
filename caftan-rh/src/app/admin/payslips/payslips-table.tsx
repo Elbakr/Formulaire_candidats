@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, createContext, useContext } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,17 @@ import {
   listActiveEmployeesAction,
   getPayslipPdfUrlAction,
   setAdvanceAndRecomputeAction,
+  markPayslipsPaidBulkAction,
+  sendPayslipsToEmployeesBulkAction,
 } from "./actions";
 import { toast } from "sonner";
+
+// Karim 2026-05-31 : contexte pour partage selection bulk entre table et rows
+const BulkContext = createContext<{
+  selected: Set<string>;
+  toggle: (id: string) => void;
+  isSelected: (id: string) => boolean;
+} | null>(null);
 
 export interface PayslipRow {
   id: string;
@@ -60,6 +69,61 @@ const MONTH_NAMES_FR = [
 ];
 
 export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
+  // Karim 2026-05-31 : bulk - state + helpers
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkPending, startBulk] = useTransition();
+
+  const toggleId = (id: string) =>
+    setSelected((p) => {
+      const s = new Set(p);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
+  const isSelected = (id: string) => selected.has(id);
+
+  const selectedRows = rows.filter((r) => selected.has(r.id));
+  const selectedTotal = selectedRows.reduce((s, r) => s + Number(r.amount_to_pay ?? 0), 0);
+  const selectedPayable = selectedRows.filter(
+    (r) => r.payment_status === "pending" || r.payment_status === "scheduled",
+  ).length;
+
+  function selectAllVisible(checked: boolean) {
+    setSelected((p) => {
+      const s = new Set(p);
+      for (const r of rows) {
+        if (checked) s.add(r.id);
+        else s.delete(r.id);
+      }
+      return s;
+    });
+  }
+
+  async function bulkMarkPaid() {
+    if (selected.size === 0) return;
+    if (!confirm(`Marquer ${selected.size} fiche(s) payée(s) (total : ${selectedTotal.toFixed(2)} €) ?`)) return;
+    startBulk(async () => {
+      const res = await markPayslipsPaidBulkAction(Array.from(selected));
+      if (res.ok) {
+        toast.success(`${res.updated} fiche(s) marquée(s) payée(s)`);
+        setSelected(new Set());
+      } else toast.error(res.error ?? "Erreur");
+    });
+  }
+
+  async function bulkSend() {
+    if (selected.size === 0) return;
+    if (!confirm(`Envoyer ${selected.size} fiche(s) par mail aux employés concernés ?`)) return;
+    startBulk(async () => {
+      const res = await sendPayslipsToEmployeesBulkAction(Array.from(selected));
+      if (res.ok) {
+        toast.success(`${res.sent} envoyée(s)${res.skipped ? `, ${res.skipped} échec(s)` : ""}`);
+        if (res.errors && res.errors.length > 0) console.warn("Bulk send errors:", res.errors);
+        setSelected(new Set());
+      } else toast.error("Erreur envoi");
+    });
+  }
+
   // Group by year+month
   const groups = new Map<string, PayslipRow[]>();
   for (const r of rows) {
@@ -70,32 +134,82 @@ export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
   const groupKeys = Array.from(groups.keys()).sort().reverse();
 
   return (
-    <div className="space-y-4">
-      {groupKeys.map((key) => {
-        const [year, month] = key.split("-").map((x) => parseInt(x, 10));
-        const items = groups.get(key)!;
-        return (
-          <Card key={key} className="p-0 overflow-hidden">
-            <div className="p-4 border-b bg-muted/30 flex items-center justify-between">
-              <h2 className="font-semibold text-sm">
-                {MONTH_NAMES_FR[month - 1]} {year}
-              </h2>
-              <span className="text-xs text-muted-foreground">{items.length} fiches</span>
-            </div>
-            <div className="divide-y">
-              {items.map((row) => (
-                <PayslipRowCard key={row.id} row={row} />
-              ))}
-            </div>
-          </Card>
-        );
-      })}
-      {rows.length === 0 && (
-        <div className="text-center text-sm text-muted-foreground py-12">
-          Aucune fiche de paie. Drop un PDF pour commencer.
-        </div>
-      )}
-    </div>
+    <BulkContext.Provider value={{ selected, toggle: toggleId, isSelected }}>
+      <div className="space-y-4">
+        {/* Karim 2026-05-31 : barre actions bulk floating */}
+        {selected.size > 0 && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-foreground text-background rounded-full shadow-2xl px-5 py-3 flex items-center gap-4 text-sm">
+            <span className="font-bold">
+              {selected.size} fiche{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}
+            </span>
+            <span className="text-xs opacity-80">Total : {selectedTotal.toFixed(2)} €</span>
+            <button
+              type="button"
+              onClick={bulkMarkPaid}
+              disabled={bulkPending || selectedPayable === 0}
+              className="bg-green-600 hover:bg-green-700 disabled:opacity-40 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1"
+            >
+              {bulkPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Marquer payées
+            </button>
+            <button
+              type="button"
+              onClick={bulkSend}
+              disabled={bulkPending}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1"
+            >
+              {bulkPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+              Envoyer
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs opacity-70 hover:opacity-100 ml-2"
+            >
+              Annuler
+            </button>
+          </div>
+        )}
+
+        {rows.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-ink-3">
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={rows.length > 0 && rows.every((r) => selected.has(r.id))}
+                onChange={(e) => selectAllVisible(e.target.checked)}
+              />
+              Sélectionner tout ({rows.length})
+            </label>
+          </div>
+        )}
+
+        {groupKeys.map((key) => {
+          const [year, month] = key.split("-").map((x) => parseInt(x, 10));
+          const items = groups.get(key)!;
+          return (
+            <Card key={key} className="p-0 overflow-hidden">
+              <div className="p-4 border-b bg-muted/30 flex items-center justify-between">
+                <h2 className="font-semibold text-sm">
+                  {MONTH_NAMES_FR[month - 1]} {year}
+                </h2>
+                <span className="text-xs text-muted-foreground">{items.length} fiches</span>
+              </div>
+              <div className="divide-y">
+                {items.map((row) => (
+                  <PayslipRowCard key={row.id} row={row} />
+                ))}
+              </div>
+            </Card>
+          );
+        })}
+        {rows.length === 0 && (
+          <div className="text-center text-sm text-muted-foreground py-12">
+            Aucune fiche de paie. Drop un PDF pour commencer.
+          </div>
+        )}
+      </div>
+    </BulkContext.Provider>
   );
 }
 
@@ -119,8 +233,19 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
     : isUpcoming
     ? "bg-purple-50/60 opacity-70"
     : "";
+  const bulk = useContext(BulkContext);
+  const checked = bulk?.isSelected(row.id) ?? false;
   return (
-    <div className={`p-4 flex items-center gap-3 hover:bg-muted/20 ${rowBg}`}>
+    <div className={`p-4 flex items-center gap-3 hover:bg-muted/20 ${rowBg} ${checked ? "bg-blue-50/60" : ""}`}>
+      {bulk && (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => bulk.toggle(row.id)}
+          className="flex-shrink-0"
+          aria-label="Sélectionner cette fiche"
+        />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {isUpcoming && (
