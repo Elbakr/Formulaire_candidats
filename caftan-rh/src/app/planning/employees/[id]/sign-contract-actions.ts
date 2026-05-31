@@ -56,10 +56,23 @@ CaftanRH
     body, html: body.replace(/\n/g, "<br>"), content: body,
     signing_url: args.signingUrl,
   };
-  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
   });
+  // Karim 2026-05-31 : archive la copie employeur dans outbound_mails
+  try {
+    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
+    await logOutboundMail({
+      recipient_email: args.employerEmail,
+      recipient_name: "Employeur (archive)",
+      subject: `[Archive] Contrat envoyé à ${args.employeeName}`,
+      body,
+      source: "contract_employer_archive",
+      attachments: [{ name: "Lien signature DocuSeal", url: args.signingUrl }],
+      status: res.ok ? "sent" : "failed",
+    });
+  } catch {}
 }
 
 /**

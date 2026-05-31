@@ -118,5 +118,20 @@ CaftanRH
   });
   if (!res.ok) return { error: `EmailJS HTTP ${res.status}` };
 
+  // Karim 2026-05-31 : archive le mail dans outbound_mails
+  try {
+    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
+    await logOutboundMail({
+      recipient_email: emp.email,
+      recipient_name: emp.full_name,
+      subject: `CaftanRH - Compléter ton dossier (${missing.length} infos manquantes)`,
+      body,
+      source: "info_request",
+      source_ref: emp.id,
+      employee_id: emp.id,
+      attachments: [{ name: "Magic link auto-login (1h)", url: magicLink }],
+    });
+  } catch {}
+
   return { ok: true, sent_to: emp.email };
 }

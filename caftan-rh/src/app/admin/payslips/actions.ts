@@ -138,6 +138,22 @@ export async function sendPayslipToEmployeeAction(
   });
   if (!res.ok) return { ok: false, error: `Mail HTTP ${res.status}` };
 
+  // Karim 2026-05-31 : archive le mail envoyé dans outbound_mails
+  try {
+    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
+    const isExternal = recipientEmail && recipientEmail.trim() !== "" && recipientEmail.toLowerCase() !== (emp.email ?? "").toLowerCase();
+    await logOutboundMail({
+      recipient_email: destEmail,
+      recipient_name: emp.full_name,
+      subject: m.subject,
+      body: m.body,
+      source: isExternal ? "payslip_share_external" : "payslip_share",
+      source_ref: payslipId,
+      employee_id: payslip.employee_id,
+      attachments: [{ name: payslip.pdf_filename ?? "Fiche de paie", url: signed.signedUrl }],
+    });
+  } catch {}
+
   revalidatePath("/admin/payslips");
   return { ok: true };
 }

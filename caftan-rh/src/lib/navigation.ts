@@ -80,6 +80,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/me/my-clients", label: "Mes clientes VIP", icon: "Users" },
     { href: "/me/documents", label: "Mes documents", icon: "FileText" },
     { href: "/me/messages", label: "Messages", icon: "MessageSquare" },
+    { href: "/me/mails", label: "Mails reçus", icon: "Mail" },
     { href: "/chat", label: "Chat équipe", icon: "MessageSquare" },
     { href: "/me/profile", label: "Mon profil", icon: "User" },
   ];
@@ -141,6 +142,7 @@ export function getNavSections(role: Role): NavGroup[] {
   if (isHR(role)) {
     rhItems.push(
       { href: "/rh/messages", label: "Messagerie email", icon: "Mail" },
+      { href: "/rh/mails", label: "Mails envoyés", icon: "Mail" },
       { href: "/rh/screening", label: "Profilage candidats", icon: "Sparkles" },
       { href: "/rh/templates", label: "Templates emails", icon: "FileText" },
       { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },

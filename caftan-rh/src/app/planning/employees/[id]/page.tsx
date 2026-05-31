@@ -307,6 +307,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         />
       </div>
 
+      {/* Karim 2026-05-31 task #78/79 : section Mails envoyés a cet employee */}
+      <EmployeeMailsSection employeeId={id} />
+
       <div id="danger">
         <DangerZone
           employeeId={id}

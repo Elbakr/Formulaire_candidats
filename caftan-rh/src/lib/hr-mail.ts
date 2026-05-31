@@ -116,8 +116,33 @@ export async function sendContractSignatureMail(args: {
     });
     if (!res.ok) {
       const txt = await res.text();
+      // Karim 2026-05-31 : log echec aussi pour traçabilite
+      try {
+        const { logOutboundMail } = await import("./outbound-mail-log");
+        await logOutboundMail({
+          recipient_email: args.employeeEmail,
+          recipient_name: args.employeeName,
+          subject,
+          body,
+          source: "contract_signature",
+          status: "failed",
+          error_message: `EmailJS HTTP ${res.status}: ${txt.slice(0, 200)}`,
+        });
+      } catch {}
       return { error: `EmailJS HTTP ${res.status}: ${txt.slice(0, 200)}` };
     }
+    // Karim 2026-05-31 : archive le mail envoyé dans outbound_mails
+    try {
+      const { logOutboundMail } = await import("./outbound-mail-log");
+      await logOutboundMail({
+        recipient_email: args.employeeEmail,
+        recipient_name: args.employeeName,
+        subject,
+        body,
+        source: "contract_signature",
+        attachments: args.signingUrl ? [{ name: "Lien signature DocuSeal", url: args.signingUrl }] : [],
+      });
+    } catch {}
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };

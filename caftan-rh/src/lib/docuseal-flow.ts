@@ -228,13 +228,17 @@ function wrapArticlesInSections(html: string): string {
     indexes.push(match.index);
   }
   if (indexes.length === 0) return html;
-  // Tout ce qui precede le premier article (titre, parties, convenu)
   parts.push(html.slice(0, indexes[0]));
   for (let k = 0; k < indexes.length; k++) {
     const start = indexes[k];
     const end = k + 1 < indexes.length ? indexes[k + 1] : html.length;
     const block = html.slice(start, end);
-    parts.push(`<section class="article-block">${block}</section>`);
+    // Karim 2026-05-31 : extract numero d'article pour data-article attribute
+    // (utilisé par CSS body.contract-student section[data-article="9"]
+    // page-break-before:always pour forcer Article 9 en haut de page 2)
+    const numMatch = block.match(/<h2 class="article-head">[^<]*?Article\s+(\d+)/i);
+    const articleAttr = numMatch ? ` data-article="${numMatch[1]}"` : "";
+    parts.push(`<section class="article-block"${articleAttr}>${block}</section>`);
   }
   return parts.join("\n");
 }
@@ -270,10 +274,9 @@ function wrapArticlesInSections(html: string): string {
  *  - Footer : "*Biffer la mention inutile" gauche italique 8pt
  *           "Page N sur M" droite, N et M en GRAS 8pt
  */
-// Karim 2026-05-30 v3 : police 10pt (= meme taille que les autres contrats).
-// Compense par marges page legerement reduites + paragraphes plus compacts.
-// Article-block page-break-inside:avoid hérité du CSS global -> aucun article
-// coupé entre 2 pages.
+// Karim 2026-05-30 v3 : police 10pt + compensation marges
+// Karim 2026-05-31 : force Article 9 sur page 2 via attribut data-article
+// (cf wrapArticlesInSections qui parse le numero d'article).
 const STUDENT_COMPACT_OVERRIDE = `
   @page {
     /* Karim 2026-05-30 : marges page legerement reduites pour student uniquement */
@@ -294,6 +297,11 @@ const STUDENT_COMPACT_OVERRIDE = `
   body.contract-student .signatures { margin-top: 0.35cm; }
   body.contract-student .sig-box { min-height: 2cm; padding: 0.12cm 0.25cm; }
   body.contract-student .sig-zone { min-height: 1.1cm; }
+  /* Karim 2026-05-31 task #70 : force Article 9 en haut de page 2 */
+  body.contract-student section.article-block[data-article="9"] {
+    page-break-before: always;
+    break-before: page;
+  }
 `;
 
 const CONTRACT_CSS = `
