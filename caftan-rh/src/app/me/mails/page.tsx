@@ -29,13 +29,38 @@ export default async function MyMailsPage() {
   if (!user) redirect("/login");
 
   const admin = createAdminClient();
-  // RLS filtre déjà côté server ; on liste tous les mails dont je suis destinataire
-  const { data } = await admin
+  // Karim 2026-05-31 : PostgREST n'accepte pas de sous-SELECT dans in.(...),
+  // donc on récupère d'abord les ids employees + candidates liés au profile,
+  // puis on construit le filtre OR avec des listes littérales.
+  // On match aussi par EMAIL (utile pour tester sans changer de compte : un
+  // employee fictif "Karim Elbazi" qui partage l'email admin sera inclus).
+  const [{ data: linkedEmp }, { data: linkedCand }, { data: sameMailEmp }, { data: sameMailCand }] = await Promise.all([
+    admin.from("employees").select("id").eq("profile_id", user.id),
+    admin.from("candidates").select("id").eq("profile_id", user.id),
+    user.email
+      ? admin.from("employees").select("id").ilike("email", user.email)
+      : Promise.resolve({ data: [] as Array<{ id: string }> }),
+    user.email
+      ? admin.from("candidates").select("id").ilike("email", user.email)
+      : Promise.resolve({ data: [] as Array<{ id: string }> }),
+  ]);
+  const empIds = Array.from(new Set([...(linkedEmp ?? []), ...(sameMailEmp ?? [])].map((e) => e.id)));
+  const candIds = Array.from(new Set([...(linkedCand ?? []), ...(sameMailCand ?? [])].map((c) => c.id)));
+
+  const orParts: string[] = [];
+  if (user.email) orParts.push(`recipient_email.eq.${user.email}`);
+  if (empIds.length > 0) orParts.push(`employee_id.in.(${empIds.join(",")})`);
+  if (candIds.length > 0) orParts.push(`candidate_id.in.(${candIds.join(",")})`);
+
+  let query = admin
     .from("outbound_mails")
     .select("id, sent_at, subject, body, source, attachments, sender_name, from_email")
-    .or(`recipient_email.eq.${user.email},employee_id.in.(select id from employees where profile_id = '${user.id}')`)
     .order("sent_at", { ascending: false })
     .limit(200);
+  if (orParts.length > 0) query = query.or(orParts.join(","));
+
+  const { data, error } = await query;
+  if (error) console.warn("[me/mails] query error:", error.message);
   const mails = (data ?? []) as OutboundMail[];
 
   return (
