@@ -67,8 +67,11 @@ const WEEKDAYS: Array<{ code: string; key: TranslationKey }> = [
 
 const POSITION_SUGGESTIONS: Array<{ value: string; key: TranslationKey }> = [
   { value: "Vendeur·se", key: "apply.position.vendeur" },
+  { value: "Couture", key: "apply.position.couture" },
   { value: "Gestionnaire", key: "apply.position.gestionnaire" },
-  { value: "Gérant·e", key: "apply.position.gerant" },
+  { value: "Administratif", key: "apply.position.administratif" },
+  { value: "Marketing", key: "apply.position.marketing" },
+  { value: "IA", key: "apply.position.ia" },
 ];
 
 const PERMIT_OPTIONS: Array<{ code: string; key: TranslationKey }> = [
@@ -81,6 +84,20 @@ const ACTIVA_OPTIONS: Array<{ code: string; key: TranslationKey }> = [
   { code: "unknown", key: "apply.activa.unknown" },
   { code: "yes", key: "apply.activa.yes" },
   { code: "no", key: "apply.activa.no" },
+];
+
+// Karim 2026-05-31 : dispositifs Bruxelles intéressants pour l'employeur
+// (réductions ONSS / primes / subsides). Multi-select : le candidat coche
+// tous ceux pour lesquels il pense être éligible.
+const BRUSSELS_PLANS: Array<{ code: string; key: TranslationKey }> = [
+  { code: "activa", key: "apply.brussels_plan.activa" },
+  { code: "activa_longterm", key: "apply.brussels_plan.activa_longterm" },
+  { code: "young_first", key: "apply.brussels_plan.young_first" },
+  { code: "cpe", key: "apply.brussels_plan.cpe" },
+  { code: "senior_57", key: "apply.brussels_plan.senior_57" },
+  { code: "phare", key: "apply.brussels_plan.phare" },
+  { code: "pfi", key: "apply.brussels_plan.pfi" },
+  { code: "tax_shelter", key: "apply.brussels_plan.tax_shelter" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +119,7 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
   const [sitePref, setSitePref] = useState<string>(""); // site id ou ""
   const [permit, setPermit] = useState<string>("");
   const [activa, setActiva] = useState<string>("unknown");
+  const [brusselsPlans, setBrusselsPlans] = useState<Record<string, boolean>>({});
   const [days, setDays] = useState<Record<string, boolean>>({});
   const [langs, setLangs] = useState<Record<string, string>>({}); // code -> level
   const [position, setPosition] = useState<string>("");
@@ -210,6 +228,8 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
         fd.set("site_preference", sitePref);
         fd.set("work_permit", permit);
         fd.set("activa_brussels", activa);
+        const checkedPlans = Object.entries(brusselsPlans).filter(([, v]) => v).map(([k]) => k);
+        fd.set("brussels_plans", JSON.stringify(checkedPlans));
         fd.set("position", position);
         fd.set("motivation", motivation);
         fd.set("days_available", JSON.stringify(days));
@@ -410,9 +430,8 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
               name="weekly_hours"
               type="number"
               min={0}
-              max={48}
               inputMode="numeric"
-              placeholder="38"
+              placeholder=""
             />
           </Field>
           <Field label={t("apply.available_from", locale)}>
@@ -435,7 +454,9 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
               </div>
             </Field>
           </div>
-          {sites.length > 0 ? (
+          {/* Karim 2026-05-31 : champ "Magasin préféré" masqué (toujours pas
+              de différence entre stores côté process candidat). */}
+          {false && sites.length > 0 ? (
             <div className="sm:col-span-2">
               <Field
                 label={t("apply.site_preference", locale)}
@@ -549,16 +570,29 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
             hint={t("apply.activa_hint", locale)}
           >
             <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {ACTIVA_OPTIONS.map((o) => (
-                <RadioPill
-                  key={o.code}
-                  name={`activa_${o.code}`}
-                  value={o.code}
-                  checked={activa === o.code}
-                  onChange={() => setActiva(o.code)}
-                  label={t(o.key, locale)}
-                />
-              ))}
+              {BRUSSELS_PLANS.map((p) => {
+                const checked = !!brusselsPlans[p.code];
+                return (
+                  <label
+                    key={p.code}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-full border cursor-pointer transition-colors ${
+                      checked
+                        ? "bg-gold/10 border-gold text-ink"
+                        : "border-line bg-surface hover:border-gold/60"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-[var(--color-gold)]"
+                      checked={checked}
+                      onChange={() =>
+                        setBrusselsPlans((m) => ({ ...m, [p.code]: !m[p.code] }))
+                      }
+                    />
+                    <span>{t(p.key, locale)}</span>
+                  </label>
+                );
+              })}
             </div>
           </Field>
           <Field label={t("apply.work_permit", locale)}>

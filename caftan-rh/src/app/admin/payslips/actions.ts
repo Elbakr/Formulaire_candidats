@@ -195,7 +195,20 @@ export async function sendPayslipToEmployeeAction(
     if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer URL PDF" };
     signedUrl = signed.signedUrl;
   }
-  const signed = { signedUrl };
+
+  // Karim 2026-05-31 : URL trackée /api/docs/view/<token> qui logge la vue
+  // avant de rediriger vers le signed URL réel.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const { buildDocViewUrl } = await import("@/lib/doc-view-token");
+  const trackedUrl = buildDocViewUrl({
+    baseUrl,
+    docType: "payslip",
+    docRef: payslipId,
+    employeeId: payslip.employee_id,
+    signedUrl,
+    expiresInSeconds: 7 * 24 * 3600,
+  });
+  const signed = { signedUrl: trackedUrl };
 
   // Envoi via EmailJS
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
@@ -247,6 +260,23 @@ export async function sendPayslipToEmployeeAction(
       source_ref: payslipId,
       employee_id: payslip.employee_id,
       attachments: [{ name: payslip.pdf_filename ?? "Fiche de paie", url: signed.signedUrl }],
+    });
+  } catch {}
+
+  // Karim 2026-05-31 : audit log dédié (en plus de outbound_mails)
+  try {
+    const { logDocAudit } = await import("@/lib/document-audit-log");
+    await logDocAudit({
+      employee_id: payslip.employee_id,
+      doc_type: "payslip",
+      doc_ref: payslipId,
+      doc_label: `Fiche de paie ${payslip.period_label ?? ""}`.trim(),
+      action: "share_email",
+      channel: "emailjs",
+      actor_profile_id: null,
+      recipient_email: destEmail,
+      signed_url_path: payslip.pdf_storage_path,
+      notes: recipientEmail && recipientEmail !== emp.email ? "Envoyé à un destinataire externe" : null,
     });
   } catch {}
 

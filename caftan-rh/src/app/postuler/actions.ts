@@ -56,6 +56,14 @@ export async function submitPublicApplication(formData: FormData) {
   const sitePreference = String(formData.get("site_preference") ?? "").trim() || null;
   const workPermit = String(formData.get("work_permit") ?? "").trim() || null;
   const activa = String(formData.get("activa_brussels") ?? "unknown").trim();
+  let brusselsPlans: string[] = [];
+  try {
+    const raw = String(formData.get("brussels_plans") ?? "[]");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) brusselsPlans = parsed.filter((x) => typeof x === "string");
+  } catch {
+    brusselsPlans = [];
+  }
   const position = String(formData.get("position") ?? "").trim() || null;
   const experience = String(formData.get("experience") ?? "").trim() || null;
   const motivation = String(formData.get("motivation") ?? "").trim() || null;
@@ -142,6 +150,7 @@ export async function submitPublicApplication(formData: FormData) {
     site_preference: sitePreference,
     work_permit: workPermit,
     activa_brussels: activa,
+    brussels_plans: brusselsPlans,
     position,
     experience,
     job_id_requested: jobId,
