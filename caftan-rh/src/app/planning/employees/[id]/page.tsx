@@ -32,6 +32,7 @@ import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
+import { QuickNav } from "./quick-nav";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
