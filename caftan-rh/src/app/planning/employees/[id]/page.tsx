@@ -33,6 +33,7 @@ import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
 import { QuickNav } from "./quick-nav";
+import { EmployeeMailsSection } from "./employee-mails-section";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
