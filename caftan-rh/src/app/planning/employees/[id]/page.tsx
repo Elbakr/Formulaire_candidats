@@ -30,7 +30,8 @@ import { SignContractButton } from "./sign-contract-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { SalaryAdvanceSection } from "./salary-advance-section";
-import { MissingFieldsBanner } from "./missing-fields-banner";
+import { EmployeeStickyHeader } from "./employee-sticky-header";
+import { CompletionBar } from "./completion-bar";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -130,13 +131,27 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
   return (
     <div className="space-y-4">
+      {/* Karim 2026-05-31 task #66 : header sticky style Linear/Notion */}
+      <EmployeeStickyHeader
+        employeeId={id}
+        fullName={(emp as { full_name: string }).full_name}
+        status={(emp as { status: string }).status}
+        contractType={(emp as { contract_type: string | null }).contract_type}
+        jobTitle={(emp as { job_title: string | null }).job_title}
+        employeeRecord={emp as Record<string, unknown>}
+      />
+
       <EmployeeSiteNav currentEmployeeId={id} basePath="" />
 
-      {/* Karim 2026-05-30 : banner rouge clignotant si champs requis manquants */}
-      <MissingFieldsBanner
+      {/* Karim 2026-05-31 task #71 : CompletionBar remplace MissingFieldsBanner
+          (même info en plus condensé + expand pour le détail). */}
+      <CompletionBar
         employeeRecord={emp as Record<string, unknown>}
         contractType={(emp as { contract_type: string | null }).contract_type}
       />
+
+      {/* Karim 2026-05-31 task #66 : nav rapide scroll-spy sticky right */}
+      <QuickNav />
 
       {/* Karim 2026-05-29 : banniere urgente Dimona post-signature */}
       <DimonaReminderBanner
@@ -248,7 +263,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           </div>
           <p className="text-sm text-ink-2 mt-1">Édite tous les champs admin et les contraintes planning.</p>
         </div>
-        <div className="p-5">
+        <div className="p-5" id="form-admin">
           <EmployeeAdminForm
             employee={emp as never}
             departments={depts ?? []}
@@ -258,43 +273,50 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         </div>
       </Card>
 
-      <EmployeeQuotaCard employeeId={id} />
+      <div id="quota"><EmployeeQuotaCard employeeId={id} /></div>
 
-      <EmployeeAvailabilitySection
-        employeeId={id}
-        fixedOffDays={(emp as { fixed_off_days: number[] | null }).fixed_off_days}
-      />
+      <div id="availability">
+        <EmployeeAvailabilitySection
+          employeeId={id}
+          fixedOffDays={(emp as { fixed_off_days: number[] | null }).fixed_off_days}
+        />
+      </div>
 
-      <SiteAssignmentsSection
-        employeeId={id}
-        assignments={assignments}
-        sites={sites}
-      />
+      <div id="sites">
+        <SiteAssignmentsSection
+          employeeId={id}
+          assignments={assignments}
+          sites={sites}
+        />
+      </div>
 
-      {/* Karim 2026-05-29 : multi-empreintes Tuya (1 doigt IN + 1 doigt OUT,
-          ou multi-terminaux, tous agreges sous l employee unique) */}
-      <TuyaFingerprintsSection
-        employeeId={id}
-        employeeName={(emp as { full_name: string }).full_name}
-        devices={(tuyaDevices ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>}
-      />
+      <div id="tuya">
+        <TuyaFingerprintsSection
+          employeeId={id}
+          employeeName={(emp as { full_name: string }).full_name}
+          devices={(tuyaDevices ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>}
+        />
+      </div>
 
-      {/* Karim 2026-05-29 : avance salariale - deduite du net lors prochain paye */}
-      <SalaryAdvanceSection
-        employeeId={id}
-        initialAmount={Number((emp as { salary_advance_amount: number | null }).salary_advance_amount ?? 0)}
-        initialNote={(emp as { salary_advance_note: string | null }).salary_advance_note ?? null}
-        updatedAt={(emp as { salary_advance_updated_at: string | null }).salary_advance_updated_at ?? null}
-      />
+      <div id="advance">
+        <SalaryAdvanceSection
+          employeeId={id}
+          initialAmount={Number((emp as { salary_advance_amount: number | null }).salary_advance_amount ?? 0)}
+          initialNote={(emp as { salary_advance_note: string | null }).salary_advance_note ?? null}
+          updatedAt={(emp as { salary_advance_updated_at: string | null }).salary_advance_updated_at ?? null}
+        />
+      </div>
 
-      <DangerZone
-        employeeId={id}
-        fullName={(emp as { full_name: string }).full_name}
-        status={(emp as { status: string }).status}
-        isAdmin={profile.role === "admin"}
-      />
+      <div id="danger">
+        <DangerZone
+          employeeId={id}
+          fullName={(emp as { full_name: string }).full_name}
+          status={(emp as { status: string }).status}
+          isAdmin={profile.role === "admin"}
+        />
+      </div>
 
-      <Card>
+      <Card id="embauche">
         <div className="p-4 border-b border-line">
           <h2 className="font-bold text-sm">Dossier d&apos;embauche</h2>
           <p className="text-xs text-ink-3 mt-0.5">
