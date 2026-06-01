@@ -85,13 +85,59 @@ export function renderTerminationLetterHtml(d: TerminationLetterData): string {
 <style>
   @page { size: A4 portrait; margin: 2.5cm 2.2cm; }
   * { box-sizing: border-box; }
+  /* Karim 2026-06-01 : wrapper A4 visible en preview navigateur (fond gris,
+     page blanche centree avec ombre). En print, on revient au flow natif. */
+  html { background: #eceef2; }
   body {
     font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
     font-size: 11pt;
     line-height: 1.5;
     color: #000;
     margin: 0;
-    padding: 0;
+    padding: 24pt 0;
+  }
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(255,255,255,0.95);
+    border-bottom: 1px solid #d6d8dd;
+    padding: 8pt 16pt;
+    text-align: right;
+    backdrop-filter: blur(6px);
+    margin: -24pt 0 24pt 0;
+  }
+  .toolbar button {
+    background: #0b5fff;
+    color: #fff;
+    border: none;
+    padding: 8pt 16pt;
+    border-radius: 6px;
+    font-size: 10.5pt;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .toolbar button:hover { background: #084ad8; }
+  .a4-page {
+    width: 21cm;
+    min-height: 29.7cm;
+    max-width: 21cm;
+    margin: 0 auto;
+    padding: 2.5cm 2.2cm;
+    background: #fff;
+    box-shadow: 0 4pt 16pt rgba(0,0,0,0.12);
+  }
+  @media print {
+    html, body { background: #fff !important; padding: 0 !important; }
+    .toolbar { display: none !important; }
+    .a4-page {
+      width: auto;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+      min-height: 0;
+    }
   }
   h1.title {
     text-align: center;
@@ -130,6 +176,10 @@ export function renderTerminationLetterHtml(d: TerminationLetterData): string {
 </style>
 </head>
 <body>
+  <div class="toolbar no-print">
+    <button onclick="window.print()" type="button">🖨️ Imprimer (PDF)</button>
+  </div>
+  <div class="a4-page">
   <h1 class="title">CESSATION DU CONTRAT DE TRAVAIL DE COMMUN ACCORD</h1>
 
   <div class="header-block">
@@ -194,6 +244,13 @@ export function renderTerminationLetterHtml(d: TerminationLetterData): string {
       <div class="sig-title">Signature de l'employeur ou de son délégué</div>
     </div>
   </div>
+  </div>
+  <script>
+    // Karim 2026-06-01 : auto-print si ?print=1 dans l URL
+    if (window.location.search.includes('print=1')) {
+      setTimeout(() => window.print(), 400);
+    }
+  </script>
 </body>
 </html>`;
 }

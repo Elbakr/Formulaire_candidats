@@ -86,7 +86,7 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
     });
   }
 
-  async function handlePrint() {
+  async function openLetter(autoPrint: boolean) {
     if (!createdId) return;
     const res = await getTerminationLetterUrlAction(createdId);
     if (!res.ok || !res.url) {
@@ -95,8 +95,9 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
     }
     // Karim 2026-06-01 : path relatif + window.location.origin pour rester
     // meme-origine (preserve cookies de session admin).
-    const fullUrl = res.url.startsWith("http") ? res.url : `${window.location.origin}${res.url}`;
-    window.open(fullUrl, "_blank");
+    let url = res.url.startsWith("http") ? res.url : `${window.location.origin}${res.url}`;
+    if (autoPrint) url += (url.includes("?") ? "&" : "?") + "print=1";
+    window.open(url, "_blank");
   }
 
   async function handleSend() {
@@ -182,10 +183,10 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
                 ✓ Convention prête. Choisis comment la transmettre :
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Button variant="outline" onClick={handlePrint}>
+                <Button variant="outline" onClick={() => openLetter(false)}>
                   <Eye className="h-3.5 w-3.5" /> Aperçu
                 </Button>
-                <Button variant="outline" onClick={handlePrint}>
+                <Button variant="outline" onClick={() => openLetter(true)}>
                   <Printer className="h-3.5 w-3.5" /> Imprimer
                 </Button>
                 <Button variant="gold" onClick={handleSend} disabled={pending}>
