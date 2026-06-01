@@ -355,15 +355,69 @@ export async function sendTerminationForSignatureAction(
 
   const { data: emp } = await admin
     .from("employees")
-    .select("id, full_name, email, preferred_language")
+    .select("id, full_name, email, preferred_language, address, city, postal_code")
     .eq("id", t.employee_id)
     .single();
   if (!emp?.email) return { error: "Email employee manquant" };
 
-  // Karim 2026-06-01 : URL tokenisee publique vers /api/terminations/<id>/letter
-  // (rend la lettre directement, pas de dependance bucket).
-  const signedUrl = buildPublicLetterUrl(terminationId);
-  const signed = { signedUrl };
+  // Karim 2026-06-01 : flow DocuSeal Cloud — vrai PDF A4 + signature
+  // électronique légale (eIDAS) pour les 2 parties. Remplace l'ancien
+  // mail simple avec lien HTML.
+  const { data: tDetails } = await admin
+    .from("contract_terminations")
+    .select("employer_org_key, city, employer_representative_name, effective_date")
+    .eq("id", terminationId)
+    .single();
+  if (!tDetails) return { error: "Détails rupture KO" };
+
+  const EMPLOYER_INFO: Record<string, { name: string; address: string; city: string; email: string }> = {
+    amd_megastore: { name: "AMD MEGASTORE SRL", address: "Rue de Brabant 230", city: "1030 Schaerbeek", email: "hr@caftanfactory.com" },
+    caftan_factory: { name: "Caftan Factory", address: "Rue de Brabant 230", city: "1030 Schaerbeek", email: "hr@caftanfactory.com" },
+  };
+  const employer = EMPLOYER_INFO[tDetails.employer_org_key as string] ?? EMPLOYER_INFO.amd_megastore;
+  const employerSignerEmail = (process.env.DOCUSEAL_EMPLOYER_EMAIL ?? "elbazikarim@gmail.com").trim();
+
+  const { createTerminationTemplate, createTerminationSubmission } = await import("@/lib/docuseal-termination");
+  const tmpl = await createTerminationTemplate({
+    employer_org_name: employer.name,
+    employer_address: employer.address,
+    employer_city: employer.city,
+    employer_representative_name: tDetails.employer_representative_name as string | null,
+    employee_full_name: emp.full_name ?? "",
+    employee_address: emp.address ?? "",
+    employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),
+    effective_date_iso: (tDetails.effective_date as string) ?? new Date().toISOString().slice(0, 10),
+    signing_city: (tDetails.city as string) ?? "Schaerbeek",
+    signing_date_iso: new Date().toISOString().slice(0, 10),
+    templateNameSuffix: terminationId.slice(0, 8),
+  });
+  if (!tmpl.ok) return { error: tmpl.error };
+
+  const sub = await createTerminationSubmission({
+    templateId: tmpl.templateId,
+    employeeName: emp.full_name ?? "",
+    employeeEmail: emp.email,
+    employerName: (tDetails.employer_representative_name as string) || "Karim Elbazi",
+    employerEmail: employerSignerEmail,
+    metadata: { termination_id: terminationId },
+    replyTo: "hr@caftanfactory.com",
+  });
+  if (!sub.ok) return { error: sub.error };
+
+  const employeeSigningUrl = sub.signingUrls.find((s) => s.role === "Employee")?.url;
+  if (!employeeSigningUrl) return { error: "DocuSeal n'a pas retourné l'URL signature employee" };
+  const employerSigningUrl = sub.signingUrls.find((s) => s.role === "Employer")?.url;
+
+  // Stocke submission_id pour récupération du PDF signé plus tard
+  await admin
+    .from("contract_terminations")
+    .update({ docuseal_submission_id: String(sub.submissionId) })
+    .eq("id", terminationId);
+
+  const signed = { signedUrl: employeeSigningUrl };
+  const employerLinkLine = employerSigningUrl
+    ? `\n\nLien signature employeur (pour Karim/RH) :\n${employerSigningUrl}`
+    : "";
 
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
@@ -374,15 +428,19 @@ export async function sendTerminationForSignatureAction(
   const baseUrl = getPublicBaseUrl();
   const body = `Bonjour ${firstName},
 
-Une convention de cessation de contrat de travail de COMMUN ACCORD t'est transmise pour signature.
+Une convention de cessation de contrat de travail de COMMUN ACCORD t'est transmise pour signature électronique.
 
 Date de fin du contrat proposée : ${t.effective_date}
 
-Tu peux consulter et signer la lettre ici :
+Pour signer la convention (PDF A4 légal, signature électronique sécurisée) :
 ${signed.signedUrl}
 
-Tu retrouveras également cette lettre dans ton espace travailleur :
-${baseUrl}/me/documents
+La signature électronique a la même valeur légale qu'une signature manuscrite
+(règlement eIDAS UE n° 910/2014). Tu recevras automatiquement le PDF signé
+final par les deux parties dès que tout sera complété.
+
+Tu retrouveras également cette convention dans ton espace travailleur :
+${baseUrl}/me/termination${employerLinkLine}
 
 Bien à toi,
 L'équipe Caftan Factory (By AMD Megastore)`;

@@ -37,6 +37,38 @@ function formatDateBE(iso: string): string {
   }
 }
 
+/**
+ * Karim 2026-06-01 : variante DocuSeal — embarque les balises
+ * <signature-field role="Employee"/Employer"> que DocuSeal interprète pour
+ * placer les zones de signature dans le PDF A4 généré.
+ *
+ * Utilisé via POST /templates/html sur DocuSeal Cloud (cf. docuseal-flow.ts
+ * pour le pattern de référence sur les contrats).
+ */
+export function renderTerminationLetterForDocuSeal(d: TerminationLetterData): string {
+  const baseHtml = renderTerminationLetterHtml(d);
+  // Remplace les 2 sig-box statiques par des sig-box avec signature-field DocuSeal.
+  return baseHtml.replace(
+    /<div class="signatures">[\s\S]*?<\/div>\s*<\/body>/,
+    `<div class="signatures">
+    <div class="sig-box">
+      <div class="sig-title">Signature du travailleur</div>
+      <div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>
+      <div style="margin-top: 14pt;">
+        <signature-field name="Signature travailleur" role="Employee" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
+      </div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+      <div style="margin-top: 14pt;">
+        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
+      </div>
+    </div>
+  </div>
+</body>`,
+  );
+}
+
 export function renderTerminationLetterHtml(d: TerminationLetterData): string {
   const effectiveStr = formatDateBE(d.effective_date_iso);
   const signingStr = formatDateBE(d.signing_date_iso);
