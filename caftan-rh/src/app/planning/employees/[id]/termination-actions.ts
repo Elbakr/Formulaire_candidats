@@ -296,6 +296,12 @@ export async function cancelTerminationAction(terminationId: string): Promise<Ac
  * Karim 2026-06-01 : retourne un signed URL pour ouvrir la lettre dans un
  * nouvel onglet (impression via window.print depuis la page).
  */
+/**
+ * Karim 2026-06-01 : renvoie l URL de la lettre rendue cote serveur
+ * (/api/terminations/<id>/letter). Plus de dependance au bucket pour
+ * l'affichage, donc Aperçu/Imprimer marche toujours. Le bucket reste
+ * pour la signature DocuSeal future si on stocke des snapshots.
+ */
 export async function getTerminationLetterUrlAction(
   terminationId: string,
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
@@ -303,42 +309,26 @@ export async function getTerminationLetterUrlAction(
   const admin = createAdminClient();
   const { data: t } = await admin
     .from("contract_terminations")
-    .select("id, pdf_storage_path")
+    .select("id")
     .eq("id", terminationId)
     .maybeSingle();
   if (!t) return { ok: false, error: "Rupture introuvable" };
+  const baseUrl = getPublicBaseUrl();
+  return { ok: true, url: `${baseUrl}/api/terminations/${terminationId}/letter` };
+}
 
-  // Karim 2026-06-01 : si la lettre n a pas ete persistee (rupture creee
-  // avant le fix bucket mime), on la regenere a la volee.
-  async function regenerate(): Promise<string | null> {
-    const html = await buildLetterHtml(terminationId);
-    if (!html) return null;
-    const newPath = await persistLetter(terminationId, html);
-    if (newPath) {
-      await admin.from("contract_terminations").update({ pdf_storage_path: newPath }).eq("id", terminationId);
-    }
-    return newPath;
-  }
-
-  let path = t.pdf_storage_path as string | null;
-  if (!path) {
-    path = await regenerate();
-    if (!path) return { ok: false, error: "Upload bucket KO (vérifie les mime_types autorisés)" };
-  }
-
-  let { data, error } = await admin.storage.from("terminations").createSignedUrl(path, 7 * 24 * 3600);
-  // Karim 2026-06-01 : path en DB mais fichier disparu (upload silencieusement
-  // raté avant le fix). On regenere puis on retente.
-  if (error?.message?.toLowerCase().includes("not found") || (!data?.signedUrl && !error)) {
-    const regenPath = await regenerate();
-    if (regenPath) {
-      const retry = await admin.storage.from("terminations").createSignedUrl(regenPath, 7 * 24 * 3600);
-      data = retry.data;
-      error = retry.error;
-    }
-  }
-  if (error || !data?.signedUrl) return { ok: false, error: `Signed URL KO: ${error?.message ?? "no url"}` };
-  return { ok: true, url: data.signedUrl };
+/**
+ * Build URL avec token base64 pour partage externe (mail). exp = 7 jours.
+ */
+function buildPublicLetterUrl(terminationId: string): string {
+  const baseUrl = getPublicBaseUrl();
+  const payload = { id: terminationId, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 3600 };
+  const b64 = Buffer.from(JSON.stringify(payload), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `${baseUrl}/api/terminations/${terminationId}/letter?t=${b64}`;
 }
 
 /**
@@ -358,7 +348,6 @@ export async function sendTerminationForSignatureAction(
     .single();
   if (!t) return { error: "Introuvable" };
   if (t.status !== "approved") return { error: "Doit être approuvée avant envoi" };
-  if (!t.pdf_storage_path) return { error: "Lettre non générée" };
 
   const { data: emp } = await admin
     .from("employees")
@@ -367,8 +356,10 @@ export async function sendTerminationForSignatureAction(
     .single();
   if (!emp?.email) return { error: "Email employee manquant" };
 
-  const { data: signed } = await admin.storage.from("terminations").createSignedUrl(t.pdf_storage_path, 7 * 24 * 3600);
-  if (!signed?.signedUrl) return { error: "URL KO" };
+  // Karim 2026-06-01 : URL tokenisee publique vers /api/terminations/<id>/letter
+  // (rend la lettre directement, pas de dependance bucket).
+  const signedUrl = buildPublicLetterUrl(terminationId);
+  const signed = { signedUrl };
 
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
