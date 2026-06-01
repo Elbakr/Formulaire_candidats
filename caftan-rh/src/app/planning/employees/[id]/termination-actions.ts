@@ -310,17 +310,33 @@ export async function getTerminationLetterUrlAction(
 
   // Karim 2026-06-01 : si la lettre n a pas ete persistee (rupture creee
   // avant le fix bucket mime), on la regenere a la volee.
-  let path = t.pdf_storage_path as string | null;
-  if (!path) {
+  async function regenerate(): Promise<string | null> {
     const html = await buildLetterHtml(terminationId);
-    if (!html) return { ok: false, error: "Impossible de regénérer la lettre" };
+    if (!html) return null;
     const newPath = await persistLetter(terminationId, html);
-    if (!newPath) return { ok: false, error: "Upload bucket KO (vérifie les mime_types autorisés)" };
-    path = newPath;
-    await admin.from("contract_terminations").update({ pdf_storage_path: newPath }).eq("id", terminationId);
+    if (newPath) {
+      await admin.from("contract_terminations").update({ pdf_storage_path: newPath }).eq("id", terminationId);
+    }
+    return newPath;
   }
 
-  const { data, error } = await admin.storage.from("terminations").createSignedUrl(path, 7 * 24 * 3600);
+  let path = t.pdf_storage_path as string | null;
+  if (!path) {
+    path = await regenerate();
+    if (!path) return { ok: false, error: "Upload bucket KO (vérifie les mime_types autorisés)" };
+  }
+
+  let { data, error } = await admin.storage.from("terminations").createSignedUrl(path, 7 * 24 * 3600);
+  // Karim 2026-06-01 : path en DB mais fichier disparu (upload silencieusement
+  // raté avant le fix). On regenere puis on retente.
+  if (error?.message?.toLowerCase().includes("not found") || (!data?.signedUrl && !error)) {
+    const regenPath = await regenerate();
+    if (regenPath) {
+      const retry = await admin.storage.from("terminations").createSignedUrl(regenPath, 7 * 24 * 3600);
+      data = retry.data;
+      error = retry.error;
+    }
+  }
   if (error || !data?.signedUrl) return { ok: false, error: `Signed URL KO: ${error?.message ?? "no url"}` };
   return { ok: true, url: data.signedUrl };
 }
