@@ -34,6 +34,7 @@ import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
 import { QuickNav } from "./quick-nav";
 import { EmployeeMailsSection } from "./employee-mails-section";
+import { TerminationButton } from "./termination-button";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -47,6 +48,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     { data: sitesRaw },
     { data: assignsRaw },
     { data: tuyaDevicesRaw },
+    { data: pendingTerminationRaw },
   ] = await Promise.all([
     supabase.from("employees").select("*, department:departments(id, name)").eq("id", id).single(),
     supabase.from("departments").select("id, name").order("name"),
@@ -58,7 +60,18 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       .eq("employee_id", id)
       .order("start_date", { ascending: false }),
     supabase.from("tuya_devices").select("tuya_device_id, tuya_device_name").eq("is_active", true).eq("is_pointage", true).order("tuya_device_name"),
+    supabase
+      .from("contract_terminations")
+      .select("id, initiated_by, status, earliest_effective_date, request_note")
+      .eq("employee_id", id)
+      .in("status", ["pending_admin", "approved", "sent_for_signature"])
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  const pendingTermination = (pendingTerminationRaw ?? null) as {
+    id: string; initiated_by: string; status: string; earliest_effective_date: string; request_note: string | null;
+  } | null;
   const tuyaDevices = (tuyaDevicesRaw ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>;
   const sites = (sitesRaw ?? []) as Array<{
     id: string; code: string; name: string; color: string | null;
@@ -213,6 +226,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           <LeaveButton
             employeeId={id}
             employeeName={(emp as { full_name: string }).full_name}
+          />
+          {/* Karim 2026-06-01 : rupture amiable (lettre 402.00). pendingTermination
+              chargee en amont (cf. Promise.all en haut). */}
+          <TerminationButton
+            employeeId={id}
+            employeeFullName={(emp as { full_name: string }).full_name}
+            defaultRepresentativeName={profile.full_name ?? ""}
+            pendingTermination={pendingTermination}
           />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/print?weeks=4`} target="_blank">
