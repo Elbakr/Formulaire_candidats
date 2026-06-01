@@ -47,15 +47,19 @@ function todayPlus(days: number): string {
 async function persistLetter(
   terminationId: string,
   html: string,
-): Promise<string> {
+): Promise<string | null> {
   const admin = createAdminClient();
   const path = `letter/${terminationId}.html`;
-  await admin.storage
+  const { error } = await admin.storage
     .from("terminations")
     .upload(path, new Blob([html], { type: "text/html" }), {
       contentType: "text/html",
       upsert: true,
     });
+  if (error) {
+    console.warn("[persistLetter] upload error:", error.message);
+    return null;
+  }
   return path;
 }
 
@@ -299,12 +303,25 @@ export async function getTerminationLetterUrlAction(
   const admin = createAdminClient();
   const { data: t } = await admin
     .from("contract_terminations")
-    .select("pdf_storage_path")
+    .select("id, pdf_storage_path")
     .eq("id", terminationId)
-    .single();
-  if (!t?.pdf_storage_path) return { ok: false, error: "Lettre non générée" };
-  const { data } = await admin.storage.from("terminations").createSignedUrl(t.pdf_storage_path, 7 * 24 * 3600);
-  if (!data?.signedUrl) return { ok: false, error: "Signed URL KO" };
+    .maybeSingle();
+  if (!t) return { ok: false, error: "Rupture introuvable" };
+
+  // Karim 2026-06-01 : si la lettre n a pas ete persistee (rupture creee
+  // avant le fix bucket mime), on la regenere a la volee.
+  let path = t.pdf_storage_path as string | null;
+  if (!path) {
+    const html = await buildLetterHtml(terminationId);
+    if (!html) return { ok: false, error: "Impossible de regénérer la lettre" };
+    const newPath = await persistLetter(terminationId, html);
+    if (!newPath) return { ok: false, error: "Upload bucket KO (vérifie les mime_types autorisés)" };
+    path = newPath;
+    await admin.from("contract_terminations").update({ pdf_storage_path: newPath }).eq("id", terminationId);
+  }
+
+  const { data, error } = await admin.storage.from("terminations").createSignedUrl(path, 7 * 24 * 3600);
+  if (error || !data?.signedUrl) return { ok: false, error: `Signed URL KO: ${error?.message ?? "no url"}` };
   return { ok: true, url: data.signedUrl };
 }
 

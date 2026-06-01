@@ -100,8 +100,8 @@ CREATE POLICY term_employee_own ON public.contract_terminations
 
 -- Bucket Storage pour les PDFs termination
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES ('terminations', 'terminations', false, 10485760, ARRAY['application/pdf'])
-ON CONFLICT (id) DO NOTHING;
+VALUES ('terminations', 'terminations', false, 10485760, ARRAY['application/pdf', 'text/html', 'text/plain'])
+ON CONFLICT (id) DO UPDATE SET allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 COMMENT ON TABLE public.contract_terminations IS
   'Rupture de contrat de travail de commun accord (lettre 402.00). Initiable par admin/RH ou employee (avec validation RH + cooling-off 3 jours).';
