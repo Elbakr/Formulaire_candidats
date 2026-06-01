@@ -347,7 +347,11 @@ export async function sendTerminationForSignatureAction(
     .eq("id", terminationId)
     .single();
   if (!t) return { error: "Introuvable" };
-  if (t.status !== "approved") return { error: "Doit être approuvée avant envoi" };
+  // Karim 2026-06-01 : autorise approved (premier envoi) ET sent_for_signature
+  // (renvoi du mail si le worker a perdu le lien ou si on relance).
+  if (!["approved", "sent_for_signature"].includes(t.status)) {
+    return { error: `Statut ${t.status} : la rupture doit d'abord être approuvée par RH` };
+  }
 
   const { data: emp } = await admin
     .from("employees")
