@@ -49,23 +49,33 @@ export function renderTerminationLetterForDocuSeal(d: TerminationLetterData): st
   const baseHtml = renderTerminationLetterHtml(d);
   // Remplace les 2 sig-box statiques par des sig-box avec signature-field DocuSeal.
   return baseHtml.replace(
-    /<div class="signatures">[\s\S]*?<\/div>\s*<\/body>/,
+    /<div class="signatures">[\s\S]*?<\/div>\s*<\/div>\s*<script>/,
     `<div class="signatures">
     <div class="sig-box">
       <div class="sig-title">Signature du travailleur</div>
-      <div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>
-      <div style="margin-top: 14pt;">
+      <div style="margin-top: 10pt;">
         <signature-field name="Signature travailleur" role="Employee" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
+      </div>
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement le
+        <date-field name="Date signature travailleur" role="Employee" required="true" default-value="${new Date().toISOString().slice(0, 10)}" style="display: inline-block; width: 90pt; height: 14pt;"></date-field>
+        (eIDAS UE n° 910/2014)
       </div>
     </div>
     <div class="sig-box">
       <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      <div style="margin-top: 14pt;">
+      <div style="margin-top: 10pt;">
         <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
+      </div>
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement le
+        <date-field name="Date signature employeur" role="Employer" required="true" default-value="${new Date().toISOString().slice(0, 10)}" style="display: inline-block; width: 90pt; height: 14pt;"></date-field>
+        (eIDAS UE n° 910/2014)
       </div>
     </div>
   </div>
-</body>`,
+  </div>
+  <script>`,
   );
 }
 
@@ -238,10 +248,11 @@ export function renderTerminationLetterHtml(d: TerminationLetterData): string {
   <div class="signatures">
     <div class="sig-box">
       <div class="sig-title">Signature du travailleur</div>
-      <div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>
+      <div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>
     </div>
     <div class="sig-box">
       <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+      <div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>
     </div>
   </div>
   </div>
