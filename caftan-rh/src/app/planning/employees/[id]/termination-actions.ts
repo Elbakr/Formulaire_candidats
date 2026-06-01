@@ -377,6 +377,16 @@ export async function sendTerminationForSignatureAction(
   const employer = EMPLOYER_INFO[tDetails.employer_org_key as string] ?? EMPLOYER_INFO.amd_megastore;
   const employerSignerEmail = (process.env.DOCUSEAL_EMPLOYER_EMAIL ?? "elbazikarim@gmail.com").trim();
 
+  // Karim 2026-06-01 : charge la signature stockee de l'admin (pattern
+  // identique aux contrats). Si dispo, le PDF DocuSeal embed la signature
+  // employeur en image → 1 seul signataire (Employee).
+  const { data: sigRow } = await admin
+    .from("profiles")
+    .select("signature_data_url")
+    .eq("id", profile.id)
+    .maybeSingle();
+  const employerSignatureDataUrl = (sigRow as { signature_data_url: string | null } | null)?.signature_data_url ?? null;
+
   const { createTerminationTemplate, createTerminationSubmission } = await import("@/lib/docuseal-termination");
   const tmpl = await createTerminationTemplate({
     employer_org_name: employer.name,
@@ -390,6 +400,7 @@ export async function sendTerminationForSignatureAction(
     signing_city: (tDetails.city as string) ?? "Schaerbeek",
     signing_date_iso: new Date().toISOString().slice(0, 10),
     templateNameSuffix: terminationId.slice(0, 8),
+    employerSignatureDataUrl,
   });
   if (!tmpl.ok) return { error: tmpl.error };
 
@@ -401,6 +412,7 @@ export async function sendTerminationForSignatureAction(
     employerEmail: employerSignerEmail,
     metadata: { termination_id: terminationId },
     replyTo: "hr@caftanfactory.com",
+    preSigned: !!employerSignatureDataUrl,
   });
   if (!sub.ok) return { error: sub.error };
 

@@ -96,7 +96,12 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
     // Karim 2026-06-01 : path relatif + window.location.origin pour rester
     // meme-origine (preserve cookies de session admin).
     let url = res.url.startsWith("http") ? res.url : `${window.location.origin}${res.url}`;
-    if (autoPrint) url += (url.includes("?") ? "&" : "?") + "print=1";
+    if (autoPrint) {
+      // Karim 2026-06-01 : "Imprimer" = version pour signature manuelle
+      // (mention manuscrite « lu et approuvé » + cases vides) + auto Ctrl+P.
+      const sep = url.includes("?") ? "&" : "?";
+      url += `${sep}mode=print&print=1`;
+    }
     window.open(url, "_blank");
   }
 

@@ -92,6 +92,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     .maybeSingle();
   if (!emp) return new NextResponse("Employee introuvable", { status: 404 });
 
+  // Karim 2026-06-01 : mode=print → mention manuscrite (cases vides pour
+  // signature stylo), sinon mention eIDAS pour signature electronique.
+  const mode: "print" | "esign" = req.nextUrl.searchParams.get("mode") === "print" ? "print" : "esign";
+
   const employer = EMPLOYER_INFO[t.employer_org_key] ?? EMPLOYER_INFO.amd_megastore;
   const html = renderTerminationLetterHtml({
     employer_org_name: employer.name,
@@ -104,6 +108,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     effective_date_iso: t.effective_date ?? new Date().toISOString().slice(0, 10),
     signing_city: t.city ?? "Schaerbeek",
     signing_date_iso: new Date().toISOString().slice(0, 10),
+    mode,
   });
 
   // Audit log de la consultation

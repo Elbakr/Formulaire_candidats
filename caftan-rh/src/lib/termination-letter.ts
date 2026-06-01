@@ -23,6 +23,11 @@ export interface TerminationLetterData {
   effective_date_iso: string;  // YYYY-MM-DD
   signing_city: string;        // "Schaerbeek"
   signing_date_iso: string;    // YYYY-MM-DD (date à laquelle la convention est signée)
+  // Karim 2026-06-01 : mode de rendu pour la zone signature.
+  //  - "esign"  : mention "Lu et approuvé — signé électroniquement... eIDAS"
+  //  - "print"  : mention manuscrite classique "(précédée de la mention « lu et approuvé »)"
+  //               + cases vides (signature stylo)
+  mode?: "esign" | "print";
 }
 
 function formatDateBE(iso: string): string {
@@ -45,9 +50,40 @@ function formatDateBE(iso: string): string {
  * Utilisé via POST /templates/html sur DocuSeal Cloud (cf. docuseal-flow.ts
  * pour le pattern de référence sur les contrats).
  */
-export function renderTerminationLetterForDocuSeal(d: TerminationLetterData): string {
-  const baseHtml = renderTerminationLetterHtml(d);
-  // Remplace les 2 sig-box statiques par des sig-box avec signature-field DocuSeal.
+/**
+ * Karim 2026-06-01 : DocuSeal version. Si employerSignatureDataUrl fourni
+ * (signature Karim deja enregistree dans profiles.signature_data_url), elle
+ * est embedded comme image dans le PDF → 1 seul signataire DocuSeal (Employee).
+ * Sinon, 2 signataires (Employer + Employee) via signature-field.
+ */
+export function renderTerminationLetterForDocuSeal(
+  d: TerminationLetterData,
+  opts?: { employerSignatureDataUrl?: string | null },
+): string {
+  // Force mode esign pour DocuSeal
+  const baseHtml = renderTerminationLetterHtml({ ...d, mode: "esign" });
+  // Karim 2026-06-01 : date FR formatée (JJ/MM/AAAA), basée sur la date
+  // de génération du template DocuSeal. Pas de <date-field> dynamique
+  // (DocuSeal le rendait avec une date imprévisible 06/01/2023).
+  const now = new Date();
+  const dateFR = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const preSigned = !!opts?.employerSignatureDataUrl;
+
+  const employerSigBlock = preSigned
+    ? `<div style="margin-top: 10pt;">
+        <img src="${opts!.employerSignatureDataUrl}" alt="Signature employeur" style="display: block; max-width: 100%; max-height: 50pt; margin: 0 auto;">
+      </div>
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
+        <br><em>(pré-signée numériquement par l'employeur)</em>
+      </div>`
+    : `<div style="margin-top: 10pt;">
+        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
+      </div>
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
+      </div>`;
+
   return baseHtml.replace(
     /<div class="signatures">[\s\S]*?<\/div>\s*<\/div>\s*<script>/,
     `<div class="signatures">
@@ -57,21 +93,12 @@ export function renderTerminationLetterForDocuSeal(d: TerminationLetterData): st
         <signature-field name="Signature travailleur" role="Employee" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
       </div>
       <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le
-        <date-field name="Date signature travailleur" role="Employee" required="true" default-value="${new Date().toISOString().slice(0, 10)}" style="display: inline-block; width: 90pt; height: 14pt;"></date-field>
-        (eIDAS UE n° 910/2014)
+        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
       </div>
     </div>
     <div class="sig-box">
       <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      <div style="margin-top: 10pt;">
-        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
-      </div>
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le
-        <date-field name="Date signature employeur" role="Employer" required="true" default-value="${new Date().toISOString().slice(0, 10)}" style="display: inline-block; width: 90pt; height: 14pt;"></date-field>
-        (eIDAS UE n° 910/2014)
-      </div>
+      ${employerSigBlock}
     </div>
   </div>
   </div>
@@ -248,11 +275,19 @@ export function renderTerminationLetterHtml(d: TerminationLetterData): string {
   <div class="signatures">
     <div class="sig-box">
       <div class="sig-title">Signature du travailleur</div>
-      <div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>
+      ${
+        d.mode === "print"
+          ? `<div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>`
+          : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`
+      }
     </div>
     <div class="sig-box">
       <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      <div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>
+      ${
+        d.mode === "print"
+          ? ""
+          : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`
+      }
     </div>
   </div>
   </div>

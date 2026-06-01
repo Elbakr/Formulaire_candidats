@@ -21,13 +21,18 @@ export interface DocusealError {
 }
 
 export async function createTerminationTemplate(
-  opts: TerminationLetterData & { templateNameSuffix?: string },
+  opts: TerminationLetterData & {
+    templateNameSuffix?: string;
+    employerSignatureDataUrl?: string | null;
+  },
 ): Promise<TerminationTemplateResult | DocusealError> {
   const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.DOCUSEAL_API_KEY;
   if (!baseUrl || !apiKey) return { ok: false, error: "DocuSeal non configuré (DOCUSEAL_BASE_URL/API_KEY)" };
 
-  const html = renderTerminationLetterForDocuSeal(opts);
+  const html = renderTerminationLetterForDocuSeal(opts, {
+    employerSignatureDataUrl: opts.employerSignatureDataUrl,
+  });
   const safeName = opts.employee_full_name.replace(/\s+/g, "_");
   const templateName = `rupture_amiable_${safeName}_${opts.templateNameSuffix ?? Date.now()}`;
 
@@ -61,26 +66,34 @@ export async function createTerminationSubmission(opts: {
   employerEmail: string;
   metadata?: Record<string, string>;
   replyTo?: string;
+  preSigned?: boolean;
 }): Promise<TerminationSubmissionResult | DocusealError> {
   const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
   const apiKey = process.env.DOCUSEAL_API_KEY;
   if (!baseUrl || !apiKey) return { ok: false, error: "DocuSeal non configuré" };
 
-  // Karim 2026-06-01 : 2 signataires. L'employeur signe en premier (préservé
-  // par order=preserved), puis le travailleur. send_email=false pour passer
-  // par notre propre EmailJS depuis hr@caftanfactory.com (cohérent avec contrats).
-  const submitters = [
-    {
-      role: "Employer",
-      name: opts.employerName,
-      email: opts.employerEmail,
-    },
-    {
-      role: "Employee",
-      name: opts.employeeName,
-      email: opts.employeeEmail,
-    },
-  ];
+  // Karim 2026-06-01 : si preSigned, l'employeur signature est deja embedded
+  // dans le template (image) → 1 seul signataire (Employee). Sinon dual.
+  const submitters = opts.preSigned
+    ? [
+        {
+          role: "Employee",
+          name: opts.employeeName,
+          email: opts.employeeEmail,
+        },
+      ]
+    : [
+        {
+          role: "Employer",
+          name: opts.employerName,
+          email: opts.employerEmail,
+        },
+        {
+          role: "Employee",
+          name: opts.employeeName,
+          email: opts.employeeEmail,
+        },
+      ];
 
   const res = await fetch(`${baseUrl}/submissions`, {
     method: "POST",
