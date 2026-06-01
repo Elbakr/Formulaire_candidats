@@ -7,7 +7,8 @@
 // reste protégée par Supabase de toute façon.
 
 import { NextRequest, NextResponse } from "next/server";
-import { logDocAudit, type DocAuditType } from "@/lib/document-audit-log";
+import { logDocAudit } from "@/lib/document-audit-log";
+import type { DocAuditType } from "@/lib/document-audit-log";
 
 export const dynamic = "force-dynamic";
 
