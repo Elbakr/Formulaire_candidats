@@ -297,10 +297,10 @@ export async function cancelTerminationAction(terminationId: string): Promise<Ac
  * nouvel onglet (impression via window.print depuis la page).
  */
 /**
- * Karim 2026-06-01 : renvoie l URL de la lettre rendue cote serveur
- * (/api/terminations/<id>/letter). Plus de dependance au bucket pour
- * l'affichage, donc Aperçu/Imprimer marche toujours. Le bucket reste
- * pour la signature DocuSeal future si on stocke des snapshots.
+ * Karim 2026-06-01 : renvoie un PATH RELATIF vers la lettre rendue cote
+ * serveur. Le client le combine a window.location.origin pour rester
+ * meme-origine (donc cookies de session preserves). Pas de dependance
+ * au bucket pour l affichage.
  */
 export async function getTerminationLetterUrlAction(
   terminationId: string,
@@ -313,8 +313,8 @@ export async function getTerminationLetterUrlAction(
     .eq("id", terminationId)
     .maybeSingle();
   if (!t) return { ok: false, error: "Rupture introuvable" };
-  const baseUrl = getPublicBaseUrl();
-  return { ok: true, url: `${baseUrl}/api/terminations/${terminationId}/letter` };
+  // Path relatif - le client utilisera window.location.origin
+  return { ok: true, url: `/api/terminations/${terminationId}/letter` };
 }
 
 /**

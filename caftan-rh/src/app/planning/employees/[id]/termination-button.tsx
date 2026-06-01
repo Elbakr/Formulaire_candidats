@@ -93,7 +93,10 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
       toast.error(res.error ?? "URL KO");
       return;
     }
-    window.open(res.url, "_blank");
+    // Karim 2026-06-01 : path relatif + window.location.origin pour rester
+    // meme-origine (preserve cookies de session admin).
+    const fullUrl = res.url.startsWith("http") ? res.url : `${window.location.origin}${res.url}`;
+    window.open(fullUrl, "_blank");
   }
 
   async function handleSend() {
