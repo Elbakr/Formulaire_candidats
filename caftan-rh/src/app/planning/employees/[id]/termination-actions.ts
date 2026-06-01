@@ -103,16 +103,28 @@ export async function initiateTerminationByRHAction(opts: {
   const admin = createAdminClient();
   const { data: emp } = await admin
     .from("employees")
-    .select("id, employer_org_key")
+    .select("id")
     .eq("id", opts.employeeId)
-    .single();
+    .maybeSingle();
   if (!emp) return { error: "Employee introuvable" };
+
+  // Karim 2026-06-01 : pas de colonne employer_org_key sur employees ; on
+  // infère via le payslip le plus récent (qui en a un), sinon fallback
+  // amd_megastore (seul employeur actuellement actif).
+  const { data: lastPayslip } = await admin
+    .from("payslips")
+    .select("employer_org_key")
+    .eq("employee_id", opts.employeeId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const employerOrgKey = (lastPayslip?.employer_org_key as string | undefined) ?? "amd_megastore";
 
   const { data: row, error } = await admin
     .from("contract_terminations")
     .insert({
       employee_id: opts.employeeId,
-      employer_org_key: emp.employer_org_key ?? "amd_megastore",
+      employer_org_key: employerOrgKey,
       initiated_by: ["admin", "rh"].includes(profile.role) ? profile.role : "admin",
       initiator_profile_id: profile.id,
       status: "approved",
@@ -149,10 +161,19 @@ export async function requestTerminationByEmployeeAction(opts: {
   const admin = createAdminClient();
   const { data: emp } = await admin
     .from("employees")
-    .select("id, employer_org_key")
+    .select("id")
     .eq("profile_id", user.id)
     .maybeSingle();
   if (!emp) return { error: "Aucune fiche employé liée à ton compte" };
+
+  const { data: lastPayslip } = await admin
+    .from("payslips")
+    .select("employer_org_key")
+    .eq("employee_id", emp.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const employerOrgKey = (lastPayslip?.employer_org_key as string | undefined) ?? "amd_megastore";
 
   const requestedAt = new Date().toISOString();
   const earliest = todayPlus(3);
@@ -160,7 +181,7 @@ export async function requestTerminationByEmployeeAction(opts: {
     .from("contract_terminations")
     .insert({
       employee_id: emp.id,
-      employer_org_key: emp.employer_org_key ?? "amd_megastore",
+      employer_org_key: employerOrgKey,
       initiated_by: "employee",
       initiator_profile_id: user.id,
       requested_at: requestedAt,
