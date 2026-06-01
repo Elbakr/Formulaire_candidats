@@ -7,27 +7,7 @@ import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import { getMissingFields } from "@/lib/contract-readiness";
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
-
-/**
- * Karim 2026-05-30 : recupere l URL du tunnel cloudflare actif (mis a jour
- * par scripts/tunnel-keeper.ps1 dans TUNNEL_URL.txt) pour les magic links
- * envoyes a distance. Fallback localhost si tunnel absent.
- */
-function getPublicBaseUrl(): string {
-  try {
-    const tunnelPath = resolvePath(process.cwd(), "TUNNEL_URL.txt");
-    const txt = readFileSync(tunnelPath, "utf8");
-    const firstLine = txt.split(/\r?\n/)[0].trim();
-    if (firstLine.startsWith("https://") && firstLine.includes("trycloudflare.com")) {
-      return firstLine;
-    }
-  } catch {
-    // fichier absent : fallback
-  }
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-}
+import { getPublicBaseUrl } from "@/lib/public-base-url";
 
 export async function sendInfoRequestMailAction(
   employeeId: string,

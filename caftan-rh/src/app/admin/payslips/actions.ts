@@ -198,7 +198,8 @@ export async function sendPayslipToEmployeeAction(
 
   // Karim 2026-05-31 : URL trackée /api/docs/view/<token> qui logge la vue
   // avant de rediriger vers le signed URL réel.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
+  const baseUrl = getPublicBaseUrl();
   const { buildDocViewUrl } = await import("@/lib/doc-view-token");
   const trackedUrl = buildDocViewUrl({
     baseUrl,

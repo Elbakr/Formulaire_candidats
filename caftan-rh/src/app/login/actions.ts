@@ -71,10 +71,10 @@ export async function requestPasswordResetAction(
     return { error: "Email invalide." };
   }
 
-  // Construit l URL de redirection apres clic sur le lien dans le mail
-  const origin = process.env.NEXT_PUBLIC_SITE_URL
-    || process.env.VERCEL_URL
-    || "http://localhost:3000";
+  // Karim 2026-06-01 : utilise getPublicBaseUrl (TUNNEL_URL.txt > env) pour
+  // que le reset password fonctionne aussi depuis smartphone via tunnel.
+  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
+  const origin = getPublicBaseUrl() || process.env.VERCEL_URL || "http://localhost:3000";
   const redirectTo = `${origin.startsWith("http") ? "" : "https://"}${origin}/login/reset-password`;
 
   // Genere le magic link via Supabase Admin (n envoie PAS de mail SMTP)

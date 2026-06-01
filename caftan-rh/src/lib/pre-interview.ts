@@ -4,9 +4,8 @@
 
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { getPublicBaseUrl } from "@/lib/public-base-url";
 import type {
   PreInterview,
   PreInterviewQuestion,
@@ -133,39 +132,12 @@ export async function loadPreInterviewBundleByToken(
 }
 
 /**
- * Karim 2026-06-01 : lit le tunnel cloudflared actif depuis TUNNEL_URL.txt
- * (mis à jour automatiquement par scripts/tunnel-keeper.ps1). Permet que les
- * URLs candidates restent valides à chaque restart du tunnel sans devoir
- * éditer .env.local manuellement.
- */
-function readActiveTunnelUrl(): string | null {
-  try {
-    const tunnelPath = resolvePath(process.cwd(), "TUNNEL_URL.txt");
-    const txt = readFileSync(tunnelPath, "utf8");
-    const firstLine = txt.split(/\r?\n/)[0].trim().replace(/^﻿/, "");
-    if (firstLine.startsWith("https://") && (firstLine.includes("trycloudflare.com") || firstLine.includes("loca.lt"))) {
-      return firstLine;
-    }
-  } catch {
-    // fichier absent ou illisible : fallback env
-  }
-  return null;
-}
-
-/**
  * Build the public URL for a pre-interview token.
- * Priorité : TUNNEL_URL.txt > override > NEXT_PUBLIC_SITE_URL > NEXT_PUBLIC_BASE_URL > path relatif.
+ * Priorité gérée par getPublicBaseUrl : TUNNEL_URL.txt > NEXT_PUBLIC_SITE_URL > localhost.
  */
 export function preInterviewPublicUrl(token: string, baseUrlOverride?: string): string {
-  const base =
-    readActiveTunnelUrl() ??
-    baseUrlOverride ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.NEXT_PUBLIC_BASE_URL ??
-    "";
-  const path = `/pre-interview/${token}`;
-  if (!base) return path;
-  return `${base.replace(/\/$/, "")}${path}`;
+  const base = getPublicBaseUrl(baseUrlOverride);
+  return `${base}/pre-interview/${token}`;
 }
 
 /**

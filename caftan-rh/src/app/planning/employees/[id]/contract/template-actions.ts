@@ -154,7 +154,10 @@ export async function createContractAndSendForSignatureAction(input: {
   const contractId = (row as { id: string }).id;
 
   // 5. Envoi mail signature via EmailJS
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://children-joined-dealers-nancy.trycloudflare.com";
+  // Karim 2026-06-01 : utilise getPublicBaseUrl (TUNNEL_URL.txt > env) pour
+  // que les liens de signature restent valides à chaque restart tunnel.
+  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
+  const baseUrl = getPublicBaseUrl();
   const signingUrl = `${baseUrl}/sign/${signingToken}`;
   let mailStatus = 0;
   try {
