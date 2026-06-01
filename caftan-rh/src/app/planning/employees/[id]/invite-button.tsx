@@ -24,7 +24,7 @@ export function InviteEmployeeButton({
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
+  const [creds, setCreds] = useState<{ email: string; password: string; loginUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   function go() {
@@ -39,14 +39,17 @@ export function InviteEmployeeButton({
         return;
       }
       if (r.email && r.password) {
-        setCreds({ email: r.email, password: r.password });
+        // Karim 2026-06-01 : loginUrl vient du server (TUNNEL_URL.txt > env),
+        // fallback window.location.origin si jamais absent.
+        const loginUrl = r.loginUrl ?? (typeof window !== "undefined" ? `${window.location.origin}/login` : "/login");
+        setCreds({ email: r.email, password: r.password, loginUrl });
       }
     });
   }
 
   function copyAll() {
     if (!creds) return;
-    const text = `Bonjour,\n\nVoici ton accès à la plateforme Caftan Factory :\n\n  URL    : ${typeof window !== "undefined" ? window.location.origin : ""}/login\n  Email  : ${creds.email}\n  Pwd    : ${creds.password}\n\nÀ ta première connexion, change le mot de passe dans /me/profile.`;
+    const text = `Bonjour,\n\nVoici ton accès à la plateforme Caftan Factory :\n\n  URL    : ${creds.loginUrl}\n  Email  : ${creds.email}\n  Pwd    : ${creds.password}\n\nÀ ta première connexion, change le mot de passe dans /me/profile.`;
     navigator.clipboard.writeText(text).then(
       () => {
         setCopied(true);
@@ -58,14 +61,14 @@ export function InviteEmployeeButton({
 
   function shareViaWhatsApp() {
     if (!creds) return;
-    const text = `Bonjour, voici ton accès Caftan Factory :\nURL: ${typeof window !== "undefined" ? window.location.origin : ""}/login\nEmail: ${creds.email}\nPwd: ${creds.password}`;
+    const text = `Bonjour, voici ton accès Caftan Factory :\nURL: ${creds.loginUrl}\nEmail: ${creds.email}\nPwd: ${creds.password}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   }
 
   async function shareViaMailto() {
     if (!creds) return;
     const subject = "Ton accès à la plateforme Caftan Factory";
-    const body = `Bonjour,\n\nVoici tes identifiants pour accéder à la plateforme Caftan Factory :\n\nURL    : ${typeof window !== "undefined" ? window.location.origin : ""}/login\nEmail  : ${creds.email}\nMot de passe : ${creds.password}\n\nMerci de changer ton mot de passe à la première connexion (page Mon profil).\n\nL'équipe RH`;
+    const body = `Bonjour,\n\nVoici tes identifiants pour accéder à la plateforme Caftan Factory :\n\nURL    : ${creds.loginUrl}\nEmail  : ${creds.email}\nMot de passe : ${creds.password}\n\nMerci de changer ton mot de passe à la première connexion (page Mon profil).\n\nL'équipe RH`;
     // Karim 19/05 : envoi via messagerie integree EmailJS au lieu de mailto.
     const toastId = toast.loading("Envoi de l'email…");
     const r = await sendEmailViaEmailJS({
@@ -113,9 +116,7 @@ export function InviteEmployeeButton({
               <div className="bg-surface-2 rounded-md p-3 font-mono text-xs space-y-1.5">
                 <div>
                   <span className="text-ink-3">URL : </span>
-                  <span className="font-bold">
-                    {typeof window !== "undefined" ? window.location.origin : ""}/login
-                  </span>
+                  <span className="font-bold">{creds.loginUrl}</span>
                 </div>
                 <div>
                   <span className="text-ink-3">Email : </span>

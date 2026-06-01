@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Continue"
 $LogPath = "$env:USERPROFILE\cloudflared-tunnel.log"
 $UrlFile = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats\caftan-rh\TUNNEL_URL.txt"
+$EnvFile = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats\caftan-rh\.env.local"
 $Cloudflared = "$env:USERPROFILE\cloudflared.exe"
 $Git = "C:\Users\KElba\PortableGit\cmd\git.exe"
 $RepoDir = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats"
@@ -44,6 +45,29 @@ function Start-Tunnel {
     return $null
 }
 
+function Update-EnvLocal {
+    param([string]$Url)
+    if (-not (Test-Path $EnvFile)) {
+        Write-Host "[keeper] .env.local absent, skip"
+        return
+    }
+    try {
+        $content = Get-Content $EnvFile -Raw
+        $newLine = "NEXT_PUBLIC_SITE_URL=$Url"
+        if ($content -match "(?m)^NEXT_PUBLIC_SITE_URL=.*$") {
+            $updated = [regex]::Replace($content, "(?m)^NEXT_PUBLIC_SITE_URL=.*$", $newLine)
+        } else {
+            $updated = $content.TrimEnd() + "`r`n# Auto-managed by tunnel-keeper.ps1`r`n$newLine`r`n"
+        }
+        if ($content -ne $updated) {
+            Set-Content -Path $EnvFile -Value $updated -Encoding UTF8 -NoNewline
+            Write-Host "[keeper] .env.local NEXT_PUBLIC_SITE_URL updated"
+        }
+    } catch {
+        Write-Host "[keeper] env update failed: $_"
+    }
+}
+
 function Publish {
     param([string]$Url)
     $existing = ""
@@ -56,6 +80,8 @@ function Publish {
     $stamp = (Get-Date -Format "yyyy-MM-dd HH:mm")
     $lines = @($Url, "", "Tunnel actif depuis $stamp.", "Mis a jour automatiquement par scripts/tunnel-keeper.ps1.", "Bookmark cette page, l URL ici est toujours la bonne.")
     Set-Content -Path $UrlFile -Value $lines -Encoding UTF8
+    # Sync .env.local pour les libs qui lisent process.env.NEXT_PUBLIC_SITE_URL
+    Update-EnvLocal -Url $Url
     Push-Location $RepoDir
     try {
         & $Git add caftan-rh/TUNNEL_URL.txt 2>&1 | Out-Null

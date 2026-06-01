@@ -128,7 +128,7 @@ export async function reactivateEmployeeAction(
  */
 export async function inviteEmployeeAction(
   employeeId: string,
-): Promise<{ ok?: boolean; error?: string; email?: string; password?: string }> {
+): Promise<{ ok?: boolean; error?: string; email?: string; password?: string; loginUrl?: string }> {
   const { profile } = await requireRole(["admin", "rh"]);
   const supabase = await createClient();
   const admin = createAdminClient();
@@ -199,7 +199,13 @@ export async function inviteEmployeeAction(
 
   revalidatePath(`/planning/employees/${e.id}`);
   revalidatePath("/planning/employees");
-  return { ok: true, email: e.email, password };
+
+  // Karim 2026-06-01 : URL publique resolved server-side (tunnel actif > env),
+  // jamais localhost — l'employé doit pouvoir cliquer depuis son téléphone.
+  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
+  const loginUrl = `${getPublicBaseUrl()}/login`;
+
+  return { ok: true, email: e.email, password, loginUrl };
 }
 
 function generateReadablePassword(length: number): string {
