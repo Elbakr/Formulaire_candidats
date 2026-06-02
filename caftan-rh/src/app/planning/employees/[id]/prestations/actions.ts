@@ -342,11 +342,11 @@ export async function markRestDayAction(args: {
 }
 
 /**
- * Karim 2026-06-02 : supprime un clock_entry (soft = pas suppr réelle, on
- * laisse l'entry mais on l'archive via notes + audit). Pour vraie suppression
- * physique, on delete.
+ * Karim 2026-06-02 : supprime un clock_entry AVEC audit log (raison
+ * obligatoire). Distinct de deleteClockEntryAction historique qui delete
+ * sans tracer.
  */
-export async function deleteClockEntryAction(args: {
+export async function deleteClockEntryWithAuditAction(args: {
   entryId: string;
   reason: string;
 }): Promise<{ ok?: true; error?: string }> {
