@@ -91,15 +91,35 @@ export async function POST(request: NextRequest) {
   // Karim 2026-06-02 : branch RUPTURE AMIABLE (contract_terminations).
   // Couvre form.completed (1 partie signe) + submission.completed (toutes signe).
   if (terminationId && (event.event_type === "form.completed" || event.event_type === "submission.completed")) {
-    const signedPdfUrl = await getSignedPdfUrl(event.data);
+    const docusealPdfUrl = await getSignedPdfUrl(event.data);
     const allCompleted = event.event_type === "submission.completed";
     const isEmployeeSigner = event.data.metadata?.role === "Employee" || (event.data as { role?: string }).role === "Employee";
     const updates: Record<string, unknown> = { docuseal_submission_id: String(submissionId) };
     const nowISO = event.data.completed_at ?? new Date().toISOString();
 
+    // Karim 2026-06-02 : si fully_signed, on download le PDF DocuSeal et on
+    // l'archive dans Supabase Storage (bucket terminations/signed/<id>.pdf)
+    // pour qu'il reste accessible meme si DocuSeal expire le lien.
+    let storedPath: string | null = null;
+    if (allCompleted && docusealPdfUrl) {
+      try {
+        const pdfRes = await fetch(docusealPdfUrl);
+        if (pdfRes.ok) {
+          const pdfBytes = new Uint8Array(await pdfRes.arrayBuffer());
+          storedPath = `signed/${terminationId}.pdf`;
+          await admin.storage.from("terminations").upload(storedPath, pdfBytes, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+        }
+      } catch (e) {
+        console.warn("[docuseal/webhook] PDF download/upload error:", (e as Error).message);
+      }
+    }
+
     if (allCompleted) {
       updates.status = "fully_signed";
-      updates.signed_pdf_storage_path = signedPdfUrl;
+      updates.signed_pdf_storage_path = storedPath ?? docusealPdfUrl;
       updates.employee_signed_at = updates.employee_signed_at ?? nowISO;
       updates.employer_signed_at = updates.employer_signed_at ?? nowISO;
     } else if (isEmployeeSigner) {
@@ -113,7 +133,7 @@ export async function POST(request: NextRequest) {
 
     // Audit log
     try {
-      const { data: t } = await admin.from("contract_terminations").select("employee_id").eq("id", terminationId).maybeSingle();
+      const { data: t } = await admin.from("contract_terminations").select("employee_id, effective_date").eq("id", terminationId).maybeSingle();
       if (t) {
         await admin.from("document_audit_log").insert({
           employee_id: t.employee_id,
@@ -125,12 +145,156 @@ export async function POST(request: NextRequest) {
           actor_name: "DocuSeal",
           notes: `Submission ${submissionId}`,
         });
+
+        // Karim 2026-06-02 : si fully_signed → notifications + mail HR + employee
+        if (allCompleted) {
+          const { data: emp } = await admin
+            .from("employees")
+            .select("full_name, email, preferred_language")
+            .eq("id", t.employee_id)
+            .maybeSingle();
+          const empName = (emp as { full_name?: string } | null)?.full_name ?? "?";
+          const empEmail = (emp as { email?: string } | null)?.email ?? null;
+
+          // 1. Signed URL (7j) pour le PDF stocke
+          let signedDownloadUrl: string | null = null;
+          if (storedPath) {
+            const { data: signed } = await admin.storage.from("terminations").createSignedUrl(storedPath, 7 * 24 * 3600);
+            signedDownloadUrl = signed?.signedUrl ?? docusealPdfUrl;
+          } else {
+            signedDownloadUrl = docusealPdfUrl;
+          }
+
+          // 2. Notifications in-app pour tous admin/rh
+          try {
+            const { data: hrs } = await admin
+              .from("profiles")
+              .select("id, email")
+              .in("role", ["admin", "rh"]);
+            const hrList = (hrs ?? []) as Array<{ id: string; email: string | null }>;
+            if (hrList.length > 0) {
+              await admin.from("notifications").insert(
+                hrList.map((hr) => ({
+                  recipient_id: hr.id,
+                  kind: "termination_signed",
+                  title: `✍️ Rupture signée — ${empName}`,
+                  body: `La convention de cessation de contrat amiable a été signée par les 2 parties. PDF final disponible.`,
+                  link: `/planning/employees/${t.employee_id}`,
+                  data: { terminationId, signedUrl: signedDownloadUrl, effective_date: t.effective_date },
+                })),
+              );
+            }
+
+            // 3. Mail a hr@caftanfactory.com (boite commune) + tous les RH/admin perso
+            const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+            const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+            const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+            if (SERVICE && TEMPLATE && KEY && signedDownloadUrl) {
+              const recipients = new Set<string>(["hr@caftanfactory.com"]);
+              for (const hr of hrList) if (hr.email) recipients.add(hr.email);
+
+              const subject = `Convention de rupture signée — ${empName}`;
+              const body = `Bonjour,
+
+La convention de cessation de contrat de travail de COMMUN ACCORD de ${empName} a été signée par les 2 parties (signature électronique eIDAS).
+
+📅 Date de fin du contrat : ${t.effective_date}
+
+📎 PDF signé (lien sécurisé 7 jours) :
+${signedDownloadUrl}
+
+Une copie est également archivée dans la valise documents :
+${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/rh/documents?employee=${t.employee_id}
+
+⚠ Actions à prévoir :
+• Déclarer la Dimona OUT au plus tard 1 jour ouvrable avant la date de fin
+• Calculer le solde de tout compte (pécule vacances, prime fin année prorata, etc.)
+• Préparer le certificat de chômage C4
+• Archiver dans le dossier comptable
+
+L'équipe CaftanRH`;
+              const params = {
+                from_name: "CaftanRH - Rupture signée", reply_to: "hr@caftanfactory.com",
+                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
+                body, content: body, html: body.replace(/\n/g, "<br>"),
+                pdf_url: signedDownloadUrl,
+              };
+              for (const to of recipients) {
+                try {
+                  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+                    body: JSON.stringify({
+                      service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
+                      template_params: { ...params, to_email: to, email: to, user_email: to, candidate_email: to, to, to_name: "RH", name: "RH", candidate_name: "RH" },
+                    }),
+                  });
+                } catch { /* non bloquant */ }
+              }
+
+              // Mail copie a l'employee aussi
+              if (empEmail) {
+                const empFirstName = empName.split(/\s+/)[0];
+                const empBody = `Bonjour ${empFirstName},
+
+Ta convention de cessation de contrat amiable a été signée par les 2 parties.
+
+📅 Date de fin du contrat : ${t.effective_date}
+
+📎 Télécharge ton exemplaire signé (PDF, lien sécurisé 7 jours) :
+${signedDownloadUrl}
+
+Tu retrouveras aussi cette convention dans ton espace travailleur :
+${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/me/termination
+
+Nous te souhaitons le meilleur pour la suite.
+
+L'équipe Caftan Factory (By AMD Megastore)`;
+                try {
+                  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+                    body: JSON.stringify({
+                      service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
+                      template_params: {
+                        from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+                        subject: `Ta convention de cessation signée — ${empName}`,
+                        message: empBody, html_message: empBody.replace(/\n/g, "<br>"),
+                        body: empBody, content: empBody, html: empBody.replace(/\n/g, "<br>"),
+                        pdf_url: signedDownloadUrl,
+                        to_email: empEmail, email: empEmail, user_email: empEmail, candidate_email: empEmail,
+                        to: empEmail, to_name: empName, name: empName, candidate_name: empName,
+                      },
+                    }),
+                  });
+
+                  // Log mail dans outbound_mails
+                  try {
+                    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
+                    await logOutboundMail({
+                      recipient_email: empEmail,
+                      recipient_name: empName,
+                      subject: `Ta convention de cessation signée — ${empName}`,
+                      body: empBody,
+                      source: "contract_signature",
+                      source_ref: terminationId,
+                      employee_id: t.employee_id,
+                      attachments: [{ name: "Convention de cessation signée.pdf", url: signedDownloadUrl }],
+                    });
+                  } catch { /* */ }
+                } catch { /* */ }
+              }
+            }
+          } catch (e) {
+            console.warn("[docuseal/webhook] notify HR err:", (e as Error).message);
+          }
+        }
       }
     } catch (e) {
       console.warn("[docuseal/webhook] termination audit err:", e);
     }
 
-    return NextResponse.json({ ok: true, kind: "termination", all_signed: allCompleted });
+    return NextResponse.json({ ok: true, kind: "termination", all_signed: allCompleted, stored_path: storedPath });
   }
 
   if (event.event_type === "submission.completed") {
