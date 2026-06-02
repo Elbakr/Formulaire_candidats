@@ -243,6 +243,8 @@ export function getNavSections(role: Role): NavGroup[] {
       icon: "Sliders",
       items: [
         { href: "/admin", label: "Vue d'ensemble", icon: "LayoutDashboard" },
+        { href: "/rh/documents", label: "Valise documents", icon: "Briefcase" },
+        { href: "/rh/terminations", label: "Ruptures amiables", icon: "FileSignature" },
         { href: "/faq", label: "FAQ / Aide", icon: "LifeBuoy" },
         { href: "/admin/users", label: "Utilisateurs", icon: "Users" },
         { href: "/admin/departments", label: "Services", icon: "Building2" },
