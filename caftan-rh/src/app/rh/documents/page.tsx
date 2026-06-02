@@ -44,11 +44,12 @@ export default async function DocumentsValisePage({ searchParams }: { searchPara
 
   const admin = createAdminClient();
 
-  // Liste employees pour le filter dropdown
+  // Karim 2026-06-02 : liste TOUS les employees (actifs + on_leave + ex-travailleurs)
+  // pour acceder aux docs historiques d'employees archives.
   const { data: employees } = await admin
     .from("employees")
-    .select("id, full_name")
-    .in("status", ["active", "on_leave"])
+    .select("id, full_name, status")
+    .order("status")
     .order("full_name");
 
   const docs: DocRow[] = [];
@@ -221,7 +222,7 @@ export default async function DocumentsValisePage({ searchParams }: { searchPara
       </div>
 
       <DocumentsFilters
-        employees={(employees ?? []) as Array<{ id: string; full_name: string }>}
+        employees={(employees ?? []) as Array<{ id: string; full_name: string; status?: string }>}
         currentEmployee={employeeFilter}
         currentYear={yearFilter}
         currentMonth={monthFilter}
@@ -302,17 +303,54 @@ export default async function DocumentsValisePage({ searchParams }: { searchPara
 }
 
 function DocumentRow({ doc }: { doc: DocRow }) {
+  // Karim 2026-06-02 : badge etat signature pour contrats + ruptures
+  const sigBadge = (() => {
+    if (doc.doc_type !== "contract" && doc.doc_type !== "termination") return null;
+    const s = (doc.status ?? "").toLowerCase();
+    if (s === "fully_signed" || s === "signed" || s === "completed" || s === "executed") {
+      return { label: "✓ Signé", cls: "bg-green-100 text-green-800 border-green-300" };
+    }
+    if (s === "signed_employee" || s === "signed_employer") {
+      return { label: "⏳ Signature partielle", cls: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+    }
+    if (s === "sent_for_signature" || s === "pending") {
+      return { label: "📨 En attente signature", cls: "bg-blue-100 text-blue-800 border-blue-300" };
+    }
+    if (s === "refused" || s === "declined" || s === "cancelled") {
+      return { label: "✗ Refusé/Annulé", cls: "bg-red-100 text-red-800 border-red-300" };
+    }
+    if (s === "approved" || s === "pending_admin") {
+      return { label: "⌛ À envoyer", cls: "bg-gray-100 text-gray-800 border-gray-300" };
+    }
+    return null;
+  })();
+
+  // Badge paiement pour fiches de paie
+  const paidBadge = (() => {
+    if (doc.doc_type !== "payslip") return null;
+    const s = (doc.status ?? "").toLowerCase();
+    if (s === "paid") return { label: "✓ Payée", cls: "bg-green-100 text-green-800 border-green-300" };
+    if (s === "scheduled") return { label: "⏳ Différée", cls: "bg-amber-100 text-amber-800 border-amber-300" };
+    return { label: "💰 À payer", cls: "bg-blue-100 text-blue-800 border-blue-300" };
+  })();
+
   return (
     <div className="flex items-center gap-2 p-2 rounded border border-line/40 bg-surface text-xs">
       <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{doc.title}</div>
-        <div className="text-[10px] text-ink-3 flex items-center gap-2">
+        <div className="font-medium truncate flex items-center gap-1.5">
+          <span className="truncate">{doc.title}</span>
+        </div>
+        <div className="text-[10px] text-ink-3 flex items-center gap-2 flex-wrap mt-0.5">
           <span>{new Date(doc.date).toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" })}</span>
-          {doc.status && (
-            <>
-              <span>·</span>
-              <span className="capitalize">{doc.status}</span>
-            </>
+          {sigBadge && (
+            <span className={`px-1.5 py-0.5 rounded-full text-[9px] border ${sigBadge.cls}`}>
+              {sigBadge.label}
+            </span>
+          )}
+          {paidBadge && (
+            <span className={`px-1.5 py-0.5 rounded-full text-[9px] border ${paidBadge.cls}`}>
+              {paidBadge.label}
+            </span>
           )}
         </div>
       </div>
@@ -320,6 +358,7 @@ function DocumentRow({ doc }: { doc: DocRow }) {
         bucket={doc.bucket}
         storagePath={doc.storage_path}
         externalUrl={doc.external_url}
+        title={doc.title}
       />
     </div>
   );

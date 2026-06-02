@@ -4,8 +4,8 @@
 // la procedure de rupture amiable. Dialog avec : date, representant, ville,
 // note + actions Imprimer / Envoyer signature.
 
-import { useState, useTransition } from "react";
-import { FileSignature, Printer, Mail, Eye, AlertTriangle, Loader2 } from "lucide-react";
+import { useState, useTransition, useEffect } from "react";
+import { FileSignature, Printer, Mail, Eye, AlertTriangle, Loader2, RefreshCw, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import {
   approveTerminationAction,
   getTerminationLetterUrlAction,
   sendTerminationForSignatureAction,
+  getTerminationContextAction,
+  syncTerminationDocusealAction,
 } from "./termination-actions";
 
 interface Props {
@@ -32,6 +34,17 @@ function todayPlus(d: number): string {
   return x.toISOString().slice(0, 10);
 }
 
+interface TerminationHistoryRow {
+  id: string;
+  status: string;
+  initiated_by: string;
+  requested_at: string;
+  effective_date: string | null;
+  sent_for_signature_at: string | null;
+  initiator_name: string | null;
+  employer_representative_name: string | null;
+}
+
 export function TerminationButton({ employeeId, employeeFullName, defaultRepresentativeName, pendingTermination }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -42,6 +55,23 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
   const [city, setCity] = useState("Schaerbeek");
   const [note, setNote] = useState("");
   const [createdId, setCreatedId] = useState<string | null>(pendingTermination?.id ?? null);
+  const [recipientEmail, setRecipientEmail] = useState<string | null>(null);
+  const [history, setHistory] = useState<TerminationHistoryRow[]>([]);
+  const [loadingContext, setLoadingContext] = useState(false);
+
+  // Karim 2026-06-02 : chargement context au moment de l'ouverture du dialog
+  useEffect(() => {
+    if (!open) return;
+    setLoadingContext(true);
+    (async () => {
+      const r = await getTerminationContextAction(employeeId);
+      if (r.ok) {
+        setRecipientEmail(r.employee_email);
+        setHistory(r.history);
+      }
+      setLoadingContext(false);
+    })();
+  }, [open, employeeId]);
 
   const isPendingFromWorker = pendingTermination?.initiated_by === "employee" && pendingTermination.status === "pending_admin";
   const minDate = pendingTermination?.earliest_effective_date ?? todayPlus(0);
@@ -107,14 +137,40 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
 
   async function handleSend() {
     if (!createdId) return;
+    if (!recipientEmail) {
+      toast.error("Email employé manquant - complète la fiche d'abord");
+      return;
+    }
+    // Anti-doublon : prévenir si une rupture similaire (sent_for_signature) existe deja dans les 7 derniers jours
+    const recentSent = history.find((h) => h.id !== createdId && h.sent_for_signature_at && (Date.now() - new Date(h.sent_for_signature_at).getTime()) < 7 * 24 * 3600 * 1000 && !["refused", "cancelled"].includes(h.status));
+    if (recentSent) {
+      const ok = confirm(`⚠ Une rupture a déjà été envoyée à cet employé le ${new Date(recentSent.sent_for_signature_at!).toLocaleDateString("fr-BE")} par ${recentSent.initiator_name ?? "?"}. Envoyer quand même ?`);
+      if (!ok) return;
+    }
     startTransition(async () => {
       const res = await sendTerminationForSignatureAction(createdId);
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      toast.success("Lettre envoyée à l'employé pour signature.");
+      toast.success(`Lettre envoyée à ${recipientEmail} pour signature.`);
       setOpen(false);
+    });
+  }
+
+  async function handleSync() {
+    if (!createdId) return;
+    startTransition(async () => {
+      const res = await syncTerminationDocusealAction(createdId);
+      if (!res.ok) {
+        toast.error(res.error ?? "Sync KO");
+        return;
+      }
+      if (res.updated) {
+        toast.success("Signature confirmée — mails HR + employé envoyés, notifications créées.");
+      } else {
+        toast.info(`Statut DocuSeal : ${res.status ?? "inconnu"} (pas encore signé)`);
+      }
     });
   }
 
@@ -144,6 +200,56 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
               <div className="font-semibold mb-1">Motif indiqué par le travailleur :</div>
               <div className="italic">{pendingTermination.request_note}</div>
             </div>
+          )}
+
+          {/* Karim 2026-06-02 : email destinataire visible */}
+          <div className={`text-xs rounded p-2 ${recipientEmail ? "bg-blue-50 border border-blue-200" : "bg-red-50 border border-red-200"}`}>
+            <span className="font-semibold">Destinataire signature :</span>{" "}
+            {loadingContext ? (
+              <span className="italic text-ink-3">chargement...</span>
+            ) : recipientEmail ? (
+              <span className="font-mono">{recipientEmail}</span>
+            ) : (
+              <span className="text-red-700 italic">⚠ Aucun email enregistré pour cet employé. Complète la fiche.</span>
+            )}
+          </div>
+
+          {/* Karim 2026-06-02 : historique ruptures anti-doublon */}
+          {history.length > 0 && (
+            <details className="text-xs bg-muted/30 border border-line rounded p-2">
+              <summary className="cursor-pointer font-semibold flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                Historique ruptures pour {employeeFullName} ({history.length})
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                {history.map((h) => {
+                  const sentDate = h.sent_for_signature_at ? new Date(h.sent_for_signature_at).toLocaleDateString("fr-BE", { dateStyle: "long" }) : null;
+                  const reqDate = new Date(h.requested_at).toLocaleDateString("fr-BE", { dateStyle: "long" });
+                  return (
+                    <div key={h.id} className="border-l-2 border-line pl-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-line">{h.status}</span>
+                        <span className="text-[10px] text-ink-3">init: {h.initiated_by}</span>
+                      </div>
+                      <div className="text-[11px] mt-0.5">
+                        <strong>Demandée :</strong> {reqDate}
+                        {h.initiator_name && <span> par <strong>{h.initiator_name}</strong></span>}
+                      </div>
+                      {sentDate && (
+                        <div className="text-[11px] text-blue-700">
+                          <Mail className="w-3 h-3 inline mr-1" />
+                          Envoyée pour signature : {sentDate}
+                          {h.employer_representative_name && <span> (représentée par {h.employer_representative_name})</span>}
+                        </div>
+                      )}
+                      {h.effective_date && (
+                        <div className="text-[11px] text-ink-3">Date fin contrat : {h.effective_date}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
 
           {!createdId ? (
@@ -194,9 +300,16 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
                 <Button variant="outline" onClick={() => openLetter(true)}>
                   <Printer className="h-3.5 w-3.5" /> Imprimer
                 </Button>
-                <Button variant="gold" onClick={handleSend} disabled={pending}>
+                <Button variant="gold" onClick={handleSend} disabled={pending || !recipientEmail}>
                   {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
-                  Envoyer signature
+                  Envoyer à {recipientEmail ? recipientEmail.split("@")[0] : "?"}
+                </Button>
+              </div>
+              {/* Karim 2026-06-02 : bouton sync DocuSeal (fallback webhook) */}
+              <div className="text-center">
+                <Button variant="ghost" size="sm" onClick={handleSync} disabled={pending}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${pending ? "animate-spin" : ""}`} />
+                  Vérifier signature (sync DocuSeal manuel)
                 </Button>
               </div>
               <DialogFooter>

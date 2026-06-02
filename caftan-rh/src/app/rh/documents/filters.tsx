@@ -17,7 +17,7 @@ const MONTHS = [
 ];
 
 interface Props {
-  employees: Array<{ id: string; full_name: string }>;
+  employees: Array<{ id: string; full_name: string; status?: string }>;
   currentEmployee: string;
   currentYear: string;
   currentMonth: string;
@@ -60,9 +60,14 @@ export function DocumentsFilters({ employees, currentEmployee, currentYear, curr
             className="border border-line rounded px-2 py-1 text-xs bg-surface"
           >
             <option value="">Tous</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>{e.full_name}</option>
-            ))}
+            {employees.map((e) => {
+              const isEx = e.status && e.status !== "active" && e.status !== "on_leave";
+              return (
+                <option key={e.id} value={e.id}>
+                  {isEx ? "📦 " : ""}{e.full_name}{isEx ? ` (${e.status})` : ""}
+                </option>
+              );
+            })}
           </select>
         </div>
         <span className="text-ink-3">·</span>

@@ -281,6 +281,233 @@ export async function refuseTerminationAction(opts: {
   return { ok: true };
 }
 
+/**
+ * Karim 2026-06-02 : retourne l'historique des ruptures pour un employee
+ * + l'email de l'employee. Sert au dialog admin pour montrer le destinataire
+ * exact + eviter les doublons d'envoi.
+ */
+export async function getTerminationContextAction(
+  employeeId: string,
+): Promise<{
+  ok: boolean;
+  employee_email: string | null;
+  history: Array<{
+    id: string;
+    status: string;
+    initiated_by: string;
+    requested_at: string;
+    effective_date: string | null;
+    sent_for_signature_at: string | null;
+    initiator_name: string | null;
+    employer_representative_name: string | null;
+  }>;
+}> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+  const { data: emp } = await admin.from("employees").select("email").eq("id", employeeId).maybeSingle();
+  const { data: rows } = await admin
+    .from("contract_terminations")
+    .select(`
+      id, status, initiated_by, requested_at, effective_date, sent_for_signature_at,
+      employer_representative_name,
+      initiator:profiles!initiator_profile_id(full_name)
+    `)
+    .eq("employee_id", employeeId)
+    .order("requested_at", { ascending: false })
+    .limit(20);
+  return {
+    ok: true,
+    employee_email: (emp?.email as string | null) ?? null,
+    history: (rows ?? []).map((r) => ({
+      id: r.id as string,
+      status: r.status as string,
+      initiated_by: r.initiated_by as string,
+      requested_at: r.requested_at as string,
+      effective_date: (r.effective_date as string | null) ?? null,
+      sent_for_signature_at: (r.sent_for_signature_at as string | null) ?? null,
+      initiator_name: ((r as { initiator?: { full_name: string } | null }).initiator?.full_name) ?? null,
+      employer_representative_name: (r.employer_representative_name as string | null) ?? null,
+    })),
+  };
+}
+
+/**
+ * Karim 2026-06-02 : poll DocuSeal API et synchronise le statut local.
+ * Fallback si le webhook DocuSeal n'a pas firé. Si la submission est
+ * completed cote DocuSeal mais pas chez nous, on declenche les notifs/mail.
+ */
+export async function syncTerminationDocusealAction(
+  terminationId: string,
+): Promise<{ ok: boolean; updated: boolean; status?: string; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+  const { data: t } = await admin
+    .from("contract_terminations")
+    .select("id, employee_id, docuseal_submission_id, status, effective_date")
+    .eq("id", terminationId)
+    .maybeSingle();
+  if (!t) return { ok: false, updated: false, error: "Rupture introuvable" };
+  if (!t.docuseal_submission_id) return { ok: false, updated: false, error: "Pas de submission DocuSeal" };
+
+  const baseUrl = process.env.DOCUSEAL_BASE_URL?.replace(/\/$/, "");
+  const apiKey = process.env.DOCUSEAL_API_KEY;
+  if (!baseUrl || !apiKey) return { ok: false, updated: false, error: "DocuSeal non configuré" };
+
+  const res = await fetch(`${baseUrl}/submissions/${t.docuseal_submission_id}`, {
+    headers: { "X-Auth-Token": apiKey },
+  });
+  if (!res.ok) return { ok: false, updated: false, error: `DocuSeal HTTP ${res.status}` };
+  const data = (await res.json()) as {
+    status?: string;
+    completed_at?: string;
+    combined_document_url?: string;
+    documents?: Array<{ url: string }>;
+    submitters?: Array<{ role: string; status: string; completed_at?: string }>;
+  };
+
+  const isCompleted = data.status === "completed" || data.submitters?.every((s) => s.status === "completed");
+  if (!isCompleted) return { ok: true, updated: false, status: data.status ?? "in_progress" };
+  if (t.status === "fully_signed") return { ok: true, updated: false, status: "fully_signed" };
+
+  // Webhook a raté → on fait le boulot ici
+  const docusealPdfUrl = data.documents?.[0]?.url ?? data.combined_document_url ?? null;
+  let storedPath: string | null = null;
+  if (docusealPdfUrl) {
+    try {
+      const pdfRes = await fetch(docusealPdfUrl);
+      if (pdfRes.ok) {
+        const bytes = new Uint8Array(await pdfRes.arrayBuffer());
+        storedPath = `signed/${terminationId}.pdf`;
+        await admin.storage.from("terminations").upload(storedPath, bytes, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[syncTermination] PDF upload err:", (e as Error).message);
+    }
+  }
+
+  const nowISO = data.completed_at ?? new Date().toISOString();
+  await admin
+    .from("contract_terminations")
+    .update({
+      status: "fully_signed",
+      signed_pdf_storage_path: storedPath ?? docusealPdfUrl,
+      employee_signed_at: nowISO,
+      employer_signed_at: nowISO,
+    })
+    .eq("id", terminationId);
+
+  // Notifs + mail HR + mail employee + audit (replique du webhook)
+  try {
+    const { data: emp } = await admin.from("employees").select("full_name, email").eq("id", t.employee_id).maybeSingle();
+    const empName = (emp as { full_name?: string } | null)?.full_name ?? "?";
+    const empEmail = (emp as { email?: string } | null)?.email ?? null;
+    let signedUrl: string | null = docusealPdfUrl;
+    if (storedPath) {
+      const { data: s } = await admin.storage.from("terminations").createSignedUrl(storedPath, 7 * 24 * 3600);
+      if (s?.signedUrl) signedUrl = s.signedUrl;
+    }
+
+    // Notifications
+    const { data: hrs } = await admin.from("profiles").select("id, email").in("role", ["admin", "rh"]);
+    const hrList = (hrs ?? []) as Array<{ id: string; email: string | null }>;
+    if (hrList.length > 0) {
+      await admin.from("notifications").insert(
+        hrList.map((hr) => ({
+          recipient_id: hr.id,
+          kind: "termination_signed",
+          title: `✍️ Rupture signée — ${empName}`,
+          body: `Convention pleinement signée (sync manuel via UI).`,
+          link: `/planning/employees/${t.employee_id}`,
+          data: { terminationId, signedUrl, effective_date: t.effective_date },
+        })),
+      );
+    }
+
+    // Mail HR + employee (replique du webhook)
+    const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
+    const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
+    const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+    const baseAppUrl = getPublicBaseUrl();
+    if (SERVICE && TEMPLATE && KEY && signedUrl) {
+      const recipients = new Set<string>(["hr@caftanfactory.com", ...hrList.map((h) => h.email).filter((e): e is string => !!e)]);
+      const subject = `Convention de rupture signée — ${empName}`;
+      const body = `Bonjour,\n\nLa convention de cessation de contrat de ${empName} a été signée par les 2 parties.\n\n📅 Date de fin : ${t.effective_date}\n\n📎 PDF signé (lien 7j) :\n${signedUrl}\n\nValise documents : ${baseAppUrl}/rh/documents?employee=${t.employee_id}\n\n⚠ Actions : Dimona OUT · solde tout compte · certificat C4.\n\nL'équipe CaftanRH`;
+      for (const to of recipients) {
+        try {
+          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+            body: JSON.stringify({
+              service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
+              template_params: {
+                from_name: "CaftanRH - Rupture signée", reply_to: "hr@caftanfactory.com",
+                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
+                body, content: body, html: body.replace(/\n/g, "<br>"),
+                to_email: to, email: to, user_email: to, candidate_email: to,
+                to, to_name: "RH", name: "RH", candidate_name: "RH",
+                pdf_url: signedUrl,
+              },
+            }),
+          });
+        } catch { /* */ }
+      }
+
+      if (empEmail) {
+        const empFirst = empName.split(/\s+/)[0];
+        const empBody = `Bonjour ${empFirst},\n\nTa convention de cessation de contrat amiable est signée par les 2 parties.\n\n📅 Date de fin : ${t.effective_date}\n\n📎 Télécharge ton PDF :\n${signedUrl}\n\nÉgalement dans ton espace : ${baseAppUrl}/me/termination\n\nL'équipe Caftan Factory`;
+        try {
+          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+            body: JSON.stringify({
+              service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
+              template_params: {
+                from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+                subject: `Ta convention signée — ${empName}`,
+                message: empBody, html_message: empBody.replace(/\n/g, "<br>"),
+                body: empBody, content: empBody, html: empBody.replace(/\n/g, "<br>"),
+                to_email: empEmail, email: empEmail, user_email: empEmail, candidate_email: empEmail,
+                to: empEmail, to_name: empName, name: empName, candidate_name: empName,
+                pdf_url: signedUrl,
+              },
+            }),
+          });
+          const { logOutboundMail } = await import("@/lib/outbound-mail-log");
+          await logOutboundMail({
+            recipient_email: empEmail,
+            recipient_name: empName,
+            subject: `Ta convention signée — ${empName}`,
+            body: empBody,
+            source: "contract_signature",
+            source_ref: terminationId,
+            employee_id: t.employee_id,
+            attachments: [{ name: "Convention signée.pdf", url: signedUrl }],
+          });
+        } catch { /* */ }
+      }
+    }
+
+    // Audit
+    await admin.from("document_audit_log").insert({
+      employee_id: t.employee_id,
+      doc_type: "contract",
+      doc_ref: terminationId,
+      doc_label: "Convention rupture - pleinement signée (sync manuel)",
+      action: "view",
+      channel: "docuseal_sync_manual",
+      actor_name: "Sync manuel UI",
+    });
+  } catch (e) {
+    console.warn("[syncTermination] notify err:", (e as Error).message);
+  }
+
+  revalidatePath(`/planning/employees/${t.employee_id}`);
+  return { ok: true, updated: true, status: "fully_signed" };
+}
+
 export async function cancelTerminationAction(terminationId: string): Promise<ActionResult> {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();

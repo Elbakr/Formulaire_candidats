@@ -215,6 +215,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
               <Activity className="h-3.5 w-3.5" /> Prestations
             </Link>
           </Button>
+          {/* Karim 2026-06-02 : valise documents filtree sur cet employee */}
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/rh/documents?employee=${id}`}>
+              <FileText className="h-3.5 w-3.5" /> Documents
+            </Link>
+          </Button>
           {/* Karim 15/05 : Vider la semaine pour CET employe. Karim a signale
               que ce bouton manquait sur la fiche -- on l ajoute ici, scope
               automatique sur la semaine en cours. Pour vider une autre semaine,
