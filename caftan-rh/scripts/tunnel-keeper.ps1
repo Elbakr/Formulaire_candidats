@@ -4,9 +4,13 @@ $UrlFile = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats\caftan-rh\TUNNE
 $EnvFile = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats\caftan-rh\.env.local"
 $Cloudflared = "$env:USERPROFILE\cloudflared.exe"
 $Git = "C:\Users\KElba\PortableGit\cmd\git.exe"
+$Node = "C:\Program Files\nodejs\node.exe"
 $RepoDir = "C:\Users\KElba\Documents\GitHub\Formulaire_candidats"
 $LocalPort = 3000
 $LockFile = "$env:USERPROFILE\tunnel-keeper.lock"
+# Karim 2026-06-02 : rotation quotidienne
+$RotationStateFile = "$env:USERPROFILE\tunnel-keeper-rotation.txt"
+$RotationHour = 8   # rotation a 08:00 chaque matin
 
 # Anti-doublon : un seul keeper a la fois. Si un autre tourne deja, on exit.
 if (Test-Path $LockFile) {
@@ -68,6 +72,26 @@ function Update-EnvLocal {
     }
 }
 
+function Send-DailyRecapMail {
+    param([string]$NewUrl, [string]$OldUrl)
+    try {
+        $script = Join-Path $RepoDir "caftan-rh\scripts\send-tunnel-daily-recap.mjs"
+        if (-not (Test-Path $script)) {
+            Write-Host "[keeper] daily-recap script missing, skip mail"
+            return
+        }
+        Push-Location (Join-Path $RepoDir "caftan-rh")
+        try {
+            $env:TUNNEL_URL_NEW = $NewUrl
+            $env:TUNNEL_URL_OLD = $OldUrl
+            & $Node $script 2>&1 | ForEach-Object { Write-Host "[keeper-mail] $_" }
+        } finally { Pop-Location }
+        Write-Host "[keeper] daily-recap mail sent"
+    } catch {
+        Write-Host "[keeper] mail recap KO: $_"
+    }
+}
+
 function Publish {
     param([string]$Url)
     $existing = ""
@@ -76,7 +100,7 @@ function Publish {
         if ($first) { $existing = $first.Trim() }
     }
     if ($existing -eq $Url) { return }
-    Write-Host "[keeper] URL change to $Url"
+    Write-Host "[keeper] URL change to $Url (was: $existing)"
     $stamp = (Get-Date -Format "yyyy-MM-dd HH:mm")
     $lines = @($Url, "", "Tunnel actif depuis $stamp.", "Mis a jour automatiquement par scripts/tunnel-keeper.ps1.", "Bookmark cette page, l URL ici est toujours la bonne.")
     Set-Content -Path $UrlFile -Value $lines -Encoding UTF8
@@ -93,6 +117,31 @@ function Publish {
         Write-Host "[keeper] push failed"
     }
     Pop-Location
+
+    # Karim 2026-06-02 : si rotation matinale → mail recap (1x/jour max)
+    $today = (Get-Date -Format "yyyy-MM-dd")
+    $lastRotationDate = ""
+    if (Test-Path $RotationStateFile) {
+        $lastRotationDate = (Get-Content $RotationStateFile -First 1 -ErrorAction SilentlyContinue) -as [string]
+        if ($lastRotationDate) { $lastRotationDate = $lastRotationDate.Trim() }
+    }
+    if ($lastRotationDate -ne $today) {
+        Send-DailyRecapMail -NewUrl $Url -OldUrl $existing
+        Set-Content -Path $RotationStateFile -Value $today -Encoding ASCII
+    }
+}
+
+function Should-RotateNow {
+    # Force une rotation si on n'a pas encore tourne aujourd'hui ET il est >= 08:00
+    $now = Get-Date
+    if ($now.Hour -lt $RotationHour) { return $false }
+    $today = (Get-Date -Format "yyyy-MM-dd")
+    $lastRotationDate = ""
+    if (Test-Path $RotationStateFile) {
+        $lastRotationDate = (Get-Content $RotationStateFile -First 1 -ErrorAction SilentlyContinue) -as [string]
+        if ($lastRotationDate) { $lastRotationDate = $lastRotationDate.Trim() }
+    }
+    return ($lastRotationDate -ne $today)
 }
 
 function Test-Alive {
@@ -117,6 +166,15 @@ while ($true) {
         if ($u -and $u -ne $currentUrl) {
             $currentUrl = $u
             Publish -Url $currentUrl
+        }
+        # Karim 2026-06-02 : rotation matinale (premier passage apres 08:00)
+        if (Should-RotateNow) {
+            Write-Host "[keeper] daily rotation: killing cloudflared to force new URL"
+            Stop-Process -Name "cloudflared" -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $currentUrl = Start-Tunnel
+            if ($currentUrl) { Publish -Url $currentUrl }
+            continue
         }
         if (-not (Test-Alive -Url $currentUrl)) {
             Write-Host "[keeper] healthcheck KO, restart"
