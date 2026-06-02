@@ -82,6 +82,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/me/messages", label: "Messages", icon: "MessageSquare" },
     { href: "/me/mails", label: "Mails reçus", icon: "Mail" },
     { href: "/me/termination", label: "Rupture amiable", icon: "FileSignature" },
+    { href: "/faq", label: "FAQ / Aide", icon: "LifeBuoy" },
     { href: "/chat", label: "Chat équipe", icon: "MessageSquare" },
     { href: "/me/profile", label: "Mon profil", icon: "User" },
   ];
@@ -242,6 +243,7 @@ export function getNavSections(role: Role): NavGroup[] {
       icon: "Sliders",
       items: [
         { href: "/admin", label: "Vue d'ensemble", icon: "LayoutDashboard" },
+        { href: "/faq", label: "FAQ / Aide", icon: "LifeBuoy" },
         { href: "/admin/users", label: "Utilisateurs", icon: "Users" },
         { href: "/admin/departments", label: "Services", icon: "Building2" },
         { href: "/admin/settings", label: "Paramètres généraux", icon: "Sliders" },
