@@ -84,10 +84,12 @@ export async function markPayslipsPaidBulkAction(
  */
 export async function sendOffboardingPayslipsAction(args: {
   employeeId: string;
-  payslipIds: string[];          // 1-N fiches à envoyer ensemble
-  customMessage?: string;        // permet d'overrider le message
-  recipientEmailOverride?: string; // override email (sinon employee.email)
-}): Promise<{ ok: boolean; sent?: boolean; error?: string; sentTo?: string }> {
+  payslipIds: string[];
+  templateId?: string;            // id template lib/message-templates.ts (default = auto selon contrat)
+  customSubject?: string;
+  customBody?: string;            // override total (mode personnalisé)
+  recipientEmailOverride?: string;
+}): Promise<{ ok: boolean; sent?: boolean; error?: string; sentTo?: string; provider?: string }> {
   await requireRole(["admin", "rh"]);
   if (args.payslipIds.length === 0) return { ok: false, error: "Aucune fiche sélectionnée" };
   const admin = createAdminClient();
@@ -110,18 +112,21 @@ export async function sendOffboardingPayslipsAction(args: {
     .eq("employee_id", args.employeeId);
   if (!payslips || payslips.length === 0) return { ok: false, error: "Fiches introuvables" };
 
-  // Génère signed URL + watermark pour chaque fiche
+  // Karim 2026-06-02 : download + watermark + accumule bytes pour pieces
+  // jointes natives (Resend) + URLs signed comme fallback EmailJS.
   const { applyDynamicWatermark } = await import("@/lib/pdf-watermark");
-  const attachments: Array<{ name: string; url: string; period: string }> = [];
+  const attachmentBytes: Array<{ filename: string; content: Uint8Array; contentType: string; period: string }> = [];
+  const attachmentUrls: Array<{ name: string; url: string; period: string }> = [];
 
   for (const ps of payslips) {
     if (!ps.pdf_storage_path) continue;
-    let finalUrl: string | null = null;
+    let wmBytes: Uint8Array | null = null;
+    let signedUrl: string | null = null;
     try {
       const { data: blob } = await admin.storage.from("payslips").download(ps.pdf_storage_path);
       if (blob) {
         const origBytes = new Uint8Array(await blob.arrayBuffer());
-        const wmBytes = await applyDynamicWatermark(origBytes, {
+        wmBytes = await applyDynamicWatermark(origBytes, {
           recipientName: emp.full_name ?? destEmail,
           recipientEmail: destEmail,
           docRef: ps.id.slice(0, 8),
@@ -133,98 +138,62 @@ export async function sendOffboardingPayslipsAction(args: {
           .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
         if (!up.error) {
           const signed = await admin.storage.from("payslips").createSignedUrl(wmPath, 30 * 24 * 3600);
-          if (signed.data?.signedUrl) finalUrl = signed.data.signedUrl;
+          if (signed.data?.signedUrl) signedUrl = signed.data.signedUrl;
         }
       }
     } catch (e) {
       console.warn("[offboarding] watermark fallback:", (e as Error).message);
     }
-    if (!finalUrl) {
+    if (!signedUrl) {
       const { data: signed } = await admin.storage
         .from("payslips")
         .createSignedUrl(ps.pdf_storage_path, 30 * 24 * 3600);
-      finalUrl = signed?.signedUrl ?? null;
+      signedUrl = signed?.signedUrl ?? null;
     }
-    if (finalUrl) {
-      attachments.push({
-        name: ps.pdf_filename ?? `Fiche de paie ${ps.period_label ?? ""}`,
-        url: finalUrl,
-        period: ps.period_label ?? `${ps.period_year}-${String(ps.period_month).padStart(2, "0")}`,
-      });
+    const period = ps.period_label ?? `${ps.period_year}-${String(ps.period_month).padStart(2, "0")}`;
+    const filename = ps.pdf_filename ?? `Fiche de paie ${period}.pdf`;
+    if (wmBytes) {
+      attachmentBytes.push({ filename, content: wmBytes, contentType: "application/pdf", period });
+    }
+    if (signedUrl) {
+      attachmentUrls.push({ name: filename, url: signedUrl, period });
     }
   }
-  if (attachments.length === 0) return { ok: false, error: "Aucun PDF accessible" };
+  if (attachmentUrls.length === 0 && attachmentBytes.length === 0) return { ok: false, error: "Aucun PDF accessible" };
 
-  // Message PME pro - différencie student
-  const isStudent = emp.contract_type === "Étudiant" || emp.contract_type === "Student" || emp.job_title?.toLowerCase().includes("étudiant");
+  // Karim 2026-06-02 : selection du template
+  const { getTemplateById, getDefaultTemplateForOffboarding } = await import("@/lib/message-templates");
+  const tpl = args.templateId
+    ? getTemplateById(args.templateId) ?? getDefaultTemplateForOffboarding(emp.contract_type)
+    : getDefaultTemplateForOffboarding(emp.contract_type);
   const firstName = emp.full_name?.split(" ")[0] ?? "";
-  const periodsList = attachments.map((a) => `• ${a.period}`).join("\n");
-
-  const body = args.customMessage ?? (isStudent
-    ? `Bonjour ${firstName},
-
-Tu trouveras ci-joint ta dernière fiche de paie :
-
-${periodsList}
-
-Nous tenions à te remercier sincèrement pour ton engagement, ta disponibilité et le sérieux dont tu as fait preuve durant ton job étudiant chez nous.
-
-Ton parcours chez Caftan Factory s'inscrit dans une expérience qui, nous l'espérons, te sera utile pour la suite — études comme vie professionnelle.
-
-Si tu souhaites revenir nous rejoindre lors de prochaines périodes (vacances scolaires, fêtes, etc.), n'hésite pas à nous le faire savoir : tu seras toujours le/la bienvenu(e) dans notre équipe.
-
-Nous te souhaitons beaucoup de réussite dans tes études et dans tes projets.
-
-Bien chaleureusement,
-L'équipe Caftan Factory (By AMD Megastore)
-hr@caftanfactory.com`
-    : `Bonjour ${firstName},
-
-Tu trouveras ci-joint l'ensemble de tes dernières fiches de paie liées à la fin de ton contrat de travail :
-
-${periodsList}
-
-${attachments.length > 1 ? "(Comme habituellement transmis par notre secrétariat social, ces documents couvrent ton salaire de la dernière période ainsi que le solde de tout compte — pécule de vacances et/ou prime de fin d'année au prorata.)\n\n" : ""}Nous tenions à te remercier très sincèrement pour ta contribution, ton professionnalisme et la qualité de ton travail durant ton passage chez nous. Tu as été un membre apprécié de notre équipe.
-
-Nous gardons un excellent souvenir de notre collaboration et te souhaitons le meilleur pour la suite de ton parcours professionnel. Si nos chemins venaient à se recroiser — opportunités, recommandations, ou tout simplement nouvelles — nous serons toujours ravis d'avoir de tes nouvelles.
-
-Nous restons à ta disposition si tu as la moindre question concernant ces documents ou tout autre point administratif (certificat de travail, attestations, etc.).
-
-Bien à toi et tous nos vœux de réussite,
-L'équipe Caftan Factory (By AMD Megastore)
-hr@caftanfactory.com`);
-
-  // Envoi EmailJS
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return { ok: false, error: "EmailJS non configuré" };
-
-  const subject = attachments.length > 1
-    ? `Tes dernières fiches de paie — Merci pour ton parcours chez nous`
-    : `Ta dernière fiche de paie — Merci ${firstName}`;
-
-  // Construit un body HTML enrichi avec liens cliquables
-  const htmlBody = body.replace(/\n/g, "<br>") +
-    `<br><br><strong>📎 Documents joints :</strong><br>` +
-    attachments.map((a) => `• <a href="${a.url}">${a.name}</a> (lien sécurisé 30 jours)`).join("<br>");
-
-  const params = {
-    to_email: destEmail, email: destEmail, user_email: destEmail, candidate_email: destEmail,
-    to: destEmail, to_name: emp.full_name, name: emp.full_name, candidate_name: emp.full_name,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject, message: body, html_message: htmlBody,
-    body, content: body, html: htmlBody,
-    pdf_url: attachments[0]?.url ?? "",
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+  const periodsList = (attachmentBytes.length > 0 ? attachmentBytes : attachmentUrls).map((a) => `• ${a.period}`).join("\n");
+  const rendered = tpl.render({
+    firstName,
+    fullName: emp.full_name ?? "",
+    employerName: "Caftan Factory (By AMD Megastore)",
+    contractType: emp.contract_type,
+    periodsList,
+    currentYear: new Date().getFullYear(),
+    hrEmail: "hr@caftanfactory.com",
   });
-  if (!res.ok) return { ok: false, error: `Mail HTTP ${res.status}` };
+  const subject = args.customSubject?.trim() || rendered.subject;
+  const body = args.customBody?.trim() || rendered.body;
 
-  // Log outbound_mails (1 ligne pour le batch)
+  // Karim 2026-06-02 : envoi via Resend (PJ natives) ou fallback EmailJS
+  const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");
+  const result = await sendMailWithAttachments({
+    to: destEmail,
+    toName: emp.full_name ?? undefined,
+    subject,
+    body,
+    replyTo: "hr@caftanfactory.com",
+    attachments: attachmentBytes.length > 0 ? attachmentBytes : undefined,
+    attachmentUrls: attachmentUrls.map((a) => ({ name: a.name, url: a.url })),
+  });
+  if (!result.ok) return { ok: false, error: result.error ?? "Envoi KO" };
+
+  // Log outbound_mails + audit
   try {
     const { logOutboundMail } = await import("@/lib/outbound-mail-log");
     await logOutboundMail({
@@ -235,25 +204,24 @@ hr@caftanfactory.com`);
       source: "payslip_share",
       source_ref: args.payslipIds.join(","),
       employee_id: args.employeeId,
-      attachments: attachments.map((a) => ({ name: a.name, url: a.url })),
+      attachments: attachmentUrls.map((a) => ({ name: a.name, url: a.url })),
     });
-    // Marque les fiches comme envoyées (note seulement, on touche pas payment_status)
     for (const psId of args.payslipIds) {
       const { logDocAudit } = await import("@/lib/document-audit-log");
       await logDocAudit({
         employee_id: args.employeeId,
         doc_type: "payslip",
         doc_ref: psId,
-        doc_label: `Envoi départ — ${attachments.length} fiche(s)`,
+        doc_label: `Envoi départ (${tpl.label}) — ${attachmentUrls.length} fiche(s)`,
         action: "share_email",
-        channel: "emailjs_offboarding",
+        channel: `${result.provider}_offboarding`,
         recipient_email: destEmail,
       });
     }
   } catch { /* */ }
 
   revalidatePath("/admin/payslips");
-  return { ok: true, sent: true, sentTo: destEmail };
+  return { ok: true, sent: true, sentTo: destEmail, provider: result.provider };
 }
 
 /**
