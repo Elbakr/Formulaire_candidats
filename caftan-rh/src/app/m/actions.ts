@@ -41,37 +41,62 @@ export async function getMobileDashboardDataAction(opts: {
   const periodStartISO = periodStart.toISOString().slice(0, 10);
 
   if (opts.enabledWidgets.includes("pointage_live")) {
-    // Karim 2026-06-02 : compte les shifts en cours aujourd'hui
-    const { data: shifts } = await admin
-      .from("shifts")
-      .select("id, employee_id, site_id, started_at, ended_at, employee:employees(full_name), site:sites(name,code)")
-      .gte("date", todayISO)
-      .lte("date", todayISO);
-    const total = (shifts ?? []).length;
-    const present = (shifts ?? []).filter((s) => s.started_at && !s.ended_at).length;
-    const done = (shifts ?? []).filter((s) => s.ended_at).length;
-    const upcoming = total - present - done;
-    out.pointage_live = { total, present, done, upcoming, shifts };
+    // Karim 2026-06-02 : vue clock_currently_in = pointes REELS maintenant
+    // (Tuya empreintes + manuels). Filtre par site si demande.
+    let qIn = admin.from("clock_currently_in").select("employee_id, site_id, site_code, site_name, site_color, full_name, clock_in_at");
+    if (opts.siteId) qIn = qIn.eq("site_id", opts.siteId);
+    const { data: currentlyIn } = await qIn;
+    const present = (currentlyIn ?? []).length;
+
+    // Shifts attendus aujourd'hui (planning prevu)
+    let qShifts = admin.from("shifts").select("id, employee_id, site_id, start_time, end_time, status").eq("date", todayISO);
+    if (opts.siteId) qShifts = qShifts.eq("site_id", opts.siteId);
+    const { data: shiftsToday } = await qShifts;
+    const total = (shiftsToday ?? []).length;
+    // 'done' = sessions clos aujourd'hui
+    let qSess = admin.from("clock_sessions").select("employee_id, clock_out_at").gte("clock_out_at", todayISO + "T00:00:00Z").lte("clock_out_at", todayISO + "T23:59:59Z");
+    if (opts.siteId) qSess = qSess.eq("site_id", opts.siteId);
+    const { data: doneSessions } = await qSess;
+    const done = (doneSessions ?? []).length;
+    const upcoming = Math.max(0, total - present - done);
+
+    // Top sites avec presents pour breakdown
+    const bySite = new Map<string, { code: string; name: string; color: string; count: number }>();
+    for (const r of currentlyIn ?? []) {
+      const k = r.site_id ?? "noSite";
+      const prev = bySite.get(k) ?? { code: r.site_code ?? "?", name: r.site_name ?? "Sans site", color: r.site_color ?? "#888", count: 0 };
+      prev.count++;
+      bySite.set(k, prev);
+    }
+    out.pointage_live = {
+      total, present, done, upcoming,
+      bySite: Array.from(bySite.values()).sort((a, b) => b.count - a.count),
+    };
   }
 
   if (opts.enabledWidgets.includes("heures_periode")) {
-    const { data: shifts } = await admin
-      .from("shifts")
-      .select("duration_hours, employee_id, site_id, date")
-      .gte("date", periodStartISO)
-      .lte("date", todayISO);
-    const filtered = opts.siteId ? (shifts ?? []).filter((s) => s.site_id === opts.siteId) : (shifts ?? []);
-    const totalHours = filtered.reduce((sum, s) => sum + Number(s.duration_hours ?? 0), 0);
-    out.heures_periode = { totalHours, count: filtered.length, period: opts.period ?? "day" };
+    // Karim 2026-06-02 : heures REELLES via clock_sessions.duration_minutes.
+    let q = admin.from("clock_sessions")
+      .select("duration_minutes, site_id")
+      .gte("clock_in_at", periodStartISO + "T00:00:00Z")
+      .lte("clock_in_at", todayISO + "T23:59:59Z")
+      .not("clock_out_at", "is", null);
+    if (opts.siteId) q = q.eq("site_id", opts.siteId);
+    const { data: sessions } = await q;
+    const totalMinutes = (sessions ?? []).reduce((s, x) => s + Number(x.duration_minutes ?? 0), 0);
+    const totalHours = totalMinutes / 60;
+    out.heures_periode = { totalHours, count: (sessions ?? []).length, period: opts.period ?? "day" };
   }
 
   if (opts.enabledWidgets.includes("planning_today")) {
-    const { data: shifts } = await admin
+    let q = admin
       .from("shifts")
       .select("id, start_time, end_time, employee:employees(full_name), site:sites(name, code, color)")
       .eq("date", todayISO)
       .order("start_time", { ascending: true })
       .limit(20);
+    if (opts.siteId) q = q.eq("site_id", opts.siteId);
+    const { data: shifts } = await q;
     out.planning_today = { shifts: shifts ?? [] };
   }
 

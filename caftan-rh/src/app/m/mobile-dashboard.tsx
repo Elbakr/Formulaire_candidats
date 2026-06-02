@@ -177,12 +177,27 @@ function PointageLive({ data }: { data: Record<string, unknown> }) {
   const present = (data.present as number) ?? 0;
   const done = (data.done as number) ?? 0;
   const upcoming = (data.upcoming as number) ?? 0;
+  const bySite = (data.bySite as Array<{ code: string; name: string; color: string; count: number }>) ?? [];
   return (
-    <div className="grid grid-cols-4 gap-2 text-center">
-      <Stat label="Présents" value={present} color="text-green-600" />
-      <Stat label="À venir" value={upcoming} color="text-blue-600" />
-      <Stat label="Terminés" value={done} color="text-ink-3" />
-      <Stat label="Total" value={total} color="text-foreground" />
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2 text-center">
+        <Stat label="Présents" value={present} color="text-green-600" />
+        <Stat label="À venir" value={upcoming} color="text-blue-600" />
+        <Stat label="Terminés" value={done} color="text-ink-3" />
+        <Stat label="Planifié" value={total} color="text-foreground" />
+      </div>
+      {bySite.length > 0 && (
+        <div className="border-t border-line/30 pt-2 space-y-1">
+          <div className="text-[10px] text-ink-3 font-semibold">Par site (présents)</div>
+          {bySite.map((s) => (
+            <div key={s.code} className="flex items-center gap-2 text-xs">
+              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.color }} />
+              <span className="flex-1 truncate">{s.name}</span>
+              <span className="font-bold tabular-nums">{s.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
