@@ -25,6 +25,8 @@ const PUBLIC_ROUTES = [
   "/api/terminations",
   // Karim 2026-06-01 : route tracking view PDF (token-protected dans handler).
   "/api/docs/view",
+  // Karim 2026-06-02 : webhook DocuSeal (signature HMAC dans handler).
+  "/api/docuseal/webhook",
   // Routes cron : Vercel Cron Scheduler les appelle SANS cookie utilisateur.
   // Chaque route verifie son propre Bearer ${CRON_SECRET} cote handler.
   "/api/cron",

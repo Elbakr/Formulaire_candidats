@@ -35,6 +35,7 @@ import { CompletionBar } from "./completion-bar";
 import { QuickNav } from "./quick-nav";
 import { EmployeeMailsSection } from "./employee-mails-section";
 import { TerminationButton } from "./termination-button";
+import { EmployeeAuditSection } from "./employee-audit-section";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -332,6 +333,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
       {/* Karim 2026-05-31 task #78/79 : section Mails envoyés a cet employee */}
       <EmployeeMailsSection employeeId={id} />
+
+      {/* Karim 2026-06-02 task #89 : timeline unifie partages + corrections */}
+      <EmployeeAuditSection employeeId={id} />
 
       <div id="danger">
         <DangerZone

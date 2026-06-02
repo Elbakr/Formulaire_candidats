@@ -86,6 +86,52 @@ export async function POST(request: NextRequest) {
   const submissionId = event.data.submission_id ?? event.data.id;
   const employeeId = event.data.metadata?.employee_id;
   const contractId = event.data.metadata?.contract_id;
+  const terminationId = event.data.metadata?.termination_id;
+
+  // Karim 2026-06-02 : branch RUPTURE AMIABLE (contract_terminations).
+  // Couvre form.completed (1 partie signe) + submission.completed (toutes signe).
+  if (terminationId && (event.event_type === "form.completed" || event.event_type === "submission.completed")) {
+    const signedPdfUrl = await getSignedPdfUrl(event.data);
+    const allCompleted = event.event_type === "submission.completed";
+    const isEmployeeSigner = event.data.metadata?.role === "Employee" || (event.data as { role?: string }).role === "Employee";
+    const updates: Record<string, unknown> = { docuseal_submission_id: String(submissionId) };
+    const nowISO = event.data.completed_at ?? new Date().toISOString();
+
+    if (allCompleted) {
+      updates.status = "fully_signed";
+      updates.signed_pdf_storage_path = signedPdfUrl;
+      updates.employee_signed_at = updates.employee_signed_at ?? nowISO;
+      updates.employer_signed_at = updates.employer_signed_at ?? nowISO;
+    } else if (isEmployeeSigner) {
+      updates.employee_signed_at = nowISO;
+      updates.status = "signed_employee";
+    } else {
+      updates.employer_signed_at = nowISO;
+      updates.status = "signed_employer";
+    }
+    await admin.from("contract_terminations").update(updates).eq("id", terminationId);
+
+    // Audit log
+    try {
+      const { data: t } = await admin.from("contract_terminations").select("employee_id").eq("id", terminationId).maybeSingle();
+      if (t) {
+        await admin.from("document_audit_log").insert({
+          employee_id: t.employee_id,
+          doc_type: "contract",
+          doc_ref: terminationId,
+          doc_label: allCompleted ? "Convention rupture - pleinement signée" : "Convention rupture - signature partielle",
+          action: "view",
+          channel: "docuseal_webhook",
+          actor_name: "DocuSeal",
+          notes: `Submission ${submissionId}`,
+        });
+      }
+    } catch (e) {
+      console.warn("[docuseal/webhook] termination audit err:", e);
+    }
+
+    return NextResponse.json({ ok: true, kind: "termination", all_signed: allCompleted });
+  }
 
   if (event.event_type === "submission.completed") {
     // Tous les signers ont signe -> contrat 100% finalise
