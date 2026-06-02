@@ -3,8 +3,8 @@
 // Karim 2026-06-02 : bouton "Envoi départ" sur /admin/payslips avec
 // dropdown de templates RH + preview message + PJ natives (Resend).
 
-import { useState, useTransition, useEffect, useMemo } from "react";
-import { Briefcase, Loader2, Send, Mail, Search, Paperclip } from "lucide-react";
+import { useState, useTransition, useEffect, useMemo, useRef } from "react";
+import { Briefcase, Loader2, Send, Mail, Search, Paperclip, Plus, X as XIcon, Check, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,9 @@ export function OffboardingButton() {
   const [customBody, setCustomBody] = useState("");
   const [overrideEmail, setOverrideEmail] = useState("");
   const [editMode, setEditMode] = useState(false);
+  // Karim 2026-06-02 : pieces jointes additionnelles (CV, attestations, etc.)
+  const [extraFiles, setExtraFiles] = useState<Array<{ name: string; size: number; type: string; base64: string }>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +87,24 @@ export function OffboardingButton() {
     setCustomBody("");
     setOverrideEmail("");
     setEditMode(false);
+    setExtraFiles([]);
+  }
+
+  async function handleAddFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    const added: Array<{ name: string; size: number; type: string; base64: string }> = [];
+    for (const f of Array.from(files)) {
+      if (f.size > MAX_SIZE) {
+        toast.error(`${f.name} dépasse 10 MB`);
+        continue;
+      }
+      const buf = await f.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      added.push({ name: f.name, size: f.size, type: f.type || "application/octet-stream", base64 });
+    }
+    setExtraFiles((p) => [...p, ...added]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   // Preview du message rendu par le template selectionne
@@ -108,10 +129,14 @@ export function OffboardingButton() {
   }, [templateId, selectedEmp, selectedIds, payslips]);
 
   function send() {
-    if (!selectedEmp || selectedIds.size === 0) return;
-    const dest = overrideEmail.trim() || selectedEmp.email;
+    if (!selectedEmp) return;
+    if (selectedIds.size === 0 && extraFiles.length === 0) {
+      toast.error("Coche au moins une fiche OU ajoute une pièce jointe");
+      return;
+    }
+    const dest = (overrideEmail.trim() || selectedEmp.email || "").trim();
     if (!dest) {
-      toast.error("Pas d'email destinataire - complète la fiche employee");
+      toast.error(`Pas d'email pour ${selectedEmp.full_name}. Utilise "Override email" ci-dessus ou complète sa fiche.`);
       return;
     }
     startTransition(async () => {
@@ -122,10 +147,11 @@ export function OffboardingButton() {
         customSubject: editMode ? customSubject : undefined,
         customBody: editMode ? customBody : undefined,
         recipientEmailOverride: overrideEmail.trim() || undefined,
+        extraAttachments: extraFiles.map((f) => ({ filename: f.name, contentBase64: f.base64, contentType: f.type })),
       });
       if (res.ok) {
-        const providerLabel = res.provider === "resend" ? "avec pièces jointes natives" : "avec liens sécurisés";
-        toast.success(`✓ Mail envoyé à ${res.sentTo} (${providerLabel})`);
+        const providerLabel = res.provider === "resend" ? "avec pièces jointes natives PDF" : "avec liens sécurisés (Resend non configuré)";
+        toast.success(`✓ Mail envoyé à ${res.sentTo} ${providerLabel}`);
         reset();
         setOpen(false);
       } else {
@@ -291,11 +317,73 @@ export function OffboardingButton() {
                 </div>
               )}
 
-              <div className="flex items-start gap-2 text-[11px] bg-blue-50 border border-blue-200 rounded p-2">
-                <Paperclip className="w-3.5 h-3.5 text-blue-700 mt-0.5" />
-                <span className="text-blue-900">
-                  <strong>Pièces jointes :</strong> les PDFs seront envoyés en attachements natifs si Resend est configuré (RESEND_API_KEY), sinon en liens cliquables sécurisés (30j).
-                </span>
+              {/* Karim 2026-06-02 : section PJ clarifiee — montre EXACTEMENT
+                  les PJ qui seront jointes (fiches cochees + extra) avec ✓ vert
+                  et permet d'uploader des fichiers additionnels. */}
+              <div className="border border-green-300 bg-green-50/50 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-green-900">
+                  <Paperclip className="w-3.5 h-3.5" />
+                  Pièces jointes prêtes à envoyer ({selectedIds.size + extraFiles.length})
+                </div>
+
+                {selectedIds.size > 0 && (
+                  <div className="space-y-1 ml-5">
+                    {Array.from(selectedIds).map((id) => {
+                      const p = payslips.find((x) => x.id === id);
+                      if (!p) return null;
+                      return (
+                        <div key={id} className="flex items-center gap-2 text-[11px] text-green-900">
+                          <Check className="w-3 h-3 text-green-600" />
+                          <FileText className="w-3 h-3" />
+                          <span>Fiche de paie — {MONTH_NAMES[p.period_month - 1]} {p.period_year} (PDF watermarké automatiquement)</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {extraFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 ml-5 text-[11px] text-green-900">
+                    <Check className="w-3 h-3 text-green-600" />
+                    <FileText className="w-3 h-3" />
+                    <span className="flex-1 truncate">{f.name} <span className="text-ink-3">({(f.size / 1024).toFixed(0)} kB)</span></span>
+                    <button
+                      type="button"
+                      onClick={() => setExtraFiles((p) => p.filter((_, idx) => idx !== i))}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      <XIcon className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+
+                {selectedIds.size === 0 && extraFiles.length === 0 && (
+                  <div className="text-[11px] text-ink-3 italic ml-5">Aucune pièce jointe pour l'instant.</div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-green-200">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="application/pdf,image/*,.doc,.docx,.txt"
+                    onChange={(e) => handleAddFiles(e.target.files)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-[11px] text-green-900 hover:text-green-700 underline flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Ajouter d&apos;autres fichiers (certificat de travail, C4, attestation, etc.)
+                  </button>
+                  <span className="text-[10px] text-ink-3">Max 10 MB/fichier</span>
+                </div>
+
+                <div className="text-[10px] text-ink-3 italic mt-1">
+                  📨 Mode envoi : {process.env.NEXT_PUBLIC_HAS_RESEND === "1" ? "pièces jointes natives (Resend)" : "à confirmer après envoi (PJ natives si Resend configuré, sinon liens 30j)"}
+                </div>
               </div>
             </div>
           )}

@@ -85,10 +85,12 @@ export async function markPayslipsPaidBulkAction(
 export async function sendOffboardingPayslipsAction(args: {
   employeeId: string;
   payslipIds: string[];
-  templateId?: string;            // id template lib/message-templates.ts (default = auto selon contrat)
+  templateId?: string;
   customSubject?: string;
-  customBody?: string;            // override total (mode personnalisé)
+  customBody?: string;
   recipientEmailOverride?: string;
+  // Karim 2026-06-02 : pieces jointes additionnelles uploaded depuis le dialog
+  extraAttachments?: Array<{ filename: string; contentBase64: string; contentType: string }>;
 }): Promise<{ ok: boolean; sent?: boolean; error?: string; sentTo?: string; provider?: string }> {
   await requireRole(["admin", "rh"]);
   if (args.payslipIds.length === 0) return { ok: false, error: "Aucune fiche sélectionnée" };
@@ -160,6 +162,36 @@ export async function sendOffboardingPayslipsAction(args: {
     }
   }
   if (attachmentUrls.length === 0 && attachmentBytes.length === 0) return { ok: false, error: "Aucun PDF accessible" };
+
+  // Karim 2026-06-02 : pieces jointes additionnelles ajoutees par l'admin
+  // (certificat travail, attestation, etc.) — uploadees en base64 depuis le UI
+  if (args.extraAttachments && args.extraAttachments.length > 0) {
+    for (const extra of args.extraAttachments) {
+      try {
+        const bytes = new Uint8Array(Buffer.from(extra.contentBase64, "base64"));
+        attachmentBytes.push({
+          filename: extra.filename,
+          content: bytes,
+          contentType: extra.contentType,
+          period: "extra",
+        });
+        // Upload aussi pour fallback EmailJS URL
+        const path = `extra/${args.employeeId}/${Date.now()}__${extra.filename}`;
+        const up = await admin.storage.from("payslips").upload(path, bytes, {
+          contentType: extra.contentType,
+          upsert: true,
+        });
+        if (!up.error) {
+          const signed = await admin.storage.from("payslips").createSignedUrl(path, 30 * 24 * 3600);
+          if (signed.data?.signedUrl) {
+            attachmentUrls.push({ name: extra.filename, url: signed.data.signedUrl, period: "extra" });
+          }
+        }
+      } catch (e) {
+        console.warn("[offboarding] extra attachment err:", (e as Error).message);
+      }
+    }
+  }
 
   // Karim 2026-06-02 : selection du template
   const { getTemplateById, getDefaultTemplateForOffboarding } = await import("@/lib/message-templates");
@@ -704,16 +736,19 @@ export async function setAdvanceAndRecomputeAction(
  * Retourne aussi le status pour affichage visuel.
  */
 export async function listActiveEmployeesAction(): Promise<
-  Array<{ id: string; full_name: string; iban: string | null; status: string }>
+  Array<{ id: string; full_name: string; iban: string | null; status: string; email: string | null; contract_type: string | null }>
 > {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
+  // Karim 2026-06-02 : retourne aussi email + contract_type. Le offboarding
+  // dialog en a besoin pour eviter le faux warning "pas d'email" + auto-pick
+  // du template selon contract_type.
   const { data } = await admin
     .from("employees")
-    .select("id, full_name, iban, status")
+    .select("id, full_name, iban, status, email, contract_type")
     .in("status", ["active", "on_leave"])
     .order("full_name");
-  return (data ?? []) as Array<{ id: string; full_name: string; iban: string | null; status: string }>;
+  return (data ?? []) as Array<{ id: string; full_name: string; iban: string | null; status: string; email: string | null; contract_type: string | null }>;
 }
 
 export async function updateEmployeeAdvanceAction(
