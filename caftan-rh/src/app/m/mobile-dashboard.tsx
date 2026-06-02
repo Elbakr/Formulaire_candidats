@@ -61,9 +61,9 @@ export function MobileDashboard({ profileName, widgets, data, sites, prefs }: Pr
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 pb-safe">
+    <div className="min-h-screen min-h-screen-mobile bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 pb-safe overscroll-none">
       {/* Sticky header */}
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-b border-line px-4 py-3 pt-safe">
+      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-b border-line px-4 py-3 pt-safe px-safe">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-base font-bold leading-tight">CaftanRH</h1>
@@ -233,17 +233,19 @@ function Alerts({ data }: { data: Record<string, unknown> }) {
 }
 
 function QuickActions() {
+  // Karim 2026-06-02 : routes verifiees (les contrats sont geres par
+  // employee, pas en liste globale → on pointe vers /planning/employees).
   const actions = [
     { label: "Planning", href: "/planning/calendar", icon: "Calendar" },
     { label: "Employés", href: "/planning/employees", icon: "UserCheck" },
     { label: "Fiches paie", href: "/admin/payslips", icon: "Wallet" },
-    { label: "Contrats", href: "/admin/contracts", icon: "FileSignature" },
-    { label: "Candidats", href: "/admin/candidates", icon: "UserCheck" },
+    { label: "Contrats", href: "/planning/employees", icon: "FileSignature" },
+    { label: "Candidats", href: "/rh/candidates", icon: "UserCheck" },
     { label: "Mails envoyés", href: "/rh/mails", icon: "Mail" },
     { label: "Nouveau mail", href: "/rh/mails/new", icon: "Mail" },
     { label: "Screening RH", href: "/rh/screening", icon: "Activity" },
-    { label: "Entreprises", href: "/admin/organizations", icon: "Settings" },
-    { label: "Paramètres", href: "/settings", icon: "Settings" },
+    { label: "Aujourd'hui", href: "/today", icon: "Zap" },
+    { label: "Paramètres", href: "/admin/settings", icon: "Settings" },
   ];
   return (
     <div className="grid grid-cols-2 gap-2">

@@ -36,6 +36,7 @@ const PUBLIC_ROUTES = [
   // mode standalone vs raccourci. Si on redirige vers /login, l'app n'est
   // pas detectee comme PWA et reste en mode navigateur (barre d'adresse).
   "/manifest.webmanifest",
+  "/m/manifest.webmanifest",
   "/sw.js",
   "/icons",
   "/favicon.ico",

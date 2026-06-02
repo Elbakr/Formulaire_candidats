@@ -27,14 +27,13 @@ const STATIC_PAGES: Omit<PaletteItem, "action">[] = [
   { id: "p-dashboard", label: "Tableau de bord", icon: LayoutDashboard, group: "Pages", hint: "/" },
   { id: "p-employees", label: "Employés", icon: Users, group: "Pages", hint: "/planning/employees" },
   { id: "p-planning", label: "Planning", icon: Calendar, group: "Pages", hint: "/planning" },
-  { id: "p-contracts", label: "Contrats", icon: FileSignature, group: "Pages", hint: "/admin/contracts" },
+  { id: "p-contracts", label: "Contrats (via fiche employee)", icon: FileSignature, group: "Pages", hint: "/planning/employees" },
   { id: "p-payslips", label: "Fiches de paie", icon: Wallet, group: "Pages", hint: "/admin/payslips" },
   { id: "p-mails-sent", label: "Mails envoyés", icon: Mail, group: "Pages", hint: "/rh/mails" },
   { id: "p-mails-compose", label: "Composer un mail", icon: Mail, group: "Pages", hint: "/rh/mails/new" },
   { id: "p-screening", label: "Screening candidats", icon: ClipboardEdit, group: "Pages", hint: "/rh/screening" },
-  { id: "p-candidates", label: "Candidats", icon: UserCheck, group: "Pages", hint: "/admin/candidates" },
-  { id: "p-orgs", label: "Entreprises", icon: Building2, group: "Pages", hint: "/admin/organizations" },
-  { id: "p-settings", label: "Paramètres", icon: Settings, group: "Pages", hint: "/settings" },
+  { id: "p-candidates", label: "Candidats", icon: UserCheck, group: "Pages", hint: "/rh/candidates" },
+  { id: "p-settings", label: "Paramètres", icon: Settings, group: "Pages", hint: "/admin/settings" },
 ];
 
 const QUICK_ACTIONS: Omit<PaletteItem, "action">[] = [
@@ -134,7 +133,7 @@ export function CommandPalette() {
             router.push("/planning/employees?new=1");
             break;
           case "a-contracts":
-            router.push("/admin/contracts");
+            router.push("/planning/employees");
             break;
         }
       },
