@@ -23,6 +23,7 @@
     { "path": "/api/cron/candidate-match-rescore", "schedule": "0 4 * * *" },
     { "path": "/api/cron/tuya-poll", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/tuya-auto-out", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/force-close-orphans", "schedule": "0 * * * *" }
+    { "path": "/api/cron/force-close-orphans", "schedule": "0 * * * *" },
+    { "path": "/api/cron/signature-reminder", "schedule": "0 9 * * *" }
   ]
 }
