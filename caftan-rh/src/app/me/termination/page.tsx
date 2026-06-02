@@ -32,7 +32,7 @@ export default async function MyTerminationPage() {
   const admin = createAdminClient();
   const { data: emp } = await admin
     .from("employees")
-    .select("id, full_name, employer_org_key, start_date")
+    .select("id, full_name, start_date")
     .eq("profile_id", user.id)
     .maybeSingle();
   if (!emp) {
