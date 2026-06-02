@@ -106,6 +106,7 @@ export function getNavSections(role: Role): NavGroup[] {
     icon: "CalendarDays",
     items: [
       { href: "/today", label: "Aujourd'hui", icon: "LayoutDashboard" },
+      { href: "/m", label: "📱 Mobile dashboard", icon: "Sparkles" },
       { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays" },
       { href: "/planning/all-sites", label: "Vue ensemble", icon: "LayoutDashboard" },
       { href: "/planning/sites", label: "Sites", icon: "Building2" },
