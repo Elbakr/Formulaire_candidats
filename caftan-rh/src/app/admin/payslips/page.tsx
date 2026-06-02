@@ -12,6 +12,7 @@ import { type PayslipRow } from "./payslips-table";
 import { UploadDropzone } from "./upload-dropzone";
 import { BatchRow } from "./batch-row";
 import { PayslipsView } from "./payslips-view";
+import { OffboardingButton } from "./offboarding-button";
 
 export const dynamic = "force-dynamic";
 
@@ -193,6 +194,11 @@ export default async function AdminPayslipsPage(props: {
           <div className="text-2xl font-bold mt-1">{allRows.length}</div>
           <div className="text-xs text-muted-foreground">{paidEmployees.size + unpaidEmployees.size} employees</div>
         </Card>
+      </div>
+
+      {/* Karim 2026-06-02 : actions globales (upload + envoi départ) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <OffboardingButton />
       </div>
 
       {/* Karim 2026-05-30 : filtres CLIENT-SIDE instantanés (statut + employeur) */}
