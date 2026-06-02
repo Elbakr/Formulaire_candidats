@@ -30,6 +30,7 @@ import { formatDurationMin } from "@/lib/clock";
 import { PrestationsViewTabs, type PrestationsView } from "./prestations-view-tabs";
 import { EditClockOutButton } from "./edit-clockout-button";
 import { ClockEditor } from "./clock-editor";
+import { AddShiftControls } from "./add-shift-controls";
 
 type Shift = {
   id: string;
@@ -585,6 +586,14 @@ export default async function EmployeePrestationsPage(props: {
           customTo={toStr ?? toISODate(end)}
         />
       </div>
+
+      {/* Karim 2026-06-02 : controles RH pour combler les trous de pointage
+          (shift manuel, jour repos, historique des corrections). */}
+      <AddShiftControls
+        employeeId={employee.id}
+        sites={sites.map((s) => ({ id: s.id, code: s.code, name: s.name }))}
+        defaultDate={toISODate(refDate)}
+      />
 
       <div className="text-sm text-ink-2 inline-flex items-center gap-2 flex-wrap">
         <CalendarDays className="h-3.5 w-3.5 text-ink-3" />
