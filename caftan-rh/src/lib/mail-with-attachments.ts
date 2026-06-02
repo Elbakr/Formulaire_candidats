@@ -24,7 +24,7 @@ export interface SendMailOptions {
 
 export interface SendMailResult {
   ok: boolean;
-  provider: "resend" | "emailjs" | "none";
+  provider: "resend" | "smtp_gmail" | "emailjs" | "none";
   error?: string;
   messageId?: string;
 }
@@ -77,7 +77,39 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
     }
   }
 
-  // === PATH 2 : EmailJS (fallback, avec liens dans le body) ===
+  // === PATH 2 : SMTP Gmail via Nodemailer (PJ natives) ===
+  // Karim 2026-06-02 : utilise GMAIL_USER + GMAIL_APP_PASSWORD si configures.
+  // App Password Google : https://myaccount.google.com/apppasswords (necessite 2FA)
+  const GMAIL_USER = process.env.GMAIL_USER;
+  const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+  if (GMAIL_USER && GMAIL_APP_PASSWORD && GMAIL_USER.trim() && GMAIL_APP_PASSWORD.trim()) {
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      });
+      const info = await transporter.sendMail({
+        from: `Caftan Factory (By AMD Megastore) <${GMAIL_USER}>`,
+        to: recipients.join(", "),
+        replyTo: opts.replyTo ?? "hr@caftanfactory.com",
+        subject: opts.subject,
+        text: opts.body,
+        html: htmlBody,
+        attachments: (opts.attachments ?? []).map((a) => ({
+          filename: a.filename,
+          content: Buffer.from(a.content),
+          contentType: a.contentType ?? "application/pdf",
+        })),
+      });
+      return { ok: true, provider: "smtp_gmail", messageId: info.messageId };
+    } catch (e) {
+      console.warn("[mail] SMTP Gmail exception:", (e as Error).message);
+      // fallback EmailJS
+    }
+  }
+
+  // === PATH 3 : EmailJS (dernier fallback, avec liens dans le body) ===
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
   const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;

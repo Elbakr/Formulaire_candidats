@@ -150,8 +150,11 @@ export function OffboardingButton() {
         extraAttachments: extraFiles.map((f) => ({ filename: f.name, contentBase64: f.base64, contentType: f.type })),
       });
       if (res.ok) {
-        const providerLabel = res.provider === "resend" ? "avec pièces jointes natives PDF" : "avec liens sécurisés (Resend non configuré)";
-        toast.success(`✓ Mail envoyé à ${res.sentTo} ${providerLabel}`);
+        const providerLabel =
+          res.provider === "resend" ? "✓ pièces jointes natives PDF (Resend)" :
+          res.provider === "smtp_gmail" ? "✓ pièces jointes natives PDF (Gmail SMTP)" :
+          "⚠ liens (configure RESEND_API_KEY ou GMAIL_APP_PASSWORD pour PJ natives)";
+        toast.success(`Mail envoyé à ${res.sentTo} — ${providerLabel}`, { duration: 6000 });
         reset();
         setOpen(false);
       } else {
