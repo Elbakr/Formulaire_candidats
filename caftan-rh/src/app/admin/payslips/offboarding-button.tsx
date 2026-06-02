@@ -40,6 +40,7 @@ export function OffboardingButton() {
   // Karim 2026-06-02 : pieces jointes additionnelles (CV, attestations, etc.)
   const [extraFiles, setExtraFiles] = useState<Array<{ name: string; size: number; type: string; base64: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showFullPreview, setShowFullPreview] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -283,24 +284,34 @@ export function OffboardingButton() {
               </div>
 
               {previewRender && !editMode && (
-                <details className="border border-line rounded text-xs">
-                  <summary className="cursor-pointer p-2 bg-muted/30 font-semibold">
-                    Aperçu du message (clique pour ouvrir)
-                  </summary>
-                  <div className="p-3 space-y-2">
-                    <div><strong className="text-[10px] uppercase text-ink-3">Sujet :</strong><br/>{previewRender.subject}</div>
-                    <div><strong className="text-[10px] uppercase text-ink-3">Corps :</strong>
-                      <pre className="bg-muted/30 p-2 rounded mt-1 whitespace-pre-wrap text-[11px] font-mono">{previewRender.body}</pre>
+                <div className="border border-line rounded">
+                  <div className="flex items-center justify-between gap-2 p-2 bg-muted/30 text-xs font-semibold">
+                    <span>Aperçu du message</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowFullPreview(true)}
+                        className="text-[11px] text-blue-700 underline hover:text-blue-900"
+                      >
+                        👁 Voir aperçu HTML complet
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditMode(true);
+                          setCustomSubject(previewRender.subject);
+                          setCustomBody(previewRender.body);
+                        }}
+                        className="text-[11px] text-amber-700 underline hover:text-amber-900"
+                      >
+                        ✏ Personnaliser
+                      </button>
                     </div>
-                    <button onClick={() => {
-                      setEditMode(true);
-                      setCustomSubject(previewRender.subject);
-                      setCustomBody(previewRender.body);
-                    }} className="text-[11px] text-blue-700 underline">
-                      Personnaliser ce message
-                    </button>
                   </div>
-                </details>
+                  <div className="p-2 text-[11px] text-ink-3 border-t border-line">
+                    <strong>Sujet :</strong> {previewRender.subject}
+                  </div>
+                </div>
               )}
 
               {editMode && (
@@ -393,13 +404,107 @@ export function OffboardingButton() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button variant="gold" onClick={send} disabled={pending || !selectedEmp || selectedIds.size === 0}>
+            <Button variant="gold" onClick={send} disabled={pending || !selectedEmp || (selectedIds.size === 0 && extraFiles.length === 0)}>
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Envoyer {selectedIds.size > 0 ? `(${selectedIds.size} PJ)` : ""}
+              Envoyer {(selectedIds.size + extraFiles.length) > 0 ? `(${selectedIds.size + extraFiles.length} PJ)` : ""}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Karim 2026-06-02 : modal full preview du mail rendu HTML */}
+      {showFullPreview && previewRender && selectedEmp && (
+        <FullPreviewModal
+          subject={previewRender.subject}
+          body={previewRender.body}
+          recipient={overrideEmail.trim() || selectedEmp.email || "?"}
+          recipientName={selectedEmp.full_name}
+          attachmentsCount={selectedIds.size + extraFiles.length}
+          payslipPjs={Array.from(selectedIds).map((id) => {
+            const p = payslips.find((x) => x.id === id);
+            if (!p) return null;
+            return { name: `Fiche ${MONTH_NAMES[p.period_month - 1]} ${p.period_year}.pdf`, sizeApprox: 80000 };
+          }).filter(Boolean) as Array<{ name: string; sizeApprox: number }>}
+          extraPjs={extraFiles.map((f) => ({ name: f.name, sizeApprox: f.size }))}
+          onClose={() => setShowFullPreview(false)}
+        />
+      )}
     </>
+  );
+}
+
+function FullPreviewModal({ subject, body, recipient, recipientName, attachmentsCount, payslipPjs, extraPjs, onClose }: {
+  subject: string;
+  body: string;
+  recipient: string;
+  recipientName: string;
+  attachmentsCount: number;
+  payslipPjs: Array<{ name: string; sizeApprox: number }>;
+  extraPjs: Array<{ name: string; sizeApprox: number }>;
+  onClose: () => void;
+}) {
+  const totalSize = payslipPjs.reduce((s, p) => s + p.sizeApprox, 0) + extraPjs.reduce((s, p) => s + p.sizeApprox, 0);
+  const htmlBody = body.replace(/\n/g, "<br>");
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2 p-3 border-b bg-muted/30">
+          <div className="text-sm font-semibold">📧 Aperçu mail (avant envoi)</div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded text-ink-3 text-xl leading-none">×</button>
+        </div>
+
+        <div className="overflow-y-auto p-4 space-y-3 text-sm">
+          {/* En-tête mail */}
+          <div className="border border-line rounded-lg p-3 bg-blue-50/40 space-y-1 text-xs">
+            <div><strong className="text-ink-3 inline-block w-16">De :</strong> <span className="font-mono">Caftan Factory (By AMD Megastore) &lt;onboarding@resend.dev&gt;</span></div>
+            <div><strong className="text-ink-3 inline-block w-16">À :</strong> <span className="font-mono">{recipientName} &lt;{recipient}&gt;</span></div>
+            <div><strong className="text-ink-3 inline-block w-16">BCC :</strong> <span className="font-mono">hr@caftanfactory.com</span> <span className="text-[10px] text-green-700">(archivage auto boîte commune)</span></div>
+            <div><strong className="text-ink-3 inline-block w-16">Reply-To :</strong> <span className="font-mono">hr@caftanfactory.com</span></div>
+            <div><strong className="text-ink-3 inline-block w-16">Sujet :</strong> <strong>{subject}</strong></div>
+          </div>
+
+          {/* Pièces jointes */}
+          {attachmentsCount > 0 && (
+            <div className="border border-green-200 rounded-lg p-3 bg-green-50/40">
+              <div className="text-xs font-semibold mb-2 flex items-center justify-between">
+                <span>📎 Pièces jointes ({attachmentsCount})</span>
+                <span className="text-[10px] text-ink-3">Total : ~{(totalSize / 1024).toFixed(0)} kB</span>
+              </div>
+              <div className="space-y-1 text-[11px]">
+                {payslipPjs.map((p, i) => (
+                  <div key={`ps-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1">
+                    <span className="font-mono">📄 {p.name}</span>
+                    <span className="text-ink-3">~{(p.sizeApprox / 1024).toFixed(0)} kB</span>
+                  </div>
+                ))}
+                {extraPjs.map((p, i) => (
+                  <div key={`ex-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1">
+                    <span className="font-mono">📎 {p.name}</span>
+                    <span className="text-ink-3">{(p.sizeApprox / 1024).toFixed(0)} kB</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Body HTML rendered */}
+          <div className="border border-line rounded-lg p-4 bg-white">
+            <div className="text-[10px] text-ink-3 uppercase tracking-wide mb-2 font-semibold">Corps du mail (rendu HTML)</div>
+            <div className="text-sm leading-relaxed text-ink-1" dangerouslySetInnerHTML={{ __html: htmlBody }} />
+          </div>
+        </div>
+
+        <div className="border-t bg-muted/20 p-3 text-[10px] text-ink-3 flex items-center justify-between">
+          <span>Le mail sera également archivé dans <strong>/rh/mails</strong> + envoyé en copie à <strong>hr@caftanfactory.com</strong></span>
+          <button onClick={onClose} className="text-xs px-3 py-1 rounded bg-muted hover:bg-line">Fermer</button>
+        </div>
+      </div>
+    </div>
   );
 }

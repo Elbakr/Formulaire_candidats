@@ -222,6 +222,7 @@ export async function sendOffboardingPayslipsAction(args: {
     replyTo: "hr@caftanfactory.com",
     attachments: attachmentBytes.length > 0 ? attachmentBytes : undefined,
     attachmentUrls: attachmentUrls.map((a) => ({ name: a.name, url: a.url })),
+    bccHr: true, // Karim 2026-06-02 : copie BCC vers hr@caftanfactory.com pour archivage boite commune
   });
   if (!result.ok) return { ok: false, error: result.error ?? "Envoi KO" };
 

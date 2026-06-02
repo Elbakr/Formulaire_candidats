@@ -20,6 +20,10 @@ export interface SendMailOptions {
   attachments?: MailAttachment[];
   // Fallback : URL des PDFs si Resend KO et qu'on bascule EmailJS
   attachmentUrls?: Array<{ name: string; url: string }>;
+  // Karim 2026-06-02 : copie systematique a hr@caftanfactory.com pour
+  // archivage boite commune. Resend/SMTP supportent bcc, EmailJS non
+  // (on fait un 2e envoi explicite).
+  bccHr?: boolean;
 }
 
 export interface SendMailResult {
@@ -57,6 +61,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
         body: JSON.stringify({
           from: RESEND_FROM,
           to: recipients,
+          bcc: opts.bccHr ? ["hr@caftanfactory.com"] : undefined,
           subject: opts.subject,
           text: opts.body,
           html: htmlBody,
@@ -92,6 +97,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
       const info = await transporter.sendMail({
         from: `Caftan Factory (By AMD Megastore) <${GMAIL_USER}>`,
         to: recipients.join(", "),
+        bcc: opts.bccHr ? "hr@caftanfactory.com" : undefined,
         replyTo: opts.replyTo ?? "hr@caftanfactory.com",
         subject: opts.subject,
         text: opts.body,
