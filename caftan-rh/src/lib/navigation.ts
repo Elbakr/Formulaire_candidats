@@ -83,6 +83,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/me/mails", label: "Mails reçus", icon: "Mail" },
     { href: "/me/termination", label: "Rupture amiable", icon: "FileSignature" },
     { href: "/faq", label: "FAQ / Aide", icon: "LifeBuoy" },
+    { href: "/chat-ai", label: "Assistant IA RH ✨", icon: "Sparkles" },
     { href: "/chat", label: "Chat équipe", icon: "MessageSquare" },
     { href: "/me/profile", label: "Mon profil", icon: "User" },
   ];
