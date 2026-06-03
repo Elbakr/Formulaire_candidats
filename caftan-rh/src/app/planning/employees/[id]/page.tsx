@@ -36,6 +36,7 @@ import { QuickNav } from "./quick-nav";
 import { EmployeeMailsSection } from "./employee-mails-section";
 import { TerminationButton } from "./termination-button";
 import { EmployeeAuditSection } from "./employee-audit-section";
+import { RehireButton } from "./rehire-button";
 import { startOfWeek, toISODate } from "@/lib/planning";
 
 export default async function EmployeeDetailPage(props: PageProps<"/planning/employees/[id]">) {
@@ -185,6 +186,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           <InviteEmployeeButton
             employeeId={id}
             alreadyInvited={!!(emp as { profile_id: string | null }).profile_id}
+          />
+          {/* Karim 2026-06-03 : bouton réembauche si ex-employé */}
+          <RehireButton
+            employeeId={id}
+            employeeName={(emp as { full_name: string }).full_name}
+            status={(emp as { status: string }).status}
           />
           <Button asChild variant="gold" size="sm">
             <Link href={`/planning/employees/${id}/contract`}>
