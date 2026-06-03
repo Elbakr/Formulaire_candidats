@@ -3,6 +3,7 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { TimeOffMyPanel } from "./time-off-my-panel";
+import { LeaveBalanceCard } from "./leave-balance-card";
 import { getLocale } from "@/lib/locale-server";
 import { t } from "@/lib/i18n";
 
@@ -49,6 +50,8 @@ export default async function MyTimeOffPage() {
         <h1 className="text-2xl font-bold">{t("time_off.title", locale)}</h1>
         <p className="text-sm text-ink-2">{t("time_off.subtitle", locale)}</p>
       </div>
+      {/* Karim 2026-06-03 : card solde congés payés calculé prorata BE */}
+      <LeaveBalanceCard />
       <TimeOffMyPanel
         employeeId={employee.id}
         requests={(data ?? []) as never}
