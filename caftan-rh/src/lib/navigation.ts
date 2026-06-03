@@ -250,6 +250,7 @@ export function getNavSections(role: Role): NavGroup[] {
         { href: "/rh/dimona", label: "Déclarations Dimona", icon: "FileText" },
         { href: "/rh/stats", label: "Stats salaires + Export", icon: "TrendingUp" },
         { href: "/rh/expenses", label: "Notes de frais", icon: "Receipt" },
+        { href: "/rh/trainings", label: "Formations & certifs", icon: "Sparkles" },
         { href: "/faq", label: "FAQ / Aide", icon: "LifeBuoy" },
         { href: "/admin/users", label: "Utilisateurs", icon: "Users" },
         { href: "/admin/departments", label: "Services", icon: "Building2" },
