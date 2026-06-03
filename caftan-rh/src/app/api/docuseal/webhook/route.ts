@@ -294,6 +294,30 @@ L'équipe Caftan Factory (By AMD Megastore)`;
       console.warn("[docuseal/webhook] termination audit err:", e);
     }
 
+    // Karim 2026-06-03 : auto-création Dimona OUT à la rupture pleinement signée
+    if (allCompleted) {
+      try {
+        const { data: t } = await admin
+          .from("contract_terminations")
+          .select("employee_id, effective_date, employer_org_key")
+          .eq("id", terminationId)
+          .maybeSingle();
+        if (t) {
+          await admin.from("dimona_declarations").upsert({
+            employee_id: t.employee_id,
+            kind: "out",
+            declared_end_date: t.effective_date,
+            employer_org_key: t.employer_org_key ?? "amd_megastore",
+            worker_type: "OTH",
+            status: "pending",
+          }, { onConflict: "employee_id,kind" });
+          console.log("[webhook] Dimona OUT auto-created for termination", terminationId);
+        }
+      } catch (e) {
+        console.warn("[webhook] Dimona OUT auto err:", (e as Error).message);
+      }
+    }
+
     return NextResponse.json({ ok: true, kind: "termination", all_signed: allCompleted, stored_path: storedPath });
   }
 
@@ -334,6 +358,30 @@ L'équipe Caftan Factory (By AMD Megastore)`;
         signedPdfUrl,
         language: "fr",
       });
+
+      // Karim 2026-06-03 : auto-création Dimona IN à la signature contrat
+      try {
+        const { data: empFull } = await admin
+          .from("employees")
+          .select("id, contract_type, start_date, end_date")
+          .eq("id", employeeId)
+          .maybeSingle();
+        if (empFull) {
+          const workerType = (empFull as { contract_type?: string }).contract_type === "Étudiant" ? "STU" : "OTH";
+          await admin.from("dimona_declarations").upsert({
+            employee_id: employeeId,
+            kind: "in",
+            declared_start_date: (empFull as { start_date?: string }).start_date ?? null,
+            declared_end_date: (empFull as { end_date?: string }).end_date ?? null,
+            employer_org_key: "amd_megastore",
+            worker_type: workerType,
+            status: "pending",
+          }, { onConflict: "employee_id,kind" });
+          console.log("[webhook] Dimona IN auto-created for contract", contractId);
+        }
+      } catch (e) {
+        console.warn("[webhook] Dimona IN auto err:", (e as Error).message);
+      }
 
       // Karim 2026-05-29 : NOTIFICATION URGENTE DIMONA
       // Apres signature : creer une notif "Dimona a declarer" pour tous les
