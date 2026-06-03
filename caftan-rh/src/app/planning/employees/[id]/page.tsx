@@ -113,7 +113,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   const [{ data: latestContractRaw }, { data: latestDimonaRaw }] = await Promise.all([
     supabase
       .from("employee_contracts")
-      .select("id, status, contract_kind, signed_at")
+      .select("id, status, contract_kind, signed_at, signed_pdf_url, docuseal_status, docuseal_submission_id")
       .eq("employee_id", id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -127,7 +127,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       .maybeSingle(),
   ]);
   const latestContract = latestContractRaw as
-    | { id: string; status: "draft" | "ready_to_sign" | "signed" | "archived"; contract_kind: string; signed_at: string | null }
+    | { id: string; status: "draft" | "ready_to_sign" | "signed" | "archived"; contract_kind: string; signed_at: string | null; signed_pdf_url: string | null; docuseal_status: "pending" | "sent" | "opened" | "completed" | "declined" | null; docuseal_submission_id: number | null }
     | null;
   const latestDimona = latestDimonaRaw as
     | { id: string; status: "pending" | "declared_onss" | "confirmed" | "completed" | "rejected" }
@@ -211,6 +211,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             workTimeKind={(emp as { work_time_kind: string | null }).work_time_kind}
             weeklyHours={(emp as { weekly_hours: number | null }).weekly_hours}
             employeeRecord={emp as Record<string, unknown>}
+            latestContract={latestContract ? { id: latestContract.id, docusealStatus: latestContract.docuseal_status, signedAt: latestContract.signed_at, signedPdfUrl: latestContract.signed_pdf_url } : null}
           />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>

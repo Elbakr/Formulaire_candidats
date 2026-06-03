@@ -104,6 +104,8 @@ type Args = {
   // Karim 2026-05-30 : body mail personnalise (sinon defaut MAIL_MESSAGES)
   // Variables remplacees : {first_name}, {employer_name}, {signing_url}
   customMailBody?: string;
+  // Karim 2026-06-03 : bypass admin warnings screening, raison loggee
+  bypassScreening?: { reason: string };
 };
 
 export async function sendContractViaDocusealAction(

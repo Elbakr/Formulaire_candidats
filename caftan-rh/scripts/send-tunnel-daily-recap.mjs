@@ -34,12 +34,18 @@ if (!newUrl) {
   process.exit(1);
 }
 
+// Karim 2026-06-03 : ajout destinataire Kamal en NL avec deep link.
+// Karim recoit la version FR sur elbazikarim@gmail.com,
+// Kamal recoit une version NL sur kamal@elbazi.com avec ${newUrl}/lang/nl?to=/me.
 const TO = "elbazikarim@gmail.com";
+const TO_NL = "kamal@elbazi.com";
 const today = new Date();
 const dateFR = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
 const subject = `CaftanRH — Nouveau tunnel matinal ${dateFR}`;
+const subjectNL = `CaftanRH — Nieuwe tunnel ${dateFR}`;
 
 const oldLine = oldUrl ? `Ancien (mort) : ${oldUrl}\n` : "";
+const oldLineNL = oldUrl ? `Oude (dood) : ${oldUrl}\n` : "";
 
 const body = `Bonjour Karim,
 
@@ -80,23 +86,75 @@ Bonne journée,
 — CaftanRH (envoi auto par tunnel-keeper.ps1)
 `;
 
-const params = {
-  to_email: TO, email: TO, user_email: TO, candidate_email: TO,
-  to: TO, to_name: "Karim Elbazi", name: "Karim Elbazi", candidate_name: "Karim Elbazi",
-  from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-  subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-  body, content: body, html: body.replace(/\n/g, "<br>"),
-};
+const bodyNL = `Hallo Kamal,
 
-console.log("Envoi du recap matinal vers", TO, "...");
-const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-  body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
-});
-console.log("Status:", res.status);
-if (!res.ok) {
-  console.error("EmailJS err:", await res.text());
-  process.exit(1);
+═══════════════════════════════════════════════════
+NIEUWE TUNNEL VAN DE DAG — ${dateFR}
+═══════════════════════════════════════════════════
+
+Actieve URL nu :
+👉 ${newUrl}
+
+Direct in NL inloggen (cookie lang=nl):
+👉 ${newUrl}/lang/nl?to=/me
+
+${oldLineNL}
+Alle links in mails verzonden vandaag wijzen automatisch
+naar deze nieuwe tunnel.
+
+═══════════════════════════════════════════════════
+DIRECTE LINKS — bookmark op iPhone
+═══════════════════════════════════════════════════
+
+🔗 Login              : ${newUrl}/login
+📱 Mobile dashboard   : ${newUrl}/m
+📅 Week planning      : ${newUrl}/planning/calendar
+👥 Werknemers         : ${newUrl}/planning/employees
+💰 Loonfiches         : ${newUrl}/admin/payslips
+📨 Uitgaande mails    : ${newUrl}/rh/mails
+✍️  Beeindigingen     : ${newUrl}/rh/terminations
+❓ FAQ / Hulp          : ${newUrl}/faq
+
+═══════════════════════════════════════════════════
+STABIELE BOOKMARK (altijd up-to-date)
+═══════════════════════════════════════════════════
+
+Eén link om te bookmarken die nooit verandert :
+👉 https://raw.githubusercontent.com/Elbakr/Formulaire_candidats/caftan-rh-v2-prod/caftan-rh/TUNNEL_URL.txt
+
+Fijne dag,
+— CaftanRH (automatisch dagelijks via tunnel-keeper.ps1)
+`;
+
+async function sendMail(to, name, subj, content) {
+  const params = {
+    to_email: to, email: to, user_email: to, candidate_email: to,
+    to, to_name: name, name, candidate_name: name,
+    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+    subject: subj, message: content, html_message: content.replace(/\n/g, "<br>"),
+    body: content, content, html: content.replace(/\n/g, "<br>"),
+  };
+  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+  });
+  return res;
 }
-console.log("✓ Mail recap envoyé");
+
+console.log("Envoi du recap matinal vers", TO, "(FR)...");
+const res = await sendMail(TO, "Karim Elbazi", subject, body);
+console.log("FR Karim Status:", res.status);
+if (!res.ok) {
+  console.error("EmailJS err FR:", await res.text());
+}
+
+console.log("Envoi du recap matinal vers", TO_NL, "(NL)...");
+const resNL = await sendMail(TO_NL, "Kamal Elbazi", subjectNL, bodyNL);
+console.log("NL Kamal Status:", resNL.status);
+if (!resNL.ok) {
+  console.error("EmailJS err NL:", await resNL.text());
+}
+
+if (!res.ok && !resNL.ok) process.exit(1);
+console.log("✓ Mails recap envoyés");

@@ -6,7 +6,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileSignature, AlertTriangle, Mail, CheckCircle2, Eye } from "lucide-react";
+import { FileSignature, AlertTriangle, Mail, CheckCircle2, Eye, Clock, Download } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,13 @@ type Props = {
   weeklyHours: number | null;
   // Karim 2026-05-30 : full employee record pour calculer champs manquants
   employeeRecord: Record<string, unknown>;
+  // Karim 2026-06-03 : etat dernier contrat envoye -> 3 etats UI
+  latestContract: {
+    id: string;
+    docusealStatus: "pending" | "sent" | "opened" | "completed" | "declined" | null;
+    signedAt: string | null;
+    signedPdfUrl: string | null;
+  } | null;
 };
 
 type TemplateCode = "employee" | "employee_pt" | "student";
@@ -89,6 +96,7 @@ export function SignContractButton({
   workTimeKind,
   weeklyHours,
   employeeRecord,
+  latestContract,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -138,9 +146,37 @@ export function SignContractButton({
     });
   }
 
+  // Karim 2026-06-03 : etats UI dependants de docuseal_status / signed_at
+  // - completed (toutes parties signe) -> "Voir contrat signé" (link PDF)
+  // - sent/opened/pending (envoye mais pas finalise) -> "Attente de signature"
+  // - declined / null / no contract -> bouton classique "Envoyer a signer"
+  const ds = latestContract?.docusealStatus ?? null;
+  const isFullySigned = !!latestContract?.signedAt || ds === "completed";
+  const isAwaitingSignature = !isFullySigned && (ds === "sent" || ds === "opened" || ds === "pending");
+
   return (
     <>
-      {isReady ? (
+      {isFullySigned ? (
+        <a
+          href={latestContract?.signedPdfUrl ?? `/planning/employees/${employeeId}/contract`}
+          target={latestContract?.signedPdfUrl ? "_blank" : undefined}
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold"
+          title={latestContract?.signedAt ? `Signé le ${new Date(latestContract.signedAt).toLocaleDateString("fr-BE")}` : "Contrat signé"}
+        >
+          <Download className="h-3.5 w-3.5" /> Voir contrat signé
+        </a>
+      ) : isAwaitingSignature ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen(true)}
+          title={`Contrat envoyé — en attente signature employé. Clique pour renvoyer / changer.`}
+          className="border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100 animate-pulse"
+        >
+          <Clock className="h-3.5 w-3.5" /> Attente de signature
+        </Button>
+      ) : isReady ? (
         <Button
           variant="default"
           size="sm"
