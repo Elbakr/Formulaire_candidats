@@ -28,6 +28,7 @@
     { "path": "/api/cron/payslip-imap-poll", "schedule": "*/30 * * * *" },
     { "path": "/api/cron/leave-balance-recompute", "schedule": "0 4 * * 1" },
     { "path": "/api/cron/check-mail-links", "schedule": "0 */6 * * *" },
-    { "path": "/api/cron/rgpd-anonymize", "schedule": "0 3 1 * *" }
+    { "path": "/api/cron/rgpd-anonymize", "schedule": "0 3 1 * *" },
+    { "path": "/api/cron/training-expiration-alerts", "schedule": "0 8 * * *" }
   ]
 }
