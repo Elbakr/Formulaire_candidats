@@ -736,6 +736,37 @@ export async function setAdvanceAndRecomputeAction(
  * pour le select de re-affectation manuelle. Exclut juste les archived.
  * Retourne aussi le status pour affichage visuel.
  */
+/**
+ * Karim 2026-06-03 : declenche manuellement le sync IMAP fiches de paie
+ * depuis hr@caftanfactory.com (test admin sans attendre le cron).
+ */
+export async function triggerImapPayslipsSyncAction(): Promise<{
+  ok: boolean;
+  error?: string;
+  fetched?: number;
+  matched?: number;
+  processed?: number;
+  pdfs_total?: number;
+  payslips_inserted?: number;
+  payslips_matched_employee?: number;
+  payslips_orphan?: number;
+  errors?: Array<{ uid?: number; subject?: string; error: string }>;
+  details?: Array<{ uid: number; subject: string; from: string; employer: string | null; pdf_count: number; inserted: number; matched: number; orphan: number }>;
+}> {
+  await requireRole(["admin", "rh"]);
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    return { ok: false, error: "GMAIL_USER + GMAIL_APP_PASSWORD non configurés dans .env.local (compte hr@caftanfactory.com)" };
+  }
+  try {
+    const { pollPayslipsFromImap } = await import("@/lib/inbound/payslip-imap-poller");
+    const result = await pollPayslipsFromImap();
+    revalidatePath("/admin/payslips");
+    return { ok: true, ...result };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function listActiveEmployeesAction(): Promise<
   Array<{ id: string; full_name: string; iban: string | null; status: string; email: string | null; contract_type: string | null }>
 > {

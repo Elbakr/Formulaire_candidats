@@ -13,6 +13,7 @@ import { UploadDropzone } from "./upload-dropzone";
 import { BatchRow } from "./batch-row";
 import { PayslipsView } from "./payslips-view";
 import { OffboardingButton } from "./offboarding-button";
+import { ImapSyncButton } from "./imap-sync-button";
 
 export const dynamic = "force-dynamic";
 
@@ -196,9 +197,10 @@ export default async function AdminPayslipsPage(props: {
         </Card>
       </div>
 
-      {/* Karim 2026-06-02 : actions globales (upload + envoi départ) */}
+      {/* Karim 2026-06-02 : actions globales (upload + envoi départ + sync IMAP) */}
       <div className="flex flex-wrap items-center gap-2">
         <OffboardingButton />
+        <ImapSyncButton />
       </div>
 
       {/* Karim 2026-05-30 : filtres CLIENT-SIDE instantanés (statut + employeur) */}
