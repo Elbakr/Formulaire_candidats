@@ -393,35 +393,26 @@ export async function sendPayslipToEmployeeAction(
         .from("payslips")
         .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
       if (!up.error) {
-        const signedWm = await admin.storage.from("payslips").createSignedUrl(wmPath, 7 * 24 * 3600);
+        const signedWm = await admin.storage.from("payslips").createSignedUrl(wmPath, 30 * 24 * 3600);
         if (signedWm.data?.signedUrl) signedUrl = signedWm.data.signedUrl;
       }
     }
   } catch (e) {
     console.warn("[sendPayslipToEmployeeAction] watermark fallback:", (e as Error).message);
   }
+  // Karim 2026-06-03 : signed URL Supabase 30 jours, INDEPENDANT du tunnel.
+  // (Avant : on enrobait dans /api/docs/view/<token> mais ce lien dependait
+  // du tunnel qui rotate quotidien → liens cassés pour les destinataires.)
+  // Trade-off : on perd le tracking de view individuelle (logDocAudit
+  // share_email reste log au moment de l envoi pour audit basique).
   if (!signedUrl) {
     const { data: signed } = await admin.storage
       .from("payslips")
-      .createSignedUrl(payslip.pdf_storage_path, 7 * 24 * 3600);
+      .createSignedUrl(payslip.pdf_storage_path, 30 * 24 * 3600);
     if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer URL PDF" };
     signedUrl = signed.signedUrl;
   }
-
-  // Karim 2026-05-31 : URL trackée /api/docs/view/<token> qui logge la vue
-  // avant de rediriger vers le signed URL réel.
-  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
-  const baseUrl = getPublicBaseUrl();
-  const { buildDocViewUrl } = await import("@/lib/doc-view-token");
-  const trackedUrl = buildDocViewUrl({
-    baseUrl,
-    docType: "payslip",
-    docRef: payslipId,
-    employeeId: payslip.employee_id,
-    signedUrl,
-    expiresInSeconds: 7 * 24 * 3600,
-  });
-  const signed = { signedUrl: trackedUrl };
+  const signed = { signedUrl };
 
   // Envoi via EmailJS
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
