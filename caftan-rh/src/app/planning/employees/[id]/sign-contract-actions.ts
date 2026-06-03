@@ -169,14 +169,31 @@ export async function sendContractViaDocusealAction(
       .order("started_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!scr || !scr.completed_at) {
-      return { error: "⛔ Le candidat doit d abord compléter le questionnaire de profilage (/me/screening). Envoie-lui le lien." };
-    }
-    if (scr.recommendation === "PASS") {
-      return { error: "⛔ Le système recommande de ne PAS embaucher ce candidat (recommandation PASS). Vérifie le screening dans /rh/screening." };
-    }
-    if (!scr.rh_decision_at) {
-      return { error: "⛔ Le screening est complet mais doit être VALIDÉ par RH avant l envoi du contrat. Voir /rh/screening." };
+
+    // Karim 2026-06-03 : si bypass fourni avec raison, on saute les checks
+    // mais on logge l'override pour audit
+    if (args.bypassScreening?.reason) {
+      try {
+        const { createAdminClient } = await import("@/lib/supabase/server");
+        const adminCli = createAdminClient();
+        await adminCli.from("activity_log").insert({
+          profile_id: profile.id,
+          action: "contract_screening_bypassed",
+          target_type: "employee",
+          target_id: args.employeeId,
+          body: `Bypass admin checks screening pour envoi contrat. Raison : ${args.bypassScreening.reason}. État screening : ${scr?.completed_at ? "complet" : "incomplet"}, recommandation=${scr?.recommendation ?? "n/a"}, validé_RH=${scr?.rh_decision_at ? "oui" : "non"}.`,
+        });
+      } catch {/* non bloquant */}
+    } else {
+      if (!scr || !scr.completed_at) {
+        return { error: "⛔ Le candidat doit d abord compléter le questionnaire de profilage (/me/screening). Envoie-lui le lien — ou utilise le bypass admin avec raison." };
+      }
+      if (scr.recommendation === "PASS") {
+        return { error: "⛔ Le système recommande de ne PAS embaucher ce candidat (recommandation PASS). Vérifie le screening dans /rh/screening — ou bypass admin avec raison." };
+      }
+      if (!scr.rh_decision_at) {
+        return { error: "⛔ Le screening est complet mais doit être VALIDÉ par RH avant l envoi du contrat. Voir /rh/screening — ou bypass admin avec raison." };
+      }
     }
   }
 

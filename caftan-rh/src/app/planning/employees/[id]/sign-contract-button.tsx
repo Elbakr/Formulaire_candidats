@@ -104,6 +104,10 @@ export function SignContractButton({
   const missingCandidate = missing.filter((m) => !m.adminOnly);
   const missingAdmin = missing.filter((m) => m.adminOnly);
 
+  // Karim 2026-06-03 : bypass admin warnings screening
+  const [bypassReason, setBypassReason] = useState("");
+  const [showBypass, setShowBypass] = useState(false);
+
   function handleSubmit() {
     if (!employeeEmail) {
       toast.error("Email de l'employé manquant - complète la fiche d'abord.");
@@ -116,8 +120,13 @@ export function SignContractButton({
         orgKey,
         employerEmail,
         customMailBody: mailBody !== DEFAULT_MAIL_BODY ? mailBody : undefined,
+        bypassScreening: bypassReason.trim() ? { reason: bypassReason.trim() } : undefined,
       });
       if (res.error) {
+        // Si erreur screening, propose le bypass
+        if (res.error.includes("screening") || res.error.includes("questionnaire") || res.error.includes("VALIDÉ par RH") || res.error.includes("PASS")) {
+          setShowBypass(true);
+        }
         toast.error(res.error);
         return;
       }
@@ -279,11 +288,36 @@ export function SignContractButton({
               <div><span className="font-bold">Email :</span> {employeeEmail || <span className="text-rose-600">manquant</span>}</div>
               <div className="text-blue-700 italic">📧 2 envois : 1 mail signature au candidat + 1 copie archive à {employerEmail}.</div>
             </div>
+            {/* Karim 2026-06-03 : bypass admin warnings screening */}
+            <div className="border-t border-amber-200 bg-amber-50/40 pt-3 mt-3 -mx-3 px-3 -mb-3 pb-3 rounded-b text-[11px]">
+              <button
+                type="button"
+                onClick={() => setShowBypass(!showBypass)}
+                className="text-amber-900 font-semibold underline"
+              >
+                {showBypass ? "▼" : "▶"} Bypass screening admin (avancé)
+              </button>
+              {showBypass && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-amber-800">
+                    ⚠ Outrepasse les checks (screening incomplet, recommandation PASS, ou non validé RH).
+                    Raison obligatoire et loggée dans activity_log pour audit.
+                  </div>
+                  <input
+                    type="text"
+                    value={bypassReason}
+                    onChange={(e) => setBypassReason(e.target.value)}
+                    placeholder="Ex: Test admin / Candidat connu / Décision spéciale RH"
+                    className="w-full border border-amber-300 rounded px-2 py-1 text-xs bg-white"
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} disabled={pending}>Annuler</Button>
             <Button type="button" size="sm" onClick={handleSubmit} disabled={pending || !employeeEmail}>
-              {pending ? "Envoi…" : "Envoyer à signer"}
+              {pending ? "Envoi…" : (bypassReason.trim() ? "Envoyer à signer (BYPASS)" : "Envoyer à signer")}
             </Button>
           </DialogFooter>
         </DialogContent>
