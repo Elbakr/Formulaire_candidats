@@ -31,6 +31,7 @@
     { "path": "/api/cron/rgpd-anonymize", "schedule": "0 3 1 * *" },
     { "path": "/api/cron/training-expiration-alerts", "schedule": "0 8 * * *" },
     { "path": "/api/cron/monthly-admin-report", "schedule": "0 7 1 * *" },
-    { "path": "/api/cron/leave-balance-new-year", "schedule": "5 0 1 1 *" }
+    { "path": "/api/cron/leave-balance-new-year", "schedule": "5 0 1 1 *" },
+    { "path": "/api/cron/gf-sync-health", "schedule": "0 * * * *" }
   ]
 }
