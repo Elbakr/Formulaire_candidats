@@ -236,8 +236,13 @@ export async function syncGravityForms(
 
   // Find existing gf_entry_ids to dedupe
   const ids = mapped.map((m) => m.gf_entry_id);
-  const { data: existingRows, error: selErr } = await supabase
-    .from("candidates")
+  const { data: existingRows, error: selErr } = await (
+    supabase.from("candidates") as unknown as {
+      select: (sel: string) => {
+        in: (col: string, vals: string[]) => Promise<{ data: { gf_entry_id: string }[] | null; error: { message: string } | null }>;
+      };
+    }
+  )
     .select("gf_entry_id")
     .in("gf_entry_id", ids);
   if (selErr) {
@@ -250,17 +255,112 @@ export async function syncGravityForms(
 
   if (toCreate.length === 0) return stats;
 
-  // Insert candidates en batch. Le constraint UNIQUE sur gf_entry_id est un
-  // INDEX PARTIEL (WHERE gf_entry_id IS NOT NULL) -- Supabase upsert avec
-  // onConflict ne sait pas matcher ce type d index. Donc on tente l insert
-  // direct ; si conflit (race condition possible : un cron tourne entre
-  // notre SELECT dedup et notre INSERT), on retombe en mode per-row pour
-  // ne pas perdre toute la batch.
-  // Karim 18/05 : applied_at, motivation, cv_url etaient oublies dans cette
-  // lib (utilisee par /api/cron/gf-sync) -> les candidats syncs via cron
-  // avaient applied_at = now() au lieu de la vraie date GF date_created.
-  // Diag : Yasmine Tourat soumise 17/05 13:40 mais applied_at = 17/05 17:20.
-  const candidateRows = toCreate.map((m) => ({
+  // Karim 2026-06-04 : detection re-candidatures par EMAIL avant insert.
+  // La contrainte uniq_candidates_gf_email bloquait les re-soumissions
+  // (398 candidats valides perdus silencieusement). Approche definitive :
+  // si email existe deja -> UPDATE candidate avec donnees nouvelles + ajoute
+  // une application "new" pour tracer la re-candidature.
+  const emails = Array.from(new Set(toCreate.map((m) => m.email)));
+  const { data: emailExistingRaw } = await (
+    supabase.from("candidates") as unknown as {
+      select: (sel: string) => {
+        in: (col: string, vals: string[]) => Promise<{ data: { id: string; email: string }[] | null; error: { message: string } | null }>;
+      };
+    }
+  )
+    .select("id, email")
+    .in("email", emails);
+  const emailToCandidateId = new Map<string, string>();
+  for (const r of (emailExistingRaw ?? [])) emailToCandidateId.set(r.email.toLowerCase(), r.id);
+
+  // Separe en : (a) re-candidatures (email existe) - on update + add application
+  //           (b) nouveaux candidats - on insere
+  const toUpdate: Array<{ candidateId: string; mapped: MappedCandidate }> = [];
+  const toInsert: MappedCandidate[] = [];
+  for (const m of toCreate) {
+    const existingId = emailToCandidateId.get(m.email);
+    if (existingId) toUpdate.push({ candidateId: existingId, mapped: m });
+    else toInsert.push(m);
+  }
+  // Karim 2026-06-04 : dedupe in-batch par email pour les nouveaux candidats
+  // (si 2 GF entries du meme nouveau candidat dans le meme batch -> on
+  // insert le 1er, le 2eme passe en update via emailToCandidateId apres insert)
+  const seenInsertEmails = new Set<string>();
+  const dedupedInsert: MappedCandidate[] = [];
+  const overflowToUpdate: MappedCandidate[] = [];
+  for (const m of toInsert) {
+    if (seenInsertEmails.has(m.email)) {
+      overflowToUpdate.push(m);
+    } else {
+      seenInsertEmails.add(m.email);
+      dedupedInsert.push(m);
+    }
+  }
+  if (overflowToUpdate.length > 0) {
+    stats.errors.push(`${overflowToUpdate.length} re-candidature(s) in-batch (meme email plusieurs fois) — traitees en update apres insert`);
+  }
+
+  // Update re-candidatures (path A)
+  for (const { candidateId, mapped: m } of toUpdate) {
+    type UpdateClient = {
+      update: (vals: Record<string, unknown>) => {
+        eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
+      };
+    };
+    const { error: upErr } = await (supabase.from("candidates") as unknown as UpdateClient)
+      // Karim 2026-06-04 : NE PAS update source - violerait uniq_candidates_gf_email
+      // si existing source=manual et autre row gravity_forms du meme email.
+      .update({
+        gf_entry_id: m.gf_entry_id,
+        applied_at: m.applied_at,
+        cv_url: m.cv_url,
+        phone: m.phone,
+        birth_date: m.birth_date,
+        city: m.city,
+        postal_code: m.postal_code,
+        raw_payload: m.raw_payload,
+        gf_full_payload: m.gf_full_payload,
+      })
+      .eq("id", candidateId);
+    if (upErr) {
+      stats.errors.push(`Update re-candidature ${m.gf_entry_id} (${m.email}): ${upErr.message}`);
+      continue;
+    }
+    // Ajoute une application "new" pour tracer la re-candidature
+    try {
+      await (supabase.from("applications") as unknown as {
+        insert: (rows: unknown[]) => Promise<{ error: { message: string } | null }>;
+      }).insert([{ candidate_id: candidateId, job_id: null, status: "new", motivation: m.motivation }]);
+    } catch {/* non bloquant */}
+    stats.created += 1;
+  }
+
+  // Karim 2026-06-04 : INSERT seulement les vrais nouveaux candidats (email
+  // pas encore en BD). Les re-candidatures sont traitees ci-dessus en UPDATE.
+  if (dedupedInsert.length === 0) {
+    // Tous etaient des re-candidatures : on a deja update + ajoute applications.
+    // Traite les overflow (re-soumissions intra-batch du meme nouveau candidat)
+    // une fois qu'on a inserte le 1er.
+    for (const m of overflowToUpdate) {
+      const cidNow = emailToCandidateId.get(m.email);
+      if (!cidNow) continue;
+      type UpdateClient = {
+        update: (vals: Record<string, unknown>) => {
+          eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
+        };
+      };
+      await (supabase.from("candidates") as unknown as UpdateClient)
+        .update({
+          gf_entry_id: m.gf_entry_id,
+          applied_at: m.applied_at,
+          raw_payload: m.raw_payload,
+          gf_full_payload: m.gf_full_payload,
+        })
+        .eq("id", cidNow);
+    }
+    return stats;
+  }
+  const candidateRows = dedupedInsert.map((m) => ({
     email: m.email,
     full_name: m.full_name,
     phone: m.phone,
@@ -307,11 +407,11 @@ export async function syncGravityForms(
   } else {
     createdCands = (createdCandsRaw ?? []) as { id: string; gf_entry_id: string }[];
   }
-  stats.created = createdCands.length;
+  stats.created += createdCands.length;
 
   // Insert applications + (optional) motivation
   const appRows = createdCands.map((c) => {
-    const m = toCreate.find((x) => x.gf_entry_id === c.gf_entry_id);
+    const m = dedupedInsert.find((x) => x.gf_entry_id === c.gf_entry_id);
     return {
       candidate_id: c.id,
       job_id: null,
@@ -323,6 +423,21 @@ export async function syncGravityForms(
     insert: (rows: unknown[]) => Promise<{ error: { message: string } | null }>;
   }).insert(appRows);
   if (appErr) stats.errors.push(`Insert applications: ${appErr.message}`);
+
+  // Karim 2026-06-04 : traite les overflow (re-soumissions intra-batch
+  // du meme nouveau candidat) maintenant qu'on connait son id.
+  for (const m of overflowToUpdate) {
+    const c = createdCands.find((x) => x.gf_entry_id === m.gf_entry_id) ??
+      // Sinon retrouve via email (le 1er row du meme email vient d etre insere)
+      createdCands.find((x) => dedupedInsert.find((d) => d.gf_entry_id === x.gf_entry_id)?.email === m.email);
+    if (!c) continue;
+    try {
+      await (supabase.from("applications") as unknown as {
+        insert: (rows: unknown[]) => Promise<{ error: { message: string } | null }>;
+      }).insert([{ candidate_id: c.id, job_id: null, status: "new", motivation: m.motivation }]);
+      stats.created += 1;
+    } catch {/* */}
+  }
 
   return stats;
 }

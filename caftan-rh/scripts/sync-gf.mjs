@@ -176,7 +176,67 @@ async function main() {
 
   if (toCreate.length === 0) { console.log("Rien de nouveau."); return; }
 
-  const candRows = toCreate.map((m) => ({
+  // Karim 2026-06-04 : detection re-candidatures par EMAIL (uniq_candidates_gf_email).
+  // Sans ca, 398/411 candidats etaient perdus silencieusement quand un candidat
+  // refaisait sa candidature. Maintenant : email existe -> UPDATE + add application.
+  const emails = [...new Set(toCreate.map((m) => m.email))];
+  const emailToId = new Map();
+  for (let i = 0; i < emails.length; i += 500) {
+    const batch = emails.slice(i, i + 500);
+    const { data: rows } = await supabase.from("candidates").select("id, email").in("email", batch);
+    for (const r of (rows ?? [])) emailToId.set(r.email.toLowerCase(), r.id);
+  }
+  const toUpdate = [];
+  const newCandidates = [];
+  for (const m of toCreate) {
+    const id = emailToId.get(m.email);
+    if (id) toUpdate.push({ id, m });
+    else newCandidates.push(m);
+  }
+  console.log(`  -> ${toUpdate.length} re-candidatures (email existe), ${newCandidates.length} vrais nouveaux.`);
+
+  let reAppCount = 0;
+  for (const { id, m } of toUpdate) {
+    // Karim 2026-06-04 : NE PAS update source ici - si l'existing row a
+    // source=manual et qu'un row gravity_forms existe deja pour le meme email,
+    // forcer source=gravity_forms viole uniq_candidates_gf_email (partial).
+    const { error: upErr } = await supabase.from("candidates").update({
+      gf_entry_id: m.gf_entry_id,
+      applied_at: m.raw_payload?.date_created ?? null,
+      cv_url: m.cv_url ?? null,
+      phone: m.phone,
+      birth_date: m.birth_date,
+      city: m.city,
+      postal_code: m.postal_code ?? null,
+      raw_payload: m.raw_payload,
+      gf_full_payload: m.gf_full_payload ?? null,
+    }).eq("id", id);
+    if (upErr) { console.warn(`  ⚠ update ${m.gf_entry_id}: ${upErr.message}`); continue; }
+    await supabase.from("applications").insert({ candidate_id: id, job_id: null, status: "new", motivation: m.motivation });
+    reAppCount += 1;
+  }
+  console.log(`  ✓ ${reAppCount} re-candidatures traitees (UPDATE + application ajoutee).`);
+
+  if (newCandidates.length === 0) {
+    await supabase.from("gf_settings")
+      .update({ last_synced_at: new Date().toISOString(), last_sync_count: reAppCount })
+      .eq("id", 1);
+    console.log("\nDone.");
+    return;
+  }
+
+  // Dedup IN-BATCH par email pour les nouveaux candidats (eviter 2x meme email
+  // nouvelle entree dans le meme batch)
+  const seenInsertEmails = new Set();
+  const dedupedInsert = [];
+  const overflowToUpdate = [];
+  for (const m of newCandidates) {
+    if (seenInsertEmails.has(m.email)) { overflowToUpdate.push(m); continue; }
+    seenInsertEmails.add(m.email);
+    dedupedInsert.push(m);
+  }
+
+  const candRows = dedupedInsert.map((m) => ({
     email: m.email, full_name: m.full_name, phone: m.phone,
     birth_date: m.birth_date, city: m.city, source: m.source,
     postal_code: m.postal_code ?? null,
@@ -186,13 +246,13 @@ async function main() {
     gf_full_payload: m.gf_full_payload ?? null,
   }));
   let created;
-  const { data: createdBatch, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id, cv_url");
+  const { data: createdBatch, error } = await supabase.from("candidates").insert(candRows).select("id, gf_entry_id, email, cv_url");
   if (error) {
     console.warn(`  ⚠ Batch insert failed (${error.message}) -- fallback per-row`);
     created = [];
     for (const row of candRows) {
-      const { data: one, error: oneErr } = await supabase.from("candidates").insert(row).select("id, gf_entry_id, cv_url").single();
-      if (oneErr) continue; // skip duplicates silently
+      const { data: one, error: oneErr } = await supabase.from("candidates").insert(row).select("id, gf_entry_id, email, cv_url").single();
+      if (oneErr) { console.warn(`     skip ${row.gf_entry_id} (${row.email}): ${oneErr.message}`); continue; }
       created.push(one);
     }
   } else {
