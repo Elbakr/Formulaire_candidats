@@ -131,6 +131,7 @@ export function getNavSections(role: Role): NavGroup[] {
   const rhItems: NavItem[] = [
     { href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" },
     { href: "/rh/candidates", label: "Candidats", icon: "Users" },
+    { href: "/admin/candidates/duplicates", label: "Purge doublons 🧹", icon: "Users" },
     { href: "/rh/top-candidates", label: "Top candidats", icon: "Star" },
     { href: "/rh/pipeline", label: "Pipeline", icon: "KanbanSquare" },
     { href: "/rh/jobs", label: "Offres d'emploi", icon: "Briefcase" },
