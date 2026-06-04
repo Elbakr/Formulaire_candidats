@@ -38,10 +38,12 @@ export async function sendInfoRequestMailAction(
   // (lu depuis TUNNEL_URL.txt) pour que le candidat puisse cliquer à distance.
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   const tunnel = getPublicBaseUrl();
+  // Karim 2026-06-04 : redirige vers /me/contract-info (formulaire dynamique
+  // qui ne montre QUE les champs manquants, en rouge) plutot que /me/profile generique.
   const { data: link } = await sb.auth.admin.generateLink({
     type: "magiclink",
     email: emp.email,
-    options: { redirectTo: `${tunnel}/me/profile` },
+    options: { redirectTo: `${tunnel}/me/contract-info` },
   });
   const magicLink = link?.properties?.action_link;
   if (!magicLink) return { error: "Magic link KO" };
@@ -68,6 +70,7 @@ ${missingList}
 
 ═══════ TES LIENS DIRECTS (tunnel public) ═══════
 
+🔗 Formulaire dynamique (champs manquants en rouge) : ${tunnel}/me/contract-info
 🔗 Compléter mon profil : ${tunnel}/me/profile
 🔗 Mes documents       : ${tunnel}/me/documents
 🔗 Mon onboarding      : ${tunnel}/me/onboarding

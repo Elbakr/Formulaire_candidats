@@ -78,12 +78,16 @@ export function EmployeeAdminForm({
   departments,
   managers,
   sites,
+  missingKeys = [],
 }: {
   employee: Employee;
   departments: { id: string; name: string }[];
   managers: { id: string; full_name: string | null }[];
   sites: { id: string; code: string; name: string; color: string | null }[];
+  // Karim 2026-06-04 : champs requis pour contrat NON remplis - surlignes en rouge
+  missingKeys?: string[];
 }) {
+  const isMissing = (k: string) => missingKeys.includes(k);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [fixedOff, setFixedOff] = useState<number[]>(employee.fixed_off_days ?? []);
@@ -123,8 +127,8 @@ export function EmployeeAdminForm({
     >
       <Section title="👤 Identité & contrat">
         <div className="grid md:grid-cols-2 gap-3">
-          <Field label="Nom complet" name="full_name" defaultValue={employee.full_name} />
-          <Field label="Email" name="email" defaultValue={employee.email} type="email" />
+          <Field label="Nom complet" name="full_name" defaultValue={employee.full_name} isMissing={isMissing("full_name")} />
+          <Field label="Email" name="email" defaultValue={employee.email} type="email" isMissing={isMissing("email")} />
           <ValidatedField
             label="Téléphone"
             name="phone"
@@ -199,29 +203,33 @@ export function EmployeeAdminForm({
               </SelectContent>
             </Select>
           </div>
-          <Field label="Adresse" name="address" defaultValue={employee.address ?? ""} />
-          <ValidatedField
-            label="Code postal"
-            name="postal_code"
-            defaultValue={employee.postal_code ?? ""}
-            placeholder="1000-9999"
-            validator={validateBelgianPostcode}
-            hint={(v) => regionFromPostcode(v)}
-          />
-          <Field label="Ville" name="city" defaultValue={employee.city ?? ""} />
+          <Field label="Adresse" name="address" defaultValue={employee.address ?? ""} isMissing={isMissing("address")} />
+          <div className={isMissing("postal_code") ? "border-2 border-rose-400 bg-rose-50 rounded p-1.5 -m-1.5" : ""}>
+            <ValidatedField
+              label={isMissing("postal_code") ? "● Code postal (Requis contrat)" : "Code postal"}
+              name="postal_code"
+              defaultValue={employee.postal_code ?? ""}
+              placeholder="1000-9999"
+              validator={validateBelgianPostcode}
+              hint={(v) => regionFromPostcode(v)}
+            />
+          </div>
+          <Field label="Ville" name="city" defaultValue={employee.city ?? ""} isMissing={isMissing("city")} />
         </div>
       </Section>
 
       <Section title="💳 Banque & transport">
         <div className="grid md:grid-cols-3 gap-3">
-          <ValidatedField
-            label="IBAN"
-            name="iban"
-            defaultValue={employee.iban ?? ""}
-            placeholder="BE68 5390 0754 7034"
-            validator={validateBelgianIBAN}
-            formatter={formatIBAN}
-          />
+          <div className={isMissing("iban") ? "border-2 border-rose-400 bg-rose-50 rounded p-1.5 -m-1.5" : ""}>
+            <ValidatedField
+              label={isMissing("iban") ? "● IBAN (Requis contrat)" : "IBAN"}
+              name="iban"
+              defaultValue={employee.iban ?? ""}
+              placeholder="BE68 5390 0754 7034"
+              validator={validateBelgianIBAN}
+              formatter={formatIBAN}
+            />
+          </div>
           <Field label="BIC" name="bic" defaultValue={employee.bic ?? ""} />
           <Field label="Titulaire compte" name="bank_holder" defaultValue={employee.bank_holder ?? ""} />
           <div>
@@ -404,11 +412,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Field({
-  label, name, defaultValue = "", type = "text", placeholder, step,
-}: { label: string; name: string; defaultValue?: string; type?: string; placeholder?: string; step?: string }) {
+  label, name, defaultValue = "", type = "text", placeholder, step, isMissing,
+}: { label: string; name: string; defaultValue?: string; type?: string; placeholder?: string; step?: string; isMissing?: boolean }) {
   return (
-    <div>
-      <Label htmlFor={name}>{label}</Label>
+    <div className={isMissing ? "border-2 border-rose-400 bg-rose-50 rounded p-1.5 -m-1.5" : ""}>
+      <Label htmlFor={name} className={isMissing ? "text-rose-900 font-semibold flex items-center gap-1" : ""}>
+        {isMissing && <span className="text-rose-600">●</span>}
+        {label}
+        {isMissing && <span className="text-[10px] text-rose-600 ml-auto">Requis pour contrat</span>}
+      </Label>
       <Input
         id={name}
         name={name}
@@ -416,6 +428,7 @@ function Field({
         type={type}
         placeholder={placeholder}
         step={step}
+        className={isMissing ? "bg-white border-rose-300" : ""}
       />
     </div>
   );

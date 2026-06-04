@@ -19,6 +19,7 @@ import { EmployeeSiteNav } from "./employee-site-nav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmployeeAdminForm } from "./form";
+import { getMissingFields } from "@/lib/contract-readiness";
 import { SiteAssignmentsSection } from "./site-assignments";
 import { DangerZone } from "./danger-zone";
 import { EmployeeQuotaCard } from "./quota-card";
@@ -307,6 +308,11 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             departments={depts ?? []}
             managers={managers ?? []}
             sites={sites}
+            // Karim 2026-06-04 : surlignage rouge champs requis contrat manquants
+            missingKeys={getMissingFields(
+              emp as Record<string, unknown>,
+              (emp as { contract_type: string | null }).contract_type,
+            ).map((m) => m.key)}
           />
         </div>
       </Card>
