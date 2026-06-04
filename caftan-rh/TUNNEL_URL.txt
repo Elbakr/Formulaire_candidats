@@ -1,5 +1,5 @@
-﻿https://caftanrh.loca.lt
+﻿https://released-compute-shepherd-ranger.trycloudflare.com
 
-Tunnel localtunnel actif depuis 2026-06-04 11:12.
-Subdomain stable : caftanrh.loca.lt -- ne change pas d'un restart a l'autre.
-Mis a jour automatiquement par scripts/localtunnel-keeper.ps1.
+Tunnel actif depuis 2026-06-04 11:12.
+Mis a jour automatiquement par scripts/tunnel-keeper.ps1.
+Bookmark cette page, l URL ici est toujours la bonne.
