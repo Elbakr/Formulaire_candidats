@@ -7,6 +7,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { verifyDocusealWebhook } from "@/lib/docuseal-client";
+import { getPublicBaseUrl } from "@/lib/public-base-url";
 
 export const dynamic = "force-dynamic";
 
@@ -423,7 +424,7 @@ L'équipe Caftan Factory (By AMD Megastore)`;
               `• Ouvrir le portail ONSS Dimona (déclaration manuelle)\n` +
               `• Auto-Dimona (étape 2 — en développement)\n` +
               `• Marquer Dimona traitée une fois fait\n\n` +
-              `Lien direct : https://caftan-rh-v2-prod.vercel.app/planning/employees/${employeeId}\n\n` +
+              `Lien direct : ${getPublicBaseUrl()}/planning/employees/${employeeId}\n\n` +
               `L'équipe CaftanRH`;
             for (const to of recipients) {
               const params = {

@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { getPublicBaseUrl } from "@/lib/public-base-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -88,10 +89,10 @@ ${(pendingDimona ?? 0) > 0 ? `→ Déclarer les ${pendingDimona} Dimona IN sur h
 ═══════════════════════════════════════════════════
 
 Liens utiles :
-• Stats détaillées : https://caftan-rh-v2-prod.vercel.app/rh/stats
-• Dashboard mobile : https://caftan-rh-v2-prod.vercel.app/m
-• Notes de frais   : https://caftan-rh-v2-prod.vercel.app/rh/expenses
-• Dimona dashboard : https://caftan-rh-v2-prod.vercel.app/rh/dimona
+• Stats détaillées : ${getPublicBaseUrl()}/rh/stats
+• Dashboard mobile : ${getPublicBaseUrl()}/m
+• Notes de frais   : ${getPublicBaseUrl()}/rh/expenses
+• Dimona dashboard : ${getPublicBaseUrl()}/rh/dimona
 
 — CaftanRH (rapport auto mensuel)
 `;

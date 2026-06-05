@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { getPublicBaseUrl } from "@/lib/public-base-url";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,7 @@ export async function GET(req: NextRequest) {
     const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
     const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
     if (SERVICE && TEMPLATE && KEY) {
+      const base = getPublicBaseUrl();
       const body = `Sync GF en panne — diag automatique :
 
 ${issues.map((i, n) => `${n + 1}. ${i}`).join("\n")}
@@ -122,7 +124,7 @@ BD candidates(gravity_forms) : ${bdCount ?? "?"}
 Dernier sync OK : ${s.last_synced_at ?? "jamais"}
 
 Aller voir :
-- Status sync : https://caftan-rh-v2-prod.vercel.app/admin/integrations/gravity-forms
+- Status sync : ${base}/admin/integrations/gravity-forms
 - Trigger manuel : node scripts/sync-gf.mjs
 - Diag : node scripts/diag-gf-sync.mjs
 
