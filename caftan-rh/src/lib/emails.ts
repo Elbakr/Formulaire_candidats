@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { BRAND } from "@/lib/config";
+import { logOutboundMail } from "@/lib/outbound-mails-log";
 
 function getClient() {
   const key = process.env.RESEND_API_KEY;
@@ -9,12 +10,47 @@ function getClient() {
 
 const FROM = process.env.RESEND_FROM_EMAIL ?? "CaftanRH <onboarding@resend.dev>";
 
-type SendArgs = { to: string; subject: string; html: string; replyTo?: string };
+// Karim 2026-06-07 : source/refs optionnels pour le journal outbound_mails.
+// Default source = "resend-direct" si le caller ne precise pas.
+type SendArgs = {
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+  source?: string;
+  sourceRef?: string;
+  recipientName?: string;
+  candidateId?: string;
+  employeeId?: string;
+};
 
-export async function sendEmail({ to, subject, html, replyTo }: SendArgs) {
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  replyTo,
+  source = "resend-direct",
+  sourceRef,
+  recipientName,
+  candidateId,
+  employeeId,
+}: SendArgs) {
   const resend = getClient();
   if (!resend) {
     console.warn("[emails] RESEND_API_KEY missing — email not sent:", subject);
+    await logOutboundMail({
+      to,
+      recipientName,
+      subject,
+      bodyHtml: html,
+      source,
+      sourceRef,
+      deliveryProvider: "none",
+      status: "failed",
+      errorMessage: "RESEND_API_KEY missing",
+      candidateId,
+      employeeId,
+    });
     return { skipped: true };
   }
   const { error } = await resend.emails.send({
@@ -26,8 +62,33 @@ export async function sendEmail({ to, subject, html, replyTo }: SendArgs) {
   });
   if (error) {
     console.error("[emails] send error:", error.message);
+    await logOutboundMail({
+      to,
+      recipientName,
+      subject,
+      bodyHtml: html,
+      source,
+      sourceRef,
+      deliveryProvider: "resend",
+      status: "failed",
+      errorMessage: error.message,
+      candidateId,
+      employeeId,
+    });
     return { error: error.message };
   }
+  await logOutboundMail({
+    to,
+    recipientName,
+    subject,
+    bodyHtml: html,
+    source,
+    sourceRef,
+    deliveryProvider: "resend",
+    status: "sent",
+    candidateId,
+    employeeId,
+  });
   return { ok: true };
 }
 
@@ -49,9 +110,13 @@ function shell(title: string, content: string) {
 </body></html>`;
 }
 
-export function sendApplicationAcknowledgement(args: { to: string; fullName: string }) {
+export function sendApplicationAcknowledgement(args: { to: string; fullName: string; candidateId?: string }) {
   return sendEmail({
     to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    source: "application-ack",
+    sourceRef: args.candidateId,
     subject: `${BRAND.name} — Candidature bien reçue`,
     html: shell(
       `Merci ${args.fullName} 👋`,
@@ -62,9 +127,13 @@ export function sendApplicationAcknowledgement(args: { to: string; fullName: str
   });
 }
 
-export function sendInterviewInvite(args: { to: string; fullName: string; whenLocal: string; location: string }) {
+export function sendInterviewInvite(args: { to: string; fullName: string; whenLocal: string; location: string; candidateId?: string }) {
   return sendEmail({
     to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    source: "interview-invite",
+    sourceRef: args.candidateId,
     subject: `${BRAND.name} — Convocation à un entretien`,
     html: shell(
       "Tu es convoqué·e à un entretien",
@@ -77,9 +146,13 @@ export function sendInterviewInvite(args: { to: string; fullName: string; whenLo
   });
 }
 
-export function sendRejection(args: { to: string; fullName: string }) {
+export function sendRejection(args: { to: string; fullName: string; candidateId?: string }) {
   return sendEmail({
     to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    source: "rejection",
+    sourceRef: args.candidateId,
     subject: `${BRAND.name} — Suite donnée à ta candidature`,
     html: shell(
       "Suite donnée à ta candidature",
@@ -90,9 +163,14 @@ export function sendRejection(args: { to: string; fullName: string }) {
   });
 }
 
-export function sendOffer(args: { to: string; fullName: string; jobTitle: string }) {
+export function sendOffer(args: { to: string; fullName: string; jobTitle: string; candidateId?: string; employeeId?: string }) {
   return sendEmail({
     to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    employeeId: args.employeeId,
+    source: "offer",
+    sourceRef: args.employeeId ?? args.candidateId,
     subject: `${BRAND.name} — Bienvenue dans l'équipe !`,
     html: shell(
       "Bienvenue 🎉",

@@ -1,8 +1,19 @@
 // Karim 2026-06-02 : helper SERVER-ONLY pour envoyer un mail AVEC pieces
 // jointes PDF natives. Utilise Resend en priorite (supporte attachments
-// base64), fallback EmailJS avec liens si Resend pas configure.
+// base64), fallback SMTP Gmail (Nodemailer), puis EmailJS avec liens si
+// rien d'autre n'est configure.
+//
+// Karim 2026-06-07 : journalise chaque envoi (succes ou echec) dans la
+// table outbound_mails via logOutboundMail (best-effort, ne fait jamais
+// echouer l'envoi). Source par defaut = "mail-attachments-generic" si le
+// caller ne precise pas.
 
 import "server-only";
+import {
+  logOutboundMail,
+  type OutboundMailAttachmentMeta,
+  type OutboundMailProvider,
+} from "@/lib/outbound-mails-log";
 
 export interface MailAttachment {
   filename: string;
@@ -24,6 +35,11 @@ export interface SendMailOptions {
   // archivage boite commune. Resend/SMTP supportent bcc, EmailJS non
   // (on fait un 2e envoi explicite).
   bccHr?: boolean;
+  // Karim 2026-06-07 : metadata pour le journal outbound_mails
+  source?: string;
+  sourceRef?: string;
+  candidateId?: string;
+  employeeId?: string;
 }
 
 export interface SendMailResult {
@@ -33,9 +49,46 @@ export interface SendMailResult {
   messageId?: string;
 }
 
+function buildAttachmentMeta(opts: SendMailOptions): OutboundMailAttachmentMeta[] {
+  const native = (opts.attachments ?? []).map((a) => ({
+    filename: a.filename,
+    size: a.content.byteLength,
+    contentType: a.contentType ?? "application/pdf",
+  }));
+  const links = (opts.attachmentUrls ?? []).map((a) => ({
+    filename: a.name,
+    contentType: "url",
+  }));
+  return [...native, ...links];
+}
+
+async function logSend(
+  opts: SendMailOptions,
+  provider: OutboundMailProvider,
+  status: "sent" | "failed",
+  errorMessage?: string,
+  bodyHtml?: string,
+): Promise<void> {
+  await logOutboundMail({
+    to: opts.to,
+    recipientName: opts.toName,
+    subject: opts.subject,
+    bodyText: opts.body,
+    bodyHtml: bodyHtml ?? opts.htmlBody,
+    attachments: buildAttachmentMeta(opts),
+    source: opts.source ?? "mail-attachments-generic",
+    sourceRef: opts.sourceRef,
+    candidateId: opts.candidateId,
+    employeeId: opts.employeeId,
+    deliveryProvider: provider,
+    status,
+    errorMessage: errorMessage ?? null,
+  });
+}
+
 /**
  * Karim 2026-06-02 : envoie via Resend si RESEND_API_KEY configure
- * (pieces jointes natives), sinon EmailJS avec liens.
+ * (pieces jointes natives), sinon SMTP Gmail, sinon EmailJS avec liens.
  */
 export async function sendMailWithAttachments(opts: SendMailOptions): Promise<SendMailResult> {
   const RESEND_KEY = process.env.RESEND_API_KEY;
@@ -72,13 +125,16 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
       if (!res.ok) {
         const txt = await res.text();
         console.warn("[mail] Resend HTTP", res.status, txt);
-        // Fallback EmailJS si Resend echoue
+        await logSend(opts, "resend", "failed", `Resend HTTP ${res.status}`, htmlBody);
+        // Fallback SMTP / EmailJS si Resend echoue
       } else {
         const data = await res.json() as { id?: string };
+        await logSend(opts, "resend", "sent", undefined, htmlBody);
         return { ok: true, provider: "resend", messageId: data.id };
       }
     } catch (e) {
       console.warn("[mail] Resend exception:", (e as Error).message);
+      await logSend(opts, "resend", "failed", `Resend exception: ${(e as Error).message}`, htmlBody);
     }
   }
 
@@ -108,9 +164,11 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
           contentType: a.contentType ?? "application/pdf",
         })),
       });
+      await logSend(opts, "smtp_gmail", "sent", undefined, htmlBody);
       return { ok: true, provider: "smtp_gmail", messageId: info.messageId };
     } catch (e) {
       console.warn("[mail] SMTP Gmail exception:", (e as Error).message);
+      await logSend(opts, "smtp_gmail", "failed", `SMTP exception: ${(e as Error).message}`, htmlBody);
       // fallback EmailJS
     }
   }
@@ -120,6 +178,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
   const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
   const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
   if (!SERVICE || !TEMPLATE || !KEY) {
+    await logSend(opts, "none", "failed", "Ni Resend ni SMTP Gmail ni EmailJS configures", htmlBody);
     return { ok: false, provider: "none", error: "Ni Resend ni EmailJS configures" };
   }
 
@@ -134,6 +193,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
   }
 
   const sent: string[] = [];
+  const failed: Array<{ to: string; err: string }> = [];
   for (const to of recipients) {
     const params = {
       to_email: to, email: to, user_email: to, candidate_email: to,
@@ -154,10 +214,24 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
         headers: { "Content-Type": "application/json", Origin: "http://localhost" },
         body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
       });
-      if (res.ok) sent.push(to);
+      if (res.ok) {
+        sent.push(to);
+      } else {
+        const errBody = await res.text().catch(() => "");
+        failed.push({ to, err: `HTTP ${res.status} ${errBody.slice(0, 100)}` });
+      }
     } catch (e) {
       console.warn("[mail] EmailJS exception:", (e as Error).message);
+      failed.push({ to, err: (e as Error).message });
     }
+  }
+
+  // Log par destinataire : 1 ligne par to avec son statut individuel
+  for (const to of sent) {
+    await logSend({ ...opts, to }, "emailjs", "sent", undefined, htmlEnriched);
+  }
+  for (const { to, err } of failed) {
+    await logSend({ ...opts, to }, "emailjs", "failed", err, htmlEnriched);
   }
 
   if (sent.length === 0) return { ok: false, provider: "emailjs", error: "Tous les envois EmailJS ont échoué" };
