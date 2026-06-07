@@ -28,3 +28,9 @@ Thumbs.db
 # Misc
 *.pem
 .turbo/
+
+# Claude Code local config
+.claude/
+
+# Vercel
+.vercel/
