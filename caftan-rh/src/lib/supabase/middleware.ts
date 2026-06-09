@@ -30,6 +30,9 @@ const PUBLIC_ROUTES = [
   // Routes cron : Vercel Cron Scheduler les appelle SANS cookie utilisateur.
   // Chaque route verifie son propre Bearer ${CRON_SECRET} cote handler.
   "/api/cron",
+  // Karim 2026-06-09 : routes internes appelees par triggers Postgres
+  // (pg_net) ou autres webhooks systeme. Auth Bearer cote handler.
+  "/api/internal",
   // Routes push web : web-push ne peut pas porter de cookie utilisateur.
   "/api/push",
   // Endpoints de debug RH : auth verifie par requireRole dans le handler.
