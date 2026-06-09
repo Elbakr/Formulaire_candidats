@@ -1,5 +1,11 @@
-// Karim 2026-06-07 : helper SERVER-ONLY pour journaliser les mails sortants
-// dans la table public.outbound_mails (cree par migration 20260620000720).
+// Karim 2026-06-07 : helper pour journaliser les mails sortants dans la
+// table public.outbound_mails (cree par migration 20260620000720).
+//
+// Note : volontairement PAS marque `server-only` pour permettre l'import
+// statique depuis emailjs-client.ts qui peut etre execute cote client.
+// Cote client, getServiceClient() retourne null silencieusement
+// (SUPABASE_SERVICE_ROLE_KEY est privee, jamais bundlee), donc le helper
+// est un no-op effectif. Aucune fuite de cle.
 //
 // Best-effort : ne fait JAMAIS echouer un envoi, capture toute erreur en
 // console.warn. Utilise la cle service role pour bypass RLS.
@@ -12,7 +18,6 @@
 // Convention `sourceRef` : ID de l'entite source (candidate_id, contract_id,
 // payslip_id, expense_id...). Permet de back-link depuis la UI du journal.
 
-import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export type OutboundMailProvider =

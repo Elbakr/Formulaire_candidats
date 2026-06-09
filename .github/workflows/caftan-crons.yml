@@ -1,0 +1,144 @@
+# Karim 2026-06-07 : 33 crons qui faisaient tourner l'auto-pilote Caftan HR
+# ont ete retires de vercel.json (limite Vercel Hobby = 2 crons). Ce workflow
+# les rebranche gratuitement via GitHub Actions en appelant les endpoints
+# /api/cron/* sur la prod Vercel avec Authorization: Bearer CRON_SECRET.
+#
+# Liste de reference : caftan-rh/vercel-crons-backup.json
+#
+# Ajouter un cron : ajouter une entree dans 'on.schedule' ET dans le mapping
+# MAP du job (assigner les endpoints qui se declenchent sur cette expression).
+#
+# Limites GitHub Actions :
+#   - Pas de garantie sub-5min (peut etre retarde de 5-15 min en high-load).
+#     Le cron 'auto-execute' (* * * * *) sera de facto cadence ~5-10 min.
+#   - Si workflow inactif depuis 60 jours, schedule peut etre desactive auto.
+#
+# Trigger manuel : depuis GitHub Actions > caftan-rh-crons > Run workflow,
+# avec champ 'endpoints' (ex: "gf-sync,payslip-imap-poll") pour debug.
+
+name: caftan-rh-crons
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # gf-sync, tuya-auto-out
+    - cron: '0 3 * * *'      # scoring-recompute
+    - cron: '0 8 * * *'      # daily-reminders, vip-birthdays, training-expiration-alerts
+    - cron: '*/10 * * * *'   # sequences-tick
+    - cron: '0 9 * * *'      # doc-chaser, special-day-preview, unassigned-employees-alert, signature-reminder
+    - cron: '*/5 * * * *'    # inbound-imap-poll, tuya-poll
+    - cron: '0 6 * * *'      # anomaly-scan, dimona-reminder
+    - cron: '* * * * *'      # auto-execute (de facto ~5-10 min)
+    - cron: '0 7 * * *'      # digest morning
+    - cron: '0 18 * * *'     # digest evening
+    - cron: '0 17 * * 5'     # weekly-rating-reminder (vendredi 17h)
+    - cron: '0 5 * * *'      # cdd-renewal-scan
+    - cron: '0 * * * *'      # reinforcement-expire, force-close-orphans, gf-sync-health
+    - cron: '0 6 * * 0'      # auto-plan-weekly (dimanche 6h)
+    - cron: '0 2 * * *'      # clock-selfie-purge
+    - cron: '0 1 * * *'      # pre-interview-video-purge
+    - cron: '0 4 * * *'      # candidate-match-rescore
+    - cron: '*/30 * * * *'   # payslip-imap-poll
+    - cron: '0 4 * * 1'      # leave-balance-recompute (lundi 4h)
+    - cron: '0 */6 * * *'    # check-mail-links
+    - cron: '0 3 1 * *'      # rgpd-anonymize (1er du mois 3h)
+    - cron: '0 7 1 * *'      # monthly-admin-report (1er du mois 7h)
+    - cron: '5 0 1 1 *'      # leave-balance-new-year (1er janvier 00h05)
+  workflow_dispatch:
+    inputs:
+      endpoints:
+        description: 'Endpoints separes par virgule (ex: gf-sync,payslip-imap-poll). Vide = aucun.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Trigger cron endpoints
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: https://caftan-rh.vercel.app
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ github.event.inputs.endpoints }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET secret manquant dans le repo GitHub. Ajouter via Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # Mapping cron expression -> endpoints (espace-separes).
+          # Pour digest morning/evening, le param de query est inclus dans l'endpoint.
+          declare -A MAP
+          MAP['*/15 * * * *']='gf-sync tuya-auto-out'
+          MAP['0 3 * * *']='scoring-recompute'
+          MAP['0 8 * * *']='daily-reminders vip-birthdays training-expiration-alerts'
+          MAP['*/10 * * * *']='sequences-tick'
+          MAP['0 9 * * *']='doc-chaser special-day-preview unassigned-employees-alert signature-reminder'
+          MAP['*/5 * * * *']='inbound-imap-poll tuya-poll'
+          MAP['0 6 * * *']='anomaly-scan dimona-reminder'
+          MAP['* * * * *']='auto-execute'
+          MAP['0 7 * * *']='digest?slot=morning'
+          MAP['0 18 * * *']='digest?slot=evening'
+          MAP['0 17 * * 5']='weekly-rating-reminder'
+          MAP['0 5 * * *']='cdd-renewal-scan'
+          MAP['0 * * * *']='reinforcement-expire force-close-orphans gf-sync-health'
+          MAP['0 6 * * 0']='auto-plan-weekly'
+          MAP['0 2 * * *']='clock-selfie-purge'
+          MAP['0 1 * * *']='pre-interview-video-purge'
+          MAP['0 4 * * *']='candidate-match-rescore'
+          MAP['*/30 * * * *']='payslip-imap-poll'
+          MAP['0 4 * * 1']='leave-balance-recompute'
+          MAP['0 */6 * * *']='check-mail-links'
+          MAP['0 3 1 * *']='rgpd-anonymize'
+          MAP['0 7 1 * *']='monthly-admin-report'
+          MAP['5 0 1 1 *']='leave-balance-new-year'
+
+          if [ -n "${MANUAL:-}" ]; then
+            ENDPOINTS=$(echo "$MANUAL" | tr ',' ' ')
+            echo "Mode manuel : endpoints=$ENDPOINTS"
+          elif [ -n "${SCHEDULE:-}" ]; then
+            ENDPOINTS="${MAP[$SCHEDULE]:-}"
+            echo "Schedule '$SCHEDULE' -> endpoints=$ENDPOINTS"
+          else
+            echo "Aucun schedule ni dispatch manuel, exit."
+            exit 0
+          fi
+
+          if [ -z "$ENDPOINTS" ]; then
+            echo "::warning::Aucun endpoint mappe pour ce schedule, skip."
+            exit 0
+          fi
+
+          FAIL_COUNT=0
+          for ep in $ENDPOINTS; do
+            url="$BASE_URL/api/cron/$ep"
+            echo ""
+            echo "→ GET $url"
+            code=$(curl -s -o /tmp/resp.txt -w "%{http_code}" -m 90 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "User-Agent: caftan-rh-crons-gh-actions" \
+              "$url" || echo "000")
+            echo "  HTTP $code"
+            if [ -s /tmp/resp.txt ]; then
+              echo "  body (first 600 chars):"
+              head -c 600 /tmp/resp.txt | sed 's/^/    /'
+              echo ""
+            fi
+            if [ "$code" -lt 200 ] || [ "$code" -ge 400 ]; then
+              echo "::warning::$ep returned HTTP $code"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+            fi
+          done
+
+          if [ "$FAIL_COUNT" -gt 0 ]; then
+            echo "::error::$FAIL_COUNT endpoint(s) en echec sur $(echo "$ENDPOINTS" | wc -w)"
+            exit 1
+          fi
+          echo ""
+          echo "✅ Tous les endpoints OK."
