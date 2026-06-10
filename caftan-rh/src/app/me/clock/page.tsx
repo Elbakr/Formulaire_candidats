@@ -198,7 +198,7 @@ export default async function MyClockPage() {
                   className="p-3 flex items-center gap-3 text-sm"
                 >
                   <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 w-12 shrink-0">
-                    {inDate.toLocaleDateString(dateLocaleStr(locale), {
+                    {inDate.toLocaleDateString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
                       day: "2-digit",
                       month: "2-digit",
                     })}
@@ -211,13 +211,13 @@ export default async function MyClockPage() {
                     {meta?.code ?? <MapPin className="h-3 w-3" />}
                   </div>
                   <div className="font-mono text-xs flex-1">
-                    {inDate.toLocaleTimeString(dateLocaleStr(locale), {
+                    {inDate.toLocaleTimeString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
                     {" → "}
                     {s.clock_out_at ? (
-                      new Date(s.clock_out_at).toLocaleTimeString(dateLocaleStr(locale), {
+                      new Date(s.clock_out_at).toLocaleTimeString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
                         hour: "2-digit",
                         minute: "2-digit",
                       })

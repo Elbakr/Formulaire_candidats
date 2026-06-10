@@ -189,7 +189,7 @@ export function PresenceLiveTable({
                   </Link>
                   <div className="text-xs text-ink-3 tabular-nums">
                     Depuis{" "}
-                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
+                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}{" "}
@@ -265,7 +265,7 @@ export function PresenceLiveTable({
                   </Link>
                   <div className="text-xs text-ink-3 tabular-nums">
                     Depuis{" "}
-                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
+                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}{" "}

@@ -88,7 +88,7 @@ export function ChatPresenceBar({
             className="inline-flex items-center gap-1.5 rounded-full bg-surface px-1.5 py-0.5 text-[11px] border border-line shrink-0"
             title={`Arrivé·e à ${new Date(p.clock_in_at).toLocaleTimeString(
               "fr-BE",
-              { hour: "2-digit", minute: "2-digit" },
+              { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" },
             )}`}
           >
             <NameAvatar name={p.full_name} className="h-4 w-4 text-[8px]" />

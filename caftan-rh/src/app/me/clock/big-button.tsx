@@ -288,7 +288,7 @@ export function ClockBigButton({
             {inSince ? (
               <span className="text-sm font-normal opacity-90">
                 {t("clock.arrived_at", locale, {
-                  time: inSince.toLocaleTimeString(dateLocaleStr(locale), {
+                  time: inSince.toLocaleTimeString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
                     hour: "2-digit",
                     minute: "2-digit",
                   }),

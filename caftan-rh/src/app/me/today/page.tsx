@@ -129,7 +129,7 @@ function contextLine(locale: Locale): string {
 }
 
 function formatDateLong(iso: string, locale: Locale): string {
-  return new Date(iso + "T00:00:00").toLocaleDateString(dateLocaleStr(locale), {
+  return new Date(iso + "T00:00:00").toLocaleDateString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -711,7 +711,7 @@ export default async function MyTodayPage() {
                   className="p-3 flex items-center gap-3 text-sm"
                 >
                   <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 w-14 shrink-0">
-                    {new Date(s.date + "T00:00:00").toLocaleDateString(dateLocaleStr(locale), {
+                    {new Date(s.date + "T00:00:00").toLocaleDateString(dateLocaleStr(locale), { timeZone: "Europe/Brussels",
                       weekday: "short",
                       day: "2-digit",
                       month: "2-digit",
@@ -826,7 +826,7 @@ export default async function MyTodayPage() {
                         {locale === "nl" ? "Tot" : "Jusqu'au"}{" "}
                         {new Date(b.end_date + "T00:00:00").toLocaleDateString(
                           locale === "nl" ? "nl-BE" : "fr-BE",
-                          { day: "2-digit", month: "long" },
+                          { timeZone: "Europe/Brussels", day: "2-digit", month: "long" },
                         )}
                       </div>
                     </div>
@@ -866,7 +866,7 @@ export default async function MyTodayPage() {
                     <span className="text-[10px] text-ink-3 ml-auto">
                       {new Date(b.sent_at ?? b.created_at).toLocaleDateString(
                         dateLocaleStr(locale),
-                        { day: "2-digit", month: "short" },
+                        { timeZone: "Europe/Brussels", day: "2-digit", month: "short" },
                       )}
                     </span>
                   </div>

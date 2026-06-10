@@ -314,7 +314,7 @@ export function ChatThread({
                 <span className="inline-block text-[11px] italic text-ink-3 bg-surface-2/50 rounded-full px-2.5 py-0.5">
                   {m.body}
                   <span className="ml-1.5 opacity-70 not-italic">
-                    {new Date(m.created_at).toLocaleTimeString("fr-BE", {
+                    {new Date(m.created_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
@@ -474,7 +474,7 @@ export function ChatThread({
                 <div
                   className={`text-[9px] text-ink-3 mt-0.5 px-1 ${mine ? "text-right" : ""}`}
                 >
-                  {new Date(m.created_at).toLocaleTimeString("fr-BE", {
+                  {new Date(m.created_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
@@ -666,7 +666,7 @@ function RequestCard({
         <div
           className={`text-[9px] text-ink-3 mt-0.5 px-1 ${mine ? "text-right" : ""}`}
         >
-          {new Date(message.created_at).toLocaleTimeString("fr-BE", {
+          {new Date(message.created_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
             hour: "2-digit",
             minute: "2-digit",
           })}
@@ -704,7 +704,7 @@ function ReinforcementProposalCard({
   // Manager qui a proposé voit la carte en lecture seule. L'employé qui reçoit la proposition voit les boutons.
   const isCandidate = !authorIsMe;
   const expired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
-  const dateFr = new Date(date + "T00:00:00").toLocaleDateString("fr-BE", {
+  const dateFr = new Date(date + "T00:00:00").toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -748,7 +748,7 @@ function ReinforcementProposalCard({
           </div>
           {expiresAt ? (
             <div className="text-[11px] text-ink-3">
-              Réponds avant {new Date(expiresAt).toLocaleString("fr-BE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+              Réponds avant {new Date(expiresAt).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </div>
           ) : null}
         </div>
@@ -787,7 +787,7 @@ function ReinforcementProposalCard({
           </div>
         )}
         <div className="px-3 pb-2 text-[9px] text-ink-3 text-right">
-          {new Date(message.created_at).toLocaleTimeString("fr-BE", {
+          {new Date(message.created_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
             hour: "2-digit",
             minute: "2-digit",
           })}
@@ -918,7 +918,7 @@ function BroadcastCard({
           </div>
         ) : null}
         <div className="px-3 py-1 text-[10px] text-ink-3 border-t border-line/60 bg-surface/30">
-          {new Date(message.created_at).toLocaleString("fr-BE", {
+          {new Date(message.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels",
             day: "2-digit",
             month: "short",
             hour: "2-digit",
