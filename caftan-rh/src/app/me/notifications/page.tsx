@@ -66,7 +66,7 @@ export default async function NotificationsPage() {
             {items.map((n) => (
               <li key={n.id}>
                 <Link
-                  href={n.link ?? "#"}
+                  href={`/me/notifications/${n.id}`}
                   className={cn(
                     "block p-3 hover:bg-surface-2 transition-colors",
                     !n.read_at && "bg-gold-light/30",

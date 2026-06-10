@@ -76,7 +76,7 @@ export function NotificationsBell({ userId }: { userId: string }) {
             {items.map((n) => (
               <li key={n.id}>
                 <Link
-                  href={n.link ?? "#"}
+                  href={`/me/notifications/${n.id}`}
                   onClick={async () => { if (!n.read_at) { await markReadAction(n.id); await refresh(); } }}
                   className={cn(
                     "block px-3 py-2 border-b border-line text-xs hover:bg-surface-2 transition-colors",
@@ -88,7 +88,7 @@ export function NotificationsBell({ userId }: { userId: string }) {
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate">{n.title}</div>
                       {n.body ? <div className="text-ink-2 mt-0.5 line-clamp-2">{n.body}</div> : null}
-                      <div className="text-[10px] text-ink-3 mt-0.5">{new Date(n.created_at).toLocaleString("fr-BE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
+                      <div className="text-[10px] text-ink-3 mt-0.5">{new Date(n.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
                     </div>
                   </div>
                 </Link>
