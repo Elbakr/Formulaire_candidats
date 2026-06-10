@@ -13,11 +13,13 @@ import {
   PlayCircle,
   Megaphone,
   AlertCircle,
+  Check,
+  CheckCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { ChatAuthorMenu } from "@/components/chat-author-menu";
-import { updateRequestStatusAction } from "../actions";
+import { updateRequestStatusAction, getChatMediaUrlAction } from "../actions";
 import { volunteerForAbsenceAction } from "@/app/me/absence/actions";
 import {
   acceptReinforcementAction,
@@ -48,6 +50,10 @@ type Message = {
         position?: string | null;
         expires_at?: string | null;
         decision?: string;
+        path?: string;
+        width?: number | null;
+        height?: number | null;
+        size?: number | null;
       }>
     | null;
   reply_to_id: string | null;
@@ -102,17 +108,25 @@ export function ChatThread({
   initialRequests = [],
   myProfileId,
   isDirection = false,
+  initialMembers = [],
 }: {
   roomId: string;
   initialMessages: Message[];
   initialRequests?: ChatRequest[];
   myProfileId: string;
   isDirection?: boolean;
+  initialMembers?: Array<{ profile_id: string; last_read_at: string | null }>;
 }) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [requests, setRequests] = useState<Map<string, ChatRequest>>(
     () => new Map(initialRequests.map((r) => [r.source_message_id, r])),
   );
+  // Karim 2026-06-10 (chat WhatsApp) : accuses de lecture. On reutilise
+  // chat_room_members.last_read_at (deja present, pas de migration) : un message
+  // est "lu" par X si son last_read_at >= l'heure du message.
+  const [members, setMembers] = useState(initialMembers);
+  // Indicateur "ecrit..." : qui tape en ce moment (broadcast ephemere).
+  const [typers, setTypers] = useState<Record<string, { name: string; at: number }>>({});
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -196,11 +210,82 @@ export function ChatThread({
           });
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "chat_room_members",
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload) => {
+          // Accuses de lecture en direct : quand un membre ouvre la room, son
+          // last_read_at est mis a jour -> les coches de mes messages passent "lu".
+          const mm = payload.new as { profile_id: string; last_read_at: string | null };
+          setMembers((prev) => {
+            if (prev.some((p) => p.profile_id === mm.profile_id)) {
+              return prev.map((p) =>
+                p.profile_id === mm.profile_id ? { ...p, last_read_at: mm.last_read_at } : p,
+              );
+            }
+            return [...prev, { profile_id: mm.profile_id, last_read_at: mm.last_read_at }];
+          });
+        },
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
   }, [roomId]);
+
+  // Realtime — indicateur "ecrit..." (canal broadcast dedie, ephemere).
+  useEffect(() => {
+    const supabase = createClient();
+    const chan = supabase
+      .channel(`chat-typing-${roomId}`)
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const p = payload as { profileId?: string; name?: string };
+        if (!p?.profileId || p.profileId === myProfileId) return;
+        setTypers((prev) => ({ ...prev, [p.profileId as string]: { name: p.name ?? "Quelqu'un", at: Date.now() } }));
+      })
+      .subscribe();
+    // Expire les indicateurs apres 4s sans nouvel event.
+    const interval = setInterval(() => {
+      setTypers((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const next: typeof prev = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (now - v.at < 4000) next[k] = v;
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }, 1500);
+    return () => {
+      supabase.removeChannel(chan);
+      clearInterval(interval);
+    };
+  }, [roomId, myProfileId]);
+
+  // Coches d'accuse de lecture pour MES messages (style WhatsApp) :
+  //   1 coche grise  = envoye (personne n'a encore lu)
+  //   2 coches grises = lu par certains (groupe)
+  //   2 coches bleues = lu par tous les autres membres
+  const otherMembers = members.filter((mm) => mm.profile_id !== myProfileId);
+  function readTicks(createdAt: string) {
+    if (otherMembers.length === 0) return null;
+    const readers = otherMembers.filter(
+      (mm) => mm.last_read_at != null && mm.last_read_at >= createdAt,
+    );
+    if (readers.length === otherMembers.length) {
+      return <CheckCheck className="inline h-3 w-3 ml-0.5 align-[-1px] text-info" aria-label="Lu" />;
+    }
+    if (readers.length > 0) {
+      return <CheckCheck className="inline h-3 w-3 ml-0.5 align-[-1px] text-ink-3" aria-label="Lu par certains" />;
+    }
+    return <Check className="inline h-3 w-3 ml-0.5 align-[-1px] text-ink-3" aria-label="Envoyé" />;
+  }
 
   return (
     <div ref={scrollerRef} className="flex-1 overflow-y-auto scroll-smooth-touch p-3 space-y-1.5">
@@ -341,6 +426,11 @@ export function ChatThread({
             );
           }
 
+          // Photo (bulle image, URL signee a la demande).
+          const image = Array.isArray(m.attachments)
+            ? m.attachments.find((a) => a?.kind === "image" && a?.path)
+            : null;
+
           return (
             <div
               key={m.id}
@@ -371,13 +461,16 @@ export function ChatThread({
                     ) : null}
                   </div>
                 ) : null}
-                <div
-                  className={`rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-words ${
-                    mine ? "bg-gold text-[#1a1a0d]" : "bg-surface-2 text-ink"
-                  }`}
-                >
-                  {m.body}
-                </div>
+                {image ? <ChatImage path={image.path as string} /> : null}
+                {m.body ? (
+                  <div
+                    className={`rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap break-words ${
+                      mine ? "bg-gold text-[#1a1a0d]" : "bg-surface-2 text-ink"
+                    } ${image ? "mt-1" : ""}`}
+                  >
+                    {m.body}
+                  </div>
+                ) : null}
                 <div
                   className={`text-[9px] text-ink-3 mt-0.5 px-1 ${mine ? "text-right" : ""}`}
                 >
@@ -386,13 +479,57 @@ export function ChatThread({
                     minute: "2-digit",
                   })}
                   {m.edited_at ? " · modifié" : ""}
+                  {mine ? readTicks(m.created_at) : null}
                 </div>
               </div>
             </div>
           );
         })
       )}
+      {Object.keys(typers).length > 0 ? (
+        <div className="px-2 py-1 text-[11px] italic text-ink-3" aria-live="polite">
+          {(() => {
+            const names = Object.values(typers).map((t) => t.name);
+            if (names.length === 1) return `${names[0]} écrit…`;
+            if (names.length === 2) return `${names[0]} et ${names[1]} écrivent…`;
+            return "Plusieurs personnes écrivent…";
+          })()}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function ChatImage({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let active = true;
+    getChatMediaUrlAction(path)
+      .then((r) => {
+        if (!active) return;
+        if (r.ok && r.url) setUrl(r.url);
+        else setErr(true);
+      })
+      .catch(() => {
+        if (active) setErr(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [path]);
+  if (err) return <div className="text-[11px] text-ink-3 italic">📷 image indisponible</div>;
+  if (!url) return <div className="h-40 w-40 rounded-lg bg-surface-2 animate-pulse" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="inline-block">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt="photo"
+        loading="lazy"
+        className="rounded-lg max-w-[240px] max-h-[320px] object-cover border border-line"
+      />
+    </a>
   );
 }
 

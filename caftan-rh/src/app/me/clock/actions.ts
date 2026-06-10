@@ -234,10 +234,11 @@ export async function clockInAction(args: {
     occurredAt,
   });
 
+  // Karim 2026-06-10 (perf mobile A3) : on ne revalide QUE la vue de l'employe.
+  // Les vues de presence (/admin/presence, /chat) se mettent a jour en TEMPS
+  // REEL via Supabase Realtime (postgres_changes sur clock_entries) -> inutile
+  // de les revalider ici (evite du churn serveur a chaque pointage).
   revalidatePath("/me/clock");
-  revalidatePath("/admin/presence");
-  revalidatePath("/chat");
-  if (siteCode) revalidatePath(`/planning/sites/${siteCode}`);
   return { ok: true, siteId: siteId ?? null, distance_m: computedDistanceM };
 }
 
@@ -311,10 +312,11 @@ export async function clockOutAction(args: {
     occurredAt,
   });
 
+  // Karim 2026-06-10 (perf mobile A3) : on ne revalide QUE la vue de l'employe.
+  // Les vues de presence (/admin/presence, /chat) se mettent a jour en TEMPS
+  // REEL via Supabase Realtime (postgres_changes sur clock_entries) -> inutile
+  // de les revalider ici (evite du churn serveur a chaque pointage).
   revalidatePath("/me/clock");
-  revalidatePath("/admin/presence");
-  revalidatePath("/chat");
-  if (siteCode) revalidatePath(`/planning/sites/${siteCode}`);
   return { ok: true };
 }
 

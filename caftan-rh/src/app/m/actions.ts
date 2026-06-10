@@ -40,23 +40,27 @@ export async function getMobileDashboardDataAction(opts: {
   else periodStart.setDate(today.getDate()); // day
   const periodStartISO = periodStart.toISOString().slice(0, 10);
 
-  if (opts.enabledWidgets.includes("pointage_live")) {
-    // Karim 2026-06-02 : vue clock_currently_in = pointes REELS maintenant
-    // (Tuya empreintes + manuels). Filtre par site si demande.
+  // Karim 2026-06-10 (perf mobile A1) : AVANT, chaque widget activé était
+  // chargé EN SÉRIE (1 await après l'autre) -> +3-6s avec 9 widgets. On lance
+  // maintenant tous les widgets actifs EN PARALLÈLE (chacun écrit une clé
+  // distincte de `out`, donc pas de course).
+  const enabled = (w: WidgetId) => opts.enabledWidgets.includes(w);
+  const tasks: Promise<void>[] = [];
+
+  if (enabled("pointage_live")) tasks.push((async () => {
+    // Vue clock_currently_in = pointes REELS maintenant (Tuya + manuels).
     let qIn = admin.from("clock_currently_in").select("employee_id, site_id, site_code, site_name, site_color, full_name, clock_in_at");
     if (opts.siteId) qIn = qIn.eq("site_id", opts.siteId);
-    const { data: currentlyIn } = await qIn;
-    const present = (currentlyIn ?? []).length;
-
     // Shifts attendus aujourd'hui (planning prevu)
     let qShifts = admin.from("shifts").select("id, employee_id, site_id, start_time, end_time, status").eq("date", todayISO);
     if (opts.siteId) qShifts = qShifts.eq("site_id", opts.siteId);
-    const { data: shiftsToday } = await qShifts;
-    const total = (shiftsToday ?? []).length;
     // 'done' = sessions clos aujourd'hui
     let qSess = admin.from("clock_sessions").select("employee_id, clock_out_at").gte("clock_out_at", todayISO + "T00:00:00Z").lte("clock_out_at", todayISO + "T23:59:59Z");
     if (opts.siteId) qSess = qSess.eq("site_id", opts.siteId);
-    const { data: doneSessions } = await qSess;
+    // Les 3 sous-requêtes en parallèle (etaient en série avant).
+    const [{ data: currentlyIn }, { data: shiftsToday }, { data: doneSessions }] = await Promise.all([qIn, qShifts, qSess]);
+    const present = (currentlyIn ?? []).length;
+    const total = (shiftsToday ?? []).length;
     const done = (doneSessions ?? []).length;
     const upcoming = Math.max(0, total - present - done);
 
@@ -72,11 +76,12 @@ export async function getMobileDashboardDataAction(opts: {
       total, present, done, upcoming,
       bySite: Array.from(bySite.values()).sort((a, b) => b.count - a.count),
     };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("heures_periode")) {
-    // Karim 2026-06-02 : heures REELLES via clock_sessions.duration_minutes.
-    let q = admin.from("clock_sessions")
+  if (enabled("heures_periode")) tasks.push((async () => {
+    // Karim 2026-06-10 : décompte via clock_sessions_billing (Tuya = source
+    // de vérité ; pas de double comptage web sur jours Tuya).
+    let q = admin.from("clock_sessions_billing")
       .select("duration_minutes, site_id")
       .gte("clock_in_at", periodStartISO + "T00:00:00Z")
       .lte("clock_in_at", todayISO + "T23:59:59Z")
@@ -84,11 +89,10 @@ export async function getMobileDashboardDataAction(opts: {
     if (opts.siteId) q = q.eq("site_id", opts.siteId);
     const { data: sessions } = await q;
     const totalMinutes = (sessions ?? []).reduce((s, x) => s + Number(x.duration_minutes ?? 0), 0);
-    const totalHours = totalMinutes / 60;
-    out.heures_periode = { totalHours, count: (sessions ?? []).length, period: opts.period ?? "day" };
-  }
+    out.heures_periode = { totalHours: totalMinutes / 60, count: (sessions ?? []).length, period: opts.period ?? "day" };
+  })());
 
-  if (opts.enabledWidgets.includes("planning_today")) {
+  if (enabled("planning_today")) tasks.push((async () => {
     let q = admin
       .from("shifts")
       .select("id, start_time, end_time, employee:employees(full_name), site:sites(name, code, color)")
@@ -98,9 +102,9 @@ export async function getMobileDashboardDataAction(opts: {
     if (opts.siteId) q = q.eq("site_id", opts.siteId);
     const { data: shifts } = await q;
     out.planning_today = { shifts: shifts ?? [] };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("alerts")) {
+  if (enabled("alerts")) tasks.push((async () => {
     const [{ count: pendingScreen }, { count: pendingValidations }, { count: pendingTerm }] = await Promise.all([
       admin.from("candidates").select("id", { count: "exact", head: true }).eq("status", "screening_pending"),
       admin.from("reinforcement_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -111,9 +115,9 @@ export async function getMobileDashboardDataAction(opts: {
       reinforcement_pending: pendingValidations ?? 0,
       terminations_pending: pendingTerm ?? 0,
     };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("stats_salaires")) {
+  if (enabled("stats_salaires")) tasks.push((async () => {
     const startMonth = todayISO.slice(0, 7) + "-01";
     const { data: payslips } = await admin
       .from("payslips")
@@ -123,25 +127,25 @@ export async function getMobileDashboardDataAction(opts: {
     const unpaid = (payslips ?? []).filter((p) => p.payment_status !== "paid");
     const unpaidTotal = unpaid.reduce((s, p) => s + Number(p.amount_to_pay ?? 0), 0);
     out.stats_salaires = { total, unpaidTotal, unpaidCount: unpaid.length, totalCount: (payslips ?? []).length };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("mails_pending")) {
+  if (enabled("mails_pending")) tasks.push((async () => {
     const { count: total } = await admin
       .from("outbound_mails")
       .select("id", { count: "exact", head: true })
       .eq("status", "failed");
     out.mails_pending = { failed_count: total ?? 0 };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("candidates_pending")) {
+  if (enabled("candidates_pending")) tasks.push((async () => {
     const { count: newCount } = await admin
       .from("candidates")
       .select("id", { count: "exact", head: true })
       .eq("status", "new");
     out.candidates_pending = { new_count: newCount ?? 0 };
-  }
+  })());
 
-  if (opts.enabledWidgets.includes("terminations_pending")) {
+  if (enabled("terminations_pending")) tasks.push((async () => {
     const { data: list } = await admin
       .from("contract_terminations")
       .select("id, requested_at, earliest_effective_date, employee:employees(full_name)")
@@ -149,8 +153,9 @@ export async function getMobileDashboardDataAction(opts: {
       .order("requested_at", { ascending: false })
       .limit(5);
     out.terminations_pending = { list: list ?? [] };
-  }
+  })());
 
+  await Promise.all(tasks);
   return { ok: true, data: out };
 }
 

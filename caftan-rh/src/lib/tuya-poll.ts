@@ -225,10 +225,15 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
 
         // ALTERNANCE AUTO : compte les events deja inseres pour cet employe
         // dans la journee, ANTERIEURS a occurredAt.
+        // Karim 2026-06-10 : RECONCILIATION web<->Tuya. On ne compte QUE les
+        // entrees source='tuya' : Tuya est la source de verite du temps de
+        // presence, donc un pointage web ne doit PAS decaler la parite
+        // d'alternance des taps Tuya (sinon double comptage / inversion).
         const { count: priorCount } = await supabase
           .from("clock_entries")
           .select("id", { count: "exact", head: true })
           .eq("employee_id", mapping.employee_id)
+          .eq("source", "tuya")
           .gte("occurred_at", `${today}T00:00:00Z`)
           .lt("occurred_at", occurredAt);
         const alternanceKind = (priorCount ?? 0) % 2 === 0 ? "in" : "out";

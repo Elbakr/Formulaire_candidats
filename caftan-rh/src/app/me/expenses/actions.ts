@@ -103,7 +103,7 @@ export async function markExpensePaidAction(args: {
     .eq("id", args.expenseId)
     .maybeSingle();
   if (!exp) return { ok: false, error: "Note de frais introuvable" };
-  const e = exp as { id: string; amount: number; employee_id: string; employee?: { full_name: string; iban: string | null; bic: string | null } | null };
+  const e = exp as unknown as { id: string; amount: number; employee_id: string; employee?: { full_name: string; iban: string | null; bic: string | null } | null };
   if (!e.employee?.iban) return { ok: false, error: "IBAN employé manquant" };
 
   // Génère QR EPC SEPA
@@ -114,10 +114,10 @@ export async function markExpensePaidAction(args: {
       beneficiaryName: e.employee.full_name,
       iban: e.employee.iban,
       bic: e.employee.bic ?? undefined,
-      amount: Number(e.amount),
-      remittance: `Note de frais ${new Date().toISOString().slice(0, 10)}`,
+      amountEur: Number(e.amount),
+      remittanceInfo: `Note de frais ${new Date().toISOString().slice(0, 10)}`,
     });
-    qrData = r.dataUrl ?? null;
+    qrData = r.qrPngDataUrl ?? null;
   } catch (err) {
     console.warn("[expense] qr err:", (err as Error).message);
   }

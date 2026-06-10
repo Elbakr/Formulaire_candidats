@@ -203,9 +203,11 @@ export async function computeAndAwardCampaignAction(campaignId: string) {
   const awards: Award[] = [];
 
   if (c.rule_kind === "top_attendance") {
-    // Heures pointées (clock_sessions.duration_minutes) sans anomalie critique.
+    // Heures pointées sans anomalie critique. Karim 2026-06-10 : décompte
+    // via clock_sessions_billing (Tuya = source de vérité, le web ne
+    // double-compte plus les jours déjà badgés Tuya).
     const { data: sessions } = await supabase
-      .from("clock_sessions")
+      .from("clock_sessions_billing")
       .select("employee_id, clock_in_at, duration_minutes")
       .in("employee_id", empIds)
       .gte("clock_in_at", `${c.start_date}T00:00:00`)

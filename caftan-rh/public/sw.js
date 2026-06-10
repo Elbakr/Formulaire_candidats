@@ -1,5 +1,13 @@
 /* CaftanRH Service Worker — vanilla, no Workbox */
-const CACHE_VERSION = "caftanrh-shell-v73-off-days-visual-warn";
+// Karim 2026-06-10 (perf mobile A4) : le cache porte un nom versionne ; au
+// changement de ce nom, le handler `activate` purge tous les anciens caches.
+// Les assets /_next/static/* sont content-hashes par Next (nouveau build =
+// nouvelle URL = cache-miss = fetch), et les pages HTML sont en network-first,
+// donc un utilisateur EN LIGNE recupere toujours le code frais.
+// TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
+// nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
+// du bump manuel ci-dessous.
+const CACHE_VERSION = "caftanrh-shell-v74-2026-06-10-mobile-perf";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -66,15 +74,35 @@ self.addEventListener("push", (event) => {
     data = { title: "CaftanRH", body: event.data ? event.data.text() : "" };
   }
   const title = data.title || "CaftanRH";
+  const link = data.link || "/";
   const options = {
     body: data.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    data: { url: data.link || "/" },
+    data: { url: link },
     tag: data.tag || undefined,
     requireInteraction: data.priority === "urgent",
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    (async () => {
+      // Karim 2026-06-10 (chat WhatsApp) : si l'utilisateur regarde DEJA cette
+      // conversation (fenetre au premier plan sur le meme lien), on n'affiche
+      // PAS le push OS — le toast in-app (NotificationListener) suffit. C'est
+      // exactement le comportement WhatsApp. On ne filtre que les liens /chat/*.
+      if (link.startsWith("/chat/")) {
+        const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        const viewingRoom = wins.some((c) => {
+          try {
+            return c.focused && new URL(c.url).pathname === link;
+          } catch (_) {
+            return false;
+          }
+        });
+        if (viewingRoom) return;
+      }
+      await self.registration.showNotification(title, options);
+    })(),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

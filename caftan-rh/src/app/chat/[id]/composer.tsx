@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Send, Plus, ShoppingBag, ClipboardList, Clock, Package, Wrench, MessageSquare } from "lucide-react";
+import { useState, useTransition, useRef, useEffect } from "react";
+import { Send, Plus, Image as ImageIcon, ShoppingBag, ClipboardList, Clock, Package, Wrench, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { sendMessageAction, sendRequestAction, type RequestKind } from "../actions";
+import { sendMessageAction, sendRequestAction, sendImageMessageAction, type RequestKind } from "../actions";
 
 type KindOption = {
   value: RequestKind;
@@ -37,9 +39,80 @@ const KINDS: KindOption[] = [
   { value: "other",       label: "Autre demande",       Icon: MessageSquare },
 ];
 
-export function Composer({ roomId }: { roomId: string }) {
+export function Composer({
+  roomId,
+  myProfileId,
+  myName,
+}: {
+  roomId: string;
+  myProfileId: string;
+  myName: string;
+}) {
   const [body, setBody] = useState("");
   const [pending, startTransition] = useTransition();
+
+  // Karim 2026-06-10 (chat WhatsApp) : indicateur "ecrit...". On diffuse un
+  // event broadcast ephemere (pas de table) sur un canal dedie ; le thread
+  // l'ecoute et affiche "X ecrit...". Throttle a 1 envoi / 2s.
+  const typingChanRef = useRef<RealtimeChannel | null>(null);
+  const lastTypingSent = useRef(0);
+  useEffect(() => {
+    const supabase = createClient();
+    const chan = supabase.channel(`chat-typing-${roomId}`);
+    chan.subscribe();
+    typingChanRef.current = chan;
+    return () => {
+      supabase.removeChannel(chan);
+      typingChanRef.current = null;
+    };
+  }, [roomId]);
+  function notifyTyping() {
+    const now = Date.now();
+    if (now - lastTypingSent.current < 2000) return;
+    lastTypingSent.current = now;
+    typingChanRef.current?.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { profileId: myProfileId, name: myName },
+    });
+  }
+
+  // Karim 2026-06-10 (chat WhatsApp) : envoi de photos.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permet de re-selectionner la meme image
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Seules les images sont acceptées.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image trop lourde (max 8 Mo).");
+      return;
+    }
+    setUploading(true);
+    try {
+      const supabase = createClient();
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const path = `${roomId}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("chat-media")
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (upErr) {
+        toast.error(`Échec de l'upload : ${upErr.message}`);
+        return;
+      }
+      const r = await sendImageMessageAction(roomId, path, { size: file.size });
+      if (r.error) toast.error(r.error);
+    } catch (err) {
+      toast.error("Erreur lors de l'envoi de la photo.");
+      console.warn("[chat] upload photo:", err);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // Dialog demande
   const [reqOpen, setReqOpen] = useState(false);
@@ -123,9 +196,30 @@ export function Composer({ roomId }: { roomId: string }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFile}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading || pending}
+        className="rounded-md border border-line bg-canvas hover:bg-surface-2 p-3 sm:p-2.5 inline-flex items-center justify-center text-ink-2 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 active:scale-95 transition-transform disabled:opacity-50"
+        aria-label="Envoyer une photo"
+        title="Envoyer une photo"
+      >
+        <ImageIcon className="h-4 w-4" />
+      </button>
+
       <textarea
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          setBody(e.target.value);
+          if (e.target.value.trim()) notifyTyping();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();

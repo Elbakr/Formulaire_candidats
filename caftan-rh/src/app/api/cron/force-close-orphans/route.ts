@@ -39,20 +39,27 @@ async function handle(request: NextRequest) {
   const admin = createAdminClient();
   const nowMs = Date.now();
 
-  // Trouve tous les IN orphans > 24h (sans OUT meme jour apres)
+  // Trouve les IN orphans entre 24h et 30j (sans OUT meme jour apres).
+  // Karim 2026-06-10 (bugfix) : AVANT, la requete n'avait NI borne basse NI
+  // order -> avec la limite Supabase par defaut (1000 lignes, ordre arbitraire)
+  // elle pouvait rater justement les vrais orphelins, qui s'accumulaient
+  // (13 orphelins de 99 a 283h jamais fermes). On borne a 30j + order croissant.
   const { data: orphansRaw } = await admin
     .from("clock_entries")
     .select("id, employee_id, shift_id, site_id, occurred_at")
     .eq("kind", "in")
-    .lte("occurred_at", new Date(nowMs - 24 * 3600_000).toISOString());
+    .gte("occurred_at", new Date(nowMs - 30 * 86400_000).toISOString())
+    .lte("occurred_at", new Date(nowMs - 24 * 3600_000).toISOString())
+    .order("occurred_at", { ascending: true })
+    .limit(1000);
 
-  const orphans = ((orphansRaw ?? []) as Array<{
+  const orphans = (orphansRaw ?? []) as Array<{
     id: string;
     employee_id: string;
     shift_id: string | null;
     site_id: string | null;
     occurred_at: string;
-  }>).filter(async () => true); // placeholder
+  }>;
 
   // Filtre : pas de OUT meme jour apres
   const trueOrphans: typeof orphans = [];
@@ -69,6 +76,7 @@ async function handle(request: NextRequest) {
   }
 
   const results: Array<{ employee_id: string; out_at: string; confidence: number; reason: string }> = [];
+  const insertErrors: Array<{ employee_id: string; error: string }> = [];
 
   // Charge tous les site_needs pour clamp close_time
   const { data: needsRaw } = await admin
@@ -153,6 +161,12 @@ async function handle(request: NextRequest) {
         confidence: inferred.confidence,
         reason: inferred.reason,
       });
+    } else {
+      // Karim 2026-06-10 (bugfix) : on NE LES AVALE PLUS. Souvent le trigger
+      // prevent_double_clock_in rejette (errcode check_violation) quand un OUT
+      // existe deja entre-temps -> visible dans la reponse + logs.
+      console.error(`[force-close-orphans] insert OUT echoue employee=${orphan.employee_id} out=${outIso}: ${error.message}`);
+      insertErrors.push({ employee_id: orphan.employee_id, error: error.message });
     }
   }
 
@@ -173,5 +187,13 @@ async function handle(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, force_closed: results.length, details: results });
+  return NextResponse.json({
+    ok: true,
+    scanned: orphans.length,
+    true_orphans: trueOrphans.length,
+    force_closed: results.length,
+    insert_errors: insertErrors.length,
+    error_samples: insertErrors.slice(0, 5),
+    details: results,
+  });
 }

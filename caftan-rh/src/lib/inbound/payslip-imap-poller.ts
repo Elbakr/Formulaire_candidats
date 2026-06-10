@@ -13,7 +13,7 @@ import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { processBatch } from "@/lib/payslip-processor";
-import type { EmployerOrgKey } from "@/lib/config";
+import type { EmployerOrgKey } from "@/lib/contract-renderer";
 
 const SUBJECT_PATTERNS = [
   /fiche\s+de\s+paie/i,
@@ -115,7 +115,7 @@ export async function pollPayslipsFromImap(opts?: {
 
       const candidates: Array<{ uid: number; source: Buffer | null }> = [];
       for await (const msg of client.fetch(
-        { since, flags: { has: "\\Seen", not: true } }, // que les non-lus
+        { since, seen: false }, // que les non-lus
         { uid: true, source: true, envelope: true },
         { uid: true },
       )) {
@@ -175,7 +175,7 @@ export async function pollPayslipsFromImap(opts?: {
               filename: pdf.filename ?? `inbound-${m.uid}.pdf`,
               employerOrgKey: employer,
               uploadedBy: null, // null = auto/cron
-              source: `imap_auto_${employer}`,
+              source: "email",  // canal = email entrant (employeur capturé via employerOrgKey)
             });
             totalInserted += batchResult.matchedCount + batchResult.unmatchedCount;
             totalMatched += batchResult.matchedCount;

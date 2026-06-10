@@ -37,6 +37,7 @@ type Message = {
 type Member = {
   profile_id: string;
   role: string;
+  last_read_at: string | null;
   profile: { id: string; full_name: string | null; role: string | null } | null;
 };
 
@@ -75,7 +76,7 @@ export default async function ChatRoomPage(props: {
     supabase
       .from("chat_room_members")
       .select(
-        `profile_id, role,
+        `profile_id, role, last_read_at,
          profile:profiles(id, full_name, role)`,
       )
       .eq("room_id", id),
@@ -171,11 +172,12 @@ export default async function ChatRoomPage(props: {
           initialRequests={requests}
           myProfileId={profile.id}
           isDirection={isDirection}
+          initialMembers={members.map((m) => ({ profile_id: m.profile_id, last_read_at: m.last_read_at }))}
         />
       </Card>
 
       <Card className="rounded-t-none border-t-0">
-        <Composer roomId={id} />
+        <Composer roomId={id} myProfileId={profile.id} myName={profile.full_name ?? "Quelqu'un"} />
       </Card>
     </div>
   );

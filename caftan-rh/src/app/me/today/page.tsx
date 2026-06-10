@@ -312,7 +312,9 @@ export default async function MyTodayPage() {
       .gte("date", monthStartISO)
       .lte("date", todayISO),
     supabase
-      .from("clock_sessions")
+      // Karim 2026-06-10 : heures employé via clock_sessions_billing
+      // (Tuya = source de vérité, cohérent avec le décompte RH/bonus).
+      .from("clock_sessions_billing")
       .select("clock_in_at, duration_minutes")
       .eq("employee_id", employee.id)
       .gte("clock_in_at", `${monthStartISO}T00:00:00`),

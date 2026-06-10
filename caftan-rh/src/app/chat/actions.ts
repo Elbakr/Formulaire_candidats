@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 
 export type RequestKind =
@@ -141,9 +141,136 @@ export async function sendMessageAction(
     .eq("room_id", roomId)
     .eq("profile_id", profile.id);
 
+  // Push aux autres membres (le n°1 WhatsApp). cf. notifyRoomPush.
+  const preview = trimmed.length > 120 ? `${trimmed.slice(0, 119)}…` : trimmed;
+  await notifyRoomPush({
+    roomId,
+    authorId: profile.id,
+    authorName: profile.full_name ?? "Nouveau message",
+    preview,
+  });
+
   revalidatePath(`/chat/${roomId}`);
   revalidatePath(`/chat`);
   return { ok: true, id: data.id };
+}
+
+/**
+ * Karim 2026-06-10 (chat WhatsApp) : PUSH aux autres membres d'une room a la
+ * reception d'un message. On pousse DIRECTEMENT (sendPushToProfiles) SANS creer
+ * de ligne `notifications` -> pas de pollution de la cloche (un message != une
+ * notif persistante). Le SW supprime l'affichage OS si la conversation est deja
+ * ouverte. tag=room -> les messages d'une meme conv se groupent cote OS.
+ * Best-effort : n'echoue JAMAIS l'action appelante.
+ */
+async function notifyRoomPush(opts: {
+  roomId: string;
+  authorId: string;
+  authorName: string;
+  preview: string;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const [{ data: room }, { data: members }] = await Promise.all([
+      admin.from("chat_rooms").select("name, kind").eq("id", opts.roomId).maybeSingle(),
+      admin.from("chat_room_members").select("profile_id, is_muted").eq("room_id", opts.roomId),
+    ]);
+    const recipientIds = ((members ?? []) as Array<{ profile_id: string; is_muted: boolean | null }>)
+      .filter((m) => m.profile_id !== opts.authorId && !m.is_muted)
+      .map((m) => m.profile_id);
+    if (recipientIds.length === 0) return;
+    const r = room as { name: string | null; kind: string } | null;
+    const title = r?.kind === "dm" || !r?.name ? opts.authorName : `${opts.authorName} · ${r.name}`;
+    const { sendPushToProfiles } = await import("@/lib/push-notify");
+    await sendPushToProfiles(recipientIds, {
+      title,
+      body: opts.preview,
+      link: `/chat/${opts.roomId}`,
+      tag: `chat-${opts.roomId}`,
+      priority: "normal",
+    });
+  } catch (e) {
+    console.warn("[chat] push echoue (non bloquant):", (e as Error).message);
+  }
+}
+
+/**
+ * Karim 2026-06-10 (chat WhatsApp) : envoie une PHOTO. Le fichier est deja
+ * uploade cote client dans le bucket prive chat-media (chemin <room>/<uuid>).
+ * Ici on cree juste le message avec l'attachment image. Acces ulterieur via
+ * getChatMediaUrlAction (URL signee, membres seulement).
+ */
+export async function sendImageMessageAction(
+  roomId: string,
+  storagePath: string,
+  meta?: { width?: number; height?: number; size?: number; caption?: string },
+): Promise<{ ok?: boolean; error?: string; id?: string }> {
+  const { profile } = await requireProfile();
+  if (!storagePath.startsWith(`${roomId}/`)) return { error: "Chemin média invalide." };
+  const supabase = await createClient();
+  const caption = (meta?.caption ?? "").trim().slice(0, 4000);
+
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .insert({
+      room_id: roomId,
+      author_profile_id: profile.id,
+      body: caption,
+      attachments: [
+        {
+          kind: "image",
+          path: storagePath,
+          width: meta?.width ?? null,
+          height: meta?.height ?? null,
+          size: meta?.size ?? null,
+        },
+      ],
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+
+  await supabase
+    .from("chat_room_members")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("room_id", roomId)
+    .eq("profile_id", profile.id);
+
+  await notifyRoomPush({
+    roomId,
+    authorId: profile.id,
+    authorName: profile.full_name ?? "Nouveau message",
+    preview: caption ? `📷 ${caption}` : "📷 Photo",
+  });
+
+  revalidatePath(`/chat/${roomId}`);
+  revalidatePath(`/chat`);
+  return { ok: true, id: data.id };
+}
+
+/**
+ * Genere une URL signee (1h) pour une photo du chat. Verifie que l'appelant
+ * est bien membre de la room (1er segment du chemin) avant de signer.
+ */
+export async function getChatMediaUrlAction(
+  storagePath: string,
+): Promise<{ ok?: boolean; url?: string; error?: string }> {
+  const { profile } = await requireProfile();
+  const roomId = storagePath.split("/")[0];
+  if (!roomId) return { error: "Chemin invalide." };
+  const admin = createAdminClient();
+  const { data: mem } = await admin
+    .from("chat_room_members")
+    .select("profile_id")
+    .eq("room_id", roomId)
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+  if (!mem) return { error: "Accès refusé." };
+  const { data: signed, error } = await admin.storage
+    .from("chat-media")
+    .createSignedUrl(storagePath, 3600);
+  if (error || !signed) return { error: error?.message ?? "URL indisponible." };
+  return { ok: true, url: signed.signedUrl };
 }
 
 export async function markRoomReadAction(roomId: string) {

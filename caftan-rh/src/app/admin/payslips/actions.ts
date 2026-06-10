@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 export async function uploadPayslipBatchAction(formData: FormData): Promise<
   { ok: true; batchId: string; matched: number; unmatched: number } | { ok: false; error: string }
 > {
-  const profile = await requireRole(["admin", "rh"]);
+  const { profile } = await requireRole(["admin", "rh"]);
   const file = formData.get("pdf") as File | null;
   const employerOrgKey = String(formData.get("employer_org_key") ?? "amd_megastore") as "amd_megastore" | "caftan_factory";
   if (!file || file.type !== "application/pdf") {

@@ -22,7 +22,7 @@ export interface ProcessBatchInput {
   pdfBytes: Uint8Array;
   filename: string;
   employerOrgKey: "amd_megastore" | "caftan_factory";
-  uploadedBy: string;          // profile.id
+  uploadedBy: string | null;   // profile.id ; null = auto/cron (poller IMAP)
   source?: "manual_upload" | "hrconsult_portal" | "email";
 }
 
