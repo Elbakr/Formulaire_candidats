@@ -129,6 +129,7 @@ export function getNavSections(role: Role): NavGroup[] {
   // 3) RH — recrutement, candidats, onboarding (admin / rh / manager)
   // ────────────────────────────────────────────────────────────────
   const rhItems: NavItem[] = [
+    { href: "/rh/hub", label: "🎛 Centre RH", icon: "LayoutDashboard" },
     { href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" },
     { href: "/rh/candidates", label: "Candidats", icon: "Users" },
     { href: "/admin/candidates/duplicates", label: "Purge doublons candidats 🧹", icon: "Users" },
