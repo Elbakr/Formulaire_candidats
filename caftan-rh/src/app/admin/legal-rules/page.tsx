@@ -87,7 +87,7 @@ export default async function LegalRulesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{r.name}</span>
-                      <Badge variant="outline" className="text-[10px]">{sev.label}</Badge>
+                      <Badge variant="muted" className="text-[10px]">{sev.label}</Badge>
                       {r.legal_ref && <span className="text-[10px] text-muted-foreground">📖 {r.legal_ref}</span>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">{r.description}</p>

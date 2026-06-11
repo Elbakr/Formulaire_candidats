@@ -172,7 +172,7 @@ export function AidConfirmRow({
           </Button>
           <Button
             type="button"
-            variant="primary"
+            variant="success"
             size="sm"
             onClick={confirmNow}
             disabled={pending}

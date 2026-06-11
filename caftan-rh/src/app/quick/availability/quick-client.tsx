@@ -141,7 +141,7 @@ export function QuickAvailabilityClient({
               onClick={() => setSelected(e)}
               className="w-full text-left p-3 rounded-lg border border-line bg-surface hover:bg-surface-2 active:scale-[0.99] transition-all flex items-center gap-3"
             >
-              <NameAvatar fullName={e.full_name} size="md" />
+              <NameAvatar name={e.full_name} className="h-10 w-10" />
               <div className="flex-1 min-w-0">
                 <div className="font-bold truncate">{e.full_name}</div>
                 <div className="text-xs text-ink-3 truncate">
@@ -236,7 +236,7 @@ function EmployeeQuickEdit({
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <NameAvatar fullName={employee.full_name} size="md" />
+          <NameAvatar name={employee.full_name} className="h-10 w-10" />
           <div className="min-w-0">
             <div className="font-bold truncate">{employee.full_name}</div>
             <div className="text-[11px] text-ink-3 truncate">

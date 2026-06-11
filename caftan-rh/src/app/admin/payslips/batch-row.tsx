@@ -20,7 +20,7 @@ export function BatchRow({ batch }: { batch: Batch }) {
   return (
     <div className="flex items-center justify-between text-sm gap-2">
       <div className="flex items-center gap-2 min-w-0">
-        <Badge variant={batch.status === "completed" ? "default" : batch.status === "failed" ? "destructive" : "secondary"}>
+        <Badge variant={batch.status === "completed" ? "hired" : batch.status === "failed" ? "refused" : "muted"}>
           {batch.status}
         </Badge>
         <span className="font-mono text-xs truncate">{batch.source_filename ?? "—"}</span>

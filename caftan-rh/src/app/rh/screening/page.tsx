@@ -68,8 +68,8 @@ export default async function RhScreeningPage() {
                   )}
                   <div className="text-xs">{r.completed_at ? r.recommendation : "en cours"}</div>
                 </div>
-                {r.has_red_flag && <AlertOctagon className="w-5 h-5 text-red-600" title="Red flag" />}
-                {r.rh_decision_at && <CheckCircle2 className="w-5 h-5 text-green-600" title="Validé RH" />}
+                {r.has_red_flag && <AlertOctagon className="w-5 h-5 text-red-600" aria-label="Red flag" />}
+                {r.rh_decision_at && <CheckCircle2 className="w-5 h-5 text-green-600" aria-label="Validé RH" />}
                 <Link href={`/rh/screening/${r.id}`} className="text-blue-700 hover:underline text-sm flex items-center gap-1">
                   <Eye className="w-3.5 h-3.5" /> Détails
                 </Link>

@@ -61,7 +61,7 @@ export function EmployeeStickyHeader({
         </Link>
 
         {/* Avatar */}
-        <NameAvatar name={fullName} size={scrolled ? 32 : 40} />
+        <NameAvatar name={fullName} className={scrolled ? "h-8 w-8" : "h-10 w-10"} />
 
         {/* Identité */}
         <div className="flex-1 min-w-0">

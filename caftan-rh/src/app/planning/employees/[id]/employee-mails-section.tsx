@@ -67,7 +67,7 @@ export async function EmployeeMailsSection({ employeeId }: { employeeId: string 
                     </Badge>
                   )}
                   {m.attachments && m.attachments.length > 0 && (
-                    <Badge variant="outline" className="text-[10px] flex items-center gap-1">
+                    <Badge variant="muted" className="text-[10px] flex items-center gap-1">
                       <Paperclip className="w-3 h-3" /> {m.attachments.length}
                     </Badge>
                   )}

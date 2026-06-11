@@ -267,7 +267,7 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
             <span className="font-medium truncate">{row.employee!.full_name}</span>
           )}
           {row.is_secondary && (
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="muted" className="text-xs">
               <Calendar className="w-3 h-3 mr-1" />
               Secondaire
             </Badge>
