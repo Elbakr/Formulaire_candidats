@@ -85,7 +85,7 @@ export function MyPlanningClient({
           <div className="inline-flex rounded-md border border-line overflow-hidden text-xs">
             <button
               onClick={() => setView("week")}
-              className={`px-3 py-1.5 font-bold transition-colors inline-flex items-center gap-1 ${
+              className={`px-3 py-1.5 font-bold transition-all active:scale-95 inline-flex items-center gap-1 ${
                 view === "week"
                   ? "bg-gold text-[#1a1a0d]"
                   : "bg-white text-ink-2 hover:bg-surface-2"
@@ -95,7 +95,7 @@ export function MyPlanningClient({
             </button>
             <button
               onClick={() => setView("list")}
-              className={`px-3 py-1.5 font-bold transition-colors inline-flex items-center gap-1 ${
+              className={`px-3 py-1.5 font-bold transition-all active:scale-95 inline-flex items-center gap-1 ${
                 view === "list"
                   ? "bg-gold text-[#1a1a0d]"
                   : "bg-white text-ink-2 hover:bg-surface-2"

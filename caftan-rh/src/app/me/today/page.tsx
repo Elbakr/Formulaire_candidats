@@ -604,7 +604,7 @@ export default async function MyTodayPage() {
               <li key={r.id}>
                 <Link
                   href={`/me/reinforcement/${r.id}`}
-                  className="block p-3 hover:bg-surface-2 transition-colors"
+                  className="block p-3 hover:bg-surface-2 transition-all active:scale-[0.98]"
                 >
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="h-8 w-8 rounded-md bg-gold-light text-gold-dark flex items-center justify-center shrink-0">
@@ -628,7 +628,7 @@ export default async function MyTodayPage() {
               <li key={s.id}>
                 <Link
                   href="/me/swaps"
-                  className="block p-3 hover:bg-surface-2 transition-colors"
+                  className="block p-3 hover:bg-surface-2 transition-all active:scale-[0.98]"
                 >
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="h-8 w-8 rounded-md bg-info-light text-info flex items-center justify-center shrink-0">
@@ -656,7 +656,7 @@ export default async function MyTodayPage() {
               <li key={a.id}>
                 <Link
                   href="/me/absence"
-                  className="block p-3 hover:bg-surface-2 transition-colors"
+                  className="block p-3 hover:bg-surface-2 transition-all active:scale-[0.98]"
                 >
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="h-8 w-8 rounded-md bg-danger-light text-danger flex items-center justify-center shrink-0">
@@ -815,7 +815,7 @@ export default async function MyTodayPage() {
                 <li key={b.id}>
                   <Link
                     href="/me/my-bonus"
-                    className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors"
+                    className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-all active:scale-[0.98]"
                   >
                     <div className="h-8 w-8 rounded-md bg-gold-light text-gold-dark flex items-center justify-center shrink-0">
                       <Trophy className="h-4 w-4" />
@@ -902,7 +902,7 @@ function TodoItem({
     <li>
       <Link
         href={href}
-        className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-colors text-sm"
+        className="flex items-center gap-3 p-3 hover:bg-surface-2 transition-all active:scale-[0.98] text-sm"
       >
         <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
         <span className="flex-1 min-w-0">{label}</span>

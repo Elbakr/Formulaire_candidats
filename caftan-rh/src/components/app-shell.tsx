@@ -243,7 +243,7 @@ export function AppShell({
             // Desktop: in-flow sticky sidebar
             "md:w-[240px] md:sticky md:top-[calc(env(safe-area-inset-top)+49px)] md:h-[calc(100dvh-49px-env(safe-area-inset-top))] md:translate-x-0 md:block",
             // Mobile: off-canvas drawer
-            "fixed top-[calc(env(safe-area-inset-top)+49px)] left-0 bottom-0 w-[280px] z-40 transition-transform duration-200 ease-out",
+            "fixed top-[calc(env(safe-area-inset-top)+49px)] left-0 bottom-0 w-[min(85vw,300px)] z-40 transition-transform duration-200 ease-out",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >

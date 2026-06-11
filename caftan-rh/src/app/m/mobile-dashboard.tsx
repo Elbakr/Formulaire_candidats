@@ -74,14 +74,14 @@ export function MobileDashboard({ profileName, widgets, data, sites, prefs }: Pr
               type="button"
               onClick={() => router.refresh()}
               disabled={pending}
-              className="p-2 rounded-full hover:bg-line active:bg-line/80"
+              className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full hover:bg-line active:bg-line/80 active:scale-95 transition-transform"
             >
               {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             </button>
             <button
               type="button"
               onClick={() => setShowCustomizer(true)}
-              className="p-2 rounded-full hover:bg-line active:bg-line/80"
+              className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full hover:bg-line active:bg-line/80 active:scale-95 transition-transform"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -94,7 +94,7 @@ export function MobileDashboard({ profileName, widgets, data, sites, prefs }: Pr
             <button
               key={p}
               onClick={() => updatePeriod(p)}
-              className={`px-3 py-1 text-[11px] rounded-full font-semibold whitespace-nowrap ${
+              className={`px-3 py-2 min-h-[44px] text-[11px] rounded-full font-semibold whitespace-nowrap active:scale-95 transition-transform ${
                 period === p ? "bg-foreground text-background" : "bg-muted text-ink-2"
               }`}
             >
@@ -104,7 +104,7 @@ export function MobileDashboard({ profileName, widgets, data, sites, prefs }: Pr
           <span className="text-ink-3 text-[10px] mx-1">·</span>
           <button
             onClick={() => updateSiteFilter(null)}
-            className={`px-3 py-1 text-[11px] rounded-full font-semibold whitespace-nowrap ${
+            className={`px-3 py-2 min-h-[44px] text-[11px] rounded-full font-semibold whitespace-nowrap active:scale-95 transition-transform ${
               !siteFilter ? "bg-foreground text-background" : "bg-muted text-ink-2"
             }`}
           >
@@ -114,7 +114,7 @@ export function MobileDashboard({ profileName, widgets, data, sites, prefs }: Pr
             <button
               key={s.id}
               onClick={() => updateSiteFilter(s.id)}
-              className={`px-3 py-1 text-[11px] rounded-full font-semibold whitespace-nowrap ${
+              className={`px-3 py-2 min-h-[44px] text-[11px] rounded-full font-semibold whitespace-nowrap active:scale-95 transition-transform ${
                 siteFilter === s.id ? "bg-foreground text-background" : "bg-muted text-ink-2"
               }`}
             >
@@ -263,14 +263,14 @@ function QuickActions() {
     { label: "Paramètres", href: "/admin/settings", icon: "Settings" },
   ];
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-2 gap-3">
       {actions.map((a) => {
         const Icon = ICONS[a.icon] ?? Settings;
         return (
           <Link
             key={a.href}
             href={a.href}
-            className="flex items-center gap-2 p-2.5 rounded-xl bg-muted/40 hover:bg-muted active:bg-muted/80 text-xs font-medium"
+            className="flex items-center gap-2 p-2.5 min-h-[44px] rounded-xl bg-muted/40 hover:bg-muted active:bg-muted/80 active:scale-[0.98] transition-transform text-xs font-medium"
           >
             <Icon className="w-3.5 h-3.5 text-gold flex-shrink-0" />
             <span className="truncate">{a.label}</span>
@@ -328,7 +328,7 @@ function TerminationsPending({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="space-y-1.5">
       {list.map((t) => (
-        <Link key={t.id} href={`/planning/employees`} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-xs">
+        <Link key={t.id} href={`/planning/employees`} className="flex items-center justify-between gap-2 p-2 min-h-[44px] rounded-lg bg-amber-50 dark:bg-amber-900/20 active:scale-[0.98] transition-transform text-xs">
           <span className="font-medium">{t.employee?.full_name ?? "—"}</span>
           <span className="text-[10px] text-ink-3">min {t.earliest_effective_date}</span>
         </Link>
@@ -350,7 +350,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 
 function AlertLine({ label, value, href }: { label: string; value: number; href: string }) {
   return (
-    <Link href={href} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/40 active:bg-muted text-xs">
+    <Link href={href} className="flex items-center justify-between gap-2 p-2 min-h-[44px] rounded-lg bg-muted/40 active:bg-muted active:scale-[0.98] transition-transform text-xs">
       <span className="truncate">{label}</span>
       <span className={`font-bold tabular-nums ${value > 0 ? "text-red-600" : "text-ink-3"}`}>{value}</span>
     </Link>
@@ -412,7 +412,7 @@ function Customizer({ prefs, onClose }: { prefs: UserPrefs; onClose: () => void 
             <h2 className="font-bold text-sm">Personnaliser</h2>
             <p className="text-[10px] text-ink-3">Active/ordonne les blocs visibles</p>
           </div>
-          <button onClick={onClose} className="text-xs px-3 py-1 rounded-full bg-muted">Annuler</button>
+          <button onClick={onClose} className="text-xs px-3 py-2 min-h-[44px] rounded-full bg-muted active:scale-95 transition-transform">Annuler</button>
         </div>
 
         <div className="p-3 space-y-2">
@@ -440,7 +440,7 @@ function Customizer({ prefs, onClose }: { prefs: UserPrefs; onClose: () => void 
           <button
             onClick={save}
             disabled={pending}
-            className="w-full bg-foreground text-background font-semibold py-3 rounded-xl text-sm disabled:opacity-50"
+            className="w-full bg-foreground text-background font-semibold py-3 min-h-[44px] rounded-xl text-sm disabled:opacity-50 active:scale-[0.98] transition-transform"
           >
             {pending ? "Enregistrement…" : "Enregistrer"}
           </button>
