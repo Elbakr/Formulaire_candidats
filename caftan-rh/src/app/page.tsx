@@ -6,7 +6,10 @@ import { ArrowRight, Briefcase, Users, MessageSquare, CalendarDays } from "lucid
 export default function HomePage() {
   return (
     <main className="flex-1">
-      <header className="sticky top-0 z-30 border-b border-line bg-ink/95 backdrop-blur-xl text-white">
+      {/* Karim 2026-06-12 : pt-safe/px-safe — sur iPhone (viewport-fit=cover) le
+          header passait sous la barre d'etat (heure/reseau) et le bouton
+          "Se connecter" devenait non cliquable. On reserve la safe-area. */}
+      <header className="sticky top-0 z-30 border-b border-line bg-ink/95 backdrop-blur-xl text-white pt-safe px-safe">
         <div className="mx-auto max-w-6xl flex items-center justify-between px-5 py-3">
           <div className="text-gold font-bold uppercase tracking-[0.1em] text-xs">{BRAND.name}</div>
           <nav className="flex items-center gap-2">
