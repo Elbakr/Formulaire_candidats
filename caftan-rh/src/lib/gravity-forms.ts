@@ -264,14 +264,27 @@ export async function syncGravityForms(
   const { data: emailExistingRaw } = await (
     supabase.from("candidates") as unknown as {
       select: (sel: string) => {
-        in: (col: string, vals: string[]) => Promise<{ data: { id: string; email: string }[] | null; error: { message: string } | null }>;
+        in: (col: string, vals: string[]) => Promise<{ data: { id: string; email: string; applied_at: string | null }[] | null; error: { message: string } | null }>;
       };
     }
   )
-    .select("id, email")
+    .select("id, email, applied_at")
     .in("email", emails);
   const emailToCandidateId = new Map<string, string>();
   for (const r of (emailExistingRaw ?? [])) emailToCandidateId.set(r.email.toLowerCase(), r.id);
+
+  // Karim 2026-06-12 : FIX FLOOD applications. Avant, chaque sync re-inserait une
+  // application pour tout gf_entry dont l'id != celui stocke sur le candidat. Un
+  // candidat avec N soumissions historiques re-creait N-1 applications A CHAQUE
+  // sync (1583/jour observe le 12/06). Correctif : derniere date de candidature
+  // connue par candidat -> on ne trace une re-candidature que si la nouvelle
+  // soumission est STRICTEMENT plus recente (cf. boucle path A). Idempotent.
+  const ts = (v: string | null | undefined): number => {
+    const t = v ? Date.parse(String(v)) : NaN;
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const lastSeenByCandidate = new Map<string, number>();
+  for (const r of (emailExistingRaw ?? [])) lastSeenByCandidate.set(r.id, ts(r.applied_at));
 
   // Separe en : (a) re-candidatures (email existe) - on update + add application
   //           (b) nouveaux candidats - on insere
@@ -300,8 +313,19 @@ export async function syncGravityForms(
     stats.errors.push(`${overflowToUpdate.length} re-candidature(s) in-batch (meme email plusieurs fois) — traitees en update apres insert`);
   }
 
-  // Update re-candidatures (path A)
-  for (const { candidateId, mapped: m } of toUpdate) {
+  // Update re-candidatures (path A) — traite du plus ancien au plus recent pour
+  // que lastSeenByCandidate avance correctement et qu'on n'ecrase pas des donnees
+  // recentes par des anciennes.
+  const sortedUpdate = [...toUpdate].sort((a, b) => ts(a.mapped.applied_at) - ts(b.mapped.applied_at));
+  for (const { candidateId, mapped: m } of sortedUpdate) {
+    // Garde anti-flood : ignore les re-apparitions d'anciennes soumissions
+    // (deja tracees). On ne (re)traite que les soumissions reellement nouvelles.
+    const prevSeen = lastSeenByCandidate.get(candidateId) ?? 0;
+    const curSeen = ts(m.applied_at);
+    if (curSeen <= prevSeen) {
+      stats.skipped_existing += 1;
+      continue;
+    }
     type UpdateClient = {
       update: (vals: Record<string, unknown>) => {
         eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
@@ -332,6 +356,7 @@ export async function syncGravityForms(
         insert: (rows: unknown[]) => Promise<{ error: { message: string } | null }>;
       }).insert([{ candidate_id: candidateId, job_id: null, status: "new", motivation: m.motivation }]);
     } catch {/* non bloquant */}
+    lastSeenByCandidate.set(candidateId, curSeen); // anti-flood : cette soumission est desormais "vue"
     stats.created += 1;
   }
 
