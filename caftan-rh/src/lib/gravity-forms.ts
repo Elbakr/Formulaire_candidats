@@ -334,8 +334,10 @@ export async function syncGravityForms(
     const { error: upErr } = await (supabase.from("candidates") as unknown as UpdateClient)
       // Karim 2026-06-04 : NE PAS update source - violerait uniq_candidates_gf_email
       // si existing source=manual et autre row gravity_forms du meme email.
+      // Karim 2026-06-12 : NE PAS update gf_entry_id non plus — la nouvelle valeur
+      // peut deja appartenir a une autre fiche (uniq_candidates_gf_entry). L'anti-flood
+      // repose desormais sur applied_at, gf_entry_id n'a plus besoin d'etre reaffecte.
       .update({
-        gf_entry_id: m.gf_entry_id,
         applied_at: m.applied_at,
         cv_url: m.cv_url,
         phone: m.phone,
@@ -397,7 +399,10 @@ export async function syncGravityForms(
     raw_payload: m.raw_payload,
     gf_full_payload: m.gf_full_payload,
     applied_at: m.applied_at,
-    motivation: m.motivation,
+    // Karim 2026-06-12 : PAS de `motivation` ici — cette colonne n'existe que sur
+    // `applications`, pas sur `candidates`. L'inclure faisait echouer TOUT insert
+    // de nouveau candidat (batch + fallback per-row) -> nouveaux candidats perdus.
+    // La motivation est posee sur l'application plus bas (appRows).
     cv_url: m.cv_url,
   }));
 
