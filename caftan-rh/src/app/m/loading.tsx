@@ -2,7 +2,7 @@
 // widgets du dashboard mobile chargent (AVANT : ecran blanc 3-6s).
 export default function Loading() {
   return (
-    <div className="space-y-3 p-4 animate-pulse" aria-hidden="true">
+    <div style={{ colorScheme: "light" }} className="min-h-screen bg-canvas space-y-3 p-4 animate-pulse" aria-hidden="true">
       {/* barre filtres periode/site */}
       <div className="flex gap-2">
         <div className="h-7 w-16 rounded-full bg-surface-2" />
