@@ -545,6 +545,7 @@ const FR = {
   "apply.title": "Postuler",
   "apply.title_spontaneous": "Candidature spontanée",
   "apply.subtitle": "Quelques minutes suffisent. Tes données restent confidentielles (RGPD).",
+  "apply.error.min_age": "Tu dois avoir au moins 17 ans pour postuler.",
   "apply.gate.title": "Crée ton compte pour voir le détail",
   "apply.gate.body": "Pour lire le détail complet de l'offre et postuler, identifie-toi en 30 secondes. C'est gratuit et sans mot de passe.",
   "apply.gate.cta": "Continuer avec mon email",
@@ -1222,6 +1223,7 @@ const NL: Record<TranslationKey, string> = {
   "apply.title_spontaneous": "Open sollicitatie",
   "apply.subtitle":
     "Een paar minuten volstaan. Je gegevens blijven vertrouwelijk (GDPR).",
+  "apply.error.min_age": "Je moet minstens 17 jaar zijn om te solliciteren.",
   "apply.gate.title": "Maak je account om de details te zien",
   "apply.gate.body": "Om de volledige vacature te lezen en te solliciteren, identificeer je je in 30 seconden. Gratis en zonder wachtwoord.",
   "apply.gate.cta": "Verdergaan met mijn e-mail",

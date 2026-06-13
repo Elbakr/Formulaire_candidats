@@ -97,6 +97,18 @@ export async function submitPublicApplication(formData: FormData) {
     return { error: t("apply.consent_required", locale) };
   }
 
+  // Karim 2026-06-13 : âge minimum 17 ans (anti-contournement du `max` HTML).
+  if (birthDate) {
+    const bd = new Date(birthDate);
+    if (!Number.isNaN(bd.getTime())) {
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 17);
+      if (bd > cutoff) {
+        return { error: t("apply.error.min_age", locale) };
+      }
+    }
+  }
+
   let phone: string | null = null;
   if (phoneRaw) {
     const r = validateBelgianPhone(phoneRaw);

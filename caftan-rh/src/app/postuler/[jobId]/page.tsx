@@ -67,11 +67,26 @@ export default async function PostulerJobPage(
       .select("full_name, email")
       .eq("id", user.id)
       .maybeSingle();
-    const parts = (prof?.full_name ?? "").trim().split(/\s+/);
+    let fullName = (prof?.full_name ?? "").trim();
+    let email = prof?.email ?? user.email ?? "";
+    // Fallback : si le compte n'a pas de nom, on reprend la dernière fiche
+    // candidat rattachée (process léger : le candidat ne re-saisit rien).
+    if (!fullName || !email) {
+      const { data: lastCand } = await supabase
+        .from("candidates")
+        .select("full_name, email")
+        .eq("profile_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!fullName) fullName = (lastCand?.full_name ?? "").trim();
+      if (!email) email = lastCand?.email ?? "";
+    }
+    const parts = fullName.split(/\s+/).filter(Boolean);
     prefill = {
       firstname: parts[0] ?? "",
       lastname: parts.slice(1).join(" "),
-      email: prof?.email ?? user.email ?? "",
+      email,
     };
   }
 

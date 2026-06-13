@@ -13,6 +13,10 @@ export function CandidateLoginForm({ next }: { next: string }) {
 
   function submit() {
     setErr(null);
+    if (fullName.trim().length < 2) {
+      setErr("Indique ton prénom et nom.");
+      return;
+    }
     if (!/.+@.+\..+/.test(email.trim())) {
       setErr("Entre une adresse email valide.");
       return;

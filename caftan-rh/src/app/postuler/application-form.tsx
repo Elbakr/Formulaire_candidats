@@ -129,6 +129,15 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
   const [motivation, setMotivation] = useState<string>("");
   const [consent, setConsent] = useState<boolean>(false);
 
+  // Karim 2026-06-13 : âge minimum 17 ans. La date de naissance proposée par
+  // défaut ET la date maximale sélectionnable = aujourd'hui − 17 ans (on ne
+  // peut donc pas choisir plus jeune que 17 ans).
+  const maxBirthDate = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 17);
+    return d.toISOString().split("T")[0];
+  }, []);
+
   // Validation feedback (live) — non bloquant tant que possible.
   const [phoneVal, setPhoneVal] = useState<string>("");
   const [postcodeVal, setPostcodeVal] = useState<string>("");
@@ -294,7 +303,7 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
             />
           </Field>
           <Field label={t("apply.birth_date", locale)}>
-            <Input name="birth_date" type="date" autoComplete="bday" />
+            <Input name="birth_date" type="date" autoComplete="bday" max={maxBirthDate} defaultValue={maxBirthDate} />
           </Field>
           <Field label={t("apply.gender", locale)}>
             <div className="flex flex-wrap gap-1.5 mt-1.5">
