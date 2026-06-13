@@ -107,7 +107,9 @@ export async function updateSession(request: NextRequest) {
 
   if (!user && !isPublic(pathname)) {
     const next = request.nextUrl.clone();
-    next.pathname = "/login";
+    // Karim 2026-06-13 (Phase 1) : les routes candidat ont leur propre login
+    // (lien magique), pas le login staff (mot de passe).
+    next.pathname = pathname.startsWith("/candidat") ? "/candidat/login" : "/login";
     next.searchParams.set("next", pathname);
     return NextResponse.redirect(next);
   }
