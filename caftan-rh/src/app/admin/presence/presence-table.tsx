@@ -171,66 +171,16 @@ export function PresenceLiveTable({
           </div>
           <ul className="divide-y divide-line">
             {list.map((p) => (
-              <li
+              <PresenceRow
                 key={p.employee_id}
-                className="p-3 flex items-center gap-3 text-sm"
-              >
-                <SelfieThumb
-                  storagePath={p.selfie_storage_path ?? null}
-                  fullName={p.full_name}
-                />
-                <div className="flex-1 min-w-0">
-                  <Link
-                    href={`/planning/employees/${p.employee_id}/prestations?view=week`}
-                    className="font-bold text-sm text-blue-700 hover:underline truncate block"
-                    title="Voir prestations jour/semaine/mois"
-                  >
-                    {p.full_name}
-                  </Link>
-                  <div className="text-xs text-ink-3 tabular-nums">
-                    Depuis{" "}
-                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    · {elapsed(p.clock_in_at, now)}
-                  </div>
-                </div>
-                <Button asChild variant="ghost" size="sm" title="Voir prestations">
-                  <Link href={`/planning/employees/${p.employee_id}/prestations?view=week`}>
-                    <Activity className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSiteOpen(p)}
-                  disabled={pending}
-                  title="Changer de site (terminal partagé A/B/D)"
-                >
-                  <MapPin className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setOverrideOpen(p)}
-                  disabled={pending}
-                  title="Override (corriger)"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleForceOut(p)}
-                  disabled={pending}
-                  className="shrink-0"
-                  title="Forcer le clock-out"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Sortir</span>
-                </Button>
-              </li>
+                p={p}
+                now={now}
+                pending={pending}
+                showSiteButton
+                onSite={setSiteOpen}
+                onOverride={setOverrideOpen}
+                onForceOut={handleForceOut}
+              />
             ))}
           </ul>
         </Card>
@@ -247,56 +197,14 @@ export function PresenceLiveTable({
           </div>
           <ul className="divide-y divide-line">
             {noSite.map((p) => (
-              <li
+              <PresenceRow
                 key={p.employee_id}
-                className="p-3 flex items-center gap-3 text-sm"
-              >
-                <SelfieThumb
-                  storagePath={p.selfie_storage_path ?? null}
-                  fullName={p.full_name}
-                />
-                <div className="flex-1 min-w-0">
-                  <Link
-                    href={`/planning/employees/${p.employee_id}/prestations?view=week`}
-                    className="font-bold text-sm text-blue-700 hover:underline truncate block"
-                    title="Voir prestations jour/semaine/mois"
-                  >
-                    {p.full_name}
-                  </Link>
-                  <div className="text-xs text-ink-3 tabular-nums">
-                    Depuis{" "}
-                    {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    · {elapsed(p.clock_in_at, now)}
-                  </div>
-                </div>
-                <Button asChild variant="ghost" size="sm" title="Voir prestations">
-                  <Link href={`/planning/employees/${p.employee_id}/prestations?view=week`}>
-                    <Activity className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setOverrideOpen(p)}
-                  disabled={pending}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleForceOut(p)}
-                  disabled={pending}
-                  className="shrink-0"
-                  title="Forcer le clock-out"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Sortir</span>
-                </Button>
-              </li>
+                p={p}
+                now={now}
+                pending={pending}
+                onOverride={setOverrideOpen}
+                onForceOut={handleForceOut}
+              />
             ))}
           </ul>
         </Card>
@@ -361,6 +269,96 @@ export function PresenceLiveTable({
         }}
       />
     </>
+  );
+}
+
+/**
+ * Une ligne "présent". Karim 2026-06-13 : layout responsive — sur mobile, les
+ * actions passent sur une 2e ligne (alignées à droite) et les cibles tactiles
+ * sont agrandies (>= 44px) ; sur >= sm on garde la ligne unique compacte.
+ */
+function PresenceRow({
+  p,
+  now,
+  pending,
+  showSiteButton = false,
+  onSite,
+  onOverride,
+  onForceOut,
+}: {
+  p: Person;
+  now: number;
+  pending: boolean;
+  showSiteButton?: boolean;
+  onSite?: (p: Person) => void;
+  onOverride: (p: Person) => void;
+  onForceOut: (p: Person) => void;
+}) {
+  const href = `/planning/employees/${p.employee_id}/prestations?view=week`;
+  return (
+    <li className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 text-sm">
+      <div className="flex items-center gap-3 min-w-0 w-full">
+        <SelfieThumb storagePath={p.selfie_storage_path ?? null} fullName={p.full_name} />
+        <div className="flex-1 min-w-0">
+          <Link
+            href={href}
+            className="font-bold text-sm text-blue-700 hover:underline truncate block"
+            title="Voir prestations jour/semaine/mois"
+          >
+            {p.full_name}
+          </Link>
+          <div className="text-xs text-ink-3 tabular-nums">
+            Depuis{" "}
+            {new Date(p.clock_in_at).toLocaleTimeString("fr-BE", {
+              timeZone: "Europe/Brussels",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}{" "}
+            · {elapsed(p.clock_in_at, now)}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 justify-end shrink-0">
+        <Button asChild variant="ghost" size="sm" className="h-11 w-11 sm:h-8 sm:w-8" title="Voir prestations">
+          <Link href={href}>
+            <Activity className="h-4 w-4" />
+          </Link>
+        </Button>
+        {showSiteButton && onSite ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-11 w-11 sm:h-8 sm:w-8"
+            onClick={() => onSite(p)}
+            disabled={pending}
+            title="Changer de site (terminal partagé A/B/D)"
+          >
+            <MapPin className="h-4 w-4" />
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-11 w-11 sm:h-8 sm:w-8"
+          onClick={() => onOverride(p)}
+          disabled={pending}
+          title="Override (corriger)"
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-11 sm:h-8 shrink-0"
+          onClick={() => onForceOut(p)}
+          disabled={pending}
+          title="Forcer le clock-out"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="hidden sm:inline">Sortir</span>
+        </Button>
+      </div>
+    </li>
   );
 }
 

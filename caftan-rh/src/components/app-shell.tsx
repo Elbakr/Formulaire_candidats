@@ -34,6 +34,8 @@ import { CityToggle } from "./city-toggle";
 import { ViewerRoleProvider } from "./user-role-context";
 import { ShiftUndoProvider } from "./shift-undo-provider";
 import { CommandPalette } from "./command-palette";
+import { MobileTabBar } from "./mobile-tab-bar";
+import { getMobileTabs } from "@/lib/navigation";
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
@@ -124,6 +126,8 @@ export function AppShell({
   const pathname = usePathname();
   const displayName = user.full_name ?? user.email;
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Karim 2026-06-13 : onglets de la barre mobile (bas d'écran), selon le rôle.
+  const mobileTabs = useMemo(() => getMobileTabs(user.role), [user.role]);
 
   // Détermine les groupes à afficher : `groups` prioritaire, sinon conversion
   // depuis le legacy `sections`. Force `items` à un array meme si un caller
@@ -329,8 +333,14 @@ export function AppShell({
           })}
         </aside>
 
-        <main className="flex-1 overflow-x-hidden p-3 sm:p-4 md:p-6 w-full min-w-0 pb-safe">{children}</main>
+        {/* Padding bas mobile : laisse la place à la barre d'onglets (~64px + safe-area). */}
+        <main className="flex-1 overflow-x-hidden p-3 sm:p-4 md:p-6 w-full min-w-0 pb-[calc(64px+env(safe-area-inset-bottom))] md:pb-6">{children}</main>
       </div>
+
+      {/* Barre d'onglets mobile (masquée >= md). Cachée quand le menu complet est ouvert. */}
+      {!mobileOpen ? (
+        <MobileTabBar tabs={mobileTabs} onMore={() => setMobileOpen(true)} />
+      ) : null}
     </div>
     </ShiftUndoProvider>
     </ViewerRoleProvider>

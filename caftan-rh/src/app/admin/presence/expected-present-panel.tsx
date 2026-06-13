@@ -64,7 +64,7 @@ export function ExpectedPresentPanel({ expected }: { expected: Expected[] }) {
         {expected.map((e) => {
           const isConfirming = confirmingId === e.employee_id;
           return (
-            <li key={e.employee_id} className="p-2 flex items-center gap-2 text-sm hover:bg-surface-2/40">
+            <li key={e.employee_id} className="p-3 flex items-center gap-2 text-sm hover:bg-surface-2/40">
               <div className="flex-1 min-w-0">
                 <Link
                   href={`/planning/employees/${e.employee_id}/prestations?view=week`}
@@ -83,7 +83,7 @@ export function ExpectedPresentPanel({ expected }: { expected: Expected[] }) {
                 size="sm"
                 onClick={() => handleMarkPresent(e)}
                 disabled={pending}
-                className={isConfirming ? "bg-success hover:bg-success/90 text-white" : ""}
+                className={`h-11 sm:h-8 shrink-0 ${isConfirming ? "bg-success hover:bg-success/90 text-white" : ""}`}
               >
                 <UserCheck className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline ml-1">

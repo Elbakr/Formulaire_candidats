@@ -47,6 +47,44 @@ function isAdmin(role: Role): boolean {
   return role === "admin";
 }
 
+// ────────────────────────────────────────────────────────────────
+// Karim 2026-06-13 : onglets de la barre de navigation MOBILE (bas
+// d'écran, < md). 4 raccourcis essentiels + "Plus" qui rouvre le menu
+// complet (drawer). Role-aware. Les icônes sont des noms lucide résolus
+// dans `mobile-tab-bar.tsx`.
+// ────────────────────────────────────────────────────────────────
+export type MobileTab = {
+  href?: string;
+  label: string;
+  icon: string;
+  /** Onglet "Plus" : ouvre le menu complet au lieu de naviguer. */
+  more?: boolean;
+};
+
+export function getMobileTabs(role: Role): MobileTab[] {
+  if (!isPro(role)) {
+    // Employé / candidate
+    return [
+      { href: "/me", label: "Accueil", icon: "Home" },
+      { href: "/me/planning", label: "Planning", icon: "CalendarDays" },
+      { href: "/me/clock", label: "Pointage", icon: "Clock" },
+      { href: "/chat", label: "Messages", icon: "MessageSquare" },
+      { label: "Plus", icon: "Menu", more: true },
+    ];
+  }
+  // admin / rh / manager
+  const pointage: MobileTab = isHR(role)
+    ? { href: "/admin/presence", label: "Pointage", icon: "Clock" }
+    : { href: "/planning/employees", label: "Équipe", icon: "UserCheck" };
+  return [
+    { href: "/m", label: "Accueil", icon: "Home" },
+    { href: "/planning/calendar", label: "Planning", icon: "CalendarDays" },
+    { href: "/rh/hub", label: "RH", icon: "Briefcase" },
+    pointage,
+    { label: "Plus", icon: "Menu", more: true },
+  ];
+}
+
 /**
  * Construit la nav principale pour un rôle donné.
  *
