@@ -74,9 +74,18 @@ export async function updateSession(request: NextRequest) {
           request.cookies.set(name, value),
         );
         response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options),
-        );
+        cookiesToSet.forEach(({ name, value, options }) => {
+          // Karim 2026-06-13 : force une longue duree de vie sur les cookies
+          // d'auth Supabase (sb-*) pour qu'ils SURVIVENT a la fermeture de la
+          // PWA iOS. Sinon ils sont traites comme cookies de session, effaces a
+          // la fermeture -> re-login a chaque reouverture. Le refresh_token
+          // restant valide, la session est conservee tant qu'on ne se deconnecte
+          // pas manuellement.
+          const opts = name.startsWith("sb-")
+            ? { ...options, maxAge: 60 * 60 * 24 * 400 }
+            : options;
+          response.cookies.set(name, value, opts);
+        });
       },
     },
   });
