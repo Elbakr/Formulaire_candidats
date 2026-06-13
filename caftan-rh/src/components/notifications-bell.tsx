@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { markAllReadAction, markReadAction } from "@/app/me/notifications/actions";
+import { notifHref } from "@/lib/notif-href";
 
 type Notification = {
   id: string;
@@ -76,7 +77,7 @@ export function NotificationsBell({ userId }: { userId: string }) {
             {items.map((n) => (
               <li key={n.id}>
                 <Link
-                  href={`/me/notifications/${n.id}`}
+                  href={notifHref(n)}
                   onClick={async () => { if (!n.read_at) { await markReadAction(n.id); await refresh(); } }}
                   className={cn(
                     "block px-3 py-2 border-b border-line text-xs hover:bg-surface-2 transition-colors",

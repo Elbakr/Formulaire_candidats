@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { Bell } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { MarkAllReadButton } from "./mark-all-read-button";
-import { formatDateTime } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { NotificationsList } from "./notifications-list";
 import { getLocale } from "@/lib/locale-server";
 import { t } from "@/lib/i18n";
 
@@ -62,37 +60,7 @@ export default async function NotificationsPage() {
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-line">
-            {items.map((n) => (
-              <li key={n.id}>
-                <Link
-                  href={`/me/notifications/${n.id}`}
-                  className={cn(
-                    "block p-3 hover:bg-surface-2 transition-colors",
-                    !n.read_at && "bg-gold-light/30",
-                  )}
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={cn(
-                        "mt-1 h-2 w-2 rounded-full shrink-0",
-                        n.read_at ? "bg-line" : "bg-gold",
-                      )}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-sm">{n.title}</div>
-                      {n.body ? (
-                        <div className="text-xs text-ink-2 mt-0.5">{n.body}</div>
-                      ) : null}
-                      <div className="text-[11px] text-ink-3 mt-1">
-                        {formatDateTime(n.created_at)} · {n.kind}
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <NotificationsList items={items} />
         )}
       </Card>
     </div>
