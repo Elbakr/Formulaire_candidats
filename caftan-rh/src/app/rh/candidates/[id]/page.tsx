@@ -246,7 +246,22 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
               <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {candidate.email}</span>
               {candidate.phone ? <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" /> {candidate.phone}</span> : null}
               {candidate.city ? <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {candidate.city}</span> : null}
-              <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> Reçue le {formatDate(app.created_at)}</span>
+              {/* Karim 2026-06-13 : vraie date + HEURE de soumission du formulaire GF
+                  (candidate.applied_at = date_created Gravity Forms), mise en evidence.
+                  Fallback sur la date d'import si absente. */}
+              <span className="inline-flex items-center gap-1 font-bold text-gold-dark">
+                <Calendar className="h-3 w-3" /> Soumis le{" "}
+                {candidate.applied_at
+                  ? new Date(candidate.applied_at).toLocaleString("fr-BE", {
+                      timeZone: "Europe/Brussels",
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : formatDate(app.created_at)}
+              </span>
             </div>
             {candidate.phone ? (
               <div className="mt-2">
