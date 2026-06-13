@@ -106,9 +106,12 @@ type Props = {
   jobId: string | null;
   locale: Locale;
   sites: Site[];
+  // Karim 2026-06-13 (Phase 1) : pré-remplissage quand le candidat est connecté
+  // (nom/email connus du compte). Champs toujours modifiables.
+  prefill?: { firstname?: string; lastname?: string; email?: string };
 };
 
-export function ApplicationForm({ jobId, locale, sites }: Props) {
+export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
   const [pending, startTransition] = useTransition();
   const [done, setDone] = useState(false);
 
@@ -261,10 +264,10 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
       <Section title={t("apply.section.identity", locale)}>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label={t("apply.firstname", locale)} required>
-            <Input name="firstname" required minLength={1} autoComplete="given-name" />
+            <Input name="firstname" required minLength={1} autoComplete="given-name" defaultValue={prefill?.firstname ?? ""} />
           </Field>
           <Field label={t("apply.lastname", locale)} required>
-            <Input name="lastname" required minLength={1} autoComplete="family-name" />
+            <Input name="lastname" required minLength={1} autoComplete="family-name" defaultValue={prefill?.lastname ?? ""} />
           </Field>
           <Field label={t("apply.email", locale)} required>
             <Input
@@ -273,6 +276,7 @@ export function ApplicationForm({ jobId, locale, sites }: Props) {
               required
               autoComplete="email"
               inputMode="email"
+              defaultValue={prefill?.email ?? ""}
             />
           </Field>
           <Field

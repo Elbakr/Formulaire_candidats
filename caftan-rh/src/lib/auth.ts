@@ -35,7 +35,32 @@ export function roleHome(role: AppRole | string) {
     case "rh":
     case "manager":
       return "/planning/calendar";
+    case "employee":
+      return "/me";
     default:
       return "/me";
   }
+}
+
+// Karim 2026-06-13 (Phase 1 cycle de vie) : resout l'accueil REEL d'un compte.
+// Subtilite : aujourd'hui un employe embauche a encore role='candidate' (le role
+// 'employee' arrive en Phase 2). On distingue donc le vrai candidat (espace
+// /candidat) de l'employe (espace /me) par la PRESENCE d'une ligne `employees`.
+// Appele uniquement aux points de redirection (login, callback, landing) — pas
+// a chaque requete — donc le coût de la requête est négligeable.
+export async function resolveHome(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  role: AppRole | string,
+): Promise<string> {
+  if (role === "admin" || role === "rh" || role === "manager") return "/planning/calendar";
+  if (role === "employee") return "/me";
+  // role 'candidate' : employe (legacy) si une fiche employee existe, sinon candidat.
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("profile_id", userId)
+    .maybeSingle();
+  return emp ? "/me" : "/candidat";
 }

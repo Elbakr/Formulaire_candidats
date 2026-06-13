@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, MapPin } from "lucide-react";
+import { ArrowLeft, MapPin, Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,11 @@ import { LangToggle } from "@/components/lang-toggle";
 import { getLocale } from "@/lib/locale-server";
 import { t } from "@/lib/i18n";
 import type { Site } from "@/lib/sites-shared";
+
+function excerpt(text: string, max = 180): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
 
 type JobRow = {
   id: string;
@@ -49,6 +54,26 @@ export default async function PostulerJobPage(
     .eq("is_active", true)
     .order("sort_order");
   const sites = (sitesData ?? []) as Site[];
+
+  // Karim 2026-06-13 (Phase 1, "point A") : le DÉTAIL d'une offre et la
+  // candidature ne sont accessibles qu'à un candidat IDENTIFIÉ. Déconnecté =>
+  // on montre un teaser + une porte d'inscription (lien magique). Connecté =>
+  // détail complet + formulaire pré-rempli, candidature liée au compte.
+  const { data: { user } } = await supabase.auth.getUser();
+  let prefill: { firstname?: string; lastname?: string; email?: string } | undefined;
+  if (user) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .maybeSingle();
+    const parts = (prof?.full_name ?? "").trim().split(/\s+/);
+    prefill = {
+      firstname: parts[0] ?? "",
+      lastname: parts.slice(1).join(" "),
+      email: prof?.email ?? user.email ?? "",
+    };
+  }
 
   // Si offre demandée et introuvable → message friendly + CTA spontanée.
   if (!isSpontaneous && !job) {
@@ -107,20 +132,46 @@ export default async function PostulerJobPage(
             ) : null}
             {job?.description ? (
               <p className="mt-3 text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
-                {job.description}
+                {user ? job.description : excerpt(job.description)}
               </p>
             ) : null}
-            <p className="mt-3 text-[11px] text-ink-3">
-              {t("apply.subtitle", locale)}
-            </p>
+            {user ? (
+              <p className="mt-3 text-[11px] text-ink-3">
+                {t("apply.subtitle", locale)}
+              </p>
+            ) : null}
           </div>
-          <div className="p-4 md:p-5">
-            <ApplicationForm
-              jobId={isSpontaneous ? null : (job?.id ?? null)}
-              locale={locale}
-              sites={sites}
-            />
-          </div>
+
+          {user ? (
+            <div className="p-4 md:p-5">
+              <ApplicationForm
+                jobId={isSpontaneous ? null : (job?.id ?? null)}
+                locale={locale}
+                sites={sites}
+                prefill={prefill}
+              />
+            </div>
+          ) : (
+            <div className="p-5">
+              <div className="rounded-xl border border-gold/40 bg-gold-light/40 p-5 text-center">
+                <div className="inline-flex h-11 w-11 rounded-full bg-gold text-[#1a1a0d] items-center justify-center mb-3">
+                  <Lock className="h-5 w-5" />
+                </div>
+                <h2 className="text-base font-bold text-ink">
+                  {t("apply.gate.title", locale)}
+                </h2>
+                <p className="text-sm text-ink-2 mt-1">
+                  {t("apply.gate.body", locale)}
+                </p>
+                <Button asChild variant="gold" className="mt-4 w-full sm:w-auto">
+                  <Link href={`/candidat/login?next=${encodeURIComponent(`/postuler/${isSpontaneous ? "spontanee" : (job?.id ?? "spontanee")}`)}`}>
+                    {t("apply.gate.cta", locale)}
+                  </Link>
+                </Button>
+                <p className="text-[11px] text-ink-3 mt-3">{t("apply.gate.note", locale)}</p>
+              </div>
+            </div>
+          )}
         </Card>
       </section>
 

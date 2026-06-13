@@ -13,7 +13,7 @@ export default async function PostulerHomePage() {
         <div className="mx-auto max-w-5xl flex items-center justify-between px-5 py-3">
           <Link href="/" className="text-gold font-bold uppercase tracking-[0.1em] text-xs">{BRAND.name}</Link>
           <Button asChild variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white">
-            <Link href="/login">Se connecter</Link>
+            <Link href="/candidat/login">Mon espace candidat</Link>
           </Button>
         </div>
       </header>

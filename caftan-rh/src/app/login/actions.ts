@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { roleHome } from "@/lib/auth";
+import { resolveHome } from "@/lib/auth";
 
 export async function loginAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
@@ -20,7 +20,7 @@ export async function loginAction(formData: FormData) {
   let dest = next || "/";
   if (user) {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    dest = next || roleHome(profile?.role ?? "candidate");
+    dest = next || (await resolveHome(supabase, user.id, profile?.role ?? "candidate"));
   }
 
   revalidatePath("/", "layout");

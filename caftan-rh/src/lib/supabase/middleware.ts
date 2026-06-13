@@ -8,6 +8,9 @@ const PUBLIC_ROUTES = [
   "/auth",
   "/postuler",
   "/api/postuler",
+  // Karim 2026-06-13 (Phase 1) : connexion candidat par lien magique. La page de
+  // login candidat doit etre publique ; l'espace /candidat lui-meme reste protege.
+  "/candidat/login",
   "/upload",
   "/api/documents/upload",
   // Karim 18/05 : pre-interview accessible au candidat externe (token-protected
@@ -109,14 +112,19 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(next);
   }
 
-  if (user && (pathname === "/login" || pathname === "/signup")) {
+  if (user && (pathname === "/login" || pathname === "/signup" || pathname === "/candidat/login")) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .single();
     const next = request.nextUrl.clone();
-    next.pathname = roleHome((profile as { role?: string } | null)?.role ?? "candidate");
+    next.pathname = await resolveHomeMw(
+      supabase,
+      user.id,
+      (profile as { role?: string } | null)?.role ?? "candidate",
+    );
+    next.search = "";
     return NextResponse.redirect(next);
   }
 
@@ -129,7 +137,29 @@ export function roleHome(role: string) {
     case "rh":
     case "manager":
       return "/planning/calendar";
+    case "employee":
+      return "/me";
     default:
       return "/me";
   }
+}
+
+// Karim 2026-06-13 (Phase 1) : meme logique que resolveHome (lib/auth) mais
+// locale au middleware (evite d'importer du code server-only dans le proxy).
+// Distingue le vrai candidat (-> /candidat) de l'employe encore en role
+// 'candidate' (fiche employees presente -> /me).
+async function resolveHomeMw(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  role: string,
+): Promise<string> {
+  if (role === "admin" || role === "rh" || role === "manager") return "/planning/calendar";
+  if (role === "employee") return "/me";
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("profile_id", userId)
+    .maybeSingle();
+  return emp ? "/me" : "/candidat";
 }

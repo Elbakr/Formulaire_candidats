@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { sendApplicationAcknowledgement } from "@/lib/emails";
 import {
   validateBelgianPhone,
@@ -160,6 +160,17 @@ export async function submitPublicApplication(formData: FormData) {
   const fullName = `${firstname} ${lastname}`.trim();
   const supabase = createAdminClient();
 
+  // Karim 2026-06-13 (Phase 1) : si le candidat est connecté, on rattache la
+  // candidature à son compte (profile_id) — c'est le lien créé par le "point A".
+  let profileId: string | null = null;
+  try {
+    const sessionClient = await createClient();
+    const { data: { user } } = await sessionClient.auth.getUser();
+    profileId = user?.id ?? null;
+  } catch {
+    profileId = null;
+  }
+
   const candidatePayload: Record<string, unknown> = {
     email,
     full_name: fullName,
@@ -176,6 +187,7 @@ export async function submitPublicApplication(formData: FormData) {
     available_from: availableFrom,
     raw_payload: rawPayload,
   };
+  if (profileId) candidatePayload.profile_id = profileId;
   if (weeklyHours) {
     // Free-form text col `work_time_pref` to keep "20h" / "38h" intent.
     candidatePayload.work_time_pref = `${weeklyHours}h/sem`;
@@ -188,6 +200,21 @@ export async function submitPublicApplication(formData: FormData) {
     .single();
   if (candErr || !cand) {
     return { error: candErr?.message ?? t("apply.error.generic", locale) };
+  }
+
+  // Karim 2026-06-13 (Phase 1) : rattachement non destructif des candidats
+  // déjà importés (ex. Gravity Forms) portant le même email mais sans compte —
+  // ils apparaîtront dans l'espace "Mes candidatures" du candidat connecté.
+  if (profileId) {
+    try {
+      await supabase
+        .from("candidates")
+        .update({ profile_id: profileId })
+        .eq("email", email)
+        .is("profile_id", null);
+    } catch {
+      /* best-effort */
+    }
   }
 
   // ─── 5. Insert application ──────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/config";
 import { ArrowRight, Briefcase, Users, MessageSquare, CalendarDays } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { roleHome } from "@/lib/supabase/middleware";
+import { resolveHome } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export default async function HomePage() {
       .select("role")
       .eq("id", user.id)
       .single();
-    redirect(roleHome((profile as { role?: string } | null)?.role ?? "candidate"));
+    redirect(await resolveHome(supabase, user.id, (profile as { role?: string } | null)?.role ?? "candidate"));
   }
 
   return (

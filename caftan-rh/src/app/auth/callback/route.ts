@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { roleHome } from "@/lib/auth";
+import { resolveHome } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-        return NextResponse.redirect(`${origin}${next || roleHome(profile?.role ?? "candidate")}`);
+        const dest = next || (await resolveHome(supabase, user.id, profile?.role ?? "candidate"));
+        return NextResponse.redirect(`${origin}${dest}`);
       }
       return NextResponse.redirect(`${origin}${next}`);
     }
