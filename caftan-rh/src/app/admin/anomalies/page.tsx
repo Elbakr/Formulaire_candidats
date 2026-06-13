@@ -153,7 +153,7 @@ export default async function AdminAnomaliesPage(props: { searchParams: Promise<
 
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Anomalies</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Anomalies</h1>
           <p className="text-sm text-ink-2">
             Scan quotidien automatique. {openCritical ?? 0} critique(s), {openWarning ?? 0} warning(s) ouverte(s).
           </p>
@@ -214,7 +214,7 @@ export default async function AdminAnomaliesPage(props: { searchParams: Promise<
                   ? `/rh/candidates/${row.target_id}`
                   : null;
               return (
-                <li key={row.id} className="p-3 flex items-start gap-3">
+                <li key={row.id} className="p-3 flex flex-wrap items-start gap-2">
                   <div
                     className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 ${sev.cls}`}
                   >
@@ -246,7 +246,7 @@ export default async function AdminAnomaliesPage(props: { searchParams: Promise<
                       {row.resolved_reason ? ` · résolution : ${row.resolved_reason}` : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 ml-auto">
                     {detailHref ? (
                       <Button asChild variant="outline" size="sm">
                         <Link href={detailHref}>
