@@ -399,6 +399,14 @@ export async function syncTerminationDocusealAction(
     })
     .eq("id", terminationId);
 
+  // Karim 2026-06-13 (Phase 3) : rupture pleinement signée par les 2 parties
+  // (décision/signature humaine faite) -> clôture automatisée de l'emploi
+  // (archive à la date effective + Dimona OUT préparée + coupe accès + notice).
+  try {
+    const { closeEmployment } = await import("@/lib/employment-lifecycle");
+    await closeEmployment(admin, t.employee_id, t.effective_date, "termination", { sendNotice: true });
+  } catch { /* best-effort */ }
+
   // Notifs + mail HR + mail employee + audit (replique du webhook)
   try {
     const { data: emp } = await admin.from("employees").select("full_name, email").eq("id", t.employee_id).maybeSingle();

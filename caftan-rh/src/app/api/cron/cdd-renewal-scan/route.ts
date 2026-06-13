@@ -116,11 +116,34 @@ export async function GET(request: NextRequest) {
     console.error("prepareRenewalNotices:", e);
   }
 
+  // Karim 2026-06-13 (Phase 3) : clôture d'emploi automatisée. Les employés
+  // ACTIFS dont la date de fin de contrat est passée (CDD/Étudiant non renouvelés)
+  // sont archivés : archive + Dimona OUT préparée + coupe accès + notice de fin.
+  // Idempotent (closeEmployment dédup tout). Greffé ici (cron déjà planifié 5h)
+  // pour ne pas modifier le workflow GitHub Actions.
+  let closed = 0;
+  try {
+    const { closeEmployment } = await import("@/lib/employment-lifecycle");
+    const { data: past } = await admin
+      .from("employees")
+      .select("id, end_date")
+      .eq("status", "active")
+      .not("end_date", "is", null)
+      .lt("end_date", todayISO);
+    for (const e of ((past ?? []) as Array<{ id: string; end_date: string | null }>)) {
+      const r = await closeEmployment(admin, e.id, e.end_date ?? todayISO, "cron_end_date");
+      if (r.archived) closed += 1;
+    }
+  } catch (e) {
+    console.error("employment-lifecycle close:", e);
+  }
+
   return NextResponse.json({
     ok: true,
     scanned: empArr.length,
     created: created.length,
     skipped: skipped.length,
     pre_notices_prepared: preNoticesCreated,
+    employments_closed: closed,
   });
 }

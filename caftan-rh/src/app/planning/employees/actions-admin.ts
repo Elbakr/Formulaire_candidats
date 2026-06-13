@@ -116,6 +116,15 @@ export async function reactivateEmployeeAction(
     .update({ status: "active", end_date: null })
     .eq("id", employeeId);
   if (error) return { error: error.message };
+
+  // Karim 2026-06-13 (Phase 3) : lève le ban posé à la clôture (réouvre l'accès).
+  try {
+    const admin = createAdminClient();
+    const { data: emp } = await admin.from("employees").select("profile_id").eq("id", employeeId).maybeSingle();
+    const pid = (emp as { profile_id?: string | null } | null)?.profile_id;
+    if (pid) await admin.auth.admin.updateUserById(pid, { ban_duration: "none" });
+  } catch { /* best-effort */ }
+
   revalidatePath(`/planning/employees/${employeeId}`);
   revalidatePath("/planning/employees");
   return { ok: true };

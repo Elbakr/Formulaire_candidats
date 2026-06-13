@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { closeEmployment } from "@/lib/employment-lifecycle";
 
 async function loadRecord(id: string) {
   const supabase = await createClient();
@@ -169,6 +170,13 @@ export async function rejectRenewalAction(input: {
     })
     .eq("id", input.recommendationId);
   if (upErr) return { error: upErr.message };
+
+  // Karim 2026-06-13 (Phase 3) : non-renouvellement décidé -> clôture automatisée
+  // programmée à la date de fin du CDD (archive + Dimona OUT préparée + coupe
+  // accès à la date + notice au travailleur). La DÉCISION reste 100% humaine ici.
+  try {
+    await closeEmployment(createAdminClient(), rec.employee_id, rec.contract_end_date, "non_renewal", { sendNotice: true });
+  } catch { /* best-effort */ }
 
   revalidatePath("/admin/cdd-renewals");
   return { ok: true };
