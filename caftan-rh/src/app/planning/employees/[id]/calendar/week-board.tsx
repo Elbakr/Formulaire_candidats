@@ -132,7 +132,9 @@ export function WeekBoard({
   return (
     <>
       <div className="overflow-x-auto scroll-smooth-touch -mx-2 px-2 pb-2">
-        <div className="grid grid-flow-col auto-cols-[minmax(170px,1fr)] lg:grid-flow-row lg:grid-cols-7 lg:auto-cols-auto gap-2">
+        {/* Karim 2026-06-13 : mobile = cartes jour empilées (1 col, pas de scroll
+            horizontal) ; tablette = défilement horizontal ; lg+ = grille 7 colonnes. */}
+        <div className="grid grid-cols-1 sm:grid-cols-none sm:grid-flow-col sm:auto-cols-[minmax(170px,1fr)] lg:grid-flow-row lg:grid-cols-7 lg:auto-cols-auto gap-2">
           {days.map((d, i) => {
             const dISO = toISODate(d);
             const dShifts = byDate.get(dISO) ?? [];
@@ -215,7 +217,7 @@ export function WeekBoard({
                           ) : null}
                         </>
                       );
-                      const cls = `block w-full text-left rounded px-2 py-1 text-xs ${
+                      const cls = `block w-full text-left rounded px-2 py-2 sm:py-1 min-h-[44px] sm:min-h-0 text-xs ${
                         s.is_overtime ? "border border-dashed border-orange-400" : ""
                       } ${canEdit ? "hover:ring-1 hover:ring-gold cursor-pointer" : ""}`;
                       const style: React.CSSProperties = {
