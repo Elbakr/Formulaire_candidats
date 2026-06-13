@@ -119,6 +119,14 @@ export function WeeklyPlanningBoard({
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Karim 2026-06-13 : sur mobile (< md) on n'affiche pas la grille 7 colonnes
+  // (illisible) mais une vue PAR JOUR. Index 0-6 du jour sélectionné, défaut =
+  // aujourd'hui s'il est dans la semaine affichée, sinon lundi.
+  const [mobileDayIdx, setMobileDayIdx] = useState<number>(() => {
+    const t = toISODate(new Date());
+    for (let i = 0; i < 7; i++) if (toISODate(addDays(monday, i)) === t) return i;
+    return 0;
+  });
 
   useRealtime("shifts", () => router.refresh());
 
@@ -169,6 +177,7 @@ export function WeeklyPlanningBoard({
   }
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [mondayISO]);
+  const mobileDateISO = toISODate(days[Math.min(mobileDayIdx, 6)]);
   const siteById = useMemo(() => {
     const m = new Map<string, SiteOption>();
     for (const s of sites) m.set(s.id, s);
@@ -304,7 +313,7 @@ export function WeeklyPlanningBoard({
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Planning semaine</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Planning semaine</h1>
           <p className="text-sm text-ink-2">
             Du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au {addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}
           </p>
@@ -371,7 +380,9 @@ export function WeeklyPlanningBoard({
             Aucun employé actif. Va dans <Link href="/planning/employees" className="text-gold-dark font-bold hover:underline">Employés</Link> pour en ajouter, ou embauche des candidats (status "Embauché" sur leur fiche).
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* DESKTOP (>= md) : grille 7 colonnes complète (drag-drop, etc.) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="bg-surface-2">
@@ -591,6 +602,122 @@ export function WeeklyPlanningBoard({
               </tbody>
             </table>
           </div>
+
+          {/* MOBILE (< md) : vue PAR JOUR — sélecteur Lun→Dim + liste verticale. */}
+          <div className="md:hidden">
+            <div className="flex gap-1 overflow-x-auto p-2 border-b border-line scrollbar-thin">
+              {days.map((d, i) => {
+                const dISO = toISODate(d);
+                const active = i === Math.min(mobileDayIdx, 6);
+                const hols = holidaysFor(dISO);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setMobileDayIdx(i)}
+                    className={`flex-1 min-w-[44px] rounded-lg py-1.5 flex flex-col items-center active:scale-95 transition-transform ${
+                      active ? "bg-ink text-canvas" : "bg-surface-2 text-ink-2"
+                    }`}
+                  >
+                    <span className="text-[9px] font-bold uppercase tracking-wide">{DAY_LABELS[i]}</span>
+                    <span className="text-sm font-bold">{d.getDate()}</span>
+                    {hols.length ? <span className="mt-0.5 h-1 w-1 rounded-full bg-danger" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            {holidaysFor(mobileDateISO).length > 0 ? (
+              <div className="px-3 py-1.5 border-b border-line flex flex-wrap gap-1">
+                {holidaysFor(mobileDateISO).map((hol) => {
+                  const cls = holidayClasses(hol);
+                  return (
+                    <span key={hol.id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${cls.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${cls.dot}`} />
+                      {hol.label}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <ul className="divide-y divide-line">
+              {employees.map((e) => {
+                const dayShifts = shiftsFor(e.id, mobileDateISO);
+                const off = isOff(e.id, mobileDateISO);
+                const cl = closureFor(mobileDateISO, e.department_id);
+                const total = totalHours(e.id);
+                const target = e.weekly_hours ?? 38;
+                return (
+                  <li key={e.id} className="p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <EmployeeQuickLink
+                        employeeId={e.id}
+                        fullName={e.full_name}
+                        subtitle={e.job_title ?? undefined}
+                        variant="block"
+                        withAvatar
+                      />
+                      <span
+                        className={`text-[11px] font-mono font-bold shrink-0 ${
+                          total > target ? "text-warn" : total < target ? "text-ink-3" : "text-success"
+                        }`}
+                      >
+                        {total.toFixed(1)}/{target}h
+                      </span>
+                    </div>
+                    {off ? (
+                      <span className="self-start text-[10px] uppercase font-bold text-violet bg-violet-light rounded px-2 py-1">
+                        Congé
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {cl ? (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-gold-light text-gold-dark px-2 py-2 text-[10px] font-bold uppercase">
+                            <CalendarOff className="h-3 w-3" /> Fermé
+                          </span>
+                        ) : null}
+                        {dayShifts.map((s) => {
+                          const site = s.site_id ? siteById.get(s.site_id) : null;
+                          return (
+                            <button
+                              key={s.id}
+                              onClick={() => setEditing({ employeeId: e.id, date: mobileDateISO, shift: s })}
+                              className={`rounded-lg px-2.5 py-2 min-h-[44px] text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-transform ${
+                                s.is_overtime
+                                  ? "bg-orange-100 text-orange-800 border border-dashed border-orange-400"
+                                  : "bg-gold-light text-gold-dark"
+                              }`}
+                              style={site?.color ? { boxShadow: `inset 3px 0 0 ${site.color}` } : undefined}
+                              title={site ? `${site.name} (${site.code})` : "Aucun site"}
+                            >
+                              <span>{s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)}</span>
+                              {site ? (
+                                <span
+                                  className="text-[9px] font-bold px-1 py-px rounded text-white"
+                                  style={{ backgroundColor: site.color ?? "#666" }}
+                                >
+                                  {site.code}
+                                </span>
+                              ) : null}
+                              {s.position ? <span className="text-[10px] font-normal opacity-80 truncate max-w-[80px]">{s.position}</span> : null}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => setEditing({ employeeId: e.id, date: mobileDateISO })}
+                          className="rounded-lg px-2.5 min-h-[44px] text-xs text-ink-3 border border-dashed border-line hover:border-gold flex items-center gap-1 active:scale-95 transition-transform"
+                        >
+                          <Plus className="h-3 w-3" /> ajouter
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          </>
         )}
       </Card>
 
