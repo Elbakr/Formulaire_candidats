@@ -35,6 +35,7 @@ const LANGUAGES: Array<{ code: string; key: TranslationKey }> = [
   { code: "nl", key: "apply.lang.nl" },
   { code: "en", key: "apply.lang.en" },
   { code: "ar", key: "apply.lang.ar" },
+  { code: "ber", key: "apply.lang.ber" },
   { code: "de", key: "apply.lang.de" },
   { code: "it", key: "apply.lang.it" },
   { code: "es", key: "apply.lang.es" },
@@ -157,18 +158,28 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
     if (prefix) setNrnVal(prefix);
   }, [birthDateVal]);
 
-  // Validation feedback (live) — non bloquant tant que possible.
-  const [phoneVal, setPhoneVal] = useState<string>("");
-  const [postcodeVal, setPostcodeVal] = useState<string>("");
-  const [nrnVal, setNrnVal] = useState<string>("");
+  // Karim 2026-06-13 : champs texte CONTRÔLÉS. En React 19, un <form action> qui
+  // échoue RÉINITIALISE les champs non contrôlés -> "tout se perd / retour case
+  // départ". On garde donc les valeurs en état pour qu'elles survivent à un envoi
+  // raté (ex. validation). Les inputs restent soumis via leur `name`.
+  const [text, setText] = useState<Record<string, string>>(() => ({
+    firstname: prefill?.firstname ?? "",
+    lastname: prefill?.lastname ?? "",
+    email: prefill?.email ?? "",
+    phone: "", address: "", postal_code: "", city: "",
+    weekly_hours: "", available_from: "", experience: "",
+  }));
+  const setT = (k: string) => (e: { target: { value: string } }) =>
+    setText((s) => ({ ...s, [k]: e.target.value }));
 
+  const [nrnVal, setNrnVal] = useState<string>("");
   const phoneCheck = useMemo(
-    () => (phoneVal ? validateBelgianPhone(phoneVal) : null),
-    [phoneVal],
+    () => (text.phone ? validateBelgianPhone(text.phone) : null),
+    [text.phone],
   );
   const postcodeCheck = useMemo(
-    () => (postcodeVal ? validateBelgianPostcode(postcodeVal) : null),
-    [postcodeVal],
+    () => (text.postal_code ? validateBelgianPostcode(text.postal_code) : null),
+    [text.postal_code],
   );
   const nrnCheck = useMemo(
     () => (nrnVal ? validateNRN(nrnVal) : null),
@@ -227,8 +238,12 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
         return t("apply.error.postcode", locale);
       }
     }
+    // NISS optionnel : le champ est pré-rempli avec 6 chiffres (préfixe date de
+    // naissance). On ne valide/bloque QUE s'il est complet (11 chiffres) ; un
+    // préfixe incomplet ne doit jamais empêcher l'envoi.
     const nrn = String(fd.get("nrn") ?? "").trim();
-    if (nrn) {
+    const nrnDigits = nrn.replace(/\D/g, "");
+    if (nrnDigits.length >= 11) {
       const r = validateNRN(nrn);
       if (!r.valid) return t("apply.error.nrn", locale);
     }
@@ -292,10 +307,10 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
       <Section title={t("apply.section.identity", locale)}>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label={t("apply.firstname", locale)} required>
-            <Input name="firstname" required minLength={1} autoComplete="given-name" defaultValue={prefill?.firstname ?? ""} />
+            <Input name="firstname" required minLength={1} autoComplete="given-name" value={text.firstname} onChange={setT("firstname")} />
           </Field>
           <Field label={t("apply.lastname", locale)} required>
-            <Input name="lastname" required minLength={1} autoComplete="family-name" defaultValue={prefill?.lastname ?? ""} />
+            <Input name="lastname" required minLength={1} autoComplete="family-name" value={text.lastname} onChange={setT("lastname")} />
           </Field>
           <Field label={t("apply.email", locale)} required>
             <Input
@@ -304,7 +319,8 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
               required
               autoComplete="email"
               inputMode="email"
-              defaultValue={prefill?.email ?? ""}
+              value={text.email}
+              onChange={setT("email")}
             />
           </Field>
           <Field
@@ -317,7 +333,8 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
               type="tel"
               autoComplete="tel"
               inputMode="tel"
-              onBlur={(e) => setPhoneVal(e.currentTarget.value)}
+              value={text.phone}
+              onChange={setT("phone")}
               placeholder="0470 12 34 56"
             />
           </Field>
@@ -360,7 +377,7 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
             <Field label={t("apply.address", locale)}>
-              <Input name="address" autoComplete="street-address" />
+              <Input name="address" autoComplete="street-address" value={text.address} onChange={setT("address")} />
             </Field>
           </div>
           <Field
@@ -376,11 +393,12 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
               autoComplete="postal-code"
               inputMode="numeric"
               maxLength={5}
-              onBlur={(e) => setPostcodeVal(e.currentTarget.value)}
+              value={text.postal_code}
+              onChange={setT("postal_code")}
             />
           </Field>
           <Field label={t("apply.city", locale)}>
-            <Input name="city" autoComplete="address-level2" />
+            <Input name="city" autoComplete="address-level2" value={text.city} onChange={setT("city")} />
           </Field>
           <div className="sm:col-span-2">
             <Field label={t("apply.country", locale)}>
@@ -470,11 +488,13 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
               type="number"
               min={0}
               inputMode="numeric"
+              value={text.weekly_hours}
+              onChange={setT("weekly_hours")}
               placeholder=""
             />
           </Field>
           <Field label={t("apply.available_from", locale)}>
-            <Input name="available_from" type="date" />
+            <Input name="available_from" type="date" value={text.available_from} onChange={setT("available_from")} />
           </Field>
           <div className="sm:col-span-2">
             <Field label={t("apply.days_available", locale)}>
@@ -557,7 +577,7 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
             label={t("apply.experience", locale)}
             hint={t("apply.experience_hint", locale)}
           >
-            <Textarea name="experience" rows={3} maxLength={1500} />
+            <Textarea name="experience" rows={3} maxLength={1500} value={text.experience} onChange={setT("experience")} />
           </Field>
           <Field label={t("apply.cv_upload", locale)}>
             <Input

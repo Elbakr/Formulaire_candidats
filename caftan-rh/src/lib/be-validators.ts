@@ -184,6 +184,20 @@ export function validateBelgianPostcode(input: string): ValidationResult {
   return { valid: true, formatted: c };
 }
 
+// Karim 2026-06-13 : préfixe NISS belge = 6 premiers chiffres = date de
+// naissance inversée AAMMJJ. Partagé mini-form + assistant de candidature.
+export function nissPrefixFromIso(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  return m ? `${m[1].slice(2)}${m[2]}${m[3]}` : "";
+}
+
+// Date ISO (YYYY-MM-DD) d'aujourd'hui moins N années (âge minimum candidat).
+export function isoMinusYears(years: number): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().split("T")[0];
+}
+
 /** Région Belgique à partir du code postal (Bruxelles / Wallonie / Flandre). */
 export function regionFromPostcode(input: string): string | null {
   const r = validateBelgianPostcode(input);

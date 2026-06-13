@@ -123,8 +123,13 @@ export async function submitPublicApplication(formData: FormData) {
     }
   }
 
+  // NISS optionnel : pré-rempli avec 6 chiffres (préfixe date de naissance). On
+  // ne valide QUE s'il est complet (11 chiffres) ; un préfixe incomplet n'est ni
+  // bloquant ni enregistré (RH le complétera). Évite "submit échoue alors que
+  // tout est correct" + perte des données.
   let nrn: string | null = null;
-  if (nrnRaw) {
+  const nrnDigits = nrnRaw.replace(/\D/g, "");
+  if (nrnDigits.length >= 11) {
     const r = validateNRN(nrnRaw);
     if (!r.valid) {
       return { error: t("apply.error.nrn", locale) };

@@ -28,18 +28,33 @@ function adminAuthClient() {
  */
 export async function sendCandidateMagicLink(
   emailRaw: string,
-  opts?: { fullName?: string; next?: string },
+  opts?: {
+    fullName?: string;
+    next?: string;
+    birthDate?: string;
+    postalCode?: string;
+    city?: string;
+  },
 ): Promise<{ ok?: true; error?: string }> {
   const email = emailRaw.trim().toLowerCase();
   if (!email || !/.+@.+\..+/.test(email)) return { error: "Email invalide." };
 
   const admin = await adminAuthClient();
 
+  // Karim 2026-06-13 (Phase 1bis) : on stocke les données du mini-formulaire
+  // (nom, date de naissance, code postal, ville) dans user_metadata pour les
+  // reprendre/figer dans l'assistant de candidature après vérification email.
+  const meta: Record<string, string> = {};
+  if (opts?.fullName) meta.full_name = opts.fullName;
+  if (opts?.birthDate) meta.birth_date = opts.birthDate;
+  if (opts?.postalCode) meta.postal_code = opts.postalCode;
+  if (opts?.city) meta.city = opts.city;
+
   // 1. S'assure que le compte existe (idempotent : on ignore "already exists").
   const { error: createErr } = await admin.auth.admin.createUser({
     email,
     email_confirm: true,
-    user_metadata: opts?.fullName ? { full_name: opts.fullName } : {},
+    user_metadata: meta,
   });
   if (
     createErr &&

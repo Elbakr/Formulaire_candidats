@@ -4,6 +4,7 @@ export const BRAND = {
 };
 
 export const PIPELINE_STAGES = [
+  { id: "draft", label: "Commencée" },
   { id: "new", label: "Nouveau" },
   { id: "contacted", label: "Contacté" },
   { id: "rdv_scheduled", label: "RDV planifié" },

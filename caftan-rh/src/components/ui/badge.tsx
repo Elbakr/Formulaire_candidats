@@ -7,6 +7,7 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
+        draft: "bg-surface-2 text-ink-3",
         new: "bg-[#f4f4f5] text-[#71717a]",
         contacted: "bg-info-light text-info",
         rdv_scheduled: "bg-warn-light text-warn",
@@ -31,6 +32,7 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
 }
 
 export const STATUS_LABELS: Record<string, string> = {
+  draft: "Commencée",
   new: "Nouveau",
   contacted: "Contacté",
   rdv_scheduled: "RDV planifié",
