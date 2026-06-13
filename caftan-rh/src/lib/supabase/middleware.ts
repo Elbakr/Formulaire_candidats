@@ -21,6 +21,9 @@ const PUBLIC_ROUTES = [
   // Karim 2026-06-13 : page de reponse au pre-avis de renouvellement CDD/Etudiant
   // (token-protected dans la page). Le travailleur repond sans se connecter.
   "/renewal",
+  // Karim 2026-06-13 : page "completer mon dossier" (infos manquantes) a TOKEN.
+  // Remplace l'ancien magic link casse. Le travailleur remplit sans compte.
+  "/contract-info",
   // Karim 2026-06-01 : lettre 402.00 rupture amiable. Auth multi-mode geree
   // dans le handler (session admin/RH/employee OU token ?t=... pour mail).
   // Sans cette exemption, le middleware redirige vers /login meme avec un

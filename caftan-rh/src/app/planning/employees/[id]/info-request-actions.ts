@@ -1,13 +1,14 @@
 "use server";
 
-// Karim 2026-05-30 : envoie au candidat un mail avec magic link + liens
-// self-service pour compléter les champs manquants de sa fiche RH.
+// Karim 2026-06-13 : RECABLE. Envoie au travailleur un lien a TOKEN autonome
+// (page publique /contract-info/{token}, URL stable Vercel) pour completer les
+// champs manquants de sa fiche RH. Remplace l'ancien magic link qui exigeait un
+// compte ET redirigeait vers le tunnel Cloudflare (URL changeante = lien mort).
 
+import crypto from "node:crypto";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
 import { getMissingFields } from "@/lib/contract-readiness";
-import { getPublicBaseUrl } from "@/lib/public-base-url";
 
 export async function sendInfoRequestMailAction(
   employeeId: string,
@@ -34,19 +35,28 @@ export async function sendInfoRequestMailAction(
     return { error: "Aucun champ manquant - inutile d envoyer ce mail" };
   }
 
-  // Karim 2026-05-30 : magic link auto-login redirigé vers le tunnel actif
-  // (lu depuis TUNNEL_URL.txt) pour que le candidat puisse cliquer à distance.
-  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  const tunnel = getPublicBaseUrl();
-  // Karim 2026-06-04 : redirige vers /me/contract-info (formulaire dynamique
-  // qui ne montre QUE les champs manquants, en rouge) plutot que /me/profile generique.
-  const { data: link } = await sb.auth.admin.generateLink({
-    type: "magiclink",
-    email: emp.email,
-    options: { redirectTo: `${tunnel}/me/contract-info` },
-  });
-  const magicLink = link?.properties?.action_link;
-  if (!magicLink) return { error: "Magic link KO" };
+  // Lien a TOKEN autonome, sur l'URL STABLE Vercel (jamais le tunnel).
+  const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://caftan-rh.vercel.app";
+  let token: string;
+  const { data: existing } = await admin
+    .from("contract_info_tokens")
+    .select("token")
+    .eq("employee_id", emp.id)
+    .is("completed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing && (existing as { token?: string }).token) {
+    token = (existing as { token: string }).token;
+    await admin.from("contract_info_tokens").update({ sent_at: new Date().toISOString() }).eq("token", token);
+  } else {
+    token = crypto.randomBytes(18).toString("base64url");
+    const { error: tErr } = await admin
+      .from("contract_info_tokens")
+      .insert({ employee_id: emp.id, token, sent_at: new Date().toISOString() });
+    if (tErr) return { error: `Token: ${tErr.message}` };
+  }
+  const link = `${BASE_URL}/contract-info/${token}`;
 
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
@@ -58,32 +68,18 @@ export async function sendInfoRequestMailAction(
 
   const body = `Bonjour ${firstName},
 
-Pour finaliser ton dossier RH et générer ton contrat de travail, nous avons besoin que tu complètes ou vérifies les informations suivantes :
+Pour finaliser ton dossier RH et préparer ton contrat de travail, merci de compléter ou vérifier les informations suivantes :
 
 ${missingList}
 
-═══════ ACCÈS AUTO (1h valide) ═══════
+👉 Clique ici pour les renseigner (1 minute, sans mot de passe ni compte) :
+${link}
 
-👉 ${magicLink}
-
-(Connexion automatique sans mot de passe - clique le lien depuis ton téléphone ou ordi)
-
-═══════ TES LIENS DIRECTS (tunnel public) ═══════
-
-🔗 Formulaire dynamique (champs manquants en rouge) : ${tunnel}/me/contract-info
-🔗 Compléter mon profil : ${tunnel}/me/profile
-🔗 Mes documents       : ${tunnel}/me/documents
-🔗 Mon onboarding      : ${tunnel}/me/onboarding
-
-═══════ APRÈS COMPLÉTION ═══════
-
-Dès que tous les champs sont remplis, ton contrat sera automatiquement
-prêt à signer. Tu recevras un second mail avec le lien de signature.
-
-Si tu as des questions, réponds simplement à ce mail.
+Dès que c'est fait, ton dossier avance et ton contrat pourra être préparé.
+Si tu as une question, réponds simplement à ce mail.
 
 À bientôt,
-CaftanRH
+Caftan Factory (By AMD Megastore) — RH
 `;
 
   const params = {
@@ -93,7 +89,7 @@ CaftanRH
     subject: `CaftanRH - Compléter ton dossier (${missing.length} infos manquantes)`,
     message: body, html_message: body.replace(/\n/g, "<br>"),
     body, html: body.replace(/\n/g, "<br>"), content: body,
-    magic_link: magicLink,
+    info_link: link,
   };
   const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
@@ -112,7 +108,7 @@ CaftanRH
       source: "info_request",
       source_ref: emp.id,
       employee_id: emp.id,
-      attachments: [{ name: "Magic link auto-login (1h)", url: magicLink }],
+      attachments: [{ name: "Lien dossier (token)", url: link }],
     });
   } catch {}
 
