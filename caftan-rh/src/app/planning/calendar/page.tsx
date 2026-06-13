@@ -119,6 +119,36 @@ export default async function PlanningCalendarPage(
     preferred_site_ids: assignsByEmp.get(e.id) ?? [],
   }));
 
+  // Karim 2026-06-13 : le bouton ville (BXL/Anvers/Tous) doit AUSSI filtrer le
+  // planning. Anvers = sites C/F. Classification via TOUTES les assignations
+  // (sans filtre de date) pour ne pas perdre un Anversois sans assignation
+  // "courante". Meme logique que la page Employes.
+  const { readCity } = await import("@/lib/city");
+  const city = await readCity();
+  const { data: allAssignsRaw } = await supabase
+    .from("site_assignments")
+    .select("employee_id, site:sites(code)");
+  const codesByEmp = new Map<string, Set<string>>();
+  for (const a of (allAssignsRaw ?? []) as Array<{ employee_id: string; site: { code: string } | Array<{ code: string }> | null }>) {
+    const site = Array.isArray(a.site) ? a.site[0] : a.site;
+    if (!site?.code) continue;
+    const s = codesByEmp.get(a.employee_id) ?? new Set<string>();
+    s.add(site.code);
+    codesByEmp.set(a.employee_id, s);
+  }
+  const ANV = new Set(["C", "F"]);
+  const BXL = new Set(["A", "B", "D", "E"]);
+  const cityOf = (id: string): "anvers" | "bruxelles" => {
+    const codes = codesByEmp.get(id);
+    if (codes) {
+      for (const c of codes) if (ANV.has(c)) return "anvers";
+      for (const c of codes) if (BXL.has(c)) return "bruxelles";
+    }
+    return "bruxelles";
+  };
+  const employeesFiltered =
+    city === "all" ? employeesWithSites : employeesWithSites.filter((e) => cityOf(e.id) === city);
+
   type PendingDraft = {
     id: string;
     site_id: string;
@@ -192,7 +222,7 @@ export default async function PlanningCalendarPage(
       <SiteCoverageStrip weekISO={toISODate(monday)} />
       <WeeklyPlanningBoard
         mondayISO={toISODate(monday)}
-        employees={employeesWithSites as never}
+        employees={employeesFiltered as never}
         shifts={(shifts ?? []) as never}
         timeOff={(timeOff ?? []) as never}
         holidays={(holidays ?? []) as never}
