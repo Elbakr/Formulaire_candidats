@@ -838,8 +838,9 @@ function ShiftRow({
   canEditAutoOut: boolean;
 }) {
   const { shift, site, clockIn, clockOut, workedMinutes, plannedMinutes, lateMinutes, isLate, isMissingOut, isAbsent, isAutoClosedOut } = row;
-  const inTime = clockIn ? formatTime(clockIn.occurred_at) : "—";
-  const outTime = clockOut ? formatTime(clockOut.occurred_at) : "—";
+  // Karim 2026-06-13 : IN/OUT ne sont plus affiches ici (le ClockEditor en bas
+  // les montre, a l'heure de Bruxelles et editables) -> on evite le doublon /
+  // l'ancien affichage en UTC (-2h).
   const diffMin = workedMinutes != null ? workedMinutes - plannedMinutes : null;
   // Karim 2026-05-25 : row "hors shift planifie" -> ne PAS afficher les heures
   // du clock_entry comme horaire planifie (trompeur). Affiche "Hors planning".
@@ -868,20 +869,7 @@ function ShiftRow({
           {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}
         </span>
       )}
-      <span className="text-ink-3">·</span>
-      <span className="text-ink-2">
-        IN <span className="font-mono">{inTime}</span>
-      </span>
-      <span className="text-ink-2">
-        OUT{" "}
-        <span
-          className={`font-mono ${isAutoClosedOut ? "italic text-amber-700" : ""}`}
-          title={isAutoClosedOut ? "OUT estimé (auto-fermeture par algo, à valider RH)" : "OUT réel Tuya"}
-        >
-          {outTime}{isAutoClosedOut ? "*" : ""}
-        </span>
-      </span>
-      <span className="text-ink-3 ml-auto" />
+      <span className="ml-auto" />
       <span
         className={`font-mono ${isAutoClosedOut ? "italic text-amber-700" : "text-ink-2"}`}
         title={isAutoClosedOut ? "Durée estimée (OUT auto-fermé) — non confirmée Tuya" : "Durée réelle Tuya"}
@@ -969,9 +957,3 @@ function Legend() {
   );
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}

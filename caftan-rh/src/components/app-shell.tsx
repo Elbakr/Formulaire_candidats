@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  LogOut, Settings, ArrowLeft,
+  LogOut, Settings, ArrowLeft, X,
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
@@ -188,11 +188,11 @@ export function AppShell({
               l'onglet "Plus" de la barre du bas. */}
           <button
             type="button"
-            aria-label="Retour"
-            onClick={() => router.back()}
+            aria-label={mobileOpen ? "Fermer le menu" : "Retour"}
+            onClick={() => (mobileOpen ? setMobileOpen(false) : router.back())}
             className="md:hidden flex items-center justify-center h-9 w-9 -ml-1 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 active:scale-95 transition-all"
           >
-            <ArrowLeft className="h-4 w-4" />
+            {mobileOpen ? <X className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
           </button>
           <Link href="/" className="text-gold font-bold uppercase tracking-[0.1em] text-xs whitespace-nowrap">
             {BRAND.name}
