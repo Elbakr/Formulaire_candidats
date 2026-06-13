@@ -18,6 +18,7 @@ export default async function EmployeesPage() {
     { data: depts },
     { data: assignsRaw },
     { data: currentlyInRaw },
+    { data: allAssignsRaw },
   ] = await Promise.all([
     supabase
       .from("employees")
@@ -40,6 +41,10 @@ export default async function EmployeesPage() {
     supabase
       .from("clock_currently_in")
       .select("employee_id, clock_in_at, site_code, site_name, site_color"),
+    // Karim 2026-06-13 : TOUTES les assignations (sans filtre de date) — sert
+    // uniquement a classer la VILLE de l'employe (Anvers = sites C/F). Le
+    // assignsRaw filtre par date ci-dessus reste pour l'affichage des badges.
+    supabase.from("site_assignments").select("employee_id, site:sites(code)"),
   ]);
 
   type AssignRow = {
@@ -73,18 +78,46 @@ export default async function EmployeesPage() {
     department: { id: string; name: string } | null;
   }>;
 
-  // Karim 2026-05-25 : filtre par ville. Un employee est inclus si au moins
-  // un de ses sites assignes appartient a la ville selectionnee. Les employes
-  // sans aucune assignation restent visibles en BXL (default) pour ne pas
-  // les perdre lors de l'onboarding.
-  const { readCity, siteCodesForCity } = await import("@/lib/city");
+  // Karim 2026-06-13 : VRAIE classification par ville. Anvers = sites C/F (cf.
+  // badgeuses Tuya "Pointage C et F"), Bruxelles = A/B/D/E. On classe via TOUTES
+  // les assignations (sans filtre de date) + le badge Tuya courant, pour ne pas
+  // qu'un Anversois sans assignation "courante" retombe par defaut sur BXL.
+  // Un employe a UNE seule ville (donnees confirmees : 0 employe bi-ville).
+  const allAssigns = (allAssignsRaw ?? []) as unknown as Array<{
+    employee_id: string;
+    site: { code: string } | null;
+  }>;
+  const codesByEmp = new Map<string, Set<string>>();
+  for (const a of allAssigns) {
+    if (!a.site) continue;
+    const s = codesByEmp.get(a.employee_id) ?? new Set<string>();
+    s.add(a.site.code);
+    codesByEmp.set(a.employee_id, s);
+  }
+  // Signal secondaire : le site de badge courant (employe enrôle via Tuya sans
+  // assignation explicite reste classe dans la bonne ville).
+  for (const p of (currentlyInRaw ?? []) as Array<{ employee_id: string; site_code: string | null }>) {
+    if (!p.employee_id || !p.site_code) continue;
+    const s = codesByEmp.get(p.employee_id) ?? new Set<string>();
+    s.add(p.site_code);
+    codesByEmp.set(p.employee_id, s);
+  }
+  const ANVERS_CODES = new Set(["C", "F"]);
+  const BXL_CODES = new Set(["A", "B", "D", "E"]);
+  function cityOfEmp(empId: string): "anvers" | "bruxelles" {
+    const codes = codesByEmp.get(empId);
+    if (codes) {
+      for (const c of codes) if (ANVERS_CODES.has(c)) return "anvers"; // Anvers prime
+      for (const c of codes) if (BXL_CODES.has(c)) return "bruxelles";
+    }
+    return "bruxelles"; // aucun signal -> BXL (onboarding)
+  }
+  const { readCity } = await import("@/lib/city");
   const city = await readCity();
-  const cityCodes = new Set(siteCodesForCity(city));
-  const employees = employeesAll.filter((e) => {
-    const sites = sitesByEmp.get(e.id) ?? [];
-    if (sites.length === 0) return city === "bruxelles";
-    return sites.some((s) => cityCodes.has(s.code));
-  });
+  const employees =
+    city === "all"
+      ? employeesAll
+      : employeesAll.filter((e) => cityOfEmp(e.id) === city);
 
   // Map empId -> { in_at, site* } pour le voyant présence côté client.
   // L'admin doit voir non seulement *qui* est present mais aussi *où*.
@@ -110,7 +143,18 @@ export default async function EmployeesPage() {
     }
   }
 
-  const active = employees.filter((e) => e.status === "active");
+  // Karim 2026-06-13 : tri "ordre d'arrivee / niveau d'activite" — les PRESENTS
+  // (badges) d'abord, par heure d'arrivee croissante ; les absents ensuite par
+  // ordre alphabetique. (Meme logique a propager aux autres listes employes.)
+  const active = employees
+    .filter((e) => e.status === "active")
+    .sort((a, b) => {
+      const ai = presenceByEmp[a.id]?.in_at ?? null;
+      const bi = presenceByEmp[b.id]?.in_at ?? null;
+      if (!!ai !== !!bi) return ai ? -1 : 1;
+      if (ai && bi) return new Date(ai).getTime() - new Date(bi).getTime();
+      return a.full_name.localeCompare(b.full_name, "fr");
+    });
   const archived = employees.filter((e) => e.status !== "active");
   const isAdmin = profile.role === "admin";
 

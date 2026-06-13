@@ -1,9 +1,31 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/config";
 import { ArrowRight, Briefcase, Users, MessageSquare, CalendarDays } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { roleHome } from "@/lib/supabase/middleware";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  // Karim 2026-06-13 : un utilisateur DEJA connecte ne doit JAMAIS voir cette
+  // landing marketing -> redirection directe vers son espace. Resout "la page
+  // d'accueil revient sans cesse" (la PWA rouvre sur start_url "/", et le logo
+  // pointe sur "/"). Tant qu'on ne se deconnecte pas, on ne la revoit plus.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    redirect(roleHome((profile as { role?: string } | null)?.role ?? "candidate"));
+  }
+
   return (
     <main className="flex-1">
       {/* Karim 2026-06-12 : pt-safe/px-safe — sur iPhone (viewport-fit=cover) le

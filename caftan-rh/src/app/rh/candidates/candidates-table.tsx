@@ -12,12 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useRealtime } from "@/hooks/use-realtime";
 import { PIPELINE_STAGES } from "@/lib/config";
-import { formatDate } from "@/lib/utils";
 import type { ApplicationListItem } from "@/lib/queries";
 import type { ApplicationStatus } from "@/types/database.types";
 import { EmailSendDialog } from "@/components/email-send-dialog";
 import { detectGender } from "@/lib/heuristics/gender";
 import { inferLangs, levelMeets } from "@/lib/heuristics/languages";
+
+// (formatDate retire : la date de soumission est desormais formatee inline avec
+// l'heure + fuseau Europe/Brussels directement dans la ligne candidat.)
 
 const LANG_OPTIONS = ["Français", "Arabe", "Néerlandais", "Anglais"] as const;
 const LEVEL_OPTIONS = ["scolaire", "intermediaire", "courant", "bilingue"] as const;
@@ -614,14 +616,22 @@ export function CandidatesTable({
                         <span>{app.candidate.email}</span>
                         {app.candidate.city ? <span>· {app.candidate.city}</span> : null}
                       </div>
+                      {/* Karim 2026-06-13 : vraie date + HEURE de soumission GF, mise en
+                          evidence et visible sur TOUS les ecrans (avant : date seule, cachee mobile). */}
+                      {app.candidate.applied_at ? (
+                        <div className="text-[11px] font-semibold text-gold-dark truncate">
+                          🗓 Soumis le {new Date(app.candidate.applied_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="hidden md:block text-xs text-ink-2 max-w-[160px] truncate">
                       {app.job?.title ?? "Spontanée"}
                     </div>
-                    <div className="text-[11px] text-ink-3 hidden sm:flex flex-col items-end">
-                      <span>Inscrit le {formatDate(app.candidate.applied_at)}</span>
-                      {app.candidate.source ? <span className="text-[10px] opacity-70">via {app.candidate.source}</span> : null}
-                    </div>
+                    {app.candidate.source ? (
+                      <div className="text-[10px] text-ink-3 hidden sm:block opacity-70 shrink-0">
+                        via {app.candidate.source}
+                      </div>
+                    ) : null}
                     <Badge variant={app.status as ApplicationStatus}>{STATUS_LABELS[app.status]}</Badge>
                   </Link>
                   <Link

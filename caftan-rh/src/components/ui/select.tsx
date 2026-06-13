@@ -47,8 +47,15 @@ export const SelectContent = React.forwardRef<
       )}
       {...props}
     >
+      {/* Karim 2026-06-13 : BUG mobile corrige. Avant, le viewport avait
+          h-[--radix-select-trigger-height] -> la liste etait clipee a la hauteur
+          du bouton (~1 ligne), impossible de voir/scroller le haut. Maintenant :
+          hauteur = espace dispo a l'ecran + scroll tactile. */}
       <SelectPrimitive.Viewport
-        className={cn("p-1", position === "popper" && "h-[--radix-select-trigger-height] w-full min-w-[--radix-select-trigger-width]")}
+        className={cn(
+          "p-1 max-h-[--radix-select-content-available-height] overflow-y-auto scroll-smooth-touch",
+          position === "popper" && "w-full min-w-[--radix-select-trigger-width]",
+        )}
       >
         {children}
       </SelectPrimitive.Viewport>
