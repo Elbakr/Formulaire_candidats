@@ -138,7 +138,7 @@ export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
       <div className="space-y-4">
         {/* Karim 2026-05-31 : barre actions bulk floating */}
         {selected.size > 0 && (
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-foreground text-background rounded-full shadow-2xl px-5 py-3 flex items-center gap-4 text-sm">
+          <div className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] sm:bottom-4 left-1/2 -translate-x-1/2 z-50 bg-foreground text-background rounded-full shadow-2xl px-5 py-3 flex items-center gap-4 text-sm max-w-[calc(100vw-1rem)] overflow-x-auto">
             <span className="font-bold">
               {selected.size} fiche{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}
             </span>
@@ -236,7 +236,7 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
   const bulk = useContext(BulkContext);
   const checked = bulk?.isSelected(row.id) ?? false;
   return (
-    <div className={`p-4 flex items-center gap-3 hover:bg-muted/20 ${rowBg} ${checked ? "bg-blue-50/60" : ""}`}>
+    <div className={`p-4 flex flex-wrap items-center gap-2 hover:bg-muted/20 ${rowBg} ${checked ? "bg-blue-50/60" : ""}`}>
       {bulk && (
         <input
           type="checkbox"
@@ -287,9 +287,9 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
         </div>
       </div>
 
-      <Badge className={statusLabel.className}>{statusLabel.label}</Badge>
+      <Badge className={`${statusLabel.className} shrink-0`}>{statusLabel.label}</Badge>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-wrap justify-end ml-auto">
         {!isOrphan && <AdvanceInlineInput row={row} />}
         <ViewPdfButton row={row} />
         <EditAmountButton row={row} />

@@ -521,7 +521,7 @@ export default async function HeuresPresteesPage({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
             <Clock className="h-5 w-5 text-gold-dark" />
             Heures prestées — vue ERP
           </h1>
