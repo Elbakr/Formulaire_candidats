@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Mail, X, ArrowUpDown, ChevronDown, SlidersHorizontal, Eye } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -57,6 +57,12 @@ export function CandidatesTable({
   templates: Template[];
 }) {
   const router = useRouter();
+  // Karim 2026-06-13 : la recherche etait recalculee a CHAQUE frappe sur ~1800
+  // lignes (+ refresh realtime) -> input qui lague / "ne repond pas toujours" sur
+  // mobile. On decouple : `searchInput` = texte tape, `search` = requete REELLEMENT
+  // appliquee au filtre. On applique au bout d'un court debounce ET immediatement
+  // sur Entree / clic "Rechercher". Plus de recalcul par caractere.
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -88,6 +94,21 @@ export function CandidatesTable({
   }
 
   useRealtime("applications", () => router.refresh());
+
+  // Debounce : applique la recherche 350ms apres la derniere frappe (fluide,
+  // sans recalcul par caractere). Entree / bouton court-circuitent ce delai.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  function applySearchNow() {
+    setSearch(searchInput.trim());
+  }
+  function clearSearch() {
+    setSearchInput("");
+    setSearch("");
+  }
 
   function applyDatePreset(preset: string) {
     setDatePreset(preset);
@@ -324,14 +345,42 @@ export function CandidatesTable({
               />
               <span className="text-xs font-semibold text-ink-2">{allVisibleSelected ? "Désélectionner tout" : "Sélectionner tout"}</span>
             </label>
-            <div className="relative w-full sm:flex-1 sm:min-w-[240px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" />
-              <Input
-                placeholder="Rechercher nom, email, ville, offre…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-              />
+            <div className="flex w-full sm:flex-1 sm:min-w-[240px] gap-1.5">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" />
+                <Input
+                  placeholder="Rechercher nom, email, ville, offre…"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); applySearchNow(); }
+                    if (e.key === "Escape") clearSearch();
+                  }}
+                  enterKeyHint="search"
+                  className="pl-8 pr-8"
+                />
+                {searchInput ? (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    aria-label="Effacer la recherche"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant={searchInput.trim() !== search ? "gold" : "outline"}
+                size="sm"
+                onClick={applySearchNow}
+                className="shrink-0"
+                aria-label="Rechercher"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Rechercher</span>
+              </Button>
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-[180px]">
@@ -578,7 +627,7 @@ export function CandidatesTable({
           <div className="p-12 text-center text-sm text-ink-3">
             Aucune candidature ne correspond aux filtres.
             <button
-              onClick={() => { setSearch(""); setStatusFilter("all"); setSourceFilter("all"); applyDatePreset("all"); resetAdvanced(); }}
+              onClick={() => { clearSearch(); setStatusFilter("all"); setSourceFilter("all"); applyDatePreset("all"); resetAdvanced(); }}
               className="block mx-auto mt-3 text-gold-dark font-bold hover:underline"
             >
               Réinitialiser les filtres
