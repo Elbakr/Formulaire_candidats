@@ -7,6 +7,7 @@
 
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
+import { activateEmployeeAccount } from "@/lib/employee-activation";
 
 export async function submitSignatureAction(input: {
   contractId: string;
@@ -63,6 +64,10 @@ export async function submitSignatureAction(input: {
     })
     .eq("id", input.contractId);
   if (updErr) return { error: updErr.message };
+
+  // Karim 2026-06-13 (Phase 2) : activation du compte employé à la signature
+  // (candidate -> employee). Best-effort, ne bloque pas la signature.
+  await activateEmployeeAccount(supabase, contract.employee_id);
 
   // Recupere l email de l employe
   const { data: emp } = await supabase

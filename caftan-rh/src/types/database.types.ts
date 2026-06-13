@@ -1,6 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-export type AppRole = "admin" | "rh" | "manager" | "candidate";
+export type AppRole = "admin" | "rh" | "manager" | "employee" | "candidate";
 export type ApplicationStatus =
   | "new"
   | "contacted"

@@ -337,6 +337,13 @@ L'équipe Caftan Factory (By AMD Megastore)`;
         .eq("id", contractId);
     }
 
+    // Karim 2026-06-13 (Phase 2) : activation du compte employé à la signature
+    // finale (candidate -> employee). Best-effort.
+    if (employeeId) {
+      const { activateEmployeeAccount } = await import("@/lib/employee-activation");
+      await activateEmployeeAccount(admin, employeeId);
+    }
+
     // Envoi du contrat signe final aux 2 parties
     if (employeeId && signedPdfUrl) {
       const { data: emp } = await admin
