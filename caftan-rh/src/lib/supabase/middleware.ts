@@ -18,6 +18,9 @@ const PUBLIC_ROUTES = [
   // Karim 22/05 : page signature digitale de contrat (token-protected).
   // L employe n a peut-etre pas encore de compte au moment de la signature.
   "/sign",
+  // Karim 2026-06-13 : page de reponse au pre-avis de renouvellement CDD/Etudiant
+  // (token-protected dans la page). Le travailleur repond sans se connecter.
+  "/renewal",
   // Karim 2026-06-01 : lettre 402.00 rupture amiable. Auth multi-mode geree
   // dans le handler (session admin/RH/employee OU token ?t=... pour mail).
   // Sans cette exemption, le middleware redirige vers /login meme avec un

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { RenewalCard, type RenewalCardProps } from "./renewal-card";
+import { PreNoticeList, type PreNoticeRow } from "./pre-notice-list";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +73,37 @@ export default async function CddRenewalsPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // Karim 2026-06-13 : pre-avis de renouvellement envoyes/a envoyer au travailleur.
+  const { data: preRaw } = await supabase
+    .from("cdd_renewal_responses")
+    .select(
+      "id, contract_type, contract_end_date, sent_at, responded_at, wants_renewal, available_from, available_to, reason, appreciation, employee:employees(full_name)",
+    )
+    .order("contract_end_date", { ascending: true });
+  const preList = ((preRaw ?? []) as unknown) as Array<{
+    id: string; contract_type: string | null; contract_end_date: string;
+    sent_at: string | null; responded_at: string | null; wants_renewal: boolean | null;
+    available_from: string | null; available_to: string | null; reason: string | null; appreciation: string | null;
+    employee: { full_name: string | null } | Array<{ full_name: string | null }> | null;
+  }>;
+  const preRows: PreNoticeRow[] = preList.map((p) => {
+    const emp = Array.isArray(p.employee) ? p.employee[0] : p.employee;
+    return {
+      id: p.id,
+      full_name: emp?.full_name ?? "—",
+      contract_type: p.contract_type,
+      contract_end_date: p.contract_end_date,
+      days_remaining: daysBetween(today, p.contract_end_date),
+      sent_at: p.sent_at,
+      responded_at: p.responded_at,
+      wants_renewal: p.wants_renewal,
+      available_from: p.available_from,
+      available_to: p.available_to,
+      reason: p.reason,
+      appreciation: p.appreciation,
+    };
+  });
+
   const pending = rows.filter((r) => r.status === "pending" || r.status === "discussing");
   const history = rows.filter(
     (r) => r.status === "sent" || r.status === "rejected_by_admin" || r.status === "archived",
@@ -80,12 +112,23 @@ export default async function CddRenewalsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Renouvellements CDD</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">Renouvellements CDD &amp; Étudiant</h1>
         <p className="text-sm text-ink-2">
           Le système prépare les fiches J-30. Décision finale humaine, en 1 clic. Le scan tourne tous les
           jours — tu peux aussi recalculer une fiche manuellement.
         </p>
       </div>
+
+      {/* Karim 2026-06-13 : pre-avis au travailleur (J-15) — envoi 1 clic + reponse. */}
+      <Card>
+        <div className="px-4 py-2.5 border-b border-line flex items-center gap-2">
+          <h2 className="font-bold text-sm">Pré-avis au travailleur (J-15)</h2>
+          <span className="text-[11px] text-ink-3 ml-auto">
+            {preRows.filter((p) => p.responded_at).length}/{preRows.length} répondu(s)
+          </span>
+        </div>
+        <PreNoticeList rows={preRows} />
+      </Card>
 
       <Tabs defaultValue="pending">
         <TabsList>

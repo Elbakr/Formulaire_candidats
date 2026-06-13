@@ -91,10 +91,36 @@ export async function GET(request: NextRequest) {
     if (inserts.length > 0) await admin.from("notifications").insert(inserts);
   }
 
+  // Karim 2026-06-13 : pre-avis de renouvellement (CDD + Etudiant) a J-15.
+  // Prepare la ligne (token) + notifie RH "pret a envoyer". L'envoi du mail au
+  // travailleur reste un clic RH (ou auto si active plus tard).
+  let preNoticesCreated = 0;
+  try {
+    const { prepareRenewalNotices } = await import("@/lib/cdd-renewal-notice");
+    const prepared = await prepareRenewalNotices(admin as unknown as Parameters<typeof prepareRenewalNotices>[0]);
+    preNoticesCreated = prepared.length;
+    if (prepared.length > 0) {
+      const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
+      const rhIds = ((rh ?? []) as Array<{ id: string }>).map((p) => p.id);
+      const inserts = rhIds.map((id) => ({
+        recipient_id: id,
+        kind: "reminder" as const,
+        title: `${prepared.length} pré-avis de renouvellement prêt(s) à envoyer`,
+        body: `Contrats finissant sous 15 j : ${prepared.map((p) => p.full_name).slice(0, 5).join(", ")}. Envoie le mail au travailleur en 1 clic.`,
+        link: "/admin/cdd-renewals",
+        data: { count: prepared.length },
+      }));
+      if (inserts.length > 0) await admin.from("notifications").insert(inserts);
+    }
+  } catch (e) {
+    console.error("prepareRenewalNotices:", e);
+  }
+
   return NextResponse.json({
     ok: true,
     scanned: empArr.length,
     created: created.length,
     skipped: skipped.length,
+    pre_notices_prepared: preNoticesCreated,
   });
 }

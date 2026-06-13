@@ -11,6 +11,7 @@ export type MailSource =
   | "screening_request"
   | "tunnel_recap"
   | "password_reset"
+  | "cdd_renewal_prenotice"
   | "manual";
 
 export const SOURCE_LABELS: Record<MailSource, string> = {
@@ -23,6 +24,7 @@ export const SOURCE_LABELS: Record<MailSource, string> = {
   screening_request: "Invitation questionnaire",
   tunnel_recap: "Récap tunnel test",
   password_reset: "Réinitialisation mot de passe",
+  cdd_renewal_prenotice: "Pré-avis renouvellement",
   manual: "Mail manuel",
 };
 
@@ -36,5 +38,6 @@ export const SOURCE_COLORS: Record<MailSource, string> = {
   screening_request: "bg-pink-100 text-pink-800",
   tunnel_recap: "bg-gray-100 text-gray-700",
   password_reset: "bg-rose-100 text-rose-800",
+  cdd_renewal_prenotice: "bg-cyan-100 text-cyan-800",
   manual: "bg-gray-100 text-gray-800",
 };
