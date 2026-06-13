@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ApplicationForm } from "../application-form";
+import { ApplicationWizard } from "./application-wizard";
+import { ensureDraftApplication } from "./wizard-actions";
 import { BRAND } from "@/lib/config";
 import { LangToggle } from "@/components/lang-toggle";
 import { getLocale } from "@/lib/locale-server";
@@ -90,6 +92,13 @@ export default async function PostulerJobPage(
     };
   }
 
+  // Karim 2026-06-13 (Phase 1bis) : candidat connecté -> assistant multi-écrans
+  // avec brouillon créé/repris dès maintenant (sync DB progressive, visible RH).
+  let draft: Awaited<ReturnType<typeof ensureDraftApplication>> | null = null;
+  if (user) {
+    draft = await ensureDraftApplication(isSpontaneous ? null : (job?.id ?? null));
+  }
+
   // Si offre demandée et introuvable → message friendly + CTA spontanée.
   if (!isSpontaneous && !job) {
     return (
@@ -157,8 +166,22 @@ export default async function PostulerJobPage(
             ) : null}
           </div>
 
-          {user ? (
+          {user && draft && draft.applicationId && !draft.error ? (
             <div className="p-4 md:p-5">
+              <ApplicationWizard
+                jobId={isSpontaneous ? null : (job?.id ?? null)}
+                jobTitle={job?.title ?? null}
+                locale={locale}
+                initial={{
+                  applicationId: draft.applicationId,
+                  candidate: draft.candidate ?? {},
+                  motivation: draft.motivation ?? null,
+                }}
+              />
+            </div>
+          ) : user ? (
+            <div className="p-4 md:p-5">
+              {/* Repli sur l'ancien formulaire si le brouillon n'a pu être créé. */}
               <ApplicationForm
                 jobId={isSpontaneous ? null : (job?.id ?? null)}
                 locale={locale}
