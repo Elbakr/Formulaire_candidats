@@ -7,7 +7,7 @@
 // TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
 // nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
 // du bump manuel ci-dessous.
-const CACHE_VERSION = "caftanrh-shell-v74-2026-06-10-mobile-perf";
+const CACHE_VERSION = "caftanrh-shell-v75-2026-06-13-notifclick";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -109,20 +109,28 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || "/";
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((all) => {
-        for (const c of all) {
-          try {
-            const u = new URL(c.url);
-            if (u.pathname === url || c.url.endsWith(url)) {
-              return c.focus();
-            }
-          } catch (_) {
-            // ignore
+    (async () => {
+      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Karim 2026-06-13 : BUG corrige. Avant, si l'app etait deja ouverte on
+      // faisait juste c.focus() SANS naviguer -> on restait sur la page courante
+      // au lieu d'ouvrir l'objet de la notif. Maintenant : si une fenetre n'est
+      // pas deja sur la cible, on la NAVIGUE vers `url` puis on la focus.
+      for (const c of all) {
+        try {
+          let target = c;
+          const samePath = (() => {
+            try { return new URL(c.url).pathname === url; } catch (_) { return false; }
+          })();
+          if (!samePath && "navigate" in c && typeof c.navigate === "function") {
+            const navigated = await c.navigate(url).catch(() => null);
+            if (navigated) target = navigated;
           }
+          if ("focus" in target) return target.focus();
+        } catch (_) {
+          // ignore, on tentera openWindow
         }
-        return self.clients.openWindow(url);
-      }),
+      }
+      return self.clients.openWindow(url);
+    })(),
   );
 });
