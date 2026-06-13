@@ -28,7 +28,16 @@ export async function GET(request: NextRequest) {
       ? lookbackDays * 86400_000
       : undefined;
     const result = await pollTuyaLogs(forceLookbackMs ? { forceLookbackMs } : undefined);
-    return NextResponse.json(result);
+    // Karim 2026-06-13 : alerte terminal hors-ligne aux fenetres matin/soir.
+    // Best-effort : ne doit jamais faire echouer le poll.
+    let deviceHealth = null;
+    try {
+      const { checkOfflineDevicesAndAlert } = await import("@/lib/tuya-device-health");
+      deviceHealth = await checkOfflineDevicesAndAlert();
+    } catch {
+      /* non bloquant */
+    }
+    return NextResponse.json({ ...result, device_health: deviceHealth });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : String(e) },
