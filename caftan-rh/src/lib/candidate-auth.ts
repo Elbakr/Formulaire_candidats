@@ -48,18 +48,23 @@ export async function sendCandidateMagicLink(
     return { error: createErr.message };
   }
 
-  // 2. Genere le lien magique (NON envoye par Supabase).
+  // 2. Genere le lien magique. On RECUPERE le token_hash et on construit NOTRE
+  //    propre lien de confirmation (/auth/confirm) sur l'URL stable : aucune
+  //    dependance au "Site URL"/allow-list du dashboard Supabase (qui faisait
+  //    retomber le lien sur localhost). redirectTo ne sert qu'a satisfaire l'API.
   const base = getOutboundBaseUrl();
   const nextPath = opts?.next && opts.next.startsWith("/") ? opts.next : "/candidat";
-  const redirectTo = `${base}/auth/callback?next=${encodeURIComponent(nextPath)}`;
   const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
     type: "magiclink",
     email,
-    options: { redirectTo },
+    options: { redirectTo: `${base}/auth/confirm` },
   });
   if (linkErr) return { error: linkErr.message };
-  const actionLink = linkData?.properties?.action_link;
-  if (!actionLink) return { error: "Impossible de générer le lien." };
+  const hashedToken = linkData?.properties?.hashed_token;
+  if (!hashedToken) return { error: "Impossible de générer le lien." };
+  const actionLink =
+    `${base}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}` +
+    `&type=magiclink&next=${encodeURIComponent(nextPath)}`;
 
   // 3. Envoi via EmailJS (depuis hr@caftanfactory.com, pas de rate limit).
   const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
