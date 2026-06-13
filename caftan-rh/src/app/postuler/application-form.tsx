@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -111,6 +111,19 @@ type Props = {
   prefill?: { firstname?: string; lastname?: string; email?: string };
 };
 
+// Date du jour − 17 ans (âge minimum), format ISO YYYY-MM-DD.
+function isoMinus17(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 17);
+  return d.toISOString().split("T")[0];
+}
+
+// NISS belge : les 6 premiers chiffres = date de naissance inversée AAMMJJ.
+function nissPrefixFromIso(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  return m ? `${m[1].slice(2)}${m[2]}${m[3]}` : "";
+}
+
 export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
   const [pending, startTransition] = useTransition();
   const [done, setDone] = useState(false);
@@ -130,13 +143,19 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
   const [consent, setConsent] = useState<boolean>(false);
 
   // Karim 2026-06-13 : âge minimum 17 ans. La date de naissance proposée par
-  // défaut ET la date maximale sélectionnable = aujourd'hui − 17 ans (on ne
-  // peut donc pas choisir plus jeune que 17 ans).
-  const maxBirthDate = useMemo(() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() - 17);
-    return d.toISOString().split("T")[0];
-  }, []);
+  // défaut ET la date maximale sélectionnable = aujourd'hui − 17 ans.
+  const maxBirthDate = useMemo(() => isoMinus17(), []);
+  const [birthDateVal, setBirthDateVal] = useState<string>(() => isoMinus17());
+
+  // Karim 2026-06-13 : NISS pré-rempli avec les 6 premiers chiffres = date de
+  // naissance (AAMMJJ), modifiable. Se resynchronise tant que le candidat n'a
+  // pas édité le champ NISS à la main.
+  const nrnEditedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (nrnEditedRef.current) return;
+    const prefix = nissPrefixFromIso(birthDateVal);
+    if (prefix) setNrnVal(prefix);
+  }, [birthDateVal]);
 
   // Validation feedback (live) — non bloquant tant que possible.
   const [phoneVal, setPhoneVal] = useState<string>("");
@@ -303,7 +322,14 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
             />
           </Field>
           <Field label={t("apply.birth_date", locale)}>
-            <Input name="birth_date" type="date" autoComplete="bday" max={maxBirthDate} defaultValue={maxBirthDate} />
+            <Input
+              name="birth_date"
+              type="date"
+              autoComplete="bday"
+              max={maxBirthDate}
+              value={birthDateVal}
+              onChange={(e) => setBirthDateVal(e.target.value)}
+            />
           </Field>
           <Field label={t("apply.gender", locale)}>
             <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -575,7 +601,8 @@ export function ApplicationForm({ jobId, locale, sites, prefill }: Props) {
               name="nrn"
               placeholder="XX.XX.XX-XXX.XX"
               inputMode="numeric"
-              onBlur={(e) => setNrnVal(e.currentTarget.value)}
+              value={nrnVal}
+              onChange={(e) => { setNrnVal(e.target.value); nrnEditedRef.current = true; }}
             />
           </Field>
           <Field
