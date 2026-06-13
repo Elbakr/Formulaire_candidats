@@ -402,7 +402,7 @@ export default async function AnalyticsPage(props: { searchParams: Promise<Searc
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Analytics — centre de décision</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Analytics — centre de décision</h1>
           <p className="text-sm text-ink-2">
             {fmtDate(pStart)} — {fmtDate(pEnd)} · alertes, besoins, funnel, couverture.
           </p>
