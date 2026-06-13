@@ -154,10 +154,11 @@ export async function createContractAndSendForSignatureAction(input: {
   const contractId = (row as { id: string }).id;
 
   // 5. Envoi mail signature via EmailJS
-  // Karim 2026-06-01 : utilise getPublicBaseUrl (TUNNEL_URL.txt > env) pour
-  // que les liens de signature restent valides à chaque restart tunnel.
-  const { getPublicBaseUrl } = await import("@/lib/public-base-url");
-  const baseUrl = getPublicBaseUrl();
+  // Karim 2026-06-13 : lien de signature ENVOYE A L'EMPLOYE -> getOutboundBaseUrl
+  // (jamais localhost si le mail part du PC en dev, jamais le tunnel jetable :
+  // toujours l'alias prod stable, joignable PC eteint).
+  const { getOutboundBaseUrl } = await import("@/lib/public-base-url");
+  const baseUrl = getOutboundBaseUrl();
   const signingUrl = `${baseUrl}/sign/${signingToken}`;
   let mailStatus = 0;
   try {

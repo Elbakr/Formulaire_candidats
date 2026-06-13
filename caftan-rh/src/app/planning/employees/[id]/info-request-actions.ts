@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMissingFields } from "@/lib/contract-readiness";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 
 export async function sendInfoRequestMailAction(
   employeeId: string,
@@ -35,8 +36,10 @@ export async function sendInfoRequestMailAction(
     return { error: "Aucun champ manquant - inutile d envoyer ce mail" };
   }
 
-  // Lien a TOKEN autonome, sur l'URL STABLE Vercel (jamais le tunnel).
-  const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://caftan-rh.vercel.app";
+  // Lien a TOKEN autonome, sur une URL joignable par un externe (jamais
+  // localhost, jamais le tunnel jetable). getOutboundBaseUrl garantit l'alias
+  // stable meme si le mail part du PC en dev.
+  const BASE_URL = getOutboundBaseUrl();
   let token: string;
   const { data: existing } = await admin
     .from("contract_info_tokens")

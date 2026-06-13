@@ -7,11 +7,13 @@
 // employes, comme les fiches de paie), independant de Gmail/Resend.
 
 import crypto from "node:crypto";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 
 const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
 const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://caftan-rh.vercel.app";
+// Karim 2026-06-13 : lien externe -> jamais localhost/tunnel (cf. getOutboundBaseUrl).
+const BASE_URL = getOutboundBaseUrl();
 
 // admin client type laxiste (on reutilise createAdminClient du caller).
 type Admin = {

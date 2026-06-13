@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/server";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 
 export type UploadTokenRow = {
   id: string;
@@ -68,7 +69,8 @@ export async function createUploadToken(args: CreateArgs): Promise<CreateTokenRe
     .single();
   if (error || !data) return { ok: false, error: error?.message ?? "Insert failed" };
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  // Lien envoye au candidat : jamais localhost/tunnel (cf. getOutboundBaseUrl).
+  const baseUrl = getOutboundBaseUrl();
   const url = `${baseUrl.replace(/\/$/, "")}/upload/${token}`;
   return { ok: true, id: (data as { id: string }).id, token, url, expiresAt };
 }

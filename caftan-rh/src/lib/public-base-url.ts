@@ -75,3 +75,37 @@ export function getPublicBaseUrl(override?: string): string {
   if (fromTunnel) return fromTunnel;
   return envFallback().replace(/\/+$/, "");
 }
+
+// Karim 2026-06-13 : URL pour les liens ENVOYES A UN DESTINATAIRE EXTERNE
+// (candidat / futur travailleur / employe) dans un mail.
+//
+// Probleme constate : un lien "infos manquantes" est parti en
+// http://localhost:3000/... parce que le mail a ete declenche depuis le PC en
+// dev (NEXT_PUBLIC_APP_URL=localhost dans .env.local). Un externe ne peut
+// evidemment pas ouvrir localhost. Le tunnel Cloudflare jetable est tout aussi
+// fragile (meurt PC eteint).
+//
+// Regle dure : un lien externe ne doit JAMAIS dependre de l'endroit d'ou il
+// part. On rejette localhost ET le tunnel jetable, et on retombe toujours sur
+// l'alias prod stable, joignable 24/7. Un vrai domaine custom
+// (NEXT_PUBLIC_SITE_URL non-localhost / non-tunnel) reste prioritaire.
+const STABLE_PROD_URL = "https://caftan-rh.vercel.app";
+
+function isUnreachableForExternal(u: string | undefined | null): boolean {
+  if (!u) return true;
+  if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(u)) return true;
+  if (/trycloudflare\.com|loca\.lt|ngrok/.test(u)) return true;
+  return false;
+}
+
+export function getOutboundBaseUrl(): string {
+  const explicit =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    "";
+  if (!isUnreachableForExternal(explicit)) {
+    return explicit.replace(/\/+$/, "");
+  }
+  return STABLE_PROD_URL;
+}

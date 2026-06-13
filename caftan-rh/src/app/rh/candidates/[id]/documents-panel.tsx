@@ -3,6 +3,7 @@
 
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { computeMissingDocs } from "@/lib/documents/missing";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
 import { DocumentsPanelClient } from "./documents-panel-client";
@@ -115,8 +116,9 @@ export async function DocumentsPanel({ applicationId }: { applicationId: string 
     if (data?.signedUrl) signedMap.set(d.id, data.signedUrl);
   }
 
-  // App URL pour copier/coller des magic links (si on veut afficher l'URL complète)
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  // App URL pour copier/coller des liens d'upload (envoyes au candidat) :
+  // jamais localhost/tunnel, toujours l'alias stable (cf. getOutboundBaseUrl).
+  const baseUrl = getOutboundBaseUrl();
 
   return (
     <div className="space-y-4">

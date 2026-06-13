@@ -5,7 +5,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { getPublicBaseUrl } from "@/lib/public-base-url";
+import { getPublicBaseUrl, getOutboundBaseUrl } from "@/lib/public-base-url";
 import type {
   PreInterview,
   PreInterviewQuestion,
@@ -133,10 +133,12 @@ export async function loadPreInterviewBundleByToken(
 
 /**
  * Build the public URL for a pre-interview token.
- * Priorité gérée par getPublicBaseUrl : TUNNEL_URL.txt > NEXT_PUBLIC_SITE_URL > localhost.
+ * Karim 2026-06-13 : lien ENVOYE A UN CANDIDAT -> getOutboundBaseUrl (jamais
+ * localhost, jamais le tunnel jetable, toujours l'alias stable). Un override
+ * explicite (ex. tunnel pour un test manuel) reste respecte via getPublicBaseUrl.
  */
 export function preInterviewPublicUrl(token: string, baseUrlOverride?: string): string {
-  const base = getPublicBaseUrl(baseUrlOverride);
+  const base = baseUrlOverride ? getPublicBaseUrl(baseUrlOverride) : getOutboundBaseUrl();
   return `${base}/pre-interview/${token}`;
 }
 
