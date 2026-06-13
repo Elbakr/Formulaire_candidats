@@ -223,12 +223,33 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
           continue;
         }
 
-        // ALTERNANCE AUTO : compte les events deja inseres pour cet employe
-        // dans la journee, ANTERIEURS a occurredAt.
-        // Karim 2026-06-10 : RECONCILIATION web<->Tuya. On ne compte QUE les
-        // entrees source='tuya' : Tuya est la source de verite du temps de
-        // presence, donc un pointage web ne doit PAS decaler la parite
-        // d'alternance des taps Tuya (sinon double comptage / inversion).
+        // Karim 2026-06-13 : TOGGLE PAR ETAT (remplace la parite-par-comptage).
+        // L'ancienne logique comptait les taps du jour (pair=IN, impair=OUT). Des
+        // qu'un tap etait manque (device offline) ou qu'une session etait
+        // auto-fermee, la parite DERIVAIT -> le systeme calculait "OUT" sans IN
+        // ouvert -> la base rejetait (trigger "impossible de clock-out") -> le
+        // VRAI tap etait PERDU. Bug recurrent sur TOUS les sites.
+        //
+        // Nouvelle regle, auto-cicatrisante, calquee sur le toggle single-empreinte
+        // d'Anvers : on regarde le DERNIER pointage de l'employe avant ce tap.
+        //   - session OUVERTE et RECENTE (dernier event = IN, < 16h) -> ce tap = OUT
+        //   - sinon (dernier = OUT / auto_close, ou IN trop vieux) -> ce tap = IN
+        // => on n'insere JAMAIS un OUT sans IN ouvert (zero tap perdu), c'est
+        //    robuste aux oublis d'OUT, aux auto-close, et au double-ID (le lookup
+        //    est par employee_id, peu importe le tuya_user_id utilise).
+        const { data: lastEntryRows } = await supabase
+          .from("clock_entries")
+          .select("kind, occurred_at")
+          .eq("employee_id", mapping.employee_id)
+          .lt("occurred_at", occurredAt)
+          .order("occurred_at", { ascending: false })
+          .limit(1);
+        const lastEntry = (lastEntryRows?.[0] ?? null) as { kind: "in" | "out"; occurred_at: string } | null;
+        const openInRecent =
+          lastEntry?.kind === "in" &&
+          new Date(occurredAt).getTime() - new Date(lastEntry.occurred_at).getTime() < 16 * 3600_000;
+        const alternanceKind: "in" | "out" = openInRecent ? "out" : "in";
+        // Compteur du jour conserve uniquement pour la note de tracabilite.
         const { count: priorCount } = await supabase
           .from("clock_entries")
           .select("id", { count: "exact", head: true })
@@ -236,7 +257,6 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
           .eq("source", "tuya")
           .gte("occurred_at", `${today}T00:00:00Z`)
           .lt("occurred_at", occurredAt);
-        const alternanceKind = (priorCount ?? 0) % 2 === 0 ? "in" : "out";
 
         // Karim 2026-05-26 : INFERENCE STATISTIQUE pour detecter erreurs de doigt
         // / oublis. Charge l historique 15j et le profil de l employe, puis
@@ -258,7 +278,11 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
           profile,
           sameDayEvents,
         );
-        const inferredKind = inference.autoApplied ? inference.correctedKind : alternanceKind;
+        let inferredKind = inference.autoApplied ? inference.correctedKind : alternanceKind;
+        // Garde-fou trigger-safe : on n'insere JAMAIS un OUT sans session ouverte
+        // recente (sinon rejet base = tap perdu). L'inference statistique ne peut
+        // donc pas re-casser la parite. Tuya reste source de verite : on garde le tap.
+        if (inferredKind === "out" && !openInRecent) inferredKind = "in";
         const correctionNote = inference.confidence < 100 ? formatCorrectionNote(inference) : null;
 
         // Site : utilise le shift du jour si l employe travaille sur un site fallback
