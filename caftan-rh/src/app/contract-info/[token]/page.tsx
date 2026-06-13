@@ -78,7 +78,12 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
         Bonjour <b className="text-ink">{firstName}</b>, pour finaliser ton dossier et préparer ton contrat,
         merci de compléter les informations ci-dessous. Ça prend une minute 🙏
       </p>
-      <ContractInfoForm token={token} fields={missing} firstName={firstName} />
+      <ContractInfoForm
+        token={token}
+        fields={missing}
+        firstName={firstName}
+        birthDate={(emp.birth_date as string) ?? null}
+      />
     </Shell>
   );
 }

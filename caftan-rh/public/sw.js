@@ -7,7 +7,7 @@
 // TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
 // nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
 // du bump manuel ci-dessous.
-const CACHE_VERSION = "caftanrh-shell-v75-2026-06-13-notifclick";
+const CACHE_VERSION = "caftanrh-shell-v76-2026-06-13-notifroute";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -111,23 +111,25 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      // Karim 2026-06-13 : BUG corrige. Avant, si l'app etait deja ouverte on
-      // faisait juste c.focus() SANS naviguer -> on restait sur la page courante
-      // au lieu d'ouvrir l'objet de la notif. Maintenant : si une fenetre n'est
-      // pas deja sur la cible, on la NAVIGUE vers `url` puis on la focus.
-      for (const c of all) {
+
+      // Karim 2026-06-13 : cablage FIGE. L'ancienne approche reposait sur
+      // client.navigate(), qui ECHOUE silencieusement sur iOS PWA (la promesse
+      // rejette, on tombait dans le catch, on focus la fenetre SANS naviguer ->
+      // on restait sur la page courante). Nouvelle strategie fiable cross-OS :
+      //   1. une fenetre de l'app est ouverte -> on lui POSTE l'URL et l'app
+      //      fait un router.push() (navigation SPA, marche toujours, meme iOS) ;
+      //   2. aucune fenetre -> openWindow() ouvre directement sur la cible.
+      if (all.length > 0) {
+        const client = all.find((c) => c.focused) || all[0];
         try {
-          let target = c;
-          const samePath = (() => {
-            try { return new URL(c.url).pathname === url; } catch (_) { return false; }
-          })();
-          if (!samePath && "navigate" in c && typeof c.navigate === "function") {
-            const navigated = await c.navigate(url).catch(() => null);
-            if (navigated) target = navigated;
-          }
-          if ("focus" in target) return target.focus();
+          client.postMessage({ type: "NOTIF_NAVIGATE", url });
         } catch (_) {
-          // ignore, on tentera openWindow
+          // best-effort
+        }
+        try {
+          if ("focus" in client) return await client.focus();
+        } catch (_) {
+          // si focus echoue, on retombe sur openWindow ci-dessous
         }
       }
       return self.clients.openWindow(url);
