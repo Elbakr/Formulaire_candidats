@@ -266,16 +266,16 @@ export async function deleteEmployeeAction(
   confirmName: string,
   alsoDeleteAuth = true,
 ): Promise<{ ok?: boolean; error?: string }> {
-  await requireRole(["admin"]);
+  const { profile } = await requireRole(["admin"]);
   const supabase = await createClient();
 
   const { data: emp } = await supabase
     .from("employees")
-    .select("id, full_name, profile_id")
+    .select("id, full_name, profile_id, candidate_id")
     .eq("id", employeeId)
     .maybeSingle();
   if (!emp) return { error: "Employé introuvable." };
-  const e = emp as { id: string; full_name: string; profile_id: string | null };
+  const e = emp as { id: string; full_name: string; profile_id: string | null; candidate_id: string | null };
 
   if (confirmName.trim().toLowerCase() !== e.full_name.trim().toLowerCase()) {
     return {
@@ -283,10 +283,14 @@ export async function deleteEmployeeAction(
     };
   }
 
+  // Karim 2026-06-13 (Phase 4 RGPD) : cascade EXHAUSTIVE pour ne laisser aucun
+  // orphelin. Les pièces à rétention légale (paie) sont CONSERVÉES mais
+  // dé-liées (employee_id -> null). Le reste (candidat, documents) est supprimé.
+  await purgeEmployeeRelated(e.id, e.profile_id, e.candidate_id);
+
   const { error } = await supabase.from("employees").delete().eq("id", employeeId);
   if (error) return { error: error.message };
 
-  // Nettoyage complet : profile + user auth (sinon ils restent orphelins)
   if (alsoDeleteAuth && e.profile_id) {
     const admin = createAdminClient();
     await admin.from("profiles").delete().eq("id", e.profile_id);
@@ -297,10 +301,36 @@ export async function deleteEmployeeAction(
     }
   }
 
+  await logActivity(profile, "employee.deleted_rgpd", `Suppression RGPD complète de ${e.full_name} (${employeeId}).`);
+
   revalidatePath("/planning/employees");
   revalidatePath("/planning/sites");
   revalidatePath("/chat");
   return { ok: true };
+}
+
+// Nettoyage des données liées avant suppression d'un employé (RGPD).
+async function purgeEmployeeRelated(employeeId: string, profileId: string | null, candidateId: string | null) {
+  const admin = createAdminClient();
+  // 1. Documents (storage + lignes) liés employé OU candidat.
+  try {
+    const orFilter = candidateId
+      ? `employee_id.eq.${employeeId},candidate_id.eq.${candidateId}`
+      : `employee_id.eq.${employeeId}`;
+    const { data: docs } = await admin.from("documents").select("id, storage_path").or(orFilter);
+    const paths = ((docs ?? []) as Array<{ storage_path: string | null }>).map((d) => d.storage_path).filter(Boolean) as string[];
+    if (paths.length) { try { await admin.storage.from("documents").remove(paths); } catch { /* */ } }
+    await admin.from("documents").delete().or(orFilter);
+  } catch { /* best-effort */ }
+  // 2. Pièces à RÉTENTION LÉGALE : on conserve mais on dé-lie (RGPD vs droit social BE).
+  for (const table of ["payslips", "outbound_mails"]) {
+    try { await admin.from(table).update({ employee_id: null }).eq("employee_id", employeeId); } catch { /* */ }
+  }
+  // 3. Fiche(s) candidat de la personne (par candidate_id et par profile_id).
+  try {
+    if (candidateId) await admin.from("candidates").delete().eq("id", candidateId);
+    if (profileId) await admin.from("candidates").delete().eq("profile_id", profileId);
+  } catch { /* best-effort */ }
 }
 
 /**

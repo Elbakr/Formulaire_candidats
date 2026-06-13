@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowRight, MapPin, Briefcase, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { fetchOpenJobs } from "@/lib/queries";
+import { ErasureButton } from "./erasure-button";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +143,11 @@ export default async function CandidatHomePage() {
           </Link>
         </div>
       </section>
+
+      {/* Droit à l'effacement RGPD */}
+      <div className="pt-2 text-center">
+        <ErasureButton />
+      </div>
     </div>
   );
 }
