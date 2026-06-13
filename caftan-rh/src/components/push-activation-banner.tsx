@@ -172,7 +172,7 @@ export function PushActivationBanner({ publicKey }: { publicKey: string | null }
   if (mode === "ios-pwa") {
     return (
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 p-3 pb-safe sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-md"
+        className="fixed bottom-[calc(64px+env(safe-area-inset-bottom))] left-0 right-0 z-40 p-3 md:bottom-4 sm:left-auto sm:right-4 sm:max-w-md"
         role="dialog"
         aria-label="Installer l'app pour les notifications"
       >

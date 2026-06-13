@@ -322,7 +322,7 @@ export function CandidatesTable({
               />
               <span className="text-xs font-semibold text-ink-2">{allVisibleSelected ? "Désélectionner tout" : "Sélectionner tout"}</span>
             </label>
-            <div className="relative flex-1 min-w-[240px]">
+            <div className="relative w-full sm:flex-1 sm:min-w-[240px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" />
               <Input
                 placeholder="Rechercher nom, email, ville, offre…"
@@ -332,7 +332,7 @@ export function CandidatesTable({
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Statut" />
               </SelectTrigger>
               <SelectContent>
@@ -343,7 +343,7 @@ export function CandidatesTable({
               </SelectContent>
             </Select>
             <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-full sm:w-[140px]">
                 <SelectValue placeholder="Source" />
               </SelectTrigger>
               <SelectContent>
@@ -354,7 +354,7 @@ export function CandidatesTable({
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-full sm:w-[160px]">
                 <ArrowUpDown className="h-3.5 w-3.5 mr-1" />
                 <SelectValue placeholder="Trier" />
               </SelectTrigger>
@@ -647,7 +647,7 @@ export function CandidatesTable({
 
       {/* Bulk action bar */}
       {selected.size > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-ink/95 backdrop-blur-xl text-white px-5 py-3 flex items-center gap-3 border-t border-white/10">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-ink/95 backdrop-blur-xl text-white px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex items-center gap-3 border-t border-white/10">
           <span className="font-bold text-sm">{selected.size} candidat{selected.size > 1 ? "s" : ""} sélectionné{selected.size > 1 ? "s" : ""}</span>
           <div className="ml-auto flex gap-2">
             <Button variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white" onClick={() => setSelected(new Set())}>

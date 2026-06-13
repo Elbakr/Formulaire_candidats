@@ -201,7 +201,7 @@ export function TopCandidatesList({ rows }: { rows: TopCandidateRow[] }) {
 
       {/* Bulk action bar */}
       {selectedRows.length > 0 ? (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-ink/95 backdrop-blur-xl text-white px-5 py-3 flex items-center gap-3 border-t border-white/10">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-ink/95 backdrop-blur-xl text-white px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex items-center gap-3 border-t border-white/10">
           <span className="font-bold text-sm">{selectedRows.length} candidat{selectedRows.length > 1 ? "s" : ""} sélectionné{selectedRows.length > 1 ? "s" : ""}</span>
           <div className="ml-auto flex gap-2">
             <Button variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white" onClick={clearSelection}>

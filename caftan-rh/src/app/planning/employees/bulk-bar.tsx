@@ -66,7 +66,8 @@ export function EmployeesBulkBar({
 
   return (
     <>
-      <div className="sticky bottom-2 z-30 mt-3">
+      {/* Karim 2026-06-13 : sur mobile, flotte au-dessus de la barre d'onglets. */}
+      <div className="sticky bottom-[calc(68px+env(safe-area-inset-bottom))] md:bottom-2 z-40 mt-3">
         <div className="bg-ink text-white rounded-lg shadow-lg p-3 flex items-center gap-3 flex-wrap">
           <span className="text-sm font-bold">
             {selected.length} sélectionné{selected.length > 1 ? "s" : ""}

@@ -740,7 +740,7 @@ export function WeeklyPlanningBoard({
           Sur iOS PWA : long-press (500ms) sur un shift -> ce bandeau apparait ->
           tape une cellule employe/jour cible pour deplacer. */}
       {selectedShift ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 print:hidden">
+        <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] md:bottom-0 z-40 print:hidden">
           <div className="mx-auto max-w-3xl m-2 rounded-lg bg-ink text-white shadow-2xl border border-gold/40">
             <div className="flex items-center gap-3 p-3">
               <ArrowRight className="h-4 w-4 text-gold shrink-0" />

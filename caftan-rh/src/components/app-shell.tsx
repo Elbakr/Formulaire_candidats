@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  LogOut, Settings, Menu, X,
+  LogOut, Settings, ArrowLeft,
   LayoutDashboard, Users, KanbanSquare, Briefcase, Mail, FileBarChart,
   Calendar, FileText, MessageSquare, User, Building2, Sliders,
   CalendarDays, UserCheck, CalendarOff, Clock, Sparkles, AlertTriangle,
@@ -124,6 +124,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const displayName = user.full_name ?? user.email;
   const [mobileOpen, setMobileOpen] = useState(false);
   // Karim 2026-06-13 : onglets de la barre mobile (bas d'écran), selon le rôle.
@@ -182,14 +183,16 @@ export function AppShell({
       <CommandPalette />
       <header className="sticky top-0 z-30 border-b border-white/10 bg-ink/95 backdrop-blur-xl text-white pt-safe">
         <div className="flex items-center gap-2 px-3 sm:px-5 py-3 px-safe">
+          {/* Karim 2026-06-13 : bouton RETOUR (mobile). En PWA plein écran il n'y a
+              pas de bouton retour navigateur ; le menu complet reste accessible via
+              l'onglet "Plus" de la barre du bas. */}
           <button
             type="button"
-            aria-label="Ouvrir le menu"
-            aria-expanded={mobileOpen}
-            onClick={() => setMobileOpen((v) => !v)}
-            className="md:hidden flex items-center justify-center h-9 w-9 -ml-1 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 transition-colors"
+            aria-label="Retour"
+            onClick={() => router.back()}
+            className="md:hidden flex items-center justify-center h-9 w-9 -ml-1 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 active:scale-95 transition-all"
           >
-            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            <ArrowLeft className="h-4 w-4" />
           </button>
           <Link href="/" className="text-gold font-bold uppercase tracking-[0.1em] text-xs whitespace-nowrap">
             {BRAND.name}
