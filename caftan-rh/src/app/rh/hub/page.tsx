@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getNavSections } from "@/lib/navigation";
 import { NavIcon } from "@/components/nav-icon";
+import { getUrgentActions } from "@/lib/rh-action-center";
 import { AllFunctionsMenu } from "./all-functions-menu";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +46,10 @@ export default async function HrHubPage() {
     anomalies: anomalies ?? 0,
   };
 
+  // Centre d'actions urgentes (deadline-driven + en attente).
+  const actions = await getUrgentActions(supabase);
+  const totalToDo = actions.reduce((s, a) => s + a.count, 0);
+
   // Nav complete du role -> ce qui est dispo + le menu "toutes les fonctions".
   const groups = getNavSections(role);
   const available = new Set(groups.flatMap((g) => g.items.map((i) => i.href)));
@@ -53,11 +59,53 @@ export default async function HrHubPage() {
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Centre RH</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Centre RH</h1>
           <p className="text-sm text-ink-2">Tes fonctions essentielles. Le reste est dans « Toutes les fonctions ».</p>
         </div>
         <AllFunctionsMenu groups={groups} />
       </div>
+
+      {/* Karim 2026-06-13 : Centre d'actions urgentes — agir AVANT l'échéance. */}
+      {actions.length > 0 ? (
+        <div className="rounded-2xl border border-line bg-surface overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-line flex items-center gap-2">
+            <span className="text-base">⚡</span>
+            <h2 className="font-bold text-sm">Actions urgentes</h2>
+            <span className="ml-auto text-[11px] font-semibold text-ink-3">{totalToDo} à traiter</span>
+          </div>
+          <ul className="divide-y divide-line">
+            {actions.map((a) => {
+              const cls =
+                a.severity === "critical"
+                  ? "bg-danger-light text-danger"
+                  : a.severity === "warn"
+                    ? "bg-warn-light text-warn"
+                    : "bg-info-light text-info";
+              return (
+                <li key={a.key}>
+                  <Link href={a.link} className="flex items-center gap-3 p-3 hover:bg-surface-2 active:bg-surface-2/70 transition-colors">
+                    <span className={`inline-flex h-9 w-9 rounded-xl items-center justify-center shrink-0 ${cls}`}>
+                      <NavIcon name={a.icon} className="h-4 w-4" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm text-ink leading-tight">{a.label}</div>
+                      {a.hint ? <div className="text-[11px] text-ink-3 truncate">{a.hint}</div> : null}
+                    </div>
+                    <span className={`text-sm font-bold tabular-nums px-2 py-0.5 rounded-full shrink-0 ${cls}`}>
+                      {a.count > 99 ? "99+" : a.count}
+                    </span>
+                    <ArrowRight className="h-4 w-4 text-ink-3 shrink-0" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-success/30 bg-success-light/40 p-4 text-sm font-semibold text-success flex items-center gap-2">
+          ✅ Rien d'urgent en attente — tout est à jour.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {tiles.map((t) => {
