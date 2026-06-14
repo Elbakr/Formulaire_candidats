@@ -14,7 +14,8 @@ export type HealthIssueKey =
   | "open_clocks_24h"
   | "failed_mails"
   | "anomalous_clocks"
-  | "no_presence_daytime";
+  | "no_presence_daytime"
+  | "unmapped_badges";
 
 export type Issue = {
   key: HealthIssueKey;
@@ -120,6 +121,41 @@ export async function runHealthChecks(): Promise<Issue[]> {
       problem: "Personne n'est pointé alors qu'on est en horaire d'ouverture — anormal.",
       solution: "Probable arrêt de l'ingestion Tuya (voir ci-dessus) : relancer le poll et vérifier les crons.",
     });
+  }
+
+  // 7) Badges perdus (slot non mappé) — anti-récidive des OUT/IN manquants.
+  // Karim 2026-06-14 : un badge dont le slot n'est pas mappé est droppé en
+  // silence (sortie/entrée manquante). On remonte ceux des 3 derniers jours qui
+  // n'ont TOUJOURS pas de mapping numérique actif.
+  const threeDaysAgo = new Date(now - 3 * 86_400_000).toISOString();
+  const { data: unmappedRaw } = await admin
+    .from("tuya_unmapped_slots")
+    .select("tuya_device_id, tuya_user_id, last_seen_at")
+    .is("resolved_at", null)
+    .gte("last_seen_at", threeDaysAgo);
+  const unmapped = (unmappedRaw ?? []) as Array<{ tuya_device_id: string; tuya_user_id: string }>;
+  if (unmapped.length > 0) {
+    const { data: mapsRaw } = await admin
+      .from("tuya_user_mapping")
+      .select("tuya_device_id, tuya_user_id")
+      .eq("is_active", true)
+      .not("tuya_user_id", "is", null);
+    const mapped = new Set(
+      ((mapsRaw ?? []) as Array<{ tuya_device_id: string; tuya_user_id: string }>).map(
+        (m) => `${m.tuya_device_id}|${m.tuya_user_id}`,
+      ),
+    );
+    const stillUnmapped = unmapped.filter((u) => !mapped.has(`${u.tuya_device_id}|${u.tuya_user_id}`));
+    if (stillUnmapped.length > 0) {
+      const terminals = new Set(stillUnmapped.map((u) => u.tuya_device_id)).size;
+      issues.push({
+        key: "unmapped_badges",
+        severity: "warning",
+        title: `${stillUnmapped.length} badge(s) non capté(s) (slot non mappé)`,
+        problem: `${stillUnmapped.length} passage(s) de badge sur ${terminals} terminal(aux) sont droppés faute de mapping — ce sont des entrées/sorties manquantes (cause des OUT manquants).`,
+        solution: "Faire badger la personne puis mapper son slot en 1 clic dans /admin/tuya/logs. Une fois mappé, le badge est capté automatiquement.",
+      });
+    }
   }
 
   return issues;
