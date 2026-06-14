@@ -386,6 +386,11 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
       }
     }
 
+    // Karim 2026-06-14 : last_sync_at est un BATTEMENT DE CŒUR (= "le poll a
+    // tourné"), mis à jour à CHAQUE passage, même sans nouveau badge. Avant, il
+    // n'était écrit que si maxTs > last : pendant les heures creuses (aucun
+    // pointage >2h) il vieillissait et faisait crier "crons figés" à tort.
+    // last_log_access_time, lui, ne bouge que sur du vrai nouveau log.
     if (maxTs > last) {
       await supabase
         .from("tuya_sync_state")
@@ -394,6 +399,15 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
           last_log_access_time: maxTs,
           last_sync_at: new Date().toISOString(),
           last_error: out.errors.filter((e) => e.startsWith(dev.tuya_device_name ?? "")).slice(0, 1)[0] ?? null,
+          updated_at: new Date().toISOString(),
+        });
+    } else {
+      // Pas de nouveau log : on rafraîchit quand même le heartbeat.
+      await supabase
+        .from("tuya_sync_state")
+        .upsert({
+          id: dev.tuya_device_id,
+          last_sync_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
     }
