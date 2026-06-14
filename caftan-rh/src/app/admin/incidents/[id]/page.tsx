@@ -8,6 +8,7 @@ import { fmtDateTime } from "@/lib/datetime";
 import { qcmFor, behaviorLabel } from "@/lib/incident/qcm";
 import { getActiveLearning, isAutoPaused } from "@/lib/incident/learnings";
 import { IncidentQcm } from "./incident-qcm";
+import { NlCommandBar } from "./nl-command-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,8 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
         status={inc.status}
         autoPaused={paused}
       />
+
+      <NlCommandBar incidentId={inc.id} />
     </div>
   );
 }

@@ -8,9 +8,84 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { recordLearning, revokeLearning, setAutoPaused } from "@/lib/incident/learnings";
 import { isValidBehavior, modeForBehavior } from "@/lib/incident/qcm";
 import { runPlaybook } from "@/lib/incident/playbooks";
+import { interpretCommand, executeAction, type CommandAction } from "@/lib/incident/nl-command";
 import type { Issue } from "@/lib/system/health-checks";
 
 type ActionResult = { ok: boolean; error?: string; message?: string };
+
+export type NlResult = {
+  ok: boolean;
+  mode: "executed" | "confirm" | "clarify";
+  message: string;
+  proposal?: { action: string; params: Record<string, unknown>; reason: string };
+};
+
+/** Audit best-effort d'une commande NL dans agent_actions (n'échoue jamais l'action). */
+async function auditNl(
+  admin: ReturnType<typeof createAdminClient>,
+  payload: Record<string, unknown>,
+  status: string,
+  decidedBy: string | null,
+): Promise<void> {
+  try {
+    await admin.from("agent_actions").insert({
+      kind: "nl_command",
+      status,
+      payload,
+      proposed_by_agent: "nl-command",
+      decided_by: decidedBy,
+    });
+  } catch {
+    /* table/colonnes absentes -> on ignore, l'action a déjà eu lieu */
+  }
+}
+
+/** Barre de commande : interprète l'instruction, exécute le sûr, propose le sensible. */
+export async function nlCommandAction(text: string, incidentId: string): Promise<NlResult> {
+  const { profile } = await requireRole(["admin"]);
+  const clean = (text ?? "").trim();
+  if (!clean) return { ok: false, mode: "clarify", message: "Écris une instruction." };
+
+  const admin = createAdminClient();
+  const { data: inc } = await admin.from("incidents").select("signature").eq("id", incidentId).maybeSingle();
+  const signature = (inc as { signature?: string } | null)?.signature;
+
+  const interp = await interpretCommand(clean, { incidentId, signature });
+
+  if (!interp.ok || interp.action === "none" || interp.confidence < 0.45) {
+    await auditNl(admin, { text: clean, interp }, "clarify", profile.id);
+    return { ok: true, mode: "clarify", message: interp.reason || "Je n'ai pas compris l'instruction — peux-tu préciser ?" };
+  }
+
+  if (interp.sensitivity === "sensitive") {
+    await auditNl(admin, { text: clean, interp }, "proposed", profile.id);
+    return {
+      ok: true,
+      mode: "confirm",
+      message: `Action sensible détectée. ${interp.reason}`.trim(),
+      proposal: { action: interp.action, params: interp.params, reason: interp.reason },
+    };
+  }
+
+  const res = await executeAction(interp.action, interp.params, { incidentId, signature });
+  await auditNl(admin, { text: clean, interp, result: res }, res.ok ? "executed" : "failed", profile.id);
+  revalidatePath(`/admin/incidents/${incidentId}`);
+  return { ok: res.ok, mode: "executed", message: `${interp.reason ? interp.reason + " — " : ""}${res.message}` };
+}
+
+/** Confirme et exécute une action sensible précédemment proposée. */
+export async function confirmNlAction(action: string, paramsJson: string, incidentId: string): Promise<ActionResult> {
+  const { profile } = await requireRole(["admin"]);
+  let params: Record<string, unknown> = {};
+  try { params = JSON.parse(paramsJson) as Record<string, unknown>; } catch { /* {} */ }
+  const admin = createAdminClient();
+  const { data: inc } = await admin.from("incidents").select("signature").eq("id", incidentId).maybeSingle();
+  const signature = (inc as { signature?: string } | null)?.signature;
+  const res = await executeAction(action as CommandAction, params, { incidentId, signature });
+  await auditNl(admin, { confirmed: action, params, result: res }, res.ok ? "executed" : "failed", profile.id);
+  revalidatePath(`/admin/incidents/${incidentId}`);
+  return { ok: res.ok, message: res.message, error: res.ok ? undefined : res.message };
+}
 
 /** L'admin répond au QCM : enregistre la consigne + applique l'effet immédiat. */
 export async function answerQcmAction(
