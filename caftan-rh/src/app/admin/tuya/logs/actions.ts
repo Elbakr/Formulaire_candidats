@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { fetchUnlockLogs, listDeviceUsers, parseUnlockValue } from "@/lib/tuya-client";
 
 export type ResolvedLog = {
@@ -199,12 +199,14 @@ export async function quickEnrollAction(args: {
   if (args.direction !== "in" && args.direction !== "out") {
     return { ok: false, error: "direction invalide" };
   }
-  const supabase = await createClient();
-  // Karim 2026-05-24 : UPSERT (au lieu d INSERT pur) pour gerer le cas ou un
-  // mapping name-based pre-existe (cree par la migration 406 avec tuya_user_id
-  // = null et tuya_user_id_alpha = chaine). Le clic enrol re-utilise la ligne
-  // existante en y mettant le slot local.
-  const { error } = await supabase
+  // Karim 2026-06-14 : on passe par le SERVICE-ROLE (action déjà admin-gated par
+  // requireRole). Avant, l'upsert via le client authentifié pouvait renvoyer
+  // "ok" sans écrire (0 ligne touchée) -> toast vert mais le slot restait NULL
+  // (cas confirmé sur les mappings E de Ilham/Omaima/Salmane/Remiki/Ibtissem).
+  const admin = createAdminClient();
+  // UPSERT (au lieu d INSERT pur) pour gerer le cas ou un mapping name-based
+  // pre-existe (migration 406 : tuya_user_id=null + tuya_user_id_alpha=chaine).
+  const { error } = await admin
     .from("tuya_user_mapping")
     .upsert(
       {
@@ -218,6 +220,21 @@ export async function quickEnrollAction(args: {
       { onConflict: "tuya_device_id,employee_id,direction" },
     );
   if (error) return { ok: false, error: error.message };
+
+  // VÉRIFICATION : on relit la ligne et on confirme que le slot a bien atterri.
+  // Un "succès" ne s'affiche QUE si l'écriture est réellement persistée.
+  const { data: check } = await admin
+    .from("tuya_user_mapping")
+    .select("tuya_user_id")
+    .eq("tuya_device_id", args.tuya_device_id)
+    .eq("employee_id", args.employee_id)
+    .eq("direction", args.direction)
+    .maybeSingle();
+  const saved = (check as { tuya_user_id: string | null } | null)?.tuya_user_id ?? null;
+  if (String(saved ?? "") !== String(args.tuya_user_id)) {
+    return { ok: false, error: `Écriture non confirmée (slot enregistré="${saved}" au lieu de "${args.tuya_user_id}"). Signale-le à Karim.` };
+  }
+
   revalidatePath("/admin/tuya/logs");
   revalidatePath("/admin/tuya/users");
   return { ok: true };
