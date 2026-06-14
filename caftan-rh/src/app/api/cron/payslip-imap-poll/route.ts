@@ -3,6 +3,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { pollPayslipsFromImap } from "@/lib/inbound/payslip-imap-poller";
+import { isTransientImapError } from "@/lib/inbound/imap-retry";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,6 +26,12 @@ export async function GET(request: NextRequest) {
     const result = await pollPayslipsFromImap();
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+    const msg = (e as Error).message;
+    // Karim 2026-06-14 : aléa IMAP transitoire → 200 soft_error (pas de mail
+    // d'échec). Le prochain tick réessaiera. 5xx réservé aux vraies pannes.
+    if (isTransientImapError(e)) {
+      return NextResponse.json({ ok: false, soft_error: msg, transient: true });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

@@ -12,6 +12,7 @@
 import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { retryOnTransientImap } from "./imap-retry";
 import { processBatch } from "@/lib/payslip-processor";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
 
@@ -96,18 +97,34 @@ export async function pollPayslipsFromImap(opts?: {
   const maxPerRun = opts?.maxPerRun ?? 50;
   const markAsProcessed = opts?.markAsProcessed ?? true;
 
-  const client = new ImapFlow({
-    host: "imap.gmail.com",
-    port: 993,
-    secure: true,
-    auth: { user, pass },
-    logger: false,
-  });
+  // Karim 2026-06-14 : retry sur erreur IMAP transitoire (« Command failed »,
+  // socket, timeout). Le client est recréé à chaque tentative. Les mails déjà
+  // traités sont déplacés vers CaftanRH-Processed et filtrés (seen:false), et
+  // processBatch est anti-doublon : un re-jeu après aléa est donc sûr. On remet
+  // les compteurs à zéro en début de tentative pour ne pas cumuler.
+  await retryOnTransientImap(async () => {
+    result.fetched = 0;
+    result.matched = 0;
+    result.processed = 0;
+    result.pdfs_total = 0;
+    result.payslips_inserted = 0;
+    result.payslips_matched_employee = 0;
+    result.payslips_orphan = 0;
+    result.errors = [];
+    result.details = [];
 
-  try {
-    await client.connect();
-    const lock = await client.getMailboxLock(opts?.mailbox ?? "INBOX");
+    const client = new ImapFlow({
+      host: "imap.gmail.com",
+      port: 993,
+      secure: true,
+      auth: { user, pass },
+      logger: false,
+    });
+
     try {
+      await client.connect();
+      const lock = await client.getMailboxLock(opts?.mailbox ?? "INBOX");
+      try {
       // Karim 2026-06-03 : assure que le label CaftanRH-Processed existe
       if (markAsProcessed) {
         try { await client.mailboxCreate("CaftanRH-Processed"); } catch { /* exists */ }
@@ -215,12 +232,13 @@ export async function pollPayslipsFromImap(opts?: {
           }
         }
       }
+      } finally {
+        lock.release();
+      }
     } finally {
-      lock.release();
+      try { await client.logout(); } catch { /* */ }
     }
-  } finally {
-    try { await client.logout(); } catch { /* */ }
-  }
+  });
 
   return result;
 }

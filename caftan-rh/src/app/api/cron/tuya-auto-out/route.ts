@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { brusselsWallTimeToUtc } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -162,16 +163,20 @@ export async function GET(request: NextRequest) {
     if (siteId) {
       const hours = siteHoursFor(siteId, inDateISO);
       if (hours) {
+        // Karim 2026-06-14 : close_time est une heure MURALE belge. Sur Vercel
+        // (UTC), `new Date("...T18:00")` valait 18:00 UTC = 20:00 belge -> auto-OUT
+        // mal date / heures faussees. On convertit explicitement Europe/Brussels.
+        const closeUtc = brusselsWallTimeToUtc(inDateISO, hours.close);
         // close + 30 min de tolerance
-        deadlineMs = new Date(`${inDateISO}T${hours.close}:00`).getTime() + 30 * 60_000;
-        outTs = new Date(`${inDateISO}T${hours.close}:00`).toISOString();
+        deadlineMs = closeUtc.getTime() + 30 * 60_000;
+        outTs = closeUtc.toISOString();
         reasonLabel = `Auto-OUT a fermeture site (${hours.close})`;
       }
     }
 
-    // 2. Fallback : shift.end_time + 1h
+    // 2. Fallback : shift.end_time + 1h (end_time = heure murale belge)
     if (deadlineMs === null && shift) {
-      const endTs = new Date(`${shift.date}T${shift.end_time}`).getTime();
+      const endTs = brusselsWallTimeToUtc(shift.date, shift.end_time).getTime();
       deadlineMs = endTs + 60 * 60_000;
       outTs = new Date(deadlineMs).toISOString();
       reasonLabel = `Auto-OUT 1h apres fin de shift (${shift.end_time})`;
