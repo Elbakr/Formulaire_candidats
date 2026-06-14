@@ -41,16 +41,29 @@ async function notifyAdmins(
   const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
   const ids = ((admins ?? []) as Array<{ id: string }>).map((a) => a.id);
   if (ids.length === 0) return 0;
-  // Insérer 1 notif par admin -> le trigger Postgres déclenche le push automatiquement.
-  const rows = ids.map((rid) => ({
-    recipient_id: rid,
-    kind: payload.kind,
-    title: payload.title,
-    body: payload.body,
-    data: payload.data,
-  }));
-  await admin.from("notifications").insert(rows);
-  return ids.length;
+  // Karim 2026-06-14 : on insère 1 notif par admin PUIS on fixe le `link` vers sa
+  // page de détail (même pattern que system-health). SANS link, le clic sur la
+  // PUSH retombait sur "/" (= accueil/planning) via sw.js `data.link || "/"`.
+  // Le trigger Postgres déclenche le push automatiquement après l'insert.
+  let notified = 0;
+  for (const rid of ids) {
+    const { data: ins } = await admin
+      .from("notifications")
+      .insert({
+        recipient_id: rid,
+        kind: payload.kind,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data,
+      })
+      .select("id")
+      .single();
+    if (!ins) continue;
+    const id = (ins as { id: string }).id;
+    await admin.from("notifications").update({ link: `/me/notifications/${id}` }).eq("id", id);
+    notified++;
+  }
+  return notified;
 }
 
 function resolutionBody(issue: Issue, o: PlaybookOutcome): string {
