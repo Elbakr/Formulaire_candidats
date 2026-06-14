@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { recordLearning, revokeLearning, setAutoPaused } from "@/lib/incident/learnings";
-import { isValidBehavior, modeForBehavior } from "@/lib/incident/qcm";
+import { isValidAnswer, modeForAnswer } from "@/lib/incident/qcm";
 import { runPlaybook } from "@/lib/incident/playbooks";
 import { interpretCommand, executeAction, type CommandAction } from "@/lib/incident/nl-command";
 import type { Issue } from "@/lib/system/health-checks";
@@ -87,13 +87,14 @@ export async function confirmNlAction(action: string, paramsJson: string, incide
   return { ok: res.ok, message: res.message, error: res.ok ? undefined : res.message };
 }
 
-/** L'admin répond au QCM : enregistre la consigne + applique l'effet immédiat. */
+/** L'admin répond à UNE question du QCM : enregistre la réponse + effet immédiat
+ *  (seulement pour la question primaire "default" qui pilote l'agent). */
 export async function answerQcmAction(
   incidentId: string,
+  questionId: string,
   optionKey: string,
 ): Promise<ActionResult> {
   const { profile } = await requireRole(["admin"]);
-  if (!isValidBehavior(optionKey)) return { ok: false, error: "Option invalide." };
 
   const admin = createAdminClient();
   const { data: inc } = await admin
@@ -104,18 +105,28 @@ export async function answerQcmAction(
   if (!inc) return { ok: false, error: "Incident introuvable." };
   const incident = inc as { id: string; signature: string; severity: string; title: string; problem: string };
 
-  // 1) Mémorise la consigne (remplace l'éventuelle règle précédente).
+  if (!isValidAnswer(incident.signature, questionId, optionKey)) {
+    return { ok: false, error: "Réponse invalide pour cette question." };
+  }
+
+  // 1) Mémorise la réponse pour cette question (remplace l'éventuelle précédente).
   await recordLearning({
     signature: incident.signature,
+    questionKey: questionId,
     option: optionKey,
-    mode: modeForBehavior(optionKey),
+    mode: modeForAnswer(incident.signature, questionId, optionKey),
     decidedBy: profile.id,
   });
+
+  // 2) Effet immédiat UNIQUEMENT pour la question primaire (pilote l'agent).
+  if (questionId !== "default") {
+    revalidatePath(`/admin/incidents/${incidentId}`);
+    return { ok: true, message: "Réponse enregistrée — merci, ça affine l'apprentissage." };
+  }
 
   const nowIso = new Date().toISOString();
   let message = "Consigne enregistrée.";
 
-  // 2) Effet immédiat sur CET incident.
   if (optionKey === "ignore_auto") {
     await admin.from("incidents").update({
       status: "resolved",
@@ -159,12 +170,16 @@ export async function answerQcmAction(
   return { ok: true, message };
 }
 
-/** Révoque la règle apprise d'une signature (retour au comportement par défaut). */
-export async function revokeRuleAction(signature: string, incidentId: string): Promise<ActionResult> {
+/** Révoque la réponse apprise d'une signature + question (retour au défaut). */
+export async function revokeRuleAction(
+  signature: string,
+  questionId: string,
+  incidentId: string,
+): Promise<ActionResult> {
   await requireRole(["admin"]);
-  await revokeLearning(signature);
+  await revokeLearning(signature, questionId);
   revalidatePath(`/admin/incidents/${incidentId}`);
-  return { ok: true, message: "Règle révoquée — retour au comportement par défaut (notification)." };
+  return { ok: true, message: "Réponse révoquée — retour au comportement par défaut." };
 }
 
 /** Active/désactive l'interrupteur global « Pause auto ». */

@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, AlertCircle, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, AlertCircle, AlertTriangle, Info, CheckCircle2, User, Clock, Wrench, HelpCircle } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { fmtDateTime } from "@/lib/datetime";
-import { qcmFor, behaviorLabel } from "@/lib/incident/qcm";
-import { getActiveLearning, isAutoPaused } from "@/lib/incident/learnings";
+import { qcmFor, behaviorLabel, type IncidentExplain } from "@/lib/incident/qcm";
+import { getLearningsForSignature, isAutoPaused } from "@/lib/incident/learnings";
 import { IncidentQcm } from "./incident-qcm";
 import { NlCommandBar } from "./nl-command-bar";
 
@@ -25,7 +25,7 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
 
   const { data: incRaw } = await admin
     .from("incidents")
-    .select("id, signature, severity, title, problem, status, occurrences, repair_model, resolution, created_at, resolved_at")
+    .select("id, signature, severity, title, problem, status, occurrences, repair_model, resolution, data, created_at, resolved_at")
     .eq("id", id)
     .maybeSingle();
   if (!incRaw) notFound();
@@ -33,11 +33,26 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
     id: string; signature: string; severity: string; title: string; problem: string | null;
     status: string; occurrences: number; repair_model: string | null;
     resolution: { cause?: string; solution?: string; prevention?: string } | null;
+    data: Record<string, unknown> | null;
     created_at: string; resolved_at: string | null;
   };
 
   const qcm = qcmFor(inc.signature);
-  const active = await getActiveLearning(inc.signature);
+  // Explication : per-incident (data.explain) si présente, sinon le template du type.
+  const explainData = (inc.data?.explain ?? null) as IncidentExplain | null;
+  const explain: IncidentExplain = explainData ?? {
+    what: qcm.what, why: qcm.why, remedies: qcm.remedies,
+    who: (inc.data?.who as string) ?? null, event: (inc.data?.event as string) ?? null,
+  };
+
+  const learnings = await getLearningsForSignature(inc.signature);
+  const activeAnswers: Record<string, string> = {};
+  const activeLabels: Record<string, string> = {};
+  for (const l of learnings) {
+    const qk = l.question_key ?? "default";
+    activeAnswers[qk] = l.chosen_option;
+    activeLabels[qk] = behaviorLabel(l.chosen_option);
+  }
   const paused = await isAutoPaused();
   const sev = SEV[inc.severity] ?? SEV.info;
   const isResolved = inc.status === "resolved";
@@ -48,32 +63,57 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
         <ArrowLeft className="h-4 w-4" /> Notifications
       </Link>
 
+      {/* En-tête */}
       <Card>
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-2">
           <div className="flex items-center gap-2">
             <sev.Icon className={`h-5 w-5 ${sev.cls}`} />
             <h1 className="text-xl font-bold">{inc.title}</h1>
           </div>
           <div className="text-[11px] text-ink-3">
-            {sev.label} · signature <code className="text-ink-2">{inc.signature}</code> ·{" "}
-            {inc.occurrences}× · ouvert le {fmtDateTime(inc.created_at)}
-            {isResolved ? (
-              <span className="ml-1 inline-flex items-center gap-1 text-success font-semibold">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Résolu {inc.resolved_at ? `(${fmtDateTime(inc.resolved_at)})` : ""}
-              </span>
-            ) : (
-              <span className="ml-1 text-warn font-semibold">Ouvert</span>
-            )}
+            {sev.label} · <code className="text-ink-2">{inc.signature}</code> · {inc.occurrences}× · ouvert le {fmtDateTime(inc.created_at)}
+            {isResolved
+              ? <span className="ml-1 inline-flex items-center gap-1 text-success font-semibold"><CheckCircle2 className="h-3.5 w-3.5" /> Résolu {inc.resolved_at ? `(${fmtDateTime(inc.resolved_at)})` : ""}</span>
+              : <span className="ml-1 text-warn font-semibold">Ouvert</span>}
           </div>
-          {inc.problem ? (
-            <p className="text-sm text-ink-2">
-              <span className="font-semibold">Problème : </span>
-              {inc.problem}
-            </p>
+        </div>
+      </Card>
+
+      {/* Explication claire : qui / quoi / le problème / pourquoi / remèdes */}
+      <Card>
+        <div className="p-4 space-y-3 text-sm">
+          {(explain.who || explain.event) ? (
+            <div className="flex flex-col gap-1.5 rounded-md bg-surface-2 p-2.5">
+              {explain.who ? <div className="flex items-center gap-2"><User className="h-4 w-4 text-ink-3 shrink-0" /> <span><b>Concerné :</b> {explain.who}</span></div> : null}
+              {explain.event ? <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-ink-3 shrink-0" /> <span><b>Événement :</b> {explain.event}</span></div> : null}
+            </div>
           ) : null}
+
+          <div>
+            <div className="font-bold text-ink mb-0.5">Le problème, simplement</div>
+            <p className="text-ink-2">{explain.what}</p>
+            {inc.problem && inc.problem !== explain.what ? <p className="text-ink-3 mt-1">{inc.problem}</p> : null}
+          </div>
+
+          <div>
+            <div className="font-bold text-ink mb-0.5">Pourquoi ça compte</div>
+            <p className="text-ink-2">{explain.why}</p>
+          </div>
+
+          {explain.remedies?.length ? (
+            <div>
+              <div className="font-bold text-ink mb-1 flex items-center gap-1.5"><Wrench className="h-4 w-4 text-gold-dark" /> Remèdes</div>
+              <ul className="space-y-1">
+                {explain.remedies.map((r, i) => (
+                  <li key={i} className="flex gap-2 text-ink-2"><span className="text-gold-dark">•</span> <span>{r}</span></li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {isResolved && inc.resolution ? (
             <div className="text-xs text-ink-2 space-y-0.5 border-t border-line pt-2">
-              {inc.resolution.solution ? <div><b>Solution :</b> {inc.resolution.solution}</div> : null}
+              {inc.resolution.solution ? <div><b>Solution appliquée :</b> {inc.resolution.solution}</div> : null}
               {inc.resolution.prevention ? <div><b>Prévention :</b> {inc.resolution.prevention}</div> : null}
               {inc.repair_model ? <div className="text-ink-3">Modèle : {inc.repair_model}</div> : null}
             </div>
@@ -81,14 +121,16 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
         </div>
       </Card>
 
+      {/* QCM d'apprentissage */}
+      <div className="flex items-center gap-1.5 text-[11px] text-ink-3 px-1">
+        <HelpCircle className="h-3.5 w-3.5" /> Tes réponses entraînent l'agent : les choix « auto » répétés montent en autonomie, toujours révocables.
+      </div>
       <IncidentQcm
         incidentId={inc.id}
         signature={inc.signature}
-        question={qcm.question}
-        options={qcm.options}
-        activeOption={active?.chosen_option ?? null}
-        activeLabel={active ? behaviorLabel(active.chosen_option) : null}
-        status={inc.status}
+        questions={qcm.questions}
+        activeAnswers={activeAnswers}
+        activeLabels={activeLabels}
         autoPaused={paused}
       />
 

@@ -8,16 +8,20 @@ export type Learning = {
   chosen_option: string;
   mode: string;
   created_at?: string;
+  question_key?: string;
 };
 
-/** Règle active pour une signature (ou null). */
-export async function getActiveLearning(signature: string): Promise<Learning | null> {
+/** Règle active pour une signature + question (défaut = question primaire). */
+export async function getActiveLearning(
+  signature: string,
+  questionKey = "default",
+): Promise<Learning | null> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("agent_learnings")
     .select("signature, chosen_option, mode, created_at")
     .eq("signature", signature)
-    .eq("question_key", "default")
+    .eq("question_key", questionKey)
     .eq("active", true)
     .maybeSingle();
   return (data as Learning | null) ?? null;
@@ -50,24 +54,26 @@ export async function setAutoPaused(paused: boolean): Promise<void> {
   await admin.from("org_settings").update({ incident_auto_paused: paused }).eq("id", 1);
 }
 
-/** Enregistre la consigne de l'admin pour une signature (remplace la précédente). */
+/** Enregistre la réponse de l'admin pour une signature + question (remplace la précédente). */
 export async function recordLearning(opts: {
   signature: string;
+  questionKey?: string;
   option: string;
   mode: string;
   decidedBy?: string | null;
 }): Promise<void> {
   const admin = createAdminClient();
-  // Désactive l'ancienne règle active (trace conservée), puis insère la nouvelle.
+  const questionKey = opts.questionKey ?? "default";
+  // Désactive l'ancienne réponse active (trace conservée), puis insère la nouvelle.
   await admin
     .from("agent_learnings")
     .update({ active: false })
     .eq("signature", opts.signature)
-    .eq("question_key", "default")
+    .eq("question_key", questionKey)
     .eq("active", true);
   await admin.from("agent_learnings").insert({
     signature: opts.signature,
-    question_key: "default",
+    question_key: questionKey,
     chosen_option: opts.option,
     mode: opts.mode,
     decided_by: opts.decidedBy ?? null,
@@ -75,13 +81,24 @@ export async function recordLearning(opts: {
   });
 }
 
-/** Révoque la règle active d'une signature (retour au comportement par défaut). */
-export async function revokeLearning(signature: string): Promise<void> {
+/** Révoque la réponse active d'une signature + question. */
+export async function revokeLearning(signature: string, questionKey = "default"): Promise<void> {
   const admin = createAdminClient();
   await admin
     .from("agent_learnings")
     .update({ active: false })
     .eq("signature", signature)
-    .eq("question_key", "default")
+    .eq("question_key", questionKey)
     .eq("active", true);
+}
+
+/** Toutes les réponses actives d'une signature (toutes questions), pour l'écran. */
+export async function getLearningsForSignature(signature: string): Promise<Learning[]> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("agent_learnings")
+    .select("signature, chosen_option, mode, created_at, question_key")
+    .eq("signature", signature)
+    .eq("active", true);
+  return (data ?? []) as Learning[];
 }
