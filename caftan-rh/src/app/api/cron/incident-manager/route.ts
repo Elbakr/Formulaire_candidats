@@ -18,6 +18,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { runHealthChecks, type Issue } from "@/lib/system/health-checks";
 import { runPlaybook, type PlaybookOutcome } from "@/lib/incident/playbooks";
+import { getActiveLearning, isAutoPaused } from "@/lib/incident/learnings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -36,15 +37,15 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 async function notifyAdmins(
   admin: AdminClient,
-  payload: { kind: string; title: string; body: string; data: Record<string, unknown> },
+  payload: { kind: string; title: string; body: string; data: Record<string, unknown>; link: string },
 ): Promise<number> {
   const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
   const ids = ((admins ?? []) as Array<{ id: string }>).map((a) => a.id);
   if (ids.length === 0) return 0;
-  // Karim 2026-06-14 : on insère 1 notif par admin PUIS on fixe le `link` vers sa
-  // page de détail (même pattern que system-health). SANS link, le clic sur la
-  // PUSH retombait sur "/" (= accueil/planning) via sw.js `data.link || "/"`.
-  // Le trigger Postgres déclenche le push automatiquement après l'insert.
+  // Karim 2026-06-14 : on insère 1 notif par admin PUIS on fixe le `link` vers
+  // l'écran QCM de l'incident. SANS link, le clic sur la PUSH retombait sur "/"
+  // (= accueil/planning) via sw.js `data.link || "/"`. Le trigger Postgres
+  // déclenche le push automatiquement après l'insert.
   let notified = 0;
   for (const rid of ids) {
     const { data: ins } = await admin
@@ -60,7 +61,7 @@ async function notifyAdmins(
       .single();
     if (!ins) continue;
     const id = (ins as { id: string }).id;
-    await admin.from("notifications").update({ link: `/me/notifications/${id}` }).eq("id", id);
+    await admin.from("notifications").update({ link: payload.link }).eq("id", id);
     notified++;
   }
   return notified;
@@ -100,17 +101,44 @@ export async function GET(request: NextRequest) {
   const openIncidents = (openRaw ?? []) as IncidentRow[];
   const openBySig = new Map(openIncidents.map((i) => [i.signature, i]));
 
+  // Interrupteur global « Pause auto » : si actif, l'agent n'applique aucune
+  // règle apprise (revient au comportement par défaut = notifier).
+  const autoPaused = await isAutoPaused();
+
   const summary = {
     detected: actionable.length,
     opened: 0,
     repaired: 0,
     escalated: 0,
     recovered: 0,
+    ignored: 0,
     notified: 0,
   };
 
   // 3) Pour chaque panne actuelle : créer/maj incident, tenter réparation.
   for (const issue of actionable) {
+    // Consigne apprise « gérer en silence » (ignore_auto) : on clôt sans notifier.
+    if (!autoPaused) {
+      const learning = await getActiveLearning(issue.key);
+      if (learning?.mode === "auto" && learning.chosen_option === "ignore_auto") {
+        const existingOpen = openBySig.get(issue.key);
+        if (existingOpen) {
+          await admin.from("incidents").update({
+            status: "resolved",
+            resolved_at: nowIso,
+            repair_model: "learned:ignore",
+            resolution: {
+              cause: issue.problem,
+              solution: "Géré en silence sur ta consigne (règle apprise).",
+              prevention: "Ce type de panne est en sourdine — révocable à tout moment.",
+            },
+          }).eq("id", existingOpen.id);
+        }
+        summary.ignored++;
+        continue; // ni escalade ni notif
+      }
+    }
+
     const existing = openBySig.get(issue.key);
     let incidentId: string;
     let isNew = false;
@@ -170,6 +198,7 @@ export async function GET(request: NextRequest) {
         title: `✅ Auto-réparation : ${issue.title}`,
         body: resolutionBody(issue, outcome),
         data: { incident_id: incidentId, signature: issue.key, model: outcome.model, auto: true },
+        link: `/admin/incidents/${incidentId}`,
       });
     } else if (isNew) {
       // Pas réparé ET nouveau -> 1ʳᵉ escalade (une seule fois, pas de re-spam ensuite).
@@ -184,9 +213,10 @@ export async function GET(request: NextRequest) {
         body: [
           `Problème : ${issue.problem}`,
           `Solution recommandée : ${reco}`,
-          "⚠️ L'auto-réparation n'a pas suffi — nécessite ton explication / intervention.",
+          "⚠️ L'auto-réparation n'a pas suffi — dis-moi comment gérer ça (clique).",
         ].join("\n"),
         data: { incident_id: incidentId, signature: issue.key, needs_human: true },
+        link: `/admin/incidents/${incidentId}`,
       });
     }
     // existing + non réparé -> on a déjà escaladé au 1er coup : pas de re-notif (dédup).
@@ -207,6 +237,7 @@ export async function GET(request: NextRequest) {
       title: `✅ Rentré dans l'ordre : ${inc.signature}`,
       body: "La panne précédemment détectée n'est plus présente — incident clôturé automatiquement.",
       data: { incident_id: inc.id, signature: inc.signature, auto_recovered: true },
+      link: `/admin/incidents/${inc.id}`,
     });
   }
 
