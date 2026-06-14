@@ -7,7 +7,7 @@
 // TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
 // nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
 // du bump manuel ci-dessous.
-const CACHE_VERSION = "caftanrh-shell-v76-2026-06-13-notifroute";
+const CACHE_VERSION = "caftanrh-shell-v77-2026-06-14-notifglobal";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

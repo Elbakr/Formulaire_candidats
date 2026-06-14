@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { playSound, unlockAudio } from "@/lib/notification-sound";
@@ -19,7 +19,6 @@ export function NotificationListener({ profileId }: { profileId: string }) {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
-  const router = useRouter();
 
   // Premier click utilisateur → débloque l'audio (Safari/Chrome auto-play).
   useEffect(() => {
@@ -31,29 +30,9 @@ export function NotificationListener({ profileId }: { profileId: string }) {
     return () => window.removeEventListener("pointerdown", onFirstClick);
   }, []);
 
-  // Karim 2026-06-13 : clic sur une notification push. Le service worker poste
-  // { type: "NOTIF_NAVIGATE", url } a la fenetre ; on route en SPA (router.push),
-  // fiable meme sur iOS PWA ou client.navigate() echoue. Cablage FIGE : c'est
-  // l'unique point de routage des clics de notif cote app.
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.serviceWorker) return;
-    const onMessage = (event: MessageEvent) => {
-      const d = event.data;
-      if (!d || d.type !== "NOTIF_NAVIGATE" || typeof d.url !== "string") return;
-      try {
-        const u = new URL(d.url, window.location.origin);
-        if (u.origin !== window.location.origin) return; // jamais hors-domaine
-        const target = u.pathname + u.search + u.hash;
-        if (target !== window.location.pathname + window.location.search) {
-          router.push(target);
-        }
-      } catch {
-        // url malformee : on ignore plutot que de casser
-      }
-    };
-    navigator.serviceWorker.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [router]);
+  // Karim 2026-06-14 : le routage des clics de notification push est désormais
+  // GLOBAL (SwNavigationListener monté dans le layout racine, couvre /m, /candidat
+  // et toutes les pages). On ne le duplique plus ici pour éviter un double push.
 
   useEffect(() => {
     if (!profileId) return;

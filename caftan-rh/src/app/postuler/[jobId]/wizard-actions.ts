@@ -94,10 +94,26 @@ export async function ensureDraftApplication(jobId: string | null): Promise<Draf
 
   const { data: cand } = await admin
     .from("candidates").select("*").eq("id", appRow.candidate_id).single();
+  const c = (cand ?? {}) as Record<string, unknown>;
+
+  // Karim 2026-06-14 : si le brouillon a été créé avant que le mini-form ne
+  // collecte DN/CP (ou repris d'un test antérieur), on complète les champs vides
+  // depuis user_metadata -> l'écran 1 reprend bien nom/DN/CP, pas juste l'email.
+  const backfill: Record<string, unknown> = {};
+  if (!c.full_name && meta.full_name) backfill.full_name = meta.full_name;
+  if (!c.birth_date && meta.birth_date) backfill.birth_date = meta.birth_date;
+  if (!c.postal_code && meta.postal_code) backfill.postal_code = meta.postal_code;
+  if (!c.city && meta.city) backfill.city = meta.city;
+  if (!c.email && (user.email || meta.email)) backfill.email = user.email ?? meta.email;
+  if (Object.keys(backfill).length > 0) {
+    await admin.from("candidates").update(backfill).eq("id", appRow.candidate_id);
+    Object.assign(c, backfill);
+  }
+
   return {
     applicationId: appRow.id,
     candidateId: appRow.candidate_id,
-    candidate: (cand ?? {}) as Record<string, unknown>,
+    candidate: c,
     motivation: appRow.motivation,
   };
 }

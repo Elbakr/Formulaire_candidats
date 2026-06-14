@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { InstallPrompt } from "@/components/install-prompt";
 import { PushActivationBanner } from "@/components/push-activation-banner";
 import { HashRecoveryRedirect } from "@/components/hash-recovery-redirect";
+import { SwNavigationListener } from "@/components/sw-navigation-listener";
 import { getPublicVapidKey } from "@/lib/push-notify";
 import "./globals.css";
 
@@ -59,6 +60,7 @@ export default function RootLayout({
         {children}
         <Toaster position="top-right" richColors closeButton />
         <HashRecoveryRedirect />
+        <SwNavigationListener />
         <InstallPrompt />
         <PushActivationBanner publicKey={vapidPublic} />
         <Script id="sw-register" strategy="afterInteractive">

@@ -77,6 +77,17 @@ export async function sendCandidateMagicLink(
   if (linkErr) return { error: linkErr.message };
   const hashedToken = linkData?.properties?.hashed_token;
   if (!hashedToken) return { error: "Impossible de générer le lien." };
+
+  // Karim 2026-06-14 : createUser ne met PAS à jour le user_metadata d'un compte
+  // DÉJÀ existant -> les infos du mini-form (nom, DN, code postal) étaient perdues
+  // au 2e essai. On force la mise à jour ici (generateLink renvoie l'utilisateur).
+  const uid = (linkData as { user?: { id?: string; user_metadata?: Record<string, unknown> } })?.user?.id;
+  if (uid && Object.keys(meta).length > 0) {
+    try {
+      const existing = (linkData as { user?: { user_metadata?: Record<string, unknown> } }).user?.user_metadata ?? {};
+      await admin.auth.admin.updateUserById(uid, { user_metadata: { ...existing, ...meta } });
+    } catch { /* best-effort */ }
+  }
   const actionLink =
     `${base}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}` +
     `&type=magiclink&next=${encodeURIComponent(nextPath)}`;
