@@ -239,12 +239,56 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
         //    est par employee_id, peu importe le tuya_user_id utilise).
         const { data: lastEntryRows } = await supabase
           .from("clock_entries")
-          .select("kind, occurred_at")
+          .select("id, kind, occurred_at, source, auto_clocked_out")
           .eq("employee_id", mapping.employee_id)
           .lt("occurred_at", occurredAt)
           .order("occurred_at", { ascending: false })
           .limit(1);
-        const lastEntry = (lastEntryRows?.[0] ?? null) as { kind: "in" | "out"; occurred_at: string } | null;
+        const lastEntry = (lastEntryRows?.[0] ?? null) as {
+          id: string; kind: "in" | "out"; occurred_at: string;
+          source: string | null; auto_clocked_out: boolean | null;
+        } | null;
+
+        // Karim 2026-06-14 ANTI-RECIDIVE : un badge REEL qui arrive peu apres un
+        // auto-OUT ESTIME du meme jour = la VRAIE sortie. Avant, comme le dernier
+        // event etait un OUT, l'alternance basculait ce tap en IN FANTOME (bug
+        // Omaima 14/06 : badge OUT 20:07 -> IN, prestations faussees + session
+        // fantome). Desormais on REMPLACE l'auto-OUT estime par le badge reel
+        // (heure exacte), sans creer d'IN parasite. Slot-agnostique (par employe).
+        const lastIsAutoOut =
+          lastEntry?.kind === "out" &&
+          (lastEntry.source === "auto_close" || lastEntry.auto_clocked_out === true);
+        const deltaFromLastH = lastEntry
+          ? (new Date(occurredAt).getTime() - new Date(lastEntry.occurred_at).getTime()) / 3600_000
+          : Infinity;
+        if (
+          lastIsAutoOut &&
+          lastEntry!.occurred_at.slice(0, 10) === today &&
+          deltaFromLastH > -0.5 && deltaFromLastH < 3
+        ) {
+          const accessLogIdReplace = `${dev.tuya_device_id}_${log.event_time}_${userIdLocal}`;
+          // Re-poll : si ce tap est deja pose, on ne re-traite pas.
+          const { data: dupRepl } = await supabase
+            .from("clock_entries").select("id").eq("tuya_access_log_id", accessLogIdReplace).limit(1);
+          if (dupRepl && dupRepl.length > 0) { out.skipped_duplicate++; continue; }
+          const { error: replErr } = await supabase
+            .from("clock_entries")
+            .update({
+              occurred_at: occurredAt,
+              source: "tuya",
+              auto_clocked_out: false,
+              entry_method: "tap",
+              tuya_access_log_id: accessLogIdReplace,
+              notes: `OUT reel (badge Tuya ${occurredAt.slice(11, 16)}) - remplace l'auto-OUT estime de ${lastEntry!.occurred_at.slice(11, 16)}`,
+            })
+            .eq("id", lastEntry!.id);
+          if (!replErr) {
+            out.entries_inserted++;
+            continue; // pas de nouvel event, pas d'IN fantome
+          }
+          // sinon : on retombe sur la logique d'alternance normale ci-dessous.
+        }
+
         const openInRecent =
           lastEntry?.kind === "in" &&
           new Date(occurredAt).getTime() - new Date(lastEntry.occurred_at).getTime() < 16 * 3600_000;
