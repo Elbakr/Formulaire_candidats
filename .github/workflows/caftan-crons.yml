@@ -66,7 +66,6 @@ jobs:
           MANUAL: ${{ github.event.inputs.endpoints }}
         run: |
           set -uo pipefail
-          echo "::error::FP: len=${#CRON_SECRET} sha=$(printf %s "$CRON_SECRET" | sha256sum | cut -c1-12)"
           if [ -z "${CRON_SECRET:-}" ]; then
             echo "::error::CRON_SECRET secret manquant dans le repo GitHub. Ajouter via Settings > Secrets and variables > Actions."
             exit 1
@@ -87,7 +86,7 @@ jobs:
           MAP['0 18 * * *']='digest?slot=evening'
           MAP['0 17 * * 5']='weekly-rating-reminder clock-weekly-variance'
           MAP['0 5 * * *']='cdd-renewal-scan'
-          MAP['0 * * * *']='reinforcement-expire force-close-orphans gf-sync-health'
+          MAP['0 * * * *']='reinforcement-expire force-close-orphans gf-sync-health incident-manager'
           MAP['0 6 * * 0']='auto-plan-weekly'
           MAP['0 2 * * *']='clock-selfie-purge'
           MAP['0 1 * * *']='pre-interview-video-purge'
