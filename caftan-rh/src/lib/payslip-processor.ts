@@ -15,7 +15,7 @@
 //   5. Update payslip_batches.status='completed' + payslips_count
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { splitPayslipPdf, matchEmployee, detectEmployeeIban, type EmployeeBd } from "@/lib/payslip-splitter";
+import { splitPayslipPdf, matchEmployee, detectEmployeeIban, detectEmployerFromText, type EmployeeBd } from "@/lib/payslip-splitter";
 import { generateEpcQr, defaultSalaryRemittance } from "@/lib/qr-epc";
 
 export interface ProcessBatchInput {
@@ -124,6 +124,13 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
     // 4. Process each group
     for (const g of groups) {
       const matched = matchEmployee(g.employeeNameRaw, g.niss, employees);
+      // Karim 2026-06-15 : EMPLOYEUR détecté du CONTENU de la fiche (Caftan vs AMD),
+      // fallback sur l'employeur du batch si indéterminé. Corrige les fiches Caftan
+      // qui étaient à tort attribuées à AMD (selon l'expéditeur du mail).
+      const groupEmployer = detectEmployerFromText(g.rawText) ?? input.employerOrgKey;
+      if (groupEmployer !== input.employerOrgKey) {
+        debugLog.push(`  -> employeur détecté du contenu : ${groupEmployer} (batch=${input.employerOrgKey})`);
+      }
       // Karim 2026-05-30 : on cree TOUJOURS la payslip, meme si unmatched.
       // L UI affiche les orphelines avec un bouton "Associer manuellement".
       if (!matched) {
@@ -256,7 +263,7 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
 
       // Upload PDF chunk -> Storage
       const slug = emp ? slugify(emp.full_name) : `orphan-p${g.pageRange[0]}`;
-      const chunkPath = `${input.employerOrgKey}/${periodYear}-${String(periodMonth).padStart(2, "0")}/${slug}_${batchId.slice(0, 8)}.pdf`;
+      const chunkPath = `${groupEmployer}/${periodYear}-${String(periodMonth).padStart(2, "0")}/${slug}_${batchId.slice(0, 8)}.pdf`;
       await admin.storage.from(BUCKET_PAYSLIPS).upload(chunkPath, g.pdfBytes, {
         contentType: "application/pdf",
         upsert: true,
@@ -275,7 +282,7 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
         const finalEmployeeId = emp?.id ?? duplicate.employee_id;
         await admin.from("payslips").update({
           employee_id: finalEmployeeId,
-          employer_org_key: input.employerOrgKey,
+          employer_org_key: groupEmployer,
           period_label: defaultSalaryRemittance(periodMonth, periodYear, "fr").replace(/^Salaire\s+/i, ""),
           gross_amount: g.grossAmount,
           // PRESERVE : advance_deducted, payment_status, paid_at, paid_amount, payment_note
@@ -319,7 +326,7 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
         .from("payslips")
         .insert({
           employee_id: emp?.id ?? null,
-          employer_org_key: input.employerOrgKey,
+          employer_org_key: groupEmployer,
           period_year: periodYear,
           period_month: periodMonth,
           period_label: defaultSalaryRemittance(periodMonth, periodYear, "fr").replace(/^Salaire\s+/i, ""),

@@ -124,6 +124,20 @@ export function isPayslipStartPage(pageText: string): boolean {
 }
 
 /**
+ * Karim 2026-06-15 : détecte l'EMPLOYEUR depuis le CONTENU de la fiche (le nom
+ * de société y figure), au lieu de se fier à l'expéditeur du mail (fragile).
+ * Caftan Factory et AMD Megastore sont les deux entités. On teste Caftan en
+ * premier (plus spécifique), puis AMD. Renvoie null si indéterminé.
+ */
+export function detectEmployerFromText(rawText: string | null | undefined): "amd_megastore" | "caftan_factory" | null {
+  if (!rawText) return null;
+  const t = rawText.toUpperCase();
+  if (t.includes("CAFTAN")) return "caftan_factory";
+  if (t.includes("AMD MEGASTORE") || t.includes("AMD MÉGASTORE") || /\bAMD\b/.test(t)) return "amd_megastore";
+  return null;
+}
+
+/**
  * Karim 2026-05-29 : extrait l IBAN beneficiaire depuis la "FORMULE DE PAIEMENT".
  * Ex : "FORMULE DE PAIEMENT / 82,39 EUR par liste paiements sur compte
  *       bancaire BE80 0637 2116 0477 de ELBAZI Hidaya"
