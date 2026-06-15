@@ -110,6 +110,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/me/availability", label: "Mes dispos", icon: "Clock" },
     { href: "/me/time-off", label: "Mes congés", icon: "CalendarOff" },
     { href: "/me/swaps", label: "Échanges shifts", icon: "ArrowRightLeft" },
+    { href: "/me/reinforcement-availability", label: "Mes disponibilités renfort", icon: "LifeBuoy" },
     { href: "/me/absence", label: "Signaler absence", icon: "AlertCircle" },
     { href: "/me/onboarding", label: "Mon onboarding", icon: "FileText" },
     { href: "/me/screening", label: "Questionnaire profilage", icon: "Sparkles" },

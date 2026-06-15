@@ -19,6 +19,10 @@
 //                     [début Ramadan ; Aïd al-Fitr+1].
 
 import { createClient } from "@/lib/supabase/server";
+import {
+  checkLeaveCoverage,
+  type LeaveCoverage,
+} from "@/lib/scheduling/coverage-engine";
 
 // ---------------------------------------------------------------------------
 // Types publics
@@ -44,6 +48,10 @@ export type AutoValidationResult = {
   reasons: string[]; // raisons d'échec ou ['all_rules_passed']
   recommendation: "auto_approve" | "auto_reject" | "escalate_to_manager";
   details: AutoValidationDetails;
+  /** Analyse de couverture (remplaçants disponibles). Optionnel — présent
+   *  si checkLeaveCoverage() a pu être appelé. N'influence PAS la décision
+   *  (shouldAutoValidate / recommendation) en V1. */
+  coverage?: LeaveCoverage;
 };
 
 export type EvaluateInput = {
@@ -389,12 +397,28 @@ export async function evaluateLeaveRequestWithParams(
     totalEmployeesOnSite: abs.total,
   };
 
+  // Couverture en remplaçants — enrichissement informatif uniquement.
+  // N'affecte PAS shouldAutoValidate / recommendation (décision humaine conservée).
+  let coverage: LeaveCoverage | undefined;
+  try {
+    coverage = await checkLeaveCoverage({
+      employeeId: input.employeeId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      excludeRequestId: input.excludeRequestId,
+    });
+  } catch {
+    // Silencieux : la couverture est optionnelle, on ne casse pas la validation.
+    coverage = undefined;
+  }
+
   if (reasons.length === 0) {
     return {
       shouldAutoValidate: true,
       reasons: ["all_rules_passed"],
       recommendation: "auto_approve",
       details,
+      coverage,
     };
   }
   return {
@@ -402,6 +426,7 @@ export async function evaluateLeaveRequestWithParams(
     reasons,
     recommendation: "escalate_to_manager",
     details,
+    coverage,
   };
 }
 
