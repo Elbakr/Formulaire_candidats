@@ -84,8 +84,8 @@ export async function GET(request: NextRequest) {
     await admin.from("notifications").insert({
       recipient_id: mgr.id,
       kind: "reminder",
-      title: "Notation hebdo — relance",
-      body: `Tu n'as pas noté ${names}${more} depuis 2 semaines. Profite du week-end pour faire le tour.`,
+      title: `Notation hebdo manquante — ${names}${more}`,
+      body: `${missingEmployees.length} employé${missingEmployees.length > 1 ? "s" : ""} sans note depuis 2 semaines : ${names}${more}. Complète les évaluations avant ce week-end.`,
       link: "/scoring/weekly",
       data: { missing: missingEmployees.length },
     });

@@ -35,16 +35,23 @@ export async function GET(req: NextRequest) {
       .select("employee_id, remaining_days, employee:employees(full_name)")
       .eq("year", oldYear)
       .gt("remaining_days", 0);
-    const totalLost = (oldRest ?? []).reduce((s, b) => s + Number((b as { remaining_days: number }).remaining_days), 0);
+    type BalRow = { employee_id: string; remaining_days: number; employee: { full_name: string } | null };
+    const balArr = (oldRest ?? []) as unknown as BalRow[];
+    const totalLost = balArr.reduce((s, b) => s + Number(b.remaining_days), 0);
     if (totalLost > 0) {
+      const topNames = balArr
+        .slice(0, 4)
+        .map((b) => `${b.employee?.full_name ?? b.employee_id} (${Number(b.remaining_days).toFixed(1)} j)`)
+        .join(", ");
+      const moreCount = balArr.length > 4 ? ` +${balArr.length - 4} autre(s)` : "";
       const { data: hrs } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
       const hrIds = ((hrs ?? []) as Array<{ id: string }>).map((h) => h.id);
       for (const hrId of hrIds) {
         await admin.from("notifications").insert({
           recipient_id: hrId,
           kind: "leave_balance_reset",
-          title: `📅 Soldes congés réinitialisés (${newYear})`,
-          body: `Nouvelle année : ${result.updated} balances créées. ${totalLost.toFixed(1)} j non utilisés ${oldYear} (généralement perdus en BE sauf accord).`,
+          title: `Soldes congés ${newYear} initialisés — ${totalLost.toFixed(1)} j ${oldYear} non pris`,
+          body: `${result.updated} balances créées pour ${newYear}. Jours ${oldYear} non utilisés (généralement perdus en BE) : ${topNames}${moreCount}. Total : ${totalLost.toFixed(1)} j.`,
           link: `/rh/stats`,
           data: { year: newYear, totalLost },
         });

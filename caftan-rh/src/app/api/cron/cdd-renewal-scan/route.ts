@@ -78,13 +78,20 @@ export async function GET(request: NextRequest) {
 
   // Notifie les RH/admin si nouvelles fiches.
   if (created.length > 0) {
+    // Récupère les noms des employés dont les fiches viennent d'être créées.
+    const createdNames = empArr
+      .filter((e) => created.includes(e.id))
+      .slice(0, 4)
+      .map((e) => `${e.full_name} (fin ${e.end_date})`)
+      .join(", ");
+    const createdMore = created.length > 4 ? ` +${created.length - 4} autre(s)` : "";
     const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
     const rhIds = ((rh ?? []) as Array<{ id: string }>).map((p) => p.id);
     const inserts = rhIds.map((id) => ({
       recipient_id: id,
       kind: "reminder" as const,
-      title: "Recommandations CDD prêtes",
-      body: `${created.length} fiche${created.length > 1 ? "s" : ""} de renouvellement à examiner.`,
+      title: `${created.length} fiche${created.length > 1 ? "s" : ""} CDD à examiner — ${createdNames}${createdMore}`,
+      body: `${created.length} recommandation${created.length > 1 ? "s" : ""} de renouvellement prête${created.length > 1 ? "s" : ""} : ${createdNames}${createdMore}. Examine et décide avant la date de fin de chaque contrat.`,
       link: "/admin/cdd-renewals",
       data: { count: created.length },
     }));
@@ -102,11 +109,13 @@ export async function GET(request: NextRequest) {
     if (prepared.length > 0) {
       const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
       const rhIds = ((rh ?? []) as Array<{ id: string }>).map((p) => p.id);
+      const preNames = prepared.slice(0, 3).map((p) => `${p.full_name} (fin ${p.contract_end_date})`).join(", ");
+      const preMore = prepared.length > 3 ? ` +${prepared.length - 3} autre(s)` : "";
       const inserts = rhIds.map((id) => ({
         recipient_id: id,
         kind: "reminder" as const,
-        title: `${prepared.length} pré-avis de renouvellement prêt(s) à envoyer`,
-        body: `Contrats finissant sous 15 j : ${prepared.map((p) => p.full_name).slice(0, 5).join(", ")}. Envoie le mail au travailleur en 1 clic.`,
+        title: `${prepared.length} pré-avis CDD à envoyer — ${preNames}${preMore}`,
+        body: `Contrats finissant sous 15 j : ${preNames}${preMore}. Envoie le mail de pré-avis au travailleur en 1 clic depuis la page CDD.`,
         link: "/admin/cdd-renewals",
         data: { count: prepared.length },
       }));

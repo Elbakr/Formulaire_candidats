@@ -43,14 +43,17 @@ export async function GET(request: NextRequest) {
   const inserts: Array<{ recipient_id: string; kind: string; title: string; body: string; link: string }> = [];
 
   for (const t of trialsArr) {
+    const daysLeft = Math.round(
+      (new Date(t.trial_end_date).getTime() - today.getTime()) / 86_400_000,
+    );
     const recipients = new Set<string>([...rhIds]);
     if (t.manager_id) recipients.add(t.manager_id);
     for (const r of recipients) {
       inserts.push({
         recipient_id: r,
         kind: "reminder",
-        title: "Fin de période d'essai imminente",
-        body: `${t.full_name} : période d'essai se termine le ${t.trial_end_date}.`,
+        title: `Fin de période d'essai : ${t.full_name} (J-${daysLeft})`,
+        body: `La période d'essai de ${t.full_name} se termine le ${t.trial_end_date} (dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}). Confirme ou mets fin au contrat avant cette date.`,
         link: `/planning/employees/${t.id}`,
       });
     }

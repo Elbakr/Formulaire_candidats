@@ -82,8 +82,8 @@ export async function sendRenewalProposalAction(input: {
     await supabase.from("notifications").insert({
       recipient_id: employee.profile_id,
       kind: "cdd_renewal",
-      title: "Renouvellement de contrat proposé",
-      body: `Karim te propose de renouveler ton CDD (fin actuelle : ${rec.contract_end_date}). Ton manager te recontacte prochainement.`,
+      title: `Renouvellement CDD proposé — fin de contrat le ${rec.contract_end_date}`,
+      body: `Karim te propose de renouveler ton CDD (fin actuelle : ${rec.contract_end_date}). Ton manager te recontacte prochainement pour finaliser les modalités.`,
       link: "/me",
       data: { recommendation_id: rec.id },
     });
@@ -93,8 +93,8 @@ export async function sendRenewalProposalAction(input: {
     await supabase.from("notifications").insert({
       recipient_id: employee.manager_id,
       kind: "cdd_renewal",
-      title: "Proposition de renouvellement à finaliser",
-      body: `${employee.full_name} : envoie l'offre formelle (template cdd_renewal_propose).`,
+      title: `Renouvellement CDD à finaliser — ${employee.full_name} (fin ${rec.contract_end_date})`,
+      body: `${employee.full_name} a reçu une proposition de renouvellement (contrat actuel : fin le ${rec.contract_end_date}). Envoie l'offre formelle (template cdd_renewal_propose) dès que possible.`,
       link: "/admin/cdd-renewals",
       data: { recommendation_id: rec.id },
     });
@@ -137,8 +137,8 @@ export async function discussRenewalAction(input: {
     await supabase.from("notifications").insert({
       recipient_id: employee.manager_id,
       kind: "cdd_renewal",
-      title: `Discussion CDD à organiser — ${employee.full_name}`,
-      body: `Karim souhaite échanger avec toi avant la décision de renouvellement.`,
+      title: `Discussion CDD à organiser — ${employee.full_name} (fin ${rec.contract_end_date})`,
+      body: `Karim souhaite échanger avec toi avant la décision de renouvellement de ${employee.full_name} (contrat se terminant le ${rec.contract_end_date}). Prends contact rapidement pour ne pas dépasser le délai.`,
       link: "/admin/cdd-renewals",
       data: { recommendation_id: rec.id },
     });

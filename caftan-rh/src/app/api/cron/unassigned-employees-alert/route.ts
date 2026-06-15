@@ -75,9 +75,9 @@ export async function GET(request: NextRequest) {
   const inserts = toNotify.map((profileId) => ({
     recipient_id: profileId,
     kind: "unassigned_alert",
-    title: `👥 ${unassigned.length} employé${unassigned.length > 1 ? "s" : ""} sans site affecté`,
-    body: `${preview}${more} -- affecte-les depuis le dashboard admin pour combler les sites en déficit.`,
-    link: "/admin",
+    title: `👥 ${unassigned.length} employé${unassigned.length > 1 ? "s" : ""} sans affectation de site (${todayISO})`,
+    body: `Sans site actif aujourd'hui : ${preview}${more}. Affecte-les pour combler les sites en déficit.`,
+    link: "/admin/employees",
     data: { day: todayISO, count: unassigned.length },
   }));
   await admin.from("notifications").insert(inserts);
@@ -85,9 +85,9 @@ export async function GET(request: NextRequest) {
   let pushResult = { sent: 0, failed: 0 };
   try {
     pushResult = await sendPushToProfiles(toNotify, {
-      title: `${unassigned.length} employé${unassigned.length > 1 ? "s" : ""} sans site affecté`,
+      title: `${unassigned.length} employé${unassigned.length > 1 ? "s" : ""} sans site (${todayISO})`,
       body: `${preview}${more}. Affecte-les depuis le dashboard.`,
-      link: "/admin",
+      link: "/admin/employees",
     });
   } catch {
     /* noop : push echo deja gere dans le helper */

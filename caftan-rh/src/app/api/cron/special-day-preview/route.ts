@@ -181,11 +181,13 @@ export async function GET(request: NextRequest) {
 
   let pushResult = { sent: 0, failed: 0 };
   if (pushTargets.size > 0) {
+    const nextHolLabel = hols[0]?.label ?? "jour spécial";
+    const nextHolDate = hols[0]?.date ?? "";
     try {
       pushResult = await sendPushToProfiles([...pushTargets], {
-        title: "Jour spécial à venir",
-        body: "Tu es présumé·e disponible — vérifie sur l'app.",
-        link: "/me/today",
+        title: `Présence requise — ${nextHolLabel}${nextHolDate ? ` (${nextHolDate})` : ""}`,
+        body: "Tu as un jour OFF habituel mais la boutique est ouverte — confirme ta disponibilité.",
+        link: "/me/availability",
       });
     } catch {
       /* push echo géré dans le helper */

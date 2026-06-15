@@ -47,12 +47,14 @@ export async function GET(request: NextRequest) {
     }
     updated += 1;
     if (r.requester_profile_id) {
+      const siteName = r.site?.name ?? "Site inconnu";
+      const slot = `${r.date} ${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)}`;
       await admin.from("notifications").insert({
         recipient_id: r.requester_profile_id,
         kind: "reinforcement_expired",
-        title: "Renfort sans réponse",
-        body: `${r.site?.name ?? "Site"} — ${r.date} ${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)} : l'employé n'a pas répondu, propose à un autre.`,
-        link: `/planning/reinforcement`,
+        title: `Renfort expiré — ${siteName} le ${slot}`,
+        body: `${siteName} — créneau ${slot} : l'employé proposé n'a pas répondu. Propose un autre renfort.`,
+        link: `/planning/reinforcement?request=${r.id}`,
         data: { request_id: r.id },
       });
     }

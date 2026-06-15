@@ -96,12 +96,13 @@ export async function GET(req: NextRequest) {
   const { data: hrs } = await admin.from("profiles").select("id, email").in("role", ["admin", "rh"]);
   const hrList = (hrs ?? []) as Array<{ id: string; email: string | null }>;
   if (hrList.length > 0) {
+    const firstIssue = issues[0] ?? "problème inconnu";
     await admin.from("notifications").insert(
       hrList.map((hr) => ({
         recipient_id: hr.id,
         kind: "gf_sync_health",
-        title: "🚨 Sync GF — alerte santé",
-        body: summary,
+        title: `🚨 Sync Gravity Forms — ${firstIssue.slice(0, 80)}`,
+        body: `${issues.length} problème(s) détecté(s) sur la sync GF :\n${issues.map((i, n) => `${n + 1}. ${i}`).join("\n")}\nGF total : ${gfTotal ?? "?"} | BD : ${bdCount ?? "?"}`,
         link: "/admin/integrations/gravity-forms",
         data: { issues, gfTotal, bdCount, last_synced_at: s.last_synced_at },
       })),
