@@ -23,6 +23,9 @@ export type Issue = {
   title: string;
   problem: string;
   solution: string;
+  // Karim 2026-06-15 : lien DIRECT vers l'emplacement à corriger (règle : toute
+  // notif indique l'objet précis + le lien direct). Absent si pas de page in-app.
+  link?: string;
 };
 
 /**
@@ -49,6 +52,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
       title: "Ingestion Tuya à l'arrêt",
       problem: `Aucun pointage Tuya depuis ${Math.round(tuyaAgeH)}h — les badges des employés ne sont plus enregistrés (présence et heures faussées).`,
       solution: "Vérifier que le cron tuya-poll tourne (workflow caftan-crons.yml doit être sur la branche par défaut du dépôt), puis relancer /api/cron/tuya-poll pour rattraper.",
+      link: "/admin/tuya/logs",
     });
   }
 
@@ -78,6 +82,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
       title: `${orphans.length} pointage(s) ouvert(s) depuis >24h`,
       problem: `${orphans.length} employé(s) apparaissent "présents" depuis plus de 24h — un badge de sortie a été oublié.`,
       solution: "Lancer /api/cron/force-close-orphans : il ferme ces sessions avec une heure de sortie estimée (corrigeable par la RH).",
+      link: "/admin/presence",
     });
   }
 
@@ -92,6 +97,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
       title: `${failedMails} mail(s) en échec (7j)`,
       problem: `${failedMails} envoi(s) d'e-mail ont échoué cette semaine — des destinataires n'ont rien reçu.`,
       solution: "Vérifier la configuration d'envoi (Resend / EmailJS / SMTP) et les logs dans /rh/mails.",
+      link: "/rh/mails",
     });
   }
 
@@ -106,6 +112,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
       title: `${anom} pointage(s) à vérifier (7j)`,
       problem: `${anom} pointage(s) marqués anormaux (jours incomplets, sessions trop longues).`,
       solution: "Les corriger depuis l'écran de présence / la fiche prestations de l'employé.",
+      link: "/admin/presence",
     });
   }
 
@@ -120,6 +127,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
       title: "Aucun présent en pleine journée",
       problem: "Personne n'est pointé alors qu'on est en horaire d'ouverture — anormal.",
       solution: "Probable arrêt de l'ingestion Tuya (voir ci-dessus) : relancer le poll et vérifier les crons.",
+      link: "/admin/tuya/logs",
     });
   }
 
@@ -154,6 +162,7 @@ export async function runHealthChecks(): Promise<Issue[]> {
         title: `${stillUnmapped.length} badge(s) non capté(s) (slot non mappé)`,
         problem: `${stillUnmapped.length} passage(s) de badge sur ${terminals} terminal(aux) sont droppés faute de mapping — ce sont des entrées/sorties manquantes (cause des OUT manquants).`,
         solution: "Faire badger la personne puis mapper son slot en 1 clic dans /admin/tuya/logs. Une fois mappé, le badge est capté automatiquement.",
+        link: "/admin/tuya/logs",
       });
     }
   }

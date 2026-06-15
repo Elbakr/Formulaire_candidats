@@ -207,15 +207,18 @@ export async function GET(request: NextRequest) {
       }).eq("id", incidentId);
       summary.escalated++;
       const reco = outcome?.solution ?? issue.solution;
+      // Règle notif : objet précis (issue.problem) + lien direct vers l'emplacement
+      // à corriger (issue.link) quand il existe, en plus du lien incident/QCM.
       summary.notified += await notifyAdmins(admin, {
         kind: "incident_unresolved",
         title: `❌ Incident non réglé : ${issue.title}`,
         body: [
           `Problème : ${issue.problem}`,
           `Solution recommandée : ${reco}`,
+          issue.link ? `📍 À corriger directement : ${issue.link}` : "",
           "⚠️ L'auto-réparation n'a pas suffi — dis-moi comment gérer ça (clique).",
-        ].join("\n"),
-        data: { incident_id: incidentId, signature: issue.key, needs_human: true },
+        ].filter(Boolean).join("\n"),
+        data: { incident_id: incidentId, signature: issue.key, needs_human: true, fix_link: issue.link ?? null },
         link: `/admin/incidents/${incidentId}`,
       });
     }
