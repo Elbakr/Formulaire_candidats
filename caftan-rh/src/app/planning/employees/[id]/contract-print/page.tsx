@@ -1,10 +1,12 @@
 // Karim 2026-05-31 : version IMPRIMABLE du contrat - sans pré-signature
 // Karim ni signature-fields DocuSeal. Juste des lignes vides pour signature
 // manuelle. Print-ready (CSS print + zone signature appropriée).
+// Karim 2026-06-15 : CloseBar sticky (window.close + repli href) pour PWA iOS.
 
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { previewContractHtmlAction } from "../contract-preview/action";
+import CloseBar from "../contract-preview/close-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -32,30 +34,12 @@ export default async function ContractPrintPage(props: {
 
   return (
     <div className="h-screen flex flex-col">
-      <div className="px-4 py-2 border-b bg-white flex items-center justify-between print:hidden">
-        <div>
-          <h1 className="text-sm font-semibold">
-            Imprimer pour signature manuelle — {empName}
-          </h1>
-          <p className="text-xs text-muted-foreground">Template : {tplCode}</p>
-        </div>
-        <div className="flex gap-2">
-          <a
-            href={`/planning/employees/${id}`}
-            className="text-xs text-blue-700 hover:underline px-3 py-1"
-          >
-            ← Retour fiche
-          </a>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="bg-blue-600 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-blue-700"
-            suppressHydrationWarning
-          >
-            🖨️ Imprimer / PDF
-          </button>
-        </div>
-      </div>
+      <CloseBar
+        fallbackHref={`/planning/employees/${id}`}
+        title={`Imprimer pour signature manuelle — ${empName}`}
+        subtitle={`Template : ${tplCode}`}
+        showPrintButton
+      />
       <iframe
         srcDoc={res.html}
         title="Contrat imprimable"

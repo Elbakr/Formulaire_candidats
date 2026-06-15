@@ -3,7 +3,7 @@
 // canvas, valide. Le PDF est envoye par mail au RH et a l employe.
 
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { SignContractClient } from "./sign-client";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,11 @@ export default async function SignContractPage(props: {
   params: Promise<{ token: string }>;
 }) {
   const { token } = await props.params;
-  // Pas de requireRole : page publique
-  const supabase = await createClient();
+  // Karim 2026-06-15 : page PUBLIQUE gardée par le token. On lit via le client
+  // ADMIN (service role) car le candidat n'est PAS authentifié : avec le client
+  // anonyme, la RLS masquait la ligne employee_contracts -> notFound() -> 404
+  // systématique. Le token EST le secret d'accès (validé + expiration vérifiée).
+  const supabase = createAdminClient();
   const { data: row } = await supabase
     .from("employee_contracts")
     .select(

@@ -56,7 +56,7 @@ function envFallback(): string {
  * En dev local : tunnel cloudflare si actif, sinon env vars, sinon localhost.
  */
 export function getPublicBaseUrl(override?: string): string {
-  if (override) return override.replace(/\/+$/, "");
+  if (override) return sanitizeUrl(override);
 
   if (process.env.VERCEL) {
     const fromVercelAlias = process.env.VERCEL_PROJECT_PRODUCTION_URL;
@@ -68,12 +68,12 @@ export function getPublicBaseUrl(override?: string): string {
       (fromVercelAlias ? `https://${fromVercelAlias}` : undefined) ??
       (fromVercelDeploy ? `https://${fromVercelDeploy}` : undefined) ??
       "https://caftan-rh.vercel.app"; // dernier fallback hard-code, l'alias prod connu
-    return resolved.replace(/\/+$/, "");
+    return sanitizeUrl(resolved);
   }
 
   const fromTunnel = readActiveTunnelUrl();
-  if (fromTunnel) return fromTunnel;
-  return envFallback().replace(/\/+$/, "");
+  if (fromTunnel) return sanitizeUrl(fromTunnel);
+  return sanitizeUrl(envFallback());
 }
 
 // Karim 2026-06-13 : URL pour les liens ENVOYES A UN DESTINATAIRE EXTERNE
@@ -91,6 +91,18 @@ export function getPublicBaseUrl(override?: string): string {
 // (NEXT_PUBLIC_SITE_URL non-localhost / non-tunnel) reste prioritaire.
 const STABLE_PROD_URL = "https://caftan-rh.vercel.app";
 
+// Karim 2026-06-15 : un BOM ou des caracteres de controle en tete d'une env var
+// corrompaient l'URL des liens sortants (ex. lien de signature ->
+// "<BOM>https://.../sign/..." -> 404 cote candidat). On nettoie systematiquement
+// (BOM + caracteres de controle) AVANT toute utilisation/comparaison.
+function sanitizeUrl(s: string): string {
+  return s
+    .replace(/﻿/g, "")
+    .replace(/\p{Cc}/gu, "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
 function isUnreachableForExternal(u: string | undefined | null): boolean {
   if (!u) return true;
   if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(u)) return true;
@@ -99,13 +111,14 @@ function isUnreachableForExternal(u: string | undefined | null): boolean {
 }
 
 export function getOutboundBaseUrl(): string {
-  const explicit =
+  const explicit = sanitizeUrl(
     process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    "";
-  if (!isUnreachableForExternal(explicit)) {
-    return explicit.replace(/\/+$/, "");
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "",
+  );
+  if (explicit && !isUnreachableForExternal(explicit)) {
+    return explicit;
   }
   return STABLE_PROD_URL;
 }

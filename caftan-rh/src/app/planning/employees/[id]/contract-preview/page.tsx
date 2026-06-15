@@ -1,10 +1,12 @@
 // Karim 2026-05-30 : preview du contrat tel qu il sera reçu par le candidat,
 // rendu dans une iframe pour isolation CSS totale (pas de styles de l app).
 // URL : /planning/employees/[id]/contract-preview?tpl=employee_pt
+// Karim 2026-06-15 : CloseBar sticky (window.close + repli href) pour PWA iOS.
 
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { previewContractHtmlAction } from "./action";
+import CloseBar from "./close-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -27,15 +29,11 @@ export default async function ContractPreviewPage(props: {
 
   return (
     <div className="h-screen flex flex-col">
-      <div className="px-4 py-2 border-b bg-white flex items-center justify-between">
-        <div>
-          <h1 className="text-sm font-semibold">Aperçu contrat — {empName}</h1>
-          <p className="text-xs text-muted-foreground">Template : {tplCode}</p>
-        </div>
-        <a href={`/planning/employees/${id}`} className="text-xs text-blue-700 hover:underline">
-          ← Retour fiche employé
-        </a>
-      </div>
+      <CloseBar
+        fallbackHref={`/planning/employees/${id}`}
+        title={`Aperçu contrat — ${empName}`}
+        subtitle={`Template : ${tplCode}`}
+      />
       {res.ok ? (
         <iframe
           srcDoc={res.html}
