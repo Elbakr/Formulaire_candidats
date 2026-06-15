@@ -6,6 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isoMinusYears } from "@/lib/be-validators";
 
 const ALLOWED_FIELDS = [
   "full_name", "email", "phone",
@@ -39,6 +40,11 @@ export async function saveContractInfoAction(
 
   if (Object.keys(updates).length === 0) {
     return { error: "Aucun champ à mettre à jour" };
+  }
+
+  // Karim 2026-06-15 : garde-fou serveur — âge minimum 17 ans.
+  if (typeof updates.birth_date === "string" && updates.birth_date > isoMinusYears(17)) {
+    return { error: "La date de naissance doit correspondre à au moins 17 ans." };
   }
 
   const { error } = await supabase

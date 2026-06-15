@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { isoMinusYears } from "@/lib/be-validators";
 
 // Champs que le TRAVAILLEUR peut renseigner (non adminOnly, cf. contract-readiness).
 const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban"] as const;
@@ -24,6 +25,11 @@ export async function submitContractInfoAction(
     if (v) update[k] = v;
   }
   if (Object.keys(update).length === 0) return { ok: false, error: "Aucune information saisie." };
+
+  // Karim 2026-06-15 : garde-fou serveur — âge minimum 17 ans.
+  if (update.birth_date && update.birth_date > isoMinusYears(17)) {
+    return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
+  }
 
   const { error } = await admin.from("employees").update(update).eq("id", tok.employee_id);
   if (error) return { ok: false, error: error.message };

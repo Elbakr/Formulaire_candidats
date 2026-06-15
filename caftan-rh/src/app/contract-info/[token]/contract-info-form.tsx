@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2, CheckCircle2, Check, X, Sparkles } from "lucide-react";
 import { submitContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
+import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 
 type Field = { key: string; label: string };
 
@@ -48,14 +49,6 @@ function formatIbanGroups(raw: string): string {
   return normalizeIban(raw).replace(/(.{4})/g, "$1 ").trim();
 }
 
-// --- NISS : prefixe = date de naissance inversee (AAMMJJ) -------------------
-function birthDateToNissPrefix(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return "";
-  return `${m[1].slice(2)}${m[2]}${m[3]}`; // AAMMJJ
-}
-
 export function ContractInfoForm({
   token,
   fields,
@@ -84,13 +77,15 @@ export function ContractInfoForm({
 
   // Date de naissance effective : saisie dans le form, sinon deja connue.
   const effectiveBirth = values.birth_date || birthDate || "";
+  // Karim 2026-06-15 : age minimum 17 ans (cohérence avec le formulaire candidature).
+  const maxBirth = useMemo(() => isoMinusYears(17), []);
 
   // 1) NISS : pre-remplit le prefixe AAMMJJ des que la date de naissance est
   //    connue, tant que l'utilisateur n'a pas edite le champ a la main.
   useEffect(() => {
     if (!hasNrn) return;
     if (editedRef.current.has("nrn")) return;
-    const prefix = birthDateToNissPrefix(effectiveBirth);
+    const prefix = nissPrefixFromIso(effectiveBirth);
     if (!prefix) return;
     setValues((v) => {
       const cur = v.nrn ?? "";
@@ -145,6 +140,11 @@ export function ContractInfoForm({
       setErr("L'IBAN saisi n'est pas valide. Vérifie-le avant d'enregistrer.");
       return;
     }
+    // Karim 2026-06-15 : âge minimum 17 ans.
+    if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) {
+      setErr("La date de naissance doit correspondre à au moins 17 ans.");
+      return;
+    }
     // normalise l'IBAN avant envoi
     const payload = { ...values };
     if (payload.iban) payload.iban = normalizeIban(payload.iban);
@@ -189,6 +189,7 @@ export function ContractInfoForm({
               <input
                 type={inputType(f.key)}
                 inputMode={f.key === "postal_code" ? "numeric" : undefined}
+                max={f.key === "birth_date" ? maxBirth : undefined}
                 value={values[f.key] ?? ""}
                 placeholder={placeholder(f.key)}
                 onChange={(e) => setField(f.key, e.target.value)}

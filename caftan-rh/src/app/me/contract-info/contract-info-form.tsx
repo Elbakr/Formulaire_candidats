@@ -1,24 +1,27 @@
 "use client";
 
-import { useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { saveContractInfoAction } from "./actions";
+import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
+import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 
 type Missing = { key: string; label: string };
 
-const FIELD_META: Record<string, { type: string; placeholder?: string; inputMode?: string; pattern?: string }> = {
+const FIELD_META: Record<string, { type: string; placeholder?: string; inputMode?: string }> = {
   full_name: { type: "text" },
   email: { type: "email" },
   phone: { type: "tel", placeholder: "+32 4XX XX XX XX" },
   birth_date: { type: "date" },
-  nrn: { type: "text", placeholder: "XX.XX.XX-XXX.XX", inputMode: "numeric" },
+  nrn: { type: "text", placeholder: "AA.MM.JJ-XXX.CC", inputMode: "numeric" },
   address: { type: "text", placeholder: "Rue + numéro" },
   postal_code: { type: "text", placeholder: "1000", inputMode: "numeric" },
-  city: { type: "text" },
+  city: { type: "text", placeholder: "Bruxelles" },
   iban: { type: "text", placeholder: "BE XX XXXX XXXX XXXX" },
   bic: { type: "text", placeholder: "GEBABEBB" },
 };
@@ -33,6 +36,61 @@ export function ContractInfoForm({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  // Karim 2026-06-15 : ce formulaire « dossier RH » applique désormais la même
+  // logique que la candidature : date de naissance ≥ 17 ans, NISS pré-rempli
+  // (AAMMJJ) depuis la date de naissance, et commune auto-détectée depuis le code
+  // postal. Helpers partagés (@/lib/be-validators, @/lib/be-postal).
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of missing) init[f.key] = defaults[f.key] ?? "";
+    return init;
+  });
+  const editedRef = useRef<Set<string>>(new Set());
+  const [cityAuto, setCityAuto] = useState(false);
+  const maxBirth = useMemo(() => isoMinusYears(17), []);
+
+  const hasNrn = missing.some((f) => f.key === "nrn");
+  const hasCity = missing.some((f) => f.key === "city");
+  const effectiveBirth = values.birth_date || defaults.birth_date || "";
+
+  // 1) NISS : pré-remplit le préfixe AAMMJJ dès que la date de naissance est connue.
+  useEffect(() => {
+    if (!hasNrn || editedRef.current.has("nrn")) return;
+    const prefix = nissPrefixFromIso(effectiveBirth);
+    if (!prefix) return;
+    setValues((v) => {
+      const cur = v.nrn ?? "";
+      return cur === "" || cur.length <= 6 ? { ...v, nrn: prefix } : v;
+    });
+  }, [effectiveBirth, hasNrn]);
+
+  // 2) Code postal -> commune : table locale instantanée + API publique.
+  useEffect(() => {
+    if (!hasCity) return;
+    const code = (values.postal_code ?? "").trim();
+    if (!isBePostalCode(code) || editedRef.current.has("city")) return;
+    const local = localBeCity(code);
+    if (local) {
+      setValues((v) => ({ ...v, city: local }));
+      setCityAuto(true);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const c = await lookupBeCity(code);
+      if (cancelled || !c || editedRef.current.has("city")) return;
+      setValues((v) => ({ ...v, city: c }));
+      setCityAuto(true);
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [values.postal_code, hasCity]);
+
+  function setField(key: string, val: string) {
+    editedRef.current.add(key);
+    if (key === "city") setCityAuto(false);
+    setValues((v) => ({ ...v, [key]: val }));
+  }
 
   return (
     <form
@@ -53,23 +111,35 @@ export function ContractInfoForm({
     >
       {missing.map((f) => {
         const meta = FIELD_META[f.key] ?? { type: "text" };
+        const isCity = f.key === "city";
         return (
           <div key={f.key} className="border-2 border-rose-400 bg-rose-50 rounded p-2">
             <Label htmlFor={f.key} className="text-rose-900 font-semibold flex items-center gap-1">
               <span className="text-rose-600">●</span> {f.label}
+              {isCity && cityAuto ? (
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-success">
+                  <Sparkles className="h-3 w-3" /> auto
+                </span>
+              ) : null}
               <span className="text-[10px] text-rose-600 ml-auto">Requis pour contrat</span>
             </Label>
             <Input
               id={f.key}
               name={f.key}
-              defaultValue={defaults[f.key] ?? ""}
+              value={values[f.key] ?? ""}
+              onChange={(e) => setField(f.key, e.target.value)}
               type={meta.type}
               placeholder={meta.placeholder}
               inputMode={meta.inputMode as React.HTMLAttributes<HTMLInputElement>["inputMode"]}
-              pattern={meta.pattern}
+              max={f.key === "birth_date" ? maxBirth : undefined}
               className="bg-white border-rose-300 mt-1"
               required
             />
+            {f.key === "nrn" ? (
+              <p className="text-[10px] text-ink-3 mt-1">
+                Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.
+              </p>
+            ) : null}
           </div>
         );
       })}
