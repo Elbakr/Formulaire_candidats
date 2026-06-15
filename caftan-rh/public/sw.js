@@ -7,7 +7,7 @@
 // TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
 // nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
 // du bump manuel ci-dessous.
-const CACHE_VERSION = "caftanrh-shell-v77-2026-06-14-notifglobal";
+const CACHE_VERSION = "caftanrh-shell-v78-2026-06-15-notifnav";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -107,30 +107,37 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || "/";
+  const url = (event.notification.data && event.notification.data.url) || "/m";
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
 
-      // Karim 2026-06-13 : cablage FIGE. L'ancienne approche reposait sur
-      // client.navigate(), qui ECHOUE silencieusement sur iOS PWA (la promesse
-      // rejette, on tombait dans le catch, on focus la fenetre SANS naviguer ->
-      // on restait sur la page courante). Nouvelle strategie fiable cross-OS :
-      //   1. une fenetre de l'app est ouverte -> on lui POSTE l'URL et l'app
-      //      fait un router.push() (navigation SPA, marche toujours, meme iOS) ;
-      //   2. aucune fenetre -> openWindow() ouvre directement sur la cible.
+      // Karim 2026-06-15 : RE-FIX. Le cablage 100% postMessage echouait sur iOS
+      // PWA : quand l'app est en arriere-plan, sa page est GELEE -> le message
+      // NOTIF_NAVIGATE est perdu, on focusait la fenetre SANS naviguer (l'app
+      // rouvrait sur la derniere page). Strategie robuste, ordre des tentatives :
+      //   1. postMessage : navigation SPA fluide quand la page est vivante.
+      //   2. focus : ramener l'app au premier plan.
+      //   3. client.navigate(url) : FORCE l'URL meme si la page etait gelee
+      //      (recharge le client sur la cible). Tolere un rejet (vieux iOS).
+      //   4. aucun client / navigate KO -> openWindow(url) ouvre la cible.
       if (all.length > 0) {
         const client = all.find((c) => c.focused) || all[0];
+        try { client.postMessage({ type: "NOTIF_NAVIGATE", url }); } catch (_) {}
+        try { if ("focus" in client) await client.focus(); } catch (_) {}
         try {
-          client.postMessage({ type: "NOTIF_NAVIGATE", url });
+          if ("navigate" in client) {
+            const navigated = await client.navigate(url);
+            if (navigated) return; // URL forcee avec succes
+          }
         } catch (_) {
-          // best-effort
+          // navigate peut rejeter sur certaines versions iOS -> on tente openWindow.
         }
         try {
-          if ("focus" in client) return await client.focus();
-        } catch (_) {
-          // si focus echoue, on retombe sur openWindow ci-dessous
-        }
+          const win = await self.clients.openWindow(url);
+          if (win) return;
+        } catch (_) {}
+        return;
       }
       return self.clients.openWindow(url);
     })(),
