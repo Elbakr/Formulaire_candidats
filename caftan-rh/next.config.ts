@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
   // Karim 2026-06-15 : chromium headless (génération PDF des contrats) ne doit PAS
   // être bundlé par Turbopack/webpack (binaire natif) -> externalisé côté serveur.
   serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
+  // Le binaire chromium (dossier bin/) n'est pas tracé automatiquement dans la
+  // fonction Vercel -> on l'inclut explicitement pour la route PDF du contrat.
+  outputFileTracingIncludes: {
+    "/api/contracts/sign/[token]/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+  },
   // Autoriser les Server Actions et le HMR depuis nos tunnels Cloudflare et
   // depuis le LAN local pendant les tests sur appareils externes.
   // Sans ça, Next.js 16 bloque silencieusement les server actions (login,
