@@ -13,14 +13,27 @@ export function QuestionsList(props: {
 }) {
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
+  const [flash, setFlash] = useState<Record<string, string>>({}); // qid -> message
+
+  function setFlashFor(qid: string, msg: string) {
+    setFlash((f) => ({ ...f, [qid]: msg }));
+  }
 
   function answer(qid: string, key: string) {
     setBusy(qid);
-    start(async () => { await answerTrainingQuestion(qid, key); setBusy(null); });
+    start(async () => {
+      const r = await answerTrainingQuestion(qid, key);
+      setBusy(null);
+      setFlashFor(qid, r.ok ? "✓ Enregistré" : `✗ ${r.error ?? "Échec"}`);
+    });
   }
   function revoke(qid: string) {
     setBusy(qid);
-    start(async () => { await revokeTrainingQuestion(qid); setBusy(null); });
+    start(async () => {
+      await revokeTrainingQuestion(qid);
+      setBusy(null);
+      setFlashFor(qid, "✓ Réponse effacée");
+    });
   }
 
   // groupe par catégorie en conservant l'ordre
@@ -72,15 +85,22 @@ export function QuestionsList(props: {
                     );
                   })}
                 </div>
-                {answered ? (
-                  <button
-                    disabled={pending && busy === q.id}
-                    onClick={() => revoke(q.id)}
-                    className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-ink-3 hover:text-danger disabled:opacity-50"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Effacer ma réponse
-                  </button>
-                ) : null}
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  {answered ? (
+                    <button
+                      disabled={pending && busy === q.id}
+                      onClick={() => revoke(q.id)}
+                      className="inline-flex items-center gap-1 text-[10px] text-ink-3 hover:text-danger disabled:opacity-50"
+                    >
+                      <RotateCcw className="h-3 w-3" /> Effacer ma réponse
+                    </button>
+                  ) : <span />}
+                  {flash[q.id] ? (
+                    <span className={`text-[11px] font-semibold ${flash[q.id].startsWith("✓") ? "text-success" : "text-danger"}`}>
+                      {flash[q.id]}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             );
           })}
