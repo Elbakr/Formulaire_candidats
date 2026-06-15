@@ -188,6 +188,74 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
     ],
   },
 
+  // ---------- Congés : couverture & remplacement ----------
+  {
+    id: "leave_need_coverage", category: "Congés — remplacement",
+    question: "Conditionner l'auto-validation d'un congé à la possibilité de COMBLER le manque (quota de disponibilités suffisant pour substituer) ?",
+    why: "Un congé ne doit passer en auto que si un remplacement est réellement possible.",
+    options: [
+      { key: "require", label: "Oui — exiger qu'un remplacement couvre le manque", mode: "auto" },
+      { key: "no_constraint", label: "Non — pas de condition de couverture", mode: "suggest" },
+    ],
+  },
+  {
+    id: "replace_sort", category: "Congés — remplacement",
+    question: "Comment classer les remplaçants proposés ?",
+    why: "Proposer d'abord les meilleurs.",
+    options: [
+      { key: "reliability_perf", label: "Par fiabilité + performance (scoring)", mode: "auto" },
+      { key: "proximity", label: "Par proximité géographique", mode: "auto" },
+      { key: "hours_left", label: "Par heures restantes à faire", mode: "auto" },
+    ],
+  },
+  {
+    id: "replace_precheck", category: "Congés — remplacement",
+    question: "Les remplaçants proposés sont-ils cochés par défaut dans la proposition ?",
+    why: "Gagner du temps : tout coché, tu décoches si besoin.",
+    options: [
+      { key: "all_checked", label: "Oui, tous cochés par défaut", mode: "auto" },
+      { key: "none", label: "Non, je coche manuellement", mode: "suggest" },
+    ],
+  },
+  {
+    id: "leave_j1_rh_first", category: "Congés — remplacement",
+    question: "Demande de congé pour J+1 (demain) : envoyer d'abord au RH (intervention humaine requise) ?",
+    why: "Les demandes très proches méritent un œil humain.",
+    options: [
+      { key: "rh_first", label: "Oui, au RH d'abord (toujours désactivable)", mode: "auto" },
+      { key: "cascade", label: "Non, cascade auto directe aux dispos", mode: "auto" },
+    ],
+  },
+  {
+    id: "urgent_rh_timeout", category: "Congés — remplacement",
+    question: "Absence URGENTE (maladie, accident, impossibilité, démission) : combien de temps sans accusé de réception du RH avant de lancer la cascade auto aux remplaçants ?",
+    why: "Si la RH ne réagit pas, le remplacement urgent doit partir seul.",
+    options: [
+      { key: "10", label: "10 minutes", mode: "auto" },
+      { key: "20", label: "20 minutes", mode: "auto" },
+      { key: "30", label: "30 minutes", mode: "auto" },
+    ],
+  },
+  {
+    id: "urgent_cascade_interval", category: "Congés — remplacement",
+    question: "Cascade de remplacement urgent : intervalle entre chaque proposition envoyée ?",
+    why: "Laisser à chacun le temps de répondre avant de passer au suivant.",
+    options: [
+      { key: "3", label: "3 minutes", mode: "auto" },
+      { key: "5", label: "5 minutes", mode: "auto" },
+      { key: "10", label: "10 minutes", mode: "auto" },
+    ],
+  },
+  {
+    id: "urgent_cascade_mode", category: "Congés — remplacement",
+    question: "Comment proposer le remplacement urgent ?",
+    why: "Un par un protège l'équité et évite le double oui.",
+    options: [
+      { key: "one_by_one", label: "Un par un (ordre fiabilité+perf), sur leurs plages déclarées, jusqu'à acceptation", mode: "auto" },
+      { key: "all_at_once", label: "À tous les disponibles d'un coup", mode: "auto" },
+    ],
+  },
+
   // ---------- Planning ----------
   {
     id: "swap_auto_validate", category: "Planning",
