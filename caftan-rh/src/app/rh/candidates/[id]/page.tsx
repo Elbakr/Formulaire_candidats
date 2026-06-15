@@ -22,6 +22,10 @@ import { TimelinePanel } from "./timeline-panel";
 import { DocumentsPanel } from "./documents-panel";
 import { CandidateScoreCard } from "./score-card";
 import { GfFormView } from "./gf-form-view";
+import { UnifiedScoreCard } from "@/components/unified-score-card";
+import { computeUnifiedScore } from "@/lib/scoring/unified-candidate-score";
+import { computePreInterviewScore } from "@/lib/scoring/pre-interview-score";
+import type { PreInterviewResponseForScoring } from "@/lib/scoring/pre-interview-score";
 import { distanceCandidateToSites } from "@/lib/distance";
 import { detectGender, genderEmoji, genderLabel } from "@/lib/heuristics/gender";
 import { PreInterviewPanel } from "./pre-interview-panel";
@@ -48,7 +52,9 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
 
   if (!app) notFound();
 
-  const [notesRes, interviewsRes, docsRes, preIntRes] = await Promise.all([
+  const candidateId = (app.candidate as unknown as { id: string }).id;
+
+  const [notesRes, interviewsRes, docsRes, preIntRes, screeningRes] = await Promise.all([
     supabase
       .from("notes")
       .select("id, body, is_private, created_at, author:profiles(id, full_name)")
@@ -71,6 +77,15 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
       )
       .eq("application_id", id)
       .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    // Dernier screening complété du candidat (scores pré-calculés en DB).
+    supabase
+      .from("screening_responses")
+      .select("total_score, category_scores, has_red_flag, recommendation, completed_at")
+      .eq("candidate_id", candidateId)
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
   ]);
@@ -105,6 +120,62 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
       .order("sort_order", { ascending: true });
     preInterviewQuestions = (allQ ?? []) as PreInterviewQuestion[];
   }
+
+  // ── Score unifié candidat ────────────────────────────────────────────────────
+  // screeningResult : on réutilise les scores pré-calculés stockés en DB.
+  type StoredScreening = {
+    total_score: number | null;
+    category_scores: Record<string, number> | null;
+    has_red_flag: boolean;
+    recommendation: string | null;
+    completed_at: string | null;
+  };
+  const storedScreening = screeningRes.data as StoredScreening | null;
+  const screeningResult = storedScreening?.total_score != null && storedScreening.recommendation
+    ? {
+        totalScore: storedScreening.total_score,
+        categoryScores: (storedScreening.category_scores ?? {}) as Record<string, number>,
+        hasRedFlag: !!storedScreening.has_red_flag,
+        recommendation: storedScreening.recommendation as "HIRE" | "MAYBE" | "PASS",
+      }
+    : null;
+
+  // preInterviewResult : calcul depuis les réponses existantes si pré-entretien complété.
+  const preInterviewResult = (() => {
+    if (!currentPreInterview || currentPreInterview.status !== "completed") return null;
+    if (preInterviewResponses.length === 0) return null;
+    // Construire PreInterviewResponseForScoring en joignant question sort_order.
+    const qSortOrderById = new Map(preInterviewQuestions.map((q) => [q.id, q.sort_order]));
+    const qKindById = new Map(
+      preInterviewQuestions.map((q) => [
+        q.id,
+        q.kind as PreInterviewResponseForScoring["question_kind"],
+      ]),
+    );
+    const forScoring: PreInterviewResponseForScoring[] = preInterviewResponses
+      .map((r) => {
+        const sortOrder = qSortOrderById.get(r.question_id);
+        const kind = qKindById.get(r.question_id);
+        if (sortOrder == null || kind == null) return null;
+        return {
+          question_sort_order: sortOrder,
+          question_kind: kind,
+          answer_text: r.answer_text ?? null,
+          answer_choices: r.answer_choices ?? null,
+          answer_scale: r.answer_scale ?? null,
+          video_storage_path: r.video_storage_path ?? null,
+        } satisfies PreInterviewResponseForScoring;
+      })
+      .filter((x): x is PreInterviewResponseForScoring => x !== null);
+    if (forScoring.length === 0) return null;
+    return computePreInterviewScore(forScoring);
+  })();
+
+  // Score unifié final (null si pas de screening du tout).
+  const unifiedScore = screeningResult
+    ? computeUnifiedScore(screeningResult, preInterviewResult)
+    : null;
+  // ────────────────────────────────────────────────────────────────────────────
 
   const candidate = app.candidate as unknown as {
     id: string;
@@ -342,6 +413,10 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
         }}
         closestSiteCode={dist.closestCode}
       />
+
+      {unifiedScore && (
+        <UnifiedScoreCard result={unifiedScore} candidateName={candidate.full_name} />
+      )}
 
       {Object.keys(dist.byCode).length > 0 ? (
         <Card>
