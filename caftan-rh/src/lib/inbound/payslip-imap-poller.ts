@@ -14,6 +14,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { retryOnTransientImap } from "./imap-retry";
 import { processBatch } from "@/lib/payslip-processor";
+import { processImagePayslip } from "@/lib/payslip-image-processor";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -225,16 +226,40 @@ export async function pollPayslipsFromImap(opts?: {
           if (Buffer.isBuffer(c) && c.length >= 5 && c.subarray(0, 5).toString("latin1") === "%PDF-") return true;
           return false;
         };
-        const pdfs = (parsed.attachments ?? []).filter(looksLikePdf);
 
-        if (pdfs.length === 0) {
-          const attCount = (parsed.attachments ?? []).length;
+        // Images — JPEG/PNG/WEBP → traitement OCR Claude vision
+        type ParsedAttachment = { contentType?: string | null; filename?: string | null; content?: unknown };
+        const looksLikeImage = (a: ParsedAttachment): { is: boolean; mediaType: string } => {
+          const ct = (a.contentType ?? "").toLowerCase();
+          const fn = (a.filename ?? "").toLowerCase();
+          if (ct.includes("jpeg") || ct.includes("jpg") || fn.endsWith(".jpg") || fn.endsWith(".jpeg")) {
+            return { is: true, mediaType: "image/jpeg" };
+          }
+          if (ct.includes("png") || fn.endsWith(".png")) {
+            return { is: true, mediaType: "image/png" };
+          }
+          if (ct.includes("webp") || fn.endsWith(".webp")) {
+            return { is: true, mediaType: "image/webp" };
+          }
+          return { is: false, mediaType: "" };
+        };
+
+        const allAttachments = parsed.attachments ?? [];
+        const pdfs = allAttachments.filter(looksLikePdf);
+        const images = allAttachments
+          .map((a) => ({ att: a, img: looksLikeImage(a) }))
+          .filter((x) => x.img.is && !looksLikePdf(x.att));
+
+        // Karim 2026-06-15 : si aucun PDF mais des images → chemin OCR vision.
+        // Si ni PDF ni image → erreur descriptive.
+        if (pdfs.length === 0 && images.length === 0) {
+          const attCount = allAttachments.length;
           result.errors.push({
             uid: m.uid,
             subject,
             error: attCount === 0
               ? "Aucune pièce jointe (le PDF n'est pas attaché — vérifie que c'est un vrai fichier joint, pas un lien Drive/aperçu inline)."
-              : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme PDF (types : ${(parsed.attachments ?? []).map((a) => a.contentType ?? "?").join(", ")}).`,
+              : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme PDF ou image (types : ${allAttachments.map((a) => a.contentType ?? "?").join(", ")}).`,
           });
           continue;
         }
@@ -243,6 +268,7 @@ export async function pollPayslipsFromImap(opts?: {
         let totalMatched = 0;
         let totalOrphan = 0;
 
+        // --- Chemin PDF (existant, inchangé) ---
         for (const pdf of pdfs) {
           if (!pdf.content || !Buffer.isBuffer(pdf.content)) continue;
           const bytes = new Uint8Array(pdf.content);
@@ -268,6 +294,47 @@ export async function pollPayslipsFromImap(opts?: {
               subject,
               error: `processBatch: ${(e as Error).message}`,
             });
+          }
+        }
+
+        // --- Chemin IMAGE → OCR Claude vision (nouveau) ---
+        // Activé uniquement si aucun PDF (évite de doubler le travail si le mail
+        // contient à la fois un PDF et un aperçu JPEG inline).
+        if (pdfs.length === 0) {
+          for (const { att, img } of images) {
+            if (!att.content || !Buffer.isBuffer(att.content)) continue;
+            const bytes = new Uint8Array(att.content);
+            result.pdfs_total++; // réutilise le compteur total pièces traitées
+
+            try {
+              const imgResult = await processImagePayslip({
+                imageBytes: bytes,
+                mediaType: img.mediaType,
+                filename: att.filename ?? `inbound-img-${m.uid}.jpg`,
+                fallbackEmployer: employer,
+                uploadedBy: null,
+                source: "email",
+              });
+              if (imgResult.error) {
+                result.errors.push({ uid: m.uid, subject, error: `OCR image: ${imgResult.error}` });
+              } else {
+                totalInserted++;
+                result.payslips_inserted++;
+                if (imgResult.matched) {
+                  totalMatched++;
+                  result.payslips_matched_employee++;
+                } else {
+                  totalOrphan++;
+                  result.payslips_orphan++;
+                }
+              }
+            } catch (e) {
+              result.errors.push({
+                uid: m.uid,
+                subject,
+                error: `processImagePayslip: ${(e as Error).message}`,
+              });
+            }
           }
         }
 

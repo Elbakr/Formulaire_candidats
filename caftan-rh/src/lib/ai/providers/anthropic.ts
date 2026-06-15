@@ -16,6 +16,18 @@ export type AnthropicCallArgs = {
   maxTokens?: number;
 };
 
+export type AnthropicVisionArgs = {
+  model: string;
+  system: string;
+  user: string;
+  images: Array<{
+    mediaType: "image/jpeg" | "image/png" | "image/webp";
+    base64: string;
+  }>;
+  expectsJson?: boolean;
+  maxTokens?: number;
+};
+
 export type AnthropicCallResult = {
   output: unknown;
   raw_text: string;
@@ -90,6 +102,63 @@ export async function callAnthropic(args: AnthropicCallArgs): Promise<AnthropicC
     cost_usd,
     model: args.model,
   };
+}
+
+/**
+ * Variante vision de callAnthropic.
+ * Construit un message user multi-part : blocs image base64 en premier,
+ * puis bloc texte. Réutilise le calcul tokens/cost existant.
+ * N'altère pas callAnthropic.
+ */
+export async function callAnthropicVision(args: AnthropicVisionArgs): Promise<AnthropicCallResult> {
+  const c = getClient();
+
+  // Blocs image en premier, texte à la fin (recommandé Anthropic pour vision)
+  const userContent: Anthropic.MessageParam["content"] = [
+    ...args.images.map(
+      (img): Anthropic.ImageBlockParam => ({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: img.mediaType,
+          data: img.base64,
+        },
+      }),
+    ),
+    { type: "text", text: args.user },
+  ];
+
+  const resp = await c.messages.create({
+    model: args.model,
+    max_tokens: args.maxTokens ?? 1500,
+    system: [
+      {
+        type: "text",
+        text: args.system,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  const raw_text = resp.content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("\n")
+    .trim();
+
+  let output: unknown = raw_text;
+  if (args.expectsJson) {
+    output = parseJsonOrThrow(raw_text);
+  }
+
+  const tokens_in =
+    (resp.usage?.input_tokens ?? 0) +
+    (resp.usage?.cache_creation_input_tokens ?? 0) +
+    (resp.usage?.cache_read_input_tokens ?? 0);
+  const tokens_out = resp.usage?.output_tokens ?? 0;
+  const cost_usd = computeCostUsd(args.model, tokens_in, tokens_out);
+
+  return { output, raw_text, tokens_in, tokens_out, cost_usd, model: args.model };
 }
 
 function parseJsonOrThrow(text: string): unknown {
