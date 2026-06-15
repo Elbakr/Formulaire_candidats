@@ -17,15 +17,17 @@ import { processBatch } from "@/lib/payslip-processor";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
 import { createAdminClient } from "@/lib/supabase/server";
 
+// Karim 2026-06-15 : couverture LARGE de toutes les orthographes/dérivés.
+// pa[iy]e?s? matche : pai, pais, paie, paies, pay, pays, paye, payes.
+// (fiche|feuille|bulletin)s? matche singulier ET pluriel. Espaces souples.
 const SUBJECT_PATTERNS = [
-  /fiche\s+de\s+paie/i,
-  /fiches\s+de\s+paies?/i,
-  /feuille\s+de\s+paie/i,
-  /feuilles\s+de\s+paies?/i,
-  /payslip/i,
-  /loonbrief/i,            // NL
-  /loonbrieven/i,          // NL pluriel
-  /bulletin\s+de\s+paie/i, // FR variante
+  /(fiche|feuille|bulletin)s?\s+de\s+pa[iy]e?s?/i, // fiche(s)/feuille(s)/bulletin(s) de paie/paies/paye/pai…
+  /fiche[-_\s]*pa[iy]e?s?/i,                        // collé/tiret : fiche-paie, fichepaie
+  /pay[\s-]?slips?/i,                               // payslip(s)
+  /pay[\s-]?stubs?/i,                               // paystub(s)
+  /loonbrie(f|ven)/i,                              // NL : loonbrief / loonbrieven
+  /loonfiches?/i,                                  // NL variante
+  /salarisstrook(en)?/i,                           // NL « fiche de salaire »
 ];
 
 // Entrée d'un mapping personnalisé expéditeur → employeur
@@ -211,14 +213,29 @@ export async function pollPayslipsFromImap(opts?: {
           continue;
         }
 
-        // PDF attachments
-        const pdfs = (parsed.attachments ?? []).filter((a) =>
-          (a.contentType ?? "").toLowerCase().includes("pdf") ||
-          (a.filename ?? "").toLowerCase().endsWith(".pdf"),
-        );
+        // PDF attachments — Karim 2026-06-15 : détection ROBUSTE.
+        // 1) content-type contient "pdf"  2) nom finit par .pdf
+        // 3) sinon, octets magiques "%PDF" (cas content-type=octet-stream ou nom
+        //    sans extension, fréquent quand le PDF est forwardé/renommé).
+        const looksLikePdf = (a: { contentType?: string | null; filename?: string | null; content?: unknown }) => {
+          const ct = (a.contentType ?? "").toLowerCase();
+          const fn = (a.filename ?? "").toLowerCase();
+          if (ct.includes("pdf") || fn.endsWith(".pdf")) return true;
+          const c = a.content as Buffer | undefined;
+          if (Buffer.isBuffer(c) && c.length >= 5 && c.subarray(0, 5).toString("latin1") === "%PDF-") return true;
+          return false;
+        };
+        const pdfs = (parsed.attachments ?? []).filter(looksLikePdf);
 
         if (pdfs.length === 0) {
-          result.errors.push({ uid: m.uid, subject, error: "Aucun PDF dans les pièces jointes" });
+          const attCount = (parsed.attachments ?? []).length;
+          result.errors.push({
+            uid: m.uid,
+            subject,
+            error: attCount === 0
+              ? "Aucune pièce jointe (le PDF n'est pas attaché — vérifie que c'est un vrai fichier joint, pas un lien Drive/aperçu inline)."
+              : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme PDF (types : ${(parsed.attachments ?? []).map((a) => a.contentType ?? "?").join(", ")}).`,
+          });
           continue;
         }
 
