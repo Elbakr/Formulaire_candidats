@@ -87,7 +87,11 @@ export default async function MyMailsPage() {
             const sourceColor = SOURCE_COLORS[m.source] ?? "bg-gray-100 text-gray-800";
             const sourceLabel = SOURCE_LABELS[m.source] ?? m.source;
             return (
-              <div key={m.id} className="p-4 hover:bg-muted/20">
+              <div
+                key={m.id}
+                id={`mail-${m.id}`}
+                className="p-4 hover:bg-muted/20 scroll-mt-24 target:bg-gold-light/30 target:ring-2 target:ring-gold/50 target:rounded-md"
+              >
                 <div className="flex items-start gap-3">
                   <Mail className="w-5 h-5 mt-0.5 text-blue-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
