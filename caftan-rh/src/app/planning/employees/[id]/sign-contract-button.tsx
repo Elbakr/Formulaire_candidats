@@ -20,6 +20,7 @@ import {
 import { sendContractForSignatureAction } from "./sign-contract-actions";
 import { sendInfoRequestMailAction } from "./info-request-actions";
 import { getMissingFields, type MissingField } from "@/lib/contract-readiness";
+import { saveContractTermsAction } from "./contract-terms-actions";
 
 type Props = {
   employeeId: string;
@@ -120,6 +121,41 @@ export function SignContractButton({
   const [discrepancies, setDiscrepancies] = useState<
     Array<{ field: string; label: string; profileValue: string; contractValue: string }>
   >([]);
+
+  // Karim 2026-06-15 : récapitulatif éditable des paramètres du contrat.
+  // Pré-rempli depuis employeeRecord (= valeurs actuelles de la fiche).
+  const [terms, setTerms] = useState({
+    contract_type: String(employeeRecord.contract_type ?? contractType ?? ""),
+    work_time_kind: String(employeeRecord.work_time_kind ?? workTimeKind ?? "full"),
+    weekly_hours: String(employeeRecord.weekly_hours ?? weeklyHours ?? ""),
+    start_date: String(employeeRecord.start_date ?? ""),
+    end_date: String(employeeRecord.end_date ?? ""),
+    job_title: String(employeeRecord.job_title ?? ""),
+    hourly_rate: String(employeeRecord.hourly_rate ?? ""),
+  });
+  const [termsSaved, setTermsSaved] = useState(false);
+  const [termsPending, startTermsTransition] = useTransition();
+
+  function handleSaveTerms() {
+    startTermsTransition(async () => {
+      const res = await saveContractTermsAction(employeeId, {
+        contract_type: terms.contract_type || undefined,
+        work_time_kind: terms.work_time_kind || undefined,
+        weekly_hours: terms.weekly_hours !== "" ? Number(terms.weekly_hours) : undefined,
+        start_date: terms.start_date || undefined,
+        end_date: "end_date" in terms ? (terms.end_date || null) : undefined,
+        job_title: terms.job_title || undefined,
+        hourly_rate: terms.hourly_rate !== "" ? Number(terms.hourly_rate) : undefined,
+      });
+      if ("error" in res) {
+        toast.error(res.error);
+        return;
+      }
+      setTermsSaved(true);
+      toast.success("Paramètres enregistrés — la fiche est à jour.");
+      router.refresh();
+    });
+  }
 
   function handleSubmit(accept = false) {
     if (!employeeEmail) {
@@ -258,28 +294,149 @@ export function SignContractButton({
                 🖨️ Imprimer (signature manuelle)
               </a>
             </div>
-            {/* Karim 2026-05-30 : type de contrat read-only, herite de la fiche employee */}
-            <div>
-              <label className="text-xs font-bold text-ink-2 block mb-1">Type de contrat</label>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-line bg-muted/40">
-                <span className="text-sm font-semibold">{TEMPLATE_LABELS[tplCode]}</span>
-                <span className="ml-auto text-[10px] text-ink-3 italic">défini sur la fiche employé</span>
+            {/* Karim 2026-06-15 : récapitulatif éditable des paramètres du contrat.
+                L'opérateur peut corriger avant d'envoyer. saveContractTermsAction
+                écrit dans employees AVANT l'envoi (resolveContractRenderInputs relit
+                la fiche → cohérence WYSIWYG garantie). */}
+            <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-900">📋 Récapitulatif du contrat</span>
+                {termsSaved && (
+                  <span className="text-[10px] text-emerald-700 font-semibold">✓ enregistré</span>
+                )}
               </div>
-              <p className="text-[10px] text-ink-3 mt-1">
-                Pour changer le type, modifie le contrat et les heures sur la fiche employé.
-              </p>
-              {/* Karim 2026-05-30 : debug visuel - aide a comprendre la derivation */}
-              <details className="mt-1">
+
+              {/* Employé — lecture seule */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Employé</label>
+                <span className="text-xs text-ink-1 font-semibold">{employeeName}</span>
+              </div>
+
+              {/* Type de contrat */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Type de contrat</label>
+                <select
+                  value={terms.contract_type}
+                  onChange={(e) => { setTerms((t) => ({ ...t, contract_type: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                >
+                  <option value="CDD">CDD</option>
+                  <option value="CDI">CDI</option>
+                  <option value="Étudiant">Étudiant</option>
+                </select>
+              </div>
+
+              {/* Régime horaire */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Régime</label>
+                <select
+                  value={terms.work_time_kind}
+                  onChange={(e) => { setTerms((t) => ({ ...t, work_time_kind: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                >
+                  <option value="full">Temps plein</option>
+                  <option value="partial">Temps partiel</option>
+                </select>
+              </div>
+
+              {/* Heures/semaine */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Heures/semaine</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.5}
+                  value={terms.weekly_hours}
+                  onChange={(e) => { setTerms((t) => ({ ...t, weekly_hours: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                  placeholder="ex: 38"
+                />
+              </div>
+
+              {/* Date de début */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Date de début</label>
+                <input
+                  type="date"
+                  value={terms.start_date}
+                  onChange={(e) => { setTerms((t) => ({ ...t, start_date: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                />
+              </div>
+
+              {/* Date de fin (optionnelle) */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Date de fin</label>
+                <input
+                  type="date"
+                  value={terms.end_date}
+                  onChange={(e) => { setTerms((t) => ({ ...t, end_date: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                  placeholder="(laisser vide si sans terme)"
+                />
+                {terms.end_date && (
+                  <button
+                    type="button"
+                    onClick={() => { setTerms((t) => ({ ...t, end_date: "" })); setTermsSaved(false); }}
+                    className="text-[10px] text-rose-600 hover:underline flex-shrink-0"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Poste / Fonction */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Poste / Fonction</label>
+                <input
+                  type="text"
+                  value={terms.job_title}
+                  onChange={(e) => { setTerms((t) => ({ ...t, job_title: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                  placeholder="ex: Vendeur(se)"
+                />
+              </div>
+
+              {/* Taux horaire brut */}
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Taux horaire brut</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={terms.hourly_rate}
+                  onChange={(e) => { setTerms((t) => ({ ...t, hourly_rate: e.target.value })); setTermsSaved(false); }}
+                  className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
+                  placeholder="ex: 14.50"
+                />
+                <span className="text-[10px] text-ink-3 flex-shrink-0">€/h</span>
+              </div>
+
+              {/* Bouton enregistrer */}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={termsPending}
+                onClick={handleSaveTerms}
+                className="w-full text-xs border-blue-300 text-blue-800 hover:bg-blue-100"
+              >
+                {termsPending ? "Enregistrement…" : "💾 Enregistrer les corrections"}
+              </Button>
+
+              {/* Dérivation du template (debug) */}
+              <details className="mt-0.5">
                 <summary className="text-[9px] text-ink-3 cursor-pointer">Détails du calcul (debug)</summary>
-                <div className="text-[10px] bg-muted/30 p-2 rounded mt-1 font-mono leading-relaxed">
+                <div className="text-[10px] bg-white/80 border border-blue-100 p-2 rounded mt-1 font-mono leading-relaxed">
                   contract_type = <strong>{contractType ?? "null"}</strong><br />
                   work_time_kind = <strong>{workTimeKind ?? "null"}</strong><br />
                   weekly_hours = <strong>{weeklyHours ?? "null"}</strong><br />
-                  → template = <strong>{tplCode}</strong>
+                  → template dérivé = <strong>{tplCode}</strong> ({TEMPLATE_LABELS[tplCode]})
                 </div>
                 <p className="text-[10px] text-amber-700 mt-1">
-                  Ces valeurs viennent de la BD. Si tu as modifié le contrat sans cliquer
-                  Enregistrer en bas de la fiche, ferme cette fenêtre, sauvegarde, et ré-ouvre.
+                  Ces valeurs viennent de la BD (rechargées après « Enregistrer »).
+                  Si tu as modifié sans enregistrer, le template affiché peut être décalé.
                 </p>
               </details>
             </div>
