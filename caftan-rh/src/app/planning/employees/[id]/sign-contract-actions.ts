@@ -6,15 +6,19 @@
 // 2 signataires (employer + employee). Persist en BD un employee_contracts
 // avec docuseal_submission_id pour tracking ulterieur (webhook).
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   createDocusealTemplateFromContract,
   createSubmissionForContract,
+  buildContractHtmlForDocuseal_publicForPreview,
   type ContractLang,
 } from "@/lib/docuseal-flow";
 import { EMPLOYER_ORGS, type EmployerOrgKey } from "@/lib/contract-renderer";
+import { resolveContractRenderInputs, type ContractDiscrepancy } from "@/lib/contract-render-inputs";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 
 /**
  * Karim 2026-05-30 : envoie une copie du contrat à signer à l'employeur
@@ -106,6 +110,10 @@ type Args = {
   customMailBody?: string;
   // Karim 2026-06-03 : bypass admin warnings screening, raison loggee
   bypassScreening?: { reason: string };
+  // Karim 2026-06-15 : l'opérateur a vu les discordances fiche<->contrat et valide
+  // -> on envoie ET on aligne la fiche sur le contrat. Sans ce flag, on bloque et
+  // on renvoie la liste des discordances pour validation.
+  acceptDiscrepancies?: boolean;
 };
 
 export async function sendContractViaDocusealAction(
@@ -344,4 +352,241 @@ export async function sendContractViaDocusealAction(
   revalidatePath(`/planning/employees/${args.employeeId}`);
   revalidatePath(`/planning/employees/${args.employeeId}/contract`);
   return { ok: true, submissionId: subResult.submissionId };
+}
+
+// ===========================================================================
+// Karim 2026-06-15 : ENVOI À SIGNER — SYSTÈME INTERNE /sign (décision validée).
+//
+// Remplace l'usage de DocuSeal cloud (lien externe fragile -> 404 candidat).
+// Le candidat signe sur la prod stable (caftan-rh.vercel.app/sign/[token]).
+// Le `rendered_body` stocké = EXACTEMENT le « super layout » de la preview
+// (buildContractHtmlForDocuseal_publicForPreview via resolveContractRenderInputs)
+// => preview = document signé, garanti. L'employeur est pré-signé (image),
+// la zone employé est un marqueur <!--EMPLOYEE_SIG--> rempli à la signature.
+//
+// sendContractViaDocusealAction reste en place (dormant) pour rollback.
+// ===========================================================================
+export async function sendContractForSignatureAction(
+  args: Args,
+): Promise<{ ok?: true; error?: string; signingUrl?: string; discrepancies?: ContractDiscrepancy[] }> {
+  const { profile } = await requireRole(["admin", "rh"]);
+  if (!args.employeeId) return { error: "Employee manquant." };
+  if (!args.employerEmail || !/.+@.+\..+/.test(args.employerEmail)) {
+    return { error: "Email employeur invalide." };
+  }
+
+  const admin = createAdminClient();
+
+  // 1. Employé + langue + garde-fous
+  const { data: empRaw } = await admin
+    .from("employees")
+    .select("id, full_name, email, start_date, preferred_language, candidate_id, contract_type")
+    .eq("id", args.employeeId)
+    .maybeSingle();
+  if (!empRaw) return { error: "Employé introuvable." };
+  const employee = empRaw as {
+    id: string;
+    full_name: string;
+    email: string | null;
+    start_date: string | null;
+    preferred_language: string | null;
+    candidate_id: string | null;
+    contract_type: string | null;
+  };
+  const lang: ContractLang =
+    employee.preferred_language === "nl" || employee.preferred_language === "en"
+      ? employee.preferred_language
+      : "fr";
+
+  // 1b. Garde-fou screening (identique à l'envoi DocuSeal) + bypass loggé.
+  if (employee.candidate_id) {
+    const { data: scr } = await admin
+      .from("screening_responses")
+      .select("completed_at, rh_decision_at, recommendation")
+      .eq("candidate_id", employee.candidate_id)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (args.bypassScreening?.reason) {
+      try {
+        await admin.from("activity_log").insert({
+          profile_id: profile.id,
+          action: "contract_screening_bypassed",
+          target_type: "employee",
+          target_id: args.employeeId,
+          body: `Bypass admin checks screening (envoi interne /sign). Raison : ${args.bypassScreening.reason}.`,
+        });
+      } catch {/* non bloquant */}
+    } else {
+      if (!scr || !scr.completed_at) {
+        return { error: "⛔ Le candidat doit d'abord compléter le questionnaire de profilage (/me/screening). Envoie-lui le lien — ou utilise le bypass admin avec raison." };
+      }
+      if (scr.recommendation === "PASS") {
+        return { error: "⛔ Le système recommande de ne PAS embaucher ce candidat (recommandation PASS). Vérifie le screening — ou bypass admin avec raison." };
+      }
+      if (!scr.rh_decision_at) {
+        return { error: "⛔ Le screening est complet mais doit être VALIDÉ par RH avant l'envoi du contrat. Voir /rh/screening — ou bypass admin avec raison." };
+      }
+    }
+  }
+
+  // 1c. Règle légale : contrat signé AVANT la date de début (sinon CDI, loi 3/7/1978).
+  // Dérogation admin : si date passée et role=admin, on redirige l'envoi vers son mail.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  if (employee.start_date && employee.start_date < todayISO) {
+    if (profile.role === "admin" && profile.email) {
+      employee.email = profile.email;
+    } else {
+      return {
+        error:
+          `⛔ Date de début (${employee.start_date}) dans le passé. ` +
+          `Un contrat non signé avant l'entrée en service devient CDI (loi 3 juillet 1978 art. 9). ` +
+          `Recule la date de début ou contacte un admin.`,
+      };
+    }
+  }
+  if (!employee.email) return { error: "Email employé manquant - complète la fiche d'abord." };
+
+  // 2. Signature employeur stockée (pré-signature) + représentant autorisé.
+  const { data: sigRaw } = await admin
+    .from("profiles")
+    .select("signature_data_url")
+    .eq("id", profile.id)
+    .maybeSingle();
+  const employerSignatureDataUrl =
+    (sigRaw as { signature_data_url: string | null } | null)?.signature_data_url ?? null;
+  const orgInfo = EMPLOYER_ORGS[args.orgKey];
+  const representative = pickAuthorizedRepresentative(profile.full_name, orgInfo);
+
+  // 3. SOURCE DE VÉRITÉ UNIQUE — mêmes inputs que la preview (WYSIWYG).
+  const inputs = await resolveContractRenderInputs(admin, args.employeeId, args.templateCode);
+  if (!inputs.ok) return { error: inputs.error };
+  const { eff, effTpl, primarySite, templateBodyMarkdown } = inputs;
+
+  // 3b. RÈGLE : signaler les discordances fiche<->contrat à l'opérateur AVANT
+  // d'adapter. Tant qu'il n'a pas validé, on bloque l'envoi et on renvoie la liste.
+  if (inputs.discrepancies.length > 0 && !args.acceptDiscrepancies) {
+    return { discrepancies: inputs.discrepancies };
+  }
+  // 3c. Validé : on aligne la fiche employee sur le contrat (le contrat fait foi)
+  // et on logge l'adaptation pour audit.
+  if (inputs.discrepancies.length > 0 && args.acceptDiscrepancies) {
+    const patch: Record<string, unknown> = {};
+    for (const d of inputs.discrepancies) {
+      if (d.field === "weekly_hours") patch.weekly_hours = Number(eff.weekly_hours);
+      else if (d.field === "contract_type") patch.contract_type = String(eff.contract_type);
+      else if (d.field === "job_title") patch.job_title = String(eff.job_title);
+      else if (d.field === "hourly_rate") patch.hourly_rate = Number(eff.hourly_rate);
+      else if (d.field === "start_date") patch.start_date = String(eff.start_date);
+      else if (d.field === "end_date") patch.end_date = eff.end_date ? String(eff.end_date) : null;
+      else if (d.field === "work_time_kind") patch.work_time_kind = effTpl === "employee_pt" ? "partial" : "full";
+    }
+    if (Object.keys(patch).length > 0) {
+      await admin.from("employees").update(patch).eq("id", args.employeeId);
+      try {
+        await admin.from("activity_log").insert({
+          profile_id: profile.id,
+          action: "contract_profile_aligned",
+          target_type: "employee",
+          target_id: args.employeeId,
+          body: `Fiche alignée sur le contrat (validé par l'opérateur). Discordances : ${inputs.discrepancies.map((d) => `${d.label} ${d.profileValue}→${d.contractValue}`).join(" ; ")}.`,
+        });
+      } catch {/* non bloquant */}
+    }
+  }
+
+  // 4. Génère le « super layout » (employeur pré-signé), puis transforme la
+  // zone signature employé en marqueur rempli à la signature.
+  let html: string;
+  try {
+    html = await buildContractHtmlForDocuseal_publicForPreview({
+      templateCode: effTpl,
+      templateBodyMarkdown,
+      employeeData: eff as Parameters<typeof buildContractHtmlForDocuseal_publicForPreview>[0]["employeeData"],
+      employerOrg: args.orgKey,
+      primarySite,
+      employerSignatureDataUrl,
+      employerRepresentativeOverride: representative,
+    });
+  } catch (e) {
+    return { error: `Échec du rendu du contrat : ${(e as Error).message}` };
+  }
+  let renderedBody = html.replace(
+    /<signature-field name="Signature employee"[^>]*><\/signature-field>/,
+    "<!--EMPLOYEE_SIG-->",
+  );
+  // Si l'employeur n'a pas de signature stockée, neutralise son champ DocuSeal.
+  renderedBody = renderedBody.replace(
+    /<signature-field[^>]*><\/signature-field>/g,
+    `<div style="height:50px;border-bottom:1pt dashed #555;margin:0.2cm auto;width:80%;"></div>`,
+  );
+  renderedBody = renderedBody.replace(
+    /<date-field[^>]*><\/date-field>/g,
+    `<span style="display:inline-block;min-width:100px;border-bottom:1pt dashed #555;">&nbsp;</span>`,
+  );
+
+  // 5. Token + persistance employee_contracts (rendered_body = super layout).
+  const signingToken = randomUUID();
+  const expires = new Date();
+  expires.setDate(expires.getDate() + 14);
+  const { data: tplId } = await admin
+    .from("contract_templates")
+    .select("id")
+    .eq("code", effTpl)
+    .maybeSingle();
+
+  const { data: row, error: insErr } = await admin
+    .from("employee_contracts")
+    .insert({
+      employee_id: employee.id,
+      full_name: employee.full_name,
+      nrn: (eff.nrn as string) ?? null,
+      address: (eff.address as string) ?? null,
+      postal_code: (eff.postal_code as string) ?? null,
+      city: (eff.city as string) ?? null,
+      contract_kind: effTpl === "student" ? "Étudiant" : (employee.contract_type ?? "CDD"),
+      start_date: (eff.start_date as string) ?? todayISO,
+      end_date: (eff.end_date as string) ?? null,
+      weekly_hours: Number(eff.weekly_hours ?? 38),
+      position_title: String(eff.job_title ?? "Employé"),
+      workplace: primarySite?.name ?? "Schaerbeek",
+      status: "ready_to_sign",
+      prepared_at: new Date().toISOString(),
+      template_id: (tplId as { id: string } | null)?.id ?? null,
+      signing_token: signingToken,
+      signing_token_expires_at: expires.toISOString(),
+      rendered_body: renderedBody,
+    })
+    .select("id")
+    .single();
+  if (insErr) return { error: insErr.message };
+  void row;
+
+  // 6. Mail au candidat avec le lien INTERNE (prod stable), + copie archive employeur.
+  const signingUrl = `${getOutboundBaseUrl()}/sign/${signingToken}`;
+  const mailRes = await sendContractSignatureMail({
+    employeeName: employee.full_name,
+    employeeEmail: employee.email,
+    signingUrl,
+    employerName: orgInfo.name,
+    language: lang,
+    customBody: args.customMailBody,
+  });
+  if (mailRes.error) console.warn("[sendContractForSignature] mail err:", mailRes.error);
+  try {
+    await sendEmployerCopyMail({
+      employerEmail: args.employerEmail,
+      employeeName: employee.full_name,
+      employeeEmail: employee.email,
+      signingUrl,
+      employerName: orgInfo.name,
+      templateLabel: effTpl,
+    });
+  } catch (e) {
+    console.warn("[sendEmployerCopyMail] err:", (e as Error).message);
+  }
+
+  revalidatePath(`/planning/employees/${args.employeeId}`);
+  revalidatePath(`/planning/employees/${args.employeeId}/contract`);
+  return { ok: true, signingUrl };
 }

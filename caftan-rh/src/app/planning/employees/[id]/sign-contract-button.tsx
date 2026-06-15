@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { sendContractViaDocusealAction } from "./sign-contract-actions";
+import { sendContractForSignatureAction } from "./sign-contract-actions";
 import { sendInfoRequestMailAction } from "./info-request-actions";
 import { getMissingFields, type MissingField } from "@/lib/contract-readiness";
 
@@ -116,20 +116,31 @@ export function SignContractButton({
   const [bypassReason, setBypassReason] = useState("");
   const [showBypass, setShowBypass] = useState(false);
 
-  function handleSubmit() {
+  // Karim 2026-06-15 : discordances fiche<->contrat signalées avant envoi.
+  const [discrepancies, setDiscrepancies] = useState<
+    Array<{ field: string; label: string; profileValue: string; contractValue: string }>
+  >([]);
+
+  function handleSubmit(accept = false) {
     if (!employeeEmail) {
       toast.error("Email de l'employé manquant - complète la fiche d'abord.");
       return;
     }
     startTransition(async () => {
-      const res = await sendContractViaDocusealAction({
+      const res = await sendContractForSignatureAction({
         employeeId,
         templateCode: tplCode,
         orgKey,
         employerEmail,
         customMailBody: mailBody !== DEFAULT_MAIL_BODY ? mailBody : undefined,
         bypassScreening: bypassReason.trim() ? { reason: bypassReason.trim() } : undefined,
+        acceptDiscrepancies: accept || undefined,
       });
+      // Discordances fiche<->contrat : on les SIGNALE, l'opérateur valide l'alignement.
+      if (res.discrepancies && res.discrepancies.length > 0) {
+        setDiscrepancies(res.discrepancies);
+        return;
+      }
       if (res.error) {
         // Si erreur screening, propose le bypass
         if (res.error.includes("screening") || res.error.includes("questionnaire") || res.error.includes("VALIDÉ par RH") || res.error.includes("PASS")) {
@@ -139,8 +150,11 @@ export function SignContractButton({
         return;
       }
       toast.success(
-        `Contrat envoyé à signer (DocuSeal). ${employeeName} et ${ORG_LABELS[orgKey]} vont recevoir un mail.`,
+        accept
+          ? `Fiche alignée sur le contrat et contrat envoyé à signer. ${employeeName} reçoit le lien sécurisé.`
+          : `Contrat envoyé à signer. ${employeeName} reçoit un lien de signature sécurisé, ${ORG_LABELS[orgKey]} une copie d'archive.`,
       );
+      setDiscrepancies([]);
       setOpen(false);
       router.refresh();
     });
@@ -220,7 +234,7 @@ export function SignContractButton({
       <Dialog open={open} onOpenChange={(o) => { if (!pending) setOpen(o); }}>
         <DialogContent className="max-w-[640px]">
           <DialogHeader>
-            <DialogTitle>Envoyer le contrat à signer (DocuSeal)</DialogTitle>
+            <DialogTitle>Envoyer le contrat à signer</DialogTitle>
           </DialogHeader>
           <div className="px-5 py-4 space-y-3">
             <div className="flex gap-2 flex-wrap">
@@ -352,8 +366,58 @@ export function SignContractButton({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} disabled={pending}>Annuler</Button>
-            <Button type="button" size="sm" onClick={handleSubmit} disabled={pending || !employeeEmail}>
+            <Button type="button" size="sm" onClick={() => handleSubmit(false)} disabled={pending || !employeeEmail}>
               {pending ? "Envoi…" : (bypassReason.trim() ? "Envoyer à signer (BYPASS)" : "Envoyer à signer")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Karim 2026-06-15 : discordances fiche<->contrat — signalées avant envoi.
+          L'opérateur valide l'alignement de la fiche sur le contrat (le contrat fait foi). */}
+      <Dialog open={discrepancies.length > 0} onOpenChange={(o) => { if (!o && !pending) setDiscrepancies([]); }}>
+        <DialogContent className="max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-800">
+              <AlertTriangle className="h-4 w-4" /> Discordances fiche ↔ contrat
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-5 py-4 space-y-3">
+            <p className="text-xs text-ink-2">
+              La fiche de <strong>{employeeName}</strong> et le contrat préparé divergent.
+              Le <strong>contrat fait foi</strong> pour le document signé. Si tu valides,
+              la fiche sera <strong>alignée sur le contrat</strong> puis le contrat envoyé.
+            </p>
+            <div className="rounded border border-amber-200 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-amber-50 text-amber-900">
+                  <tr>
+                    <th className="text-left px-2 py-1 font-bold">Champ</th>
+                    <th className="text-left px-2 py-1 font-bold">Fiche actuelle</th>
+                    <th className="text-left px-2 py-1 font-bold">Contrat (retenu)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {discrepancies.map((d) => (
+                    <tr key={d.field} className="border-t border-amber-100">
+                      <td className="px-2 py-1 font-semibold">{d.label}</td>
+                      <td className="px-2 py-1 text-rose-700 line-through">{d.profileValue}</td>
+                      <td className="px-2 py-1 text-emerald-700 font-bold">{d.contractValue}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-ink-3">
+              L&apos;alignement est tracé dans le journal d&apos;activité (audit).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setDiscrepancies([])} disabled={pending}>
+              Annuler
+            </Button>
+            <Button type="button" size="sm" className="bg-amber-600 hover:bg-amber-700 text-white" onClick={() => handleSubmit(true)} disabled={pending}>
+              {pending ? "Envoi…" : "Aligner la fiche et envoyer"}
             </Button>
           </DialogFooter>
         </DialogContent>

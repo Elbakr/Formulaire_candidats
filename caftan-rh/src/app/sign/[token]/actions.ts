@@ -52,8 +52,16 @@ export async function submitSignatureAction(input: {
     return { error: "Déjà signé" };
   }
 
-  // Update status
+  // Karim 2026-06-15 : injecte la signature de l'employé dans le « super layout »
+  // stocké (marqueur <!--EMPLOYEE_SIG-->) -> le rendered_body devient le document
+  // final entièrement signé (employeur pré-signé + employé). Repli no-op si le
+  // marqueur est absent (anciens contrats markdown).
   const nowISO = new Date().toISOString();
+  const signedImg = `<img src="${input.signaturePng}" alt="Signature ${contract.full_name}" style="display:block;max-width:100%;max-height:50px;margin:0 auto;">`;
+  const signedBody = (contract.rendered_body ?? "").includes("<!--EMPLOYEE_SIG-->")
+    ? contract.rendered_body!.replace("<!--EMPLOYEE_SIG-->", signedImg)
+    : contract.rendered_body;
+
   const { error: updErr } = await supabase
     .from("employee_contracts")
     .update({
@@ -61,6 +69,7 @@ export async function submitSignatureAction(input: {
       signed_at: nowISO,
       signed_ip: ip,
       employee_signature_png: input.signaturePng,
+      ...(signedBody != null ? { rendered_body: signedBody } : {}),
     })
     .eq("id", input.contractId);
   if (updErr) return { error: updErr.message };
@@ -118,7 +127,9 @@ export async function submitSignatureAction(input: {
     // Mail employe (si email connu)
     if (employeeEmail) {
       const subjectEmp = `Ton contrat signé — ${docTitle}`;
-      const bodyEmp = `Bonjour ${employeeName.split(" ")[0]},\n\nTon ${docTitle} est officiellement signé. Voici un récapitulatif :\n\nSigné le : ${new Date(nowISO).toLocaleString("fr-BE")}\nDocument :\n\n${(contract.rendered_body ?? "").replace(/[#*]/g, "")}\n\n---\nCaftanRH`;
+      // Karim 2026-06-15 : ne plus déverser le HTML brut du super layout dans le
+      // mail. Confirmation propre ; la copie complète suit (PDF).
+      const bodyEmp = `Bonjour ${employeeName.split(" ")[0]},\n\nTon ${docTitle} est officiellement signé. ✅\n\nSigné le : ${new Date(nowISO).toLocaleString("fr-BE")}\n\nUne copie complète du contrat (avec les deux signatures) te sera envoyée par mail. Tu peux la conserver précieusement.\n\nBienvenue dans l'équipe !\n\n---\nCaftanRH`;
       fetch("https://api.emailjs.com/api/v1.0/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: "http://localhost" },

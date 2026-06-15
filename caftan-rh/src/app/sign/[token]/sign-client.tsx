@@ -144,7 +144,7 @@ export function SignContractClient({
     );
   }
 
-  // Convertit markdown basique en HTML simple pour l affichage
+  // Convertit markdown basique en HTML simple pour l affichage (repli ancien format)
   function md2html(md: string): string {
     return md
       .replace(/^# (.+)$/gm, '<h1 class="text-xl font-bold mt-4 mb-2">$1</h1>')
@@ -156,12 +156,27 @@ export function SignContractClient({
       .replace(/^(.+)$/m, '<p class="mb-2">$1');
   }
 
+  // Karim 2026-06-15 : si rendered_body est un document HTML complet (le « super
+  // layout » pixel-perfect), on l'affiche dans une iframe isolée pour que son CSS
+  // (Calibri, A4, articles) s'applique sans collision avec le thème de l'app.
+  // Sinon (anciens contrats markdown), repli sur md2html.
+  const isFullHtml = /<!doctype html|<html[\s>]/i.test(renderedBody);
+
   return (
     <>
       <Card>
-        <div className="p-4 max-h-[60vh] overflow-y-auto text-sm leading-relaxed bg-white">
-          <div dangerouslySetInnerHTML={{ __html: md2html(renderedBody) }} />
-        </div>
+        {isFullHtml ? (
+          <iframe
+            title="Contrat à signer"
+            srcDoc={renderedBody}
+            className="w-full rounded-md bg-white"
+            style={{ height: "min(70vh, 900px)", border: "0" }}
+          />
+        ) : (
+          <div className="p-4 max-h-[60vh] overflow-y-auto text-sm leading-relaxed bg-white">
+            <div dangerouslySetInnerHTML={{ __html: md2html(renderedBody) }} />
+          </div>
+        )}
       </Card>
 
       <Card>
