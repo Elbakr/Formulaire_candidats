@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { tenureLabel, seniorTier, seniorTierLabel, nextAnniversary } from "@/lib/tenure";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { resolveContractRenderInputs } from "@/lib/contract-render-inputs";
+import { AlignProfileCard } from "./align-profile-card";
 import { EmployeeSiteNav } from "./employee-site-nav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,6 +90,16 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     substitute: { id: string; full_name: string } | null;
   }>;
   if (!emp) notFound();
+
+  // Karim 2026-06-15 : discordances fiche <-> contrat (best effort, ne bloque pas la page).
+  let alignDiscrepancies: import("@/lib/contract-render-inputs").ContractDiscrepancy[] = [];
+  try {
+    const adminClient = createAdminClient();
+    const renderInputs = await resolveContractRenderInputs(adminClient, id);
+    if (renderInputs.ok) alignDiscrepancies = renderInputs.discrepancies;
+  } catch {
+    /* non bloquant */
+  }
 
   // Onboarding (best effort, ne pas casser la page si vide)
   const { data: runRaw } = await supabase
@@ -167,6 +179,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         employeeRecord={emp as Record<string, unknown>}
         contractType={(emp as { contract_type: string | null }).contract_type}
       />
+
+      {/* Karim 2026-06-15 : encart cohérence fiche <-> contrat (disparaît si 0 discordances). */}
+      <AlignProfileCard employeeId={id} discrepancies={alignDiscrepancies} />
 
       {/* Karim 2026-05-31 task #66 : nav rapide scroll-spy sticky right */}
       <QuickNav />
