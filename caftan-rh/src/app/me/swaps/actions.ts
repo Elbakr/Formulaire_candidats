@@ -286,18 +286,19 @@ export async function requestSwapAction(input: {
         .maybeSingle();
       const targetProfileId = (tgt as { profile_id: string | null } | null)?.profile_id;
       if (targetProfileId) {
+        const shiftDesc = `${requesterShift.date} ${requesterShift.start_time.slice(0, 5)}–${requesterShift.end_time.slice(0, 5)}`;
         await admin.from("notifications").insert({
           recipient_id: targetProfileId,
           kind: "swap_pending",
-          title: "Demande d'échange",
-          body: `${me.full_name} te propose un échange. Réponds dans /me/swaps.`,
-          link: "/me/swaps",
+          title: `Échange proposé par ${me.full_name}`,
+          body: `${me.full_name} te propose d'échanger son shift du ${shiftDesc}. Accepte ou refuse dans tes échanges.`,
+          link: `/me/swaps?swap=${swapId}`,
           data: { swap_id: swapId },
         });
         await sendPushToProfile(targetProfileId, {
-          title: "Demande d'échange",
-          body: `${me.full_name} te propose un échange. Ouvre pour répondre.`,
-          link: "/me/swaps",
+          title: `Échange — ${me.full_name}`,
+          body: `Shift proposé : ${shiftDesc}. Ouvre pour répondre.`,
+          link: `/me/swaps?swap=${swapId}`,
           priority: "important",
           tag: `swap-${swapId}`,
         });
@@ -429,12 +430,13 @@ export async function acceptSwapAction(
     const reqEmp = ((emps ?? []) as Array<{ id: string; full_name: string; manager_id: string | null }>)
       .find((e) => e.id === swap.requester_employee_id);
     if (reqEmp?.manager_id) {
+      const shiftDate = requesterShift?.date ?? "";
       await supabase.from("notifications").insert({
         recipient_id: reqEmp.manager_id,
         kind: "shift_swap_review",
-        title: "Échange de shift à valider",
-        body: `${reqEmp.full_name} ↔ ${me.full_name} — règles non remplies (${evalRes.failedReasons.join(", ")}). À arbitrer.`,
-        link: "/planning/swaps",
+        title: `Échange à valider — ${reqEmp.full_name} ↔ ${me.full_name}`,
+        body: `Shift du ${shiftDate} : ${reqEmp.full_name} ↔ ${me.full_name} — ${evalRes.failedReasons.join(", ")}. Décision requise.`,
+        link: `/planning/swaps?swap=${swap.id}`,
         data: { swap_id: swap.id, reasons: evalRes.failedReasons },
       });
     }

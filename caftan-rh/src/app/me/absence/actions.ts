@@ -138,12 +138,20 @@ export async function reportAbsenceAction(input: {
     const recipients = ((admins ?? []) as Array<{ id: string }>).map((a) => a.id);
     adminProfileIds.push(...recipients);
     for (const rid of recipients) {
+      const siteLabel = primaryShift?.site?.name
+        ? ` — ${primaryShift.site.name}`
+        : primaryShift?.site?.code
+          ? ` — site ${primaryShift.site.code}`
+          : "";
+      const timeLabel = primaryShift
+        ? ` (${primaryShift.start_time.slice(0, 5)}–${primaryShift.end_time.slice(0, 5)})`
+        : "";
       await supabase.from("notifications").insert({
         recipient_id: rid,
         kind: "unplanned_absence",
-        title: "Absence imprévue signalée",
-        body: `${me.full_name} a signalé une absence le ${input.date} (${REASON_LABELS[input.reason]}).`,
-        link: "/admin/absences",
+        title: `Absence imprévue — ${me.full_name} le ${input.date}${siteLabel}`,
+        body: `${me.full_name} absent(e) le ${input.date}${timeLabel}${siteLabel} — ${REASON_LABELS[input.reason]}. Couvrir ?`,
+        link: `/admin/absences?absence=${absenceId}`,
         data: { absence_id: absenceId },
       });
     }
@@ -167,10 +175,14 @@ export async function reportAbsenceAction(input: {
       }
     }
     if (targetProfileIds.size > 0) {
+      const siteCode = primaryShift?.site?.code ?? null;
+      const timeLabel = primaryShift
+        ? ` ${primaryShift.start_time.slice(0, 5)}–${primaryShift.end_time.slice(0, 5)}`
+        : "";
       await sendPushToProfiles([...targetProfileIds], {
-        title: "🚨 Absence imprévue",
-        body: `${me.full_name} absent(e) le ${input.date}${primaryShift?.site?.code ? ` — site ${primaryShift.site.code}` : ""}. Qui peut couvrir ?`,
-        link: "/me/absence",
+        title: `Absence — ${me.full_name} le ${input.date}${siteCode ? ` (${siteCode})` : ""}`,
+        body: `${me.full_name} absent(e) le ${input.date}${timeLabel}${siteCode ? ` site ${siteCode}` : ""} — ${REASON_LABELS[input.reason]}. Qui peut couvrir ?`,
+        link: `/admin/absences?absence=${absenceId}`,
         priority: "urgent",
         tag: `absence-${absenceId}`,
       });

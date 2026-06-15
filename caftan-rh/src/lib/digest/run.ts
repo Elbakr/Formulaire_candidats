@@ -185,7 +185,7 @@ export async function runDigest(args: {
     kind: "digest",
     title: `Digest ${slot === "morning" ? "matin" : "soir"} — ${todayDate}`,
     body: top_3_priorities.join(" · "),
-    link: "/admin/digest",
+    link: `/admin/digest?run=${drRow.id}`,
     data: { digest_run_id: drRow.id, slot, top_3_priorities },
   }));
   if (inserts.length > 0) {

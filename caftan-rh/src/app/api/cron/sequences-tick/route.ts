@@ -226,26 +226,39 @@ async function handleEmailStep(admin: Admin, step: RunStepRow, run: RunMeta, org
 async function handleNotificationStep(admin: Admin, step: RunStepRow, run: RunMeta) {
   const payload = step.payload ?? {};
   const target = (payload.notification_target ?? "rh").toLowerCase();
-  const title = payload.notification_title ?? "Sequence notification";
-  const body = payload.notification_body ?? null;
 
   // Resolve recipients
   const recipients: string[] = [];
 
-  // Get application + candidate's profile + assigned manager
+  // Get application + candidate's profile + assigned manager + candidate name
   const { data: app } = await admin
     .from("applications")
     .select(
-      "id, assigned_manager, candidate:candidates(profile_id)",
+      "id, assigned_manager, candidate:candidates(profile_id, full_name)",
     )
     .eq("id", run.application_id)
     .single();
   type AppRow = {
     id: string;
     assigned_manager: string | null;
-    candidate: { profile_id: string | null } | null;
+    candidate: { profile_id: string | null; full_name: string | null } | null;
   };
   const a = app as unknown as AppRow | null;
+  const candidateName = a?.candidate?.full_name ?? null;
+
+  // Build title/body: use template payload if non-trivial, otherwise inject candidate name as fallback.
+  const rawTitle = payload.notification_title?.trim();
+  const rawBody = payload.notification_body?.trim() ?? null;
+  const title = rawTitle && rawTitle !== "Sequence notification"
+    ? rawTitle
+    : candidateName
+      ? `Séquence — ${candidateName}`
+      : "Séquence — candidature";
+  const body = rawBody
+    ? rawBody
+    : candidateName
+      ? `Action requise pour ${candidateName}.`
+      : null;
 
   if (target === "manager") {
     if (a?.assigned_manager) recipients.push(a.assigned_manager);
