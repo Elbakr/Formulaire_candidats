@@ -145,9 +145,17 @@ export function SignContractClient({
   if (submitted) {
     const viewSignedContract = () => {
       if (!signedHtml) return;
-      const blob = new Blob([signedHtml], { type: "text/html" });
+      // Karim 2026-06-15 : window.open(blob) est bloqué en PWA iOS (bouton « mort »).
+      // On déclenche un vrai téléchargement via une ancre download (marche partout).
+      const blob = new Blob([signedHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank"); // clic direct -> non bloqué sur mobile
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Contrat_signe_${fullName.replace(/\s+/g, "_")}.html`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
     };
     return (
       <Card className="border-success bg-success-light/30">
