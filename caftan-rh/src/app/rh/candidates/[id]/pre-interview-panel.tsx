@@ -627,6 +627,9 @@ function VideoResponseView({
   }, [storagePath]);
 
   async function download() {
+    // window.open APRÈS un await est bloqué sur mobile/PWA iOS : on ouvre
+    // l'onglet synchronement (préserve le geste), puis on y pose l'URL.
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
     setDownloading(true);
     try {
       const res = await getPreInterviewVideoSignedUrlAction({
@@ -634,11 +637,13 @@ function VideoResponseView({
         download: true,
       });
       if (!res.ok) {
+        if (win && !win.closed) win.close();
         toast.error(res.error);
         return;
       }
       // Ouvre dans un nouvel onglet — le content-disposition force le download.
-      window.open(res.url, "_blank", "noopener,noreferrer");
+      if (win && !win.closed) win.location.href = res.url;
+      else window.location.href = res.url;
     } finally {
       setDownloading(false);
     }

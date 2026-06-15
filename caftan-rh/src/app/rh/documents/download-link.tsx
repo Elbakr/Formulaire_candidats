@@ -33,9 +33,17 @@ export function DownloadLink({ bucket, storagePath, externalUrl, title }: {
   }
 
   function downloadOrOpen() {
+    // window.open APRÈS un await est bloqué sur mobile/PWA iOS : on ouvre
+    // l'onglet synchronement (préserve le geste), puis on y pose l'URL.
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
     startTransition(async () => {
       const u = await resolveUrl();
-      if (u) window.open(u, "_blank");
+      if (u) {
+        if (win && !win.closed) win.location.href = u;
+        else window.location.href = u;
+      } else {
+        if (win && !win.closed) win.close();
+      }
     });
   }
 

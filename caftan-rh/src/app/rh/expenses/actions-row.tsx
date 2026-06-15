@@ -49,9 +49,17 @@ export function ExpenseActionsRow({ expenseId, status, hasReceipt, hasIban, qrDa
     });
   }
   async function viewReceipt() {
+    // window.open APRÈS un await est bloqué sur mobile/PWA iOS : on ouvre
+    // l'onglet synchronement (préserve le geste), puis on y pose l'URL.
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
     const r = await getReceiptUrlAction(expenseId);
-    if (r.ok && r.url) window.open(r.url, "_blank");
-    else toast.error(r.error ?? "URL KO");
+    if (r.ok && r.url) {
+      if (win && !win.closed) win.location.href = r.url;
+      else window.location.href = r.url;
+    } else {
+      if (win && !win.closed) win.close();
+      toast.error(r.error ?? "URL KO");
+    }
   }
 
   return (

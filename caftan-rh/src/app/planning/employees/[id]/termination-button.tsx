@@ -118,8 +118,12 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
 
   async function openLetter(autoPrint: boolean) {
     if (!createdId) return;
+    // window.open APRÈS un await est bloqué sur mobile/PWA iOS : on ouvre
+    // l'onglet synchronement (préserve le geste), puis on y pose l'URL.
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
     const res = await getTerminationLetterUrlAction(createdId);
     if (!res.ok || !res.url) {
+      if (win && !win.closed) win.close();
       toast.error(res.error ?? "URL KO");
       return;
     }
@@ -132,7 +136,8 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
       const sep = url.includes("?") ? "&" : "?";
       url += `${sep}mode=print&print=1`;
     }
-    window.open(url, "_blank");
+    if (win && !win.closed) win.location.href = url;
+    else window.location.href = url;
   }
 
   async function handleSend() {
