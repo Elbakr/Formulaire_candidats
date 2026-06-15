@@ -21,6 +21,9 @@ const PUBLIC_ROUTES = [
   // Karim 22/05 : page signature digitale de contrat (token-protected).
   // L employe n a peut-etre pas encore de compte au moment de la signature.
   "/sign",
+  // Karim 2026-06-15 : route PDF du contrat (super layout) — token-protected
+  // dans le handler (signing_token). Le candidat n'est pas connecte.
+  "/api/contracts/sign",
   // Karim 2026-06-13 : page de reponse au pre-avis de renouvellement CDD/Etudiant
   // (token-protected dans la page). Le travailleur repond sans se connecter.
   "/renewal",
