@@ -311,10 +311,20 @@ function ViewPdfButton({ row }: { row: PayslipRow }) {
       title="Voir / Télécharger le PDF"
       disabled={pending}
       onClick={() => {
+        // Karim 2026-06-15 : window.open APRÈS un await est BLOQUÉ sur mobile/PWA
+        // iOS (le geste utilisateur est consommé par l'attente) -> le bouton ne
+        // réagissait pas. On ouvre l'onglet SYNCHRONEMENT (préserve le geste), puis
+        // on y pose l'URL une fois récupérée ; repli sur navigation directe si bloqué.
+        const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
         startTransition(async () => {
           const res = await getPayslipPdfUrlAction(row.id);
-          if (res.ok && res.url) window.open(res.url, "_blank");
-          else toast.error(res.error ?? "PDF indisponible");
+          if (res.ok && res.url) {
+            if (win && !win.closed) win.location.href = res.url;
+            else window.location.href = res.url;
+          } else {
+            if (win && !win.closed) win.close();
+            toast.error(res.error ?? "PDF indisponible");
+          }
         });
       }}
     >
