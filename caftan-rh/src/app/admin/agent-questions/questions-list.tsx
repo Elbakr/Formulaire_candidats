@@ -1,28 +1,52 @@
 "use client";
 
+// Incrément custom-value : champ de saisie libre pour les questions quantifiables.
+
 import { useState, useTransition } from "react";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import { answerTrainingQuestion, revokeTrainingQuestion } from "./actions";
 
 type Option = { key: string; label: string; hint?: string; mode: "auto" | "suggest" };
-type Question = { id: string; category: string; question: string; why: string; options: Option[] };
+type CustomInput = {
+  type: "percent" | "number" | "text";
+  label: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+};
+type Question = {
+  id: string;
+  category: string;
+  question: string;
+  why: string;
+  options: Option[];
+  custom?: CustomInput;
+};
 
 export function QuestionsList(props: {
   questions: Question[];
-  answers: Record<string, string>; // qid -> optionKey
+  answers: Record<string, string>;      // qid -> optionKey
+  customValues: Record<string, string>; // qid -> custom_value (si chosen=custom)
 }) {
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<Record<string, string>>({}); // qid -> message
+  // Valeurs custom locales : qid -> valeur saisie
+  const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
 
   function setFlashFor(qid: string, msg: string) {
     setFlash((f) => ({ ...f, [qid]: msg }));
   }
 
-  function answer(qid: string, key: string) {
+  function setCustomInput(qid: string, val: string) {
+    setCustomInputs((prev) => ({ ...prev, [qid]: val }));
+  }
+
+  function answer(qid: string, key: string, customValue?: string) {
     setBusy(qid);
     start(async () => {
-      const r = await answerTrainingQuestion(qid, key);
+      const r = await answerTrainingQuestion(qid, key, customValue);
       setBusy(null);
       setFlashFor(qid, r.ok ? "✓ Enregistré" : `✗ ${r.error ?? "Échec"}`);
     });
@@ -48,6 +72,10 @@ export function QuestionsList(props: {
           {props.questions.filter((q) => q.category === cat).map((q) => {
             const chosen = props.answers[q.id] ?? null;
             const answered = !!chosen;
+            const isCustomChosen = chosen === "custom";
+            const activeCustom = props.customValues[q.id] ?? null;
+            const inputVal = customInputs[q.id] ?? "";
+
             return (
               <div
                 key={q.id}
@@ -84,6 +112,41 @@ export function QuestionsList(props: {
                       </button>
                     );
                   })}
+
+                  {/* Champ de saisie libre (custom) */}
+                  {q.custom ? (
+                    <div className={`col-span-full rounded-md border p-2 transition-colors ${isCustomChosen ? "border-gold bg-gold/10" : "border-line"}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isCustomChosen ? <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" /> : null}
+                        <span className="text-sm font-semibold">{q.custom.label} :</span>
+                        <input
+                          type={q.custom.type === "text" ? "text" : "number"}
+                          inputMode={q.custom.type === "text" ? "text" : "numeric"}
+                          min={q.custom.min}
+                          max={q.custom.max}
+                          step={1}
+                          value={inputVal}
+                          placeholder={q.custom.placeholder ?? ""}
+                          disabled={pending && busy === q.id}
+                          onChange={(e) => setCustomInput(q.id, e.target.value)}
+                          className="w-20 rounded border border-line bg-white px-2 py-1 text-sm focus:border-gold focus:outline-none disabled:opacity-50"
+                        />
+                        {q.custom.unit ? <span className="text-xs text-ink-3">{q.custom.unit}</span> : null}
+                        <button
+                          disabled={(pending && busy === q.id) || !inputVal.trim()}
+                          onClick={() => answer(q.id, "custom", inputVal.trim())}
+                          className="ml-1 rounded-md border border-gold px-2 py-1 text-xs font-bold text-gold-dark hover:bg-gold/10 disabled:opacity-40 transition-colors"
+                        >
+                          Valider
+                        </button>
+                      </div>
+                      {isCustomChosen && activeCustom ? (
+                        <div className="text-[10px] text-ink-3 mt-1">
+                          Valeur active : <b>{activeCustom}{q.custom.unit ? ` ${q.custom.unit}` : ""}</b>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-1.5 flex items-center justify-between gap-2">
                   {answered ? (
@@ -93,6 +156,9 @@ export function QuestionsList(props: {
                       className="inline-flex items-center gap-1 text-[10px] text-ink-3 hover:text-danger disabled:opacity-50"
                     >
                       <RotateCcw className="h-3 w-3" /> Effacer ma réponse
+                      {isCustomChosen && activeCustom
+                        ? ` (${activeCustom}${q.custom?.unit ? ` ${q.custom.unit}` : ""})`
+                        : null}
                     </button>
                   ) : <span />}
                   {flash[q.id] ? (

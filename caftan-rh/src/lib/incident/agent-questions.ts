@@ -7,12 +7,30 @@
 // (révocable) ; "suggest" = il propose et attend.
 
 export type TQOption = { key: string; label: string; hint?: string; mode: "auto" | "suggest" };
+
+/**
+ * Décrit un champ de saisie libre pour les questions quantifiables (identique à QcmCustomInput).
+ * - type "percent"  : entier 0–100 (ou min/max spécifié)
+ * - type "number"   : entier ≥ min (défaut 0), avec unité facultative
+ * - type "text"     : texte court non vide, ≤200 car.
+ */
+export type TQCustomInput = {
+  type: "percent" | "number" | "text";
+  label: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+};
+
 export type TrainingQuestion = {
   id: string;
   category: string;
   question: string;
   why: string; // pourquoi cette question compte
   options: TQOption[];
+  /** Champ de saisie libre optionnel (questions quantifiables). */
+  custom?: TQCustomInput;
 };
 
 export const TRAINING_QUESTIONS: TrainingQuestion[] = [
@@ -36,6 +54,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "3", label: "À partir de 3", mode: "suggest" },
       { key: "5", label: "À partir de 5", mode: "suggest" },
     ],
+    custom: { type: "number", label: "Autre seuil", unit: "badges", min: 1, placeholder: "ex. 7" },
   },
   {
     id: "multi_finger", category: "Pointage — badges",
@@ -84,6 +103,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "60", label: "1 heure", mode: "auto" },
       { key: "120", label: "2 heures", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre durée", unit: "min", min: 5, max: 240, placeholder: "ex. 45" },
   },
   {
     id: "forgot_out_notify", category: "Pointage — sorties",
@@ -105,6 +125,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "90", label: "Seulement si ≥90% sûr", mode: "auto" },
       { key: "never", label: "Jamais sans toi", mode: "suggest" },
     ],
+    custom: { type: "percent", label: "Autre seuil", unit: "%", min: 50, max: 99, placeholder: "ex. 75" },
   },
   {
     id: "long_session", category: "Pointage — anomalies",
@@ -134,6 +155,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "1", label: "Dès le 1er", mode: "suggest" },
       { key: "5", label: "À partir de 5", mode: "suggest" },
     ],
+    custom: { type: "number", label: "Autre seuil", unit: "mails", min: 1, placeholder: "ex. 3" },
   },
 
   // ---------- Système / ingestion ----------
@@ -145,6 +167,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "now", label: "Alerte-moi tout de suite (et relance)", mode: "suggest" },
       { key: "3", label: "Relance 3× en silence, alerte si ça persiste", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre nombre de relances", unit: "relances", min: 1, max: 10, placeholder: "ex. 5" },
   },
   {
     id: "autonomy_default", category: "Autonomie",
@@ -176,6 +199,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "14", label: "14 jours", mode: "auto" },
       { key: "30", label: "30 jours", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre durée", unit: "jours", min: 1, max: 90, placeholder: "ex. 10" },
   },
   {
     id: "leave_max_absent", category: "Congés",
@@ -186,6 +210,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "30", label: "30%", mode: "auto" },
       { key: "50", label: "50%", mode: "auto" },
     ],
+    custom: { type: "percent", label: "Autre %", unit: "%", min: 10, max: 80, placeholder: "ex. 25" },
   },
 
   // ---------- Congés : couverture & remplacement ----------
@@ -235,6 +260,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "20", label: "20 minutes", mode: "auto" },
       { key: "30", label: "30 minutes", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre délai", unit: "min", min: 5, max: 60, placeholder: "ex. 15" },
   },
   {
     id: "urgent_cascade_interval", category: "Congés — remplacement",
@@ -245,6 +271,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "5", label: "5 minutes", mode: "auto" },
       { key: "10", label: "10 minutes", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre intervalle", unit: "min", min: 1, max: 30, placeholder: "ex. 7" },
   },
   {
     id: "urgent_cascade_mode", category: "Congés — remplacement",
@@ -295,6 +322,7 @@ export const TRAINING_QUESTIONS: TrainingQuestion[] = [
       { key: "45", label: "45 jours", mode: "auto" },
       { key: "60", label: "60 jours", mode: "auto" },
     ],
+    custom: { type: "number", label: "Autre délai", unit: "jours", min: 7, max: 90, placeholder: "ex. 21" },
   },
   {
     id: "cdd_reco_auto", category: "Cycle de vie",
@@ -331,12 +359,57 @@ export function questionById(id: string): TrainingQuestion | undefined {
   return TRAINING_QUESTIONS.find((q) => q.id === id);
 }
 
-export function isValidTrainingAnswer(id: string, optionKey: string): boolean {
-  const q = questionById(id);
-  return !!q && q.options.some((o) => o.key === optionKey);
+/**
+ * Valide et normalise une valeur custom pour une question d'entraînement.
+ * Réutilise les mêmes règles que parseCustomAnswer de qcm.ts (inline ici pour éviter
+ * la dépendance circulaire entre modules).
+ */
+export type ParseTrainingCustomResult =
+  | { ok: true; value: string }
+  | { ok: false; error: string };
+
+export function parseTrainingCustomAnswer(
+  question: TrainingQuestion,
+  raw: string,
+): ParseTrainingCustomResult {
+  const c = question.custom;
+  if (!c) return { ok: false, error: "Cette question n'accepte pas de valeur libre." };
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return { ok: false, error: "La valeur ne peut pas être vide." };
+  if (c.type === "text") {
+    if (trimmed.length > 200) return { ok: false, error: "La valeur est trop longue (200 car. max)." };
+    return { ok: true, value: trimmed };
+  }
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || isNaN(n)) return { ok: false, error: "Entrez un nombre entier." };
+  const min = c.min ?? 0;
+  const max = c.max ?? (c.type === "percent" ? 100 : undefined);
+  if (n < min) return { ok: false, error: `La valeur minimum est ${min}.` };
+  if (max !== undefined && n > max) return { ok: false, error: `La valeur maximum est ${max}.` };
+  return { ok: true, value: String(n) };
 }
 
+/**
+ * Valide qu'une option appartient à la question.
+ * Accepte "custom" si la question a un champ custom ET que customValue est valide.
+ */
+export function isValidTrainingAnswer(
+  id: string,
+  optionKey: string,
+  customValue?: string,
+): boolean {
+  const q = questionById(id);
+  if (!q) return false;
+  if (optionKey === "custom") {
+    if (!q.custom) return false;
+    return parseTrainingCustomAnswer(q, customValue ?? "").ok;
+  }
+  return q.options.some((o) => o.key === optionKey);
+}
+
+/** Mode pour une réponse : "auto" si option fixe auto, "suggest" sinon. "custom" = toujours "auto". */
 export function trainingModeFor(id: string, optionKey: string): "auto" | "suggest" {
+  if (optionKey === "custom") return "auto";
   return questionById(id)?.options.find((o) => o.key === optionKey)?.mode ?? "suggest";
 }
 

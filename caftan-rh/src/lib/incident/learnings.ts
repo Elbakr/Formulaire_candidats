@@ -9,6 +9,13 @@ export type Learning = {
   mode: string;
   created_at?: string;
   question_key?: string;
+  /**
+   * Valeur libre saisie par l'utilisateur (présente uniquement quand chosen_option = "custom").
+   * - Pour type "percent" ou "number" : chaîne représentant un entier (ex. "75", "5").
+   * - Pour type "text" : texte brut (ex. "validation manager obligatoire").
+   * Interpréter via parseCustomAnswer ou directement selon le type de la question.
+   */
+  custom_value?: string | null;
 };
 
 /** Règle active pour une signature + question (défaut = question primaire). */
@@ -19,7 +26,7 @@ export async function getActiveLearning(
   const admin = createAdminClient();
   const { data } = await admin
     .from("agent_learnings")
-    .select("signature, chosen_option, mode, created_at")
+    .select("signature, chosen_option, mode, created_at, custom_value")
     .eq("signature", signature)
     .eq("question_key", questionKey)
     .eq("active", true)
@@ -32,7 +39,7 @@ export async function getActiveLearnings(): Promise<Learning[]> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("agent_learnings")
-    .select("signature, chosen_option, mode, created_at")
+    .select("signature, chosen_option, mode, created_at, custom_value")
     .eq("active", true)
     .order("created_at", { ascending: false });
   return (data ?? []) as Learning[];
@@ -61,6 +68,8 @@ export async function recordLearning(opts: {
   option: string;
   mode: string;
   decidedBy?: string | null;
+  /** Valeur libre (présente uniquement quand option = "custom"). */
+  customValue?: string;
 }): Promise<void> {
   const admin = createAdminClient();
   const questionKey = opts.questionKey ?? "default";
@@ -78,6 +87,7 @@ export async function recordLearning(opts: {
     mode: opts.mode,
     decided_by: opts.decidedBy ?? null,
     active: true,
+    custom_value: opts.customValue ?? null,
   });
 }
 
@@ -97,7 +107,7 @@ export async function getLearningsForSignature(signature: string): Promise<Learn
   const admin = createAdminClient();
   const { data } = await admin
     .from("agent_learnings")
-    .select("signature, chosen_option, mode, created_at, question_key")
+    .select("signature, chosen_option, mode, created_at, question_key, custom_value")
     .eq("signature", signature)
     .eq("active", true);
   return (data ?? []) as Learning[];

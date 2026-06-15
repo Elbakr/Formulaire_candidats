@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { recordLearning, revokeLearning, setAutoPaused } from "@/lib/incident/learnings";
-import { isValidAnswer, modeForAnswer } from "@/lib/incident/qcm";
+import { isValidAnswer, modeForAnswer, parseCustomAnswer, qcmFor } from "@/lib/incident/qcm";
 import { runPlaybook } from "@/lib/incident/playbooks";
 import { interpretCommand, executeAction, type CommandAction } from "@/lib/incident/nl-command";
 import type { Issue } from "@/lib/system/health-checks";
@@ -88,11 +88,13 @@ export async function confirmNlAction(action: string, paramsJson: string, incide
 }
 
 /** L'admin répond à UNE question du QCM : enregistre la réponse + effet immédiat
- *  (seulement pour la question primaire "default" qui pilote l'agent). */
+ *  (seulement pour la question primaire "default" qui pilote l'agent).
+ *  Si optionKey === "custom", customValue doit être fourni et valide. */
 export async function answerQcmAction(
   incidentId: string,
   questionId: string,
   optionKey: string,
+  customValue?: string,
 ): Promise<ActionResult> {
   const { profile } = await requireRole(["admin"]);
 
@@ -105,8 +107,19 @@ export async function answerQcmAction(
   if (!inc) return { ok: false, error: "Incident introuvable." };
   const incident = inc as { id: string; signature: string; severity: string; title: string; problem: string };
 
-  if (!isValidAnswer(incident.signature, questionId, optionKey)) {
+  // Validation côté serveur (options fixes ou valeur custom)
+  if (!isValidAnswer(incident.signature, questionId, optionKey, customValue)) {
     return { ok: false, error: "Réponse invalide pour cette question." };
+  }
+
+  // Si c'est une valeur custom, valider et extraire la valeur normalisée
+  let resolvedCustomValue: string | undefined;
+  if (optionKey === "custom") {
+    const q = qcmFor(incident.signature).questions.find((x) => x.id === questionId);
+    if (!q) return { ok: false, error: "Question introuvable." };
+    const parsed = parseCustomAnswer(q, customValue ?? "");
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    resolvedCustomValue = parsed.value;
   }
 
   // 1) Mémorise la réponse pour cette question (remplace l'éventuelle précédente).
@@ -116,6 +129,7 @@ export async function answerQcmAction(
     option: optionKey,
     mode: modeForAnswer(incident.signature, questionId, optionKey),
     decidedBy: profile.id,
+    customValue: resolvedCustomValue,
   });
 
   // 2) Effet immédiat UNIQUEMENT pour la question primaire (pilote l'agent).

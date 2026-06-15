@@ -12,7 +12,14 @@ export default async function AgentQuestionsPage() {
 
   const learnings = await getLearningsForSignature("policy");
   const answers: Record<string, string> = {};
-  for (const l of learnings) answers[l.question_key ?? ""] = l.chosen_option;
+  const customValues: Record<string, string> = {};
+  for (const l of learnings) {
+    const qk = l.question_key ?? "";
+    answers[qk] = l.chosen_option;
+    if (l.chosen_option === "custom" && l.custom_value) {
+      customValues[qk] = l.custom_value;
+    }
+  }
 
   const total = TRAINING_QUESTIONS.length;
   let auto = 0, escalate = 0;
@@ -69,7 +76,7 @@ export default async function AgentQuestionsPage() {
         {answered}/{total} répondues — l'agent monte en autonomie au fil de tes réponses.
       </div>
 
-      <QuestionsList questions={TRAINING_QUESTIONS} answers={answers} />
+      <QuestionsList questions={TRAINING_QUESTIONS} answers={answers} customValues={customValues} />
     </div>
   );
 }

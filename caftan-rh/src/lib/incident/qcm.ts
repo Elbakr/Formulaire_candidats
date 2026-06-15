@@ -16,7 +16,31 @@ export type Behavior = "notify_only" | "ignore_auto" | "auto_fix";
 export type QcmMode = "auto" | "suggest";
 
 export type QcmOption = { key: string; label: string; hint: string; mode: QcmMode };
-export type QcmQuestion = { id: string; question: string; options: QcmOption[] };
+
+/**
+ * Décrit un champ de saisie libre pour les questions quantifiables.
+ * - type "percent"  : entier entre min et max (défaut 0–100), interprété en %
+ * - type "number"   : entier ≥ min (défaut 0), avec unité facultative (ex. "badges", "relances")
+ * - type "text"     : texte court non vide, longueur max 200 car.
+ * Quand ce champ est présent, l'UI affiche "Autre : ___" en plus des options fixes.
+ * La réponse est persistée avec chosen_option = "custom" et custom_value = valeur saisie.
+ */
+export type QcmCustomInput = {
+  type: "percent" | "number" | "text";
+  label: string;          // libellé du champ (ex. "Autre seuil")
+  unit?: string;          // unité affichée après le champ (ex. "badges", "relances", "%")
+  min?: number;           // valeur minimale (number/percent)
+  max?: number;           // valeur maximale (number/percent)
+  placeholder?: string;   // placeholder du champ de saisie
+};
+
+export type QcmQuestion = {
+  id: string;
+  question: string;
+  options: QcmOption[];
+  /** Champ de saisie libre optionnel (questions quantifiables). */
+  custom?: QcmCustomInput;
+};
 
 /** Explication structurée affichée en tête de l'écran incident. */
 export type IncidentExplain = {
@@ -109,6 +133,7 @@ const TEMPLATES: Record<string, Template> = {
           { key: "any", label: "Dès le 1er badge perdu", hint: "Réactivité maximale.", mode: "suggest" },
           { key: "threshold", label: "Seulement si 3 badges ou plus", hint: "Moins de bruit, on attend un vrai signal.", mode: "suggest" },
         ],
+        custom: { type: "number", label: "Autre seuil", unit: "badges", min: 1, placeholder: "ex. 5" },
       },
     ],
   },
@@ -150,6 +175,7 @@ const TEMPLATES: Record<string, Template> = {
           { key: "alert_now", label: "Alerte-moi tout de suite (et relance)", hint: "Tu es prévenu dès le 1er échec.", mode: "suggest" },
           { key: "retry_3", label: "Relance 3× en silence, alerte si ça persiste", hint: "Moins de bruit pour les coupures brèves.", mode: "auto" },
         ],
+        custom: { type: "number", label: "Autre nombre de relances", unit: "relances", min: 1, max: 10, placeholder: "ex. 5" },
       },
     ],
   },
@@ -211,6 +237,7 @@ const TEMPLATES: Record<string, Template> = {
           { key: "high", label: "Seulement si très sûr (≥90%)", hint: "Prudent : je ne corrige que l'évident, le reste je te le soumets.", mode: "auto" },
           { key: "never", label: "Jamais sans moi", hint: "Tu valides chaque correction.", mode: "suggest" },
         ],
+        custom: { type: "percent", label: "Autre seuil de confiance", unit: "%", min: 50, max: 99, placeholder: "ex. 75" },
       },
     ],
   },
@@ -238,6 +265,49 @@ export function qcmFor(signature: string): Qcm {
   };
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Saisie libre (custom)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export type ParseCustomResult =
+  | { ok: true; value: string }
+  | { ok: false; error: string };
+
+/**
+ * Valide et normalise une valeur custom saisie par l'utilisateur pour une question donnée.
+ * - percent : entier entre custom.min (défaut 0) et custom.max (défaut 100)
+ * - number  : entier ≥ custom.min (défaut 0), ≤ custom.max si défini
+ * - text    : non vide, ≤ 200 caractères
+ * Retourne { ok: true; value: string } ou { ok: false; error: string }.
+ */
+export function parseCustomAnswer(
+  question: QcmQuestion,
+  raw: string,
+): ParseCustomResult {
+  const c = question.custom;
+  if (!c) return { ok: false, error: "Cette question n'accepte pas de valeur libre." };
+
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return { ok: false, error: "La valeur ne peut pas être vide." };
+
+  if (c.type === "text") {
+    if (trimmed.length > 200) return { ok: false, error: "La valeur est trop longue (200 car. max)." };
+    return { ok: true, value: trimmed };
+  }
+
+  // percent ou number → entier
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || isNaN(n)) return { ok: false, error: "Entrez un nombre entier." };
+
+  const min = c.min ?? 0;
+  const max = c.max ?? (c.type === "percent" ? 100 : undefined);
+
+  if (n < min) return { ok: false, error: `La valeur minimum est ${min}.` };
+  if (max !== undefined && n > max) return { ok: false, error: `La valeur maximum est ${max}.` };
+
+  return { ok: true, value: String(n) };
+}
+
 /** Libellé court d'une option apprise (pour afficher la règle active). */
 export function behaviorLabel(b: string): string {
   switch (b) {
@@ -259,10 +329,24 @@ export function behaviorLabel(b: string): string {
   }
 }
 
-/** Valide qu'une option appartient bien à une question de la signature. */
-export function isValidAnswer(signature: string, questionId: string, optionKey: string): boolean {
+/**
+ * Valide qu'une option appartient bien à une question de la signature.
+ * Accepte la clé spéciale "custom" si la question possède un champ custom ET
+ * que customValue est fourni et valide (via parseCustomAnswer).
+ */
+export function isValidAnswer(
+  signature: string,
+  questionId: string,
+  optionKey: string,
+  customValue?: string,
+): boolean {
   const q = qcmFor(signature).questions.find((x) => x.id === questionId);
-  return !!q && q.options.some((o) => o.key === optionKey);
+  if (!q) return false;
+  if (optionKey === "custom") {
+    if (!q.custom) return false;
+    return parseCustomAnswer(q, customValue ?? "").ok;
+  }
+  return q.options.some((o) => o.key === optionKey);
 }
 
 export function modeForAnswer(signature: string, questionId: string, optionKey: string): QcmMode {

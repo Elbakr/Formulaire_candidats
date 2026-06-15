@@ -48,10 +48,14 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
   const learnings = await getLearningsForSignature(inc.signature);
   const activeAnswers: Record<string, string> = {};
   const activeLabels: Record<string, string> = {};
+  const activeCustomValues: Record<string, string> = {};
   for (const l of learnings) {
     const qk = l.question_key ?? "default";
     activeAnswers[qk] = l.chosen_option;
     activeLabels[qk] = behaviorLabel(l.chosen_option);
+    if (l.chosen_option === "custom" && l.custom_value) {
+      activeCustomValues[qk] = l.custom_value;
+    }
   }
   const paused = await isAutoPaused();
   const sev = SEV[inc.severity] ?? SEV.info;
@@ -131,6 +135,7 @@ export default async function IncidentPage(props: { params: Promise<{ id: string
         questions={qcm.questions}
         activeAnswers={activeAnswers}
         activeLabels={activeLabels}
+        activeCustomValues={activeCustomValues}
         autoPaused={paused}
       />
 
