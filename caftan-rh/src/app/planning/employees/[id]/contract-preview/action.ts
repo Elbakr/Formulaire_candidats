@@ -22,10 +22,47 @@ export async function previewContractHtmlAction(
     .single();
   if (!emp) return { ok: false, error: "Employee introuvable" };
 
+  // Karim 2026-06-15 : la PREVIEW doit refléter le CONTRAT PRÉPARÉ
+  // (employee_contracts), pas la fiche `employees` qui reste souvent en valeurs
+  // par défaut (full / 38h). Bug Sanae : fiche=38h full -> template temps plein,
+  // alors que son contrat = 24h temps partiel. On charge le dernier contrat
+  // préparé et on en dérive le template + les conditions réelles.
+  const { data: ctrRaw } = await admin
+    .from("employee_contracts")
+    .select("contract_kind, weekly_hours, start_date, end_date, position_title, gross_hourly_rate, nrn, address, postal_code, city, workplace, workplace_address")
+    .eq("employee_id", employeeId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const ctr = ctrRaw as Record<string, unknown> | null;
+
+  // Données effectives : contrat préparé prioritaire, fiche employee en repli.
+  const eff: Record<string, unknown> = { ...(emp as Record<string, unknown>) };
+  let effTpl: "employee" | "employee_pt" | "student" = tplCode;
+  if (ctr) {
+    const merge = (ck: string, ek: string) => { if (ctr[ck] != null && ctr[ck] !== "") eff[ek] = ctr[ck]; };
+    merge("weekly_hours", "weekly_hours");
+    merge("contract_kind", "contract_type");
+    merge("start_date", "start_date");
+    merge("end_date", "end_date");
+    merge("position_title", "job_title");
+    merge("gross_hourly_rate", "hourly_rate");
+    merge("nrn", "nrn"); merge("address", "address"); merge("postal_code", "postal_code"); merge("city", "city");
+    // Template dérivé du contrat réel (jamais du param/fiche défaillants).
+    const wh = Number(eff.weekly_hours ?? 0);
+    const ck = String(eff.contract_type ?? "").toLowerCase();
+    effTpl = ck.includes("étud") || ck.includes("etud") ? "student"
+      : (wh > 0 && wh < 38) ? "employee_pt" : "employee";
+  }
+  // Lieu de travail depuis le contrat si dispo (sinon fallback adresse employeur).
+  const primarySite = ctr?.workplace
+    ? { code: "", name: String(ctr.workplace), address: ctr.workplace_address ? String(ctr.workplace_address) : null, city: null }
+    : null;
+
   const { data: tpl } = await admin
     .from("contract_templates")
     .select("body_markdown")
-    .eq("code", tplCode)
+    .eq("code", effTpl)
     .single();
   if (!tpl) return { ok: false, error: "Template introuvable" };
 
@@ -41,11 +78,11 @@ export async function previewContractHtmlAction(
 
   try {
     let html = await buildContractHtmlForDocuseal_publicForPreview({
-      templateCode: tplCode,
+      templateCode: effTpl,
       templateBodyMarkdown: tpl.body_markdown,
-      employeeData: emp as Record<string, unknown>,
+      employeeData: eff as Parameters<typeof buildContractHtmlForDocuseal_publicForPreview>[0]["employeeData"],
       employerOrg: "amd_megastore",
-      primarySite: null,
+      primarySite,
       employerSignatureDataUrl,
       employerRepresentativeOverride: profile.full_name ?? "Karim Elbazi",
     });
