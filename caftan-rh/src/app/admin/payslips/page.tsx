@@ -14,6 +14,8 @@ import { BatchRow } from "./batch-row";
 import { PayslipsView } from "./payslips-view";
 import { OffboardingButton } from "./offboarding-button";
 import { ImapSyncButton } from "./imap-sync-button";
+import { SenderMapConfig } from "./sender-map-config";
+import { getPayslipSenderMap } from "./sender-map-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,7 @@ export default async function AdminPayslipsPage(props: {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
 
-  const [{ data: payslips }, { data: batches }, { data: bankAccounts }] = await Promise.all([
+  const [{ data: payslips }, { data: batches }, { data: bankAccounts }, senderMap] = await Promise.all([
     admin
       .from("payslips")
       .select(`
@@ -47,6 +49,7 @@ export default async function AdminPayslipsPage(props: {
     admin
       .from("employer_bank_accounts")
       .select("employer_org_key, holder_name, iban, bic, bank_name"),
+    getPayslipSenderMap(),
   ]);
 
   const allRowsRaw = (payslips ?? []) as unknown as PayslipRow[];
@@ -202,6 +205,9 @@ export default async function AdminPayslipsPage(props: {
         <OffboardingButton />
         <ImapSyncButton />
       </div>
+
+      {/* Karim 2026-06-15 : mapping expéditeurs → employeur configurable sans code */}
+      <SenderMapConfig initial={senderMap} />
 
       {/* Karim 2026-05-30 : filtres CLIENT-SIDE instantanés (statut + employeur) */}
       <PayslipsView allRows={allRows} initialStatusFilter={filterParam} />

@@ -15,6 +15,7 @@ import { simpleParser } from "mailparser";
 import { retryOnTransientImap } from "./imap-retry";
 import { processBatch } from "@/lib/payslip-processor";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
+import { createAdminClient } from "@/lib/supabase/server";
 
 const SUBJECT_PATTERNS = [
   /fiche\s+de\s+paie/i,
@@ -27,9 +28,33 @@ const SUBJECT_PATTERNS = [
   /bulletin\s+de\s+paie/i, // FR variante
 ];
 
+// Entrée d'un mapping personnalisé expéditeur → employeur
+export interface SenderMapEntry {
+  pattern: string;
+  employer: EmployerOrgKey;
+}
+
 // Mapping expéditeurs → employeur
-function detectEmployer(fromEmail: string, fromName: string | null): EmployerOrgKey | null {
+// customMap (depuis org_settings.payslip_sender_map) est testé EN PREMIER.
+// Match insensible à la casse : pattern inclus dans "<fromEmail> <fromName>".
+// Si aucun match custom, les patterns EN DUR ci-dessous s'appliquent.
+function detectEmployer(
+  fromEmail: string,
+  fromName: string | null,
+  customMap?: SenderMapEntry[],
+): EmployerOrgKey | null {
   const haystack = `${fromEmail} ${fromName ?? ""}`.toLowerCase();
+
+  // 1. Patterns personnalisés (DB)
+  if (customMap && customMap.length > 0) {
+    for (const entry of customMap) {
+      if (entry.pattern && haystack.includes(entry.pattern.toLowerCase())) {
+        return entry.employer;
+      }
+    }
+  }
+
+  // 2. Patterns EN DUR (inchangés)
   if (haystack.includes("hrconsult") || haystack.includes("hr-consult") || haystack.includes("hr consult")) {
     return "amd_megastore";
   }
@@ -97,6 +122,22 @@ export async function pollPayslipsFromImap(opts?: {
   const maxPerRun = opts?.maxPerRun ?? 50;
   const markAsProcessed = opts?.markAsProcessed ?? true;
 
+  // Charge le mapping expéditeurs personnalisés depuis org_settings
+  let customSenderMap: SenderMapEntry[] = [];
+  try {
+    const admin = createAdminClient();
+    const { data: orgRow } = await admin
+      .from("org_settings")
+      .select("payslip_sender_map")
+      .eq("id", 1)
+      .maybeSingle();
+    if (Array.isArray(orgRow?.payslip_sender_map)) {
+      customSenderMap = orgRow.payslip_sender_map as SenderMapEntry[];
+    }
+  } catch {
+    // Non-bloquant : si la colonne n'existe pas encore (avant migration), on continue sans.
+  }
+
   // Karim 2026-06-14 : retry sur erreur IMAP transitoire (« Command failed »,
   // socket, timeout). Le client est recréé à chaque tentative. Les mails déjà
   // traités sont déplacés vers CaftanRH-Processed et filtrés (seen:false), et
@@ -160,9 +201,13 @@ export async function pollPayslipsFromImap(opts?: {
         const fromObj = parsed.from?.value?.[0];
         const fromEmail = fromObj?.address ?? "";
         const fromName = fromObj?.name ?? null;
-        const employer = detectEmployer(fromEmail, fromName);
+        const employer = detectEmployer(fromEmail, fromName, customSenderMap);
         if (!employer) {
-          result.errors.push({ uid: m.uid, subject, error: `Expéditeur non reconnu (${fromEmail}). Patterns supportés : hrconsult, partena, securex, acerta, groups.` });
+          result.errors.push({
+            uid: m.uid,
+            subject,
+            error: `Expéditeur non reconnu (${fromEmail}) — ajoute cet expéditeur dans /admin/payslips (Expéditeurs autorisés).`,
+          });
           continue;
         }
 
