@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   // Note 2026-06-07 : option `eslint` retiree, deprecated en Next 16
   // (warning "Unrecognized key(s) in object: 'eslint'").
   typescript: { ignoreBuildErrors: true },
+  // Karim 2026-06-15 : chromium headless (génération PDF des contrats) ne doit PAS
+  // être bundlé par Turbopack/webpack (binaire natif) -> externalisé côté serveur.
+  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
   // Autoriser les Server Actions et le HMR depuis nos tunnels Cloudflare et
   // depuis le LAN local pendant les tests sur appareils externes.
   // Sans ça, Next.js 16 bloque silencieusement les server actions (login,

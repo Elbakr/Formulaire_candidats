@@ -23,9 +23,6 @@ export function SignContractClient({
   const [accepted, setAccepted] = useState(false);
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
-  // Karim 2026-06-15 : HTML du contrat signé (super layout + signature employé
-  // injectée) pour permettre de le consulter/télécharger depuis l'écran final.
-  const [signedHtml, setSignedHtml] = useState<string | null>(null);
 
   // Initialise canvas
   useEffect(() => {
@@ -127,36 +124,12 @@ export function SignContractClient({
         toast.error(r.error);
         return;
       }
-      // Construit le contrat signé (signature employé injectée dans le super layout)
-      // pour le proposer en consultation/téléchargement sur l'écran final.
-      if (renderedBody.includes("<!--EMPLOYEE_SIG-->")) {
-        setSignedHtml(
-          renderedBody.replace(
-            "<!--EMPLOYEE_SIG-->",
-            `<img src="${signaturePng}" alt="Signature" style="display:block;max-width:100%;max-height:50px;margin:0 auto;">`,
-          ),
-        );
-      }
       toast.success("Contrat signé !");
       setSubmitted(true);
     });
   }
 
   if (submitted) {
-    const viewSignedContract = () => {
-      if (!signedHtml) return;
-      // Karim 2026-06-15 : window.open(blob) est bloqué en PWA iOS (bouton « mort »).
-      // On déclenche un vrai téléchargement via une ancre download (marche partout).
-      const blob = new Blob([signedHtml], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Contrat_signe_${fullName.replace(/\s+/g, "_")}.html`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 15000);
-    };
     return (
       <Card className="border-success bg-success-light/30">
         <div className="p-6 text-center space-y-4">
@@ -164,19 +137,16 @@ export function SignContractClient({
             <div className="text-4xl mb-2">✓</div>
             <h2 className="text-xl font-bold text-success">Contrat signé !</h2>
             <p className="text-sm text-ink-2 mt-2">
-              Merci {fullName.split(" ")[0]}. Ton contrat — avec les deux signatures — t&apos;est envoyé par mail.
-              Tu peux aussi le consulter et l&apos;enregistrer ici :
+              Merci {fullName.split(" ")[0]}. Ton contrat — avec les deux signatures — t&apos;est envoyé par mail (PDF).
+              Tu peux aussi le télécharger ici :
             </p>
           </div>
-          {signedHtml ? (
-            <button
-              type="button"
-              onClick={viewSignedContract}
-              className="w-full min-h-[48px] rounded-xl bg-gold text-[#1a1a0d] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-            >
-              <FileSignature className="h-4 w-4" /> Voir / enregistrer mon contrat signé
-            </button>
-          ) : null}
+          <a
+            href={`/api/contracts/sign/${token}/pdf?download=1`}
+            className="w-full min-h-[48px] rounded-xl bg-gold text-[#1a1a0d] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+          >
+            <FileSignature className="h-4 w-4" /> Télécharger mon contrat signé (PDF)
+          </a>
           <a
             href="/me"
             className="w-full min-h-[48px] rounded-xl border-2 border-line bg-surface text-ink font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"

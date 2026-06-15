@@ -140,6 +140,20 @@ export async function submitSignatureAction(input: {
       const slug =
         employeeName.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
         "contrat";
+      // Génère le PDF FIDÈLE (Chromium) ; repli HTML si le rendu échoue (best-effort).
+      let attachment: { filename: string; content: Uint8Array; contentType: string };
+      try {
+        const { renderHtmlToPdf } = await import("@/lib/html-to-pdf");
+        const pdf = await renderHtmlToPdf(signedBody);
+        attachment = { filename: `Contrat_signe_${slug}.pdf`, content: pdf, contentType: "application/pdf" };
+      } catch (e) {
+        console.warn("[sign] rendu PDF KO, repli HTML:", (e as Error).message);
+        attachment = {
+          filename: `Contrat_signe_${slug}.html`,
+          content: new TextEncoder().encode(signedBody),
+          contentType: "text/html; charset=utf-8",
+        };
+      }
       await sendMailWithAttachments({
         to: employeeEmail,
         toName: employeeName,
@@ -147,16 +161,9 @@ export async function submitSignatureAction(input: {
         body:
           `Bonjour ${employeeName.split(" ")[0]},\n\n` +
           `Ton ${docTitle2} est officiellement signé. ✅\n` +
-          `Tu le trouveras en pièce jointe (avec les deux signatures) : ouvre-le pour le consulter, ` +
-          `l'imprimer ou l'enregistrer en PDF. Conserve-le précieusement.\n\n` +
+          `Tu le trouveras en pièce jointe (PDF, avec les deux signatures). Conserve-le précieusement.\n\n` +
           `Bienvenue dans l'équipe !\n\nCaftanRH`,
-        attachments: [
-          {
-            filename: `Contrat_signe_${slug}.html`,
-            content: new TextEncoder().encode(signedBody),
-            contentType: "text/html; charset=utf-8",
-          },
-        ],
+        attachments: [attachment],
         bccHr: true,
         source: "contract_signed_copy",
         employeeId: contract.employee_id,
