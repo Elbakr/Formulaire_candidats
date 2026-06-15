@@ -140,7 +140,7 @@ export async function sendContractSignatureMail(args: {
         subject,
         body,
         source: "contract_signature",
-        attachments: args.signingUrl ? [{ name: "Lien signature DocuSeal", url: args.signingUrl }] : [],
+        attachments: args.signingUrl ? [{ name: "Signer mon contrat", url: args.signingUrl }] : [],
       });
     } catch {}
     return { ok: true };

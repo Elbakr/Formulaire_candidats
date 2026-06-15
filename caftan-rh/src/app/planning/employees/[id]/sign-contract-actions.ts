@@ -42,7 +42,7 @@ async function sendEmployerCopyMail(args: {
 📋 ARCHIVE CONTRAT — Un contrat ${args.templateLabel} a été envoyé à signer.
 
 Destinataire : ${args.employeeName} (${args.employeeEmail})
-Lien de signature DocuSeal :
+Lien de signature :
 ${args.signingUrl}
 
 Ce mail sert d'archive employeur (sécurité légale).
@@ -73,7 +73,7 @@ CaftanRH
       subject: `[Archive] Contrat envoyé à ${args.employeeName}`,
       body,
       source: "contract_employer_archive",
-      attachments: [{ name: "Lien signature DocuSeal", url: args.signingUrl }],
+      attachments: [{ name: "Lien de signature", url: args.signingUrl }],
       status: res.ok ? "sent" : "failed",
     });
   } catch {}
