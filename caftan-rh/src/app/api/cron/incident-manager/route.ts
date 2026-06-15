@@ -42,10 +42,10 @@ async function notifyAdmins(
   const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
   const ids = ((admins ?? []) as Array<{ id: string }>).map((a) => a.id);
   if (ids.length === 0) return 0;
-  // Karim 2026-06-14 : on insère 1 notif par admin PUIS on fixe le `link` vers
-  // l'écran QCM de l'incident. SANS link, le clic sur la PUSH retombait sur "/"
-  // (= accueil/planning) via sw.js `data.link || "/"`. Le trigger Postgres
-  // déclenche le push automatiquement après l'insert.
+  // Karim 2026-06-15 : ANTI-RÉCIDIVE. AVANT on insérait la notif PUIS on posait
+  // le `link` dans un 2e UPDATE -> le trigger push se déclenche à l'INSERT, donc
+  // le push partait avec link=NULL (course pg_net) et le clic retombait sur "/".
+  // Désormais le `link` est posé DANS l'insert : le push a toujours sa destination.
   let notified = 0;
   for (const rid of ids) {
     const { data: ins } = await admin
@@ -55,13 +55,12 @@ async function notifyAdmins(
         kind: payload.kind,
         title: payload.title,
         body: payload.body,
+        link: payload.link,
         data: payload.data,
       })
       .select("id")
       .single();
     if (!ins) continue;
-    const id = (ins as { id: string }).id;
-    await admin.from("notifications").update({ link: payload.link }).eq("id", id);
     notified++;
   }
   return notified;
