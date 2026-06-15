@@ -96,50 +96,10 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
   const htmlBody = opts.htmlBody ?? opts.body.replace(/\n/g, "<br>");
 
-  // === PATH 1 : Resend (pieces jointes natives) ===
-  if (RESEND_KEY && RESEND_KEY.trim().length > 0) {
-    try {
-      const attachments = (opts.attachments ?? []).map((a) => ({
-        filename: a.filename,
-        content: Buffer.from(a.content).toString("base64"),
-        contentType: a.contentType ?? "application/pdf",
-      }));
+  // Karim 2026-06-15 : PRIORITÉ GMAIL. Ordre demandé : Gmail SMTP (primaire) ->
+  // Resend (secours, PJ natives) -> EmailJS (dernier secours, liens).
 
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${RESEND_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: RESEND_FROM,
-          to: recipients,
-          bcc: opts.bccHr ? ["hr@caftanfactory.com"] : undefined,
-          subject: opts.subject,
-          text: opts.body,
-          html: htmlBody,
-          reply_to: opts.replyTo ?? "hr@caftanfactory.com",
-          attachments: attachments.length > 0 ? attachments : undefined,
-        }),
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        console.warn("[mail] Resend HTTP", res.status, txt);
-        await logSend(opts, "resend", "failed", `Resend HTTP ${res.status}`, htmlBody);
-        // Fallback SMTP / EmailJS si Resend echoue
-      } else {
-        const data = await res.json() as { id?: string };
-        await logSend(opts, "resend", "sent", undefined, htmlBody);
-        return { ok: true, provider: "resend", messageId: data.id };
-      }
-    } catch (e) {
-      console.warn("[mail] Resend exception:", (e as Error).message);
-      await logSend(opts, "resend", "failed", `Resend exception: ${(e as Error).message}`, htmlBody);
-    }
-  }
-
-  // === PATH 2 : SMTP Gmail via Nodemailer (PJ natives) ===
-  // Karim 2026-06-02 : utilise GMAIL_USER + GMAIL_APP_PASSWORD si configures.
+  // === PATH 1 : SMTP Gmail via Nodemailer (PJ natives) — PRIMAIRE ===
   // App Password Google : https://myaccount.google.com/apppasswords (necessite 2FA)
   const GMAIL_USER = process.env.GMAIL_USER;
   const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
@@ -169,7 +129,49 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
     } catch (e) {
       console.warn("[mail] SMTP Gmail exception:", (e as Error).message);
       await logSend(opts, "smtp_gmail", "failed", `SMTP exception: ${(e as Error).message}`, htmlBody);
-      // fallback EmailJS
+      // fallback Resend / EmailJS
+    }
+  }
+
+  // === PATH 2 : Resend (pieces jointes natives) — SECOURS ===
+  if (RESEND_KEY && RESEND_KEY.trim().length > 0) {
+    try {
+      const attachments = (opts.attachments ?? []).map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content).toString("base64"),
+        contentType: a.contentType ?? "application/pdf",
+      }));
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${RESEND_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: recipients,
+          bcc: opts.bccHr ? ["hr@caftanfactory.com"] : undefined,
+          subject: opts.subject,
+          text: opts.body,
+          html: htmlBody,
+          reply_to: opts.replyTo ?? "hr@caftanfactory.com",
+          attachments: attachments.length > 0 ? attachments : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.warn("[mail] Resend HTTP", res.status, txt);
+        await logSend(opts, "resend", "failed", `Resend HTTP ${res.status}`, htmlBody);
+        // Fallback EmailJS si Resend echoue
+      } else {
+        const data = await res.json() as { id?: string };
+        await logSend(opts, "resend", "sent", undefined, htmlBody);
+        return { ok: true, provider: "resend", messageId: data.id };
+      }
+    } catch (e) {
+      console.warn("[mail] Resend exception:", (e as Error).message);
+      await logSend(opts, "resend", "failed", `Resend exception: ${(e as Error).message}`, htmlBody);
     }
   }
 

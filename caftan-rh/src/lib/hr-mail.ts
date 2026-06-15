@@ -63,13 +63,6 @@ export async function sendContractSignatureMail(args: {
   // Variables {first_name}, {employer_name}, {signing_url} sont remplacées.
   customBody?: string;
 }): Promise<{ ok?: true; error?: string }> {
-  const serviceId = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const templateId = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const publicKey = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!serviceId || !templateId || !publicKey) {
-    return { error: "EmailJS non configure (NEXT_PUBLIC_EMAILJS_*)" };
-  }
-
   const lang: ContractLang = args.language ?? "fr";
   const msg = SIGN_MESSAGES[lang];
   const firstName = args.employeeName.split(/\s+/)[0] ?? args.employeeName;
@@ -82,69 +75,18 @@ export async function sendContractSignatureMail(args: {
         .replaceAll("{signing_url}", args.signingUrl)
     : msg.body(firstName, args.employerName, args.signingUrl);
 
-  const params = {
-    to_email: args.employeeEmail,
-    email: args.employeeEmail,
-    user_email: args.employeeEmail,
-    candidate_email: args.employeeEmail,
+  // Karim 2026-06-15 : route via sendMailWithAttachments -> Gmail SMTP PRIMAIRE,
+  // Resend/EmailJS en secours. Le lien de signature est dans le corps + exposé
+  // comme « pièce jointe lien ». Le logging outbound est géré par le helper.
+  const { sendMailWithAttachments } = await import("./mail-with-attachments");
+  const r = await sendMailWithAttachments({
     to: args.employeeEmail,
-    to_name: args.employeeName,
-    name: args.employeeName,
-    candidate_name: args.employeeName,
-    // Karim 2026-05-29 : branding unifie "Caftan Factory (By AMD Megastore)"
-    from_name: "Caftan Factory (By AMD Megastore)",
-    reply_to: "hr@caftanfactory.com",
+    toName: args.employeeName,
     subject,
-    message: body,
-    html_message: body.replace(/\n/g, "<br>"),
     body,
-    html: body.replace(/\n/g, "<br>"),
-    content: body,
-    signing_url: args.signingUrl,
-  };
-
-  try {
-    const res = await fetch(EMAILJS_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({
-        service_id: serviceId,
-        template_id: templateId,
-        user_id: publicKey,
-        template_params: params,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      // Karim 2026-05-31 : log echec aussi pour traçabilite
-      try {
-        const { logOutboundMail } = await import("./outbound-mail-log");
-        await logOutboundMail({
-          recipient_email: args.employeeEmail,
-          recipient_name: args.employeeName,
-          subject,
-          body,
-          source: "contract_signature",
-          status: "failed",
-          error_message: `EmailJS HTTP ${res.status}: ${txt.slice(0, 200)}`,
-        });
-      } catch {}
-      return { error: `EmailJS HTTP ${res.status}: ${txt.slice(0, 200)}` };
-    }
-    // Karim 2026-05-31 : archive le mail envoyé dans outbound_mails
-    try {
-      const { logOutboundMail } = await import("./outbound-mail-log");
-      await logOutboundMail({
-        recipient_email: args.employeeEmail,
-        recipient_name: args.employeeName,
-        subject,
-        body,
-        source: "contract_signature",
-        attachments: args.signingUrl ? [{ name: "Signer mon contrat", url: args.signingUrl }] : [],
-      });
-    } catch {}
-    return { ok: true };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
+    replyTo: "hr@caftanfactory.com",
+    attachmentUrls: args.signingUrl ? [{ name: "Signer mon contrat", url: args.signingUrl }] : [],
+    source: "contract_signature",
+  });
+  return r.ok ? { ok: true } : { error: r.error ?? "Envoi du mail échoué" };
 }
