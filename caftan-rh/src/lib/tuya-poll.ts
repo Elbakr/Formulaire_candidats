@@ -237,62 +237,63 @@ export async function pollTuyaLogs(options?: { forceLookbackMs?: number }): Prom
         // => on n'insere JAMAIS un OUT sans IN ouvert (zero tap perdu), c'est
         //    robuste aux oublis d'OUT, aux auto-close, et au double-ID (le lookup
         //    est par employee_id, peu importe le tuya_user_id utilise).
-        const { data: lastEntryRows } = await supabase
+        // Karim 2026-06-15 — RÉÉCRITURE RADICALE. La classification IN/OUT se base
+        // sur la dernière SESSION RÉELLE (taps source=tuya), en IGNORANT les
+        // auto-OUT estimés (de simples bouche-trous). Règles :
+        //   - session réelle ouverte (dernier tap RÉEL = IN, < 18h) -> ce tap = OUT,
+        //     et on SUPPRIME l'auto-OUT estimé posé entre-temps (le badge réel fait foi
+        //     -> plus de IN fantôme type Omaima/Selma/Hafsa 14/06).
+        //   - sinon -> ce tap = IN ; si une session traîne OUVERTE (oubli/fantôme),
+        //     on la FERME d'abord pour ne JAMAIS faire rejeter ce badge par le trigger
+        //     anti-double (-> plus de badge du matin perdu).
+        const { data: lastRealRows } = await supabase
           .from("clock_entries")
-          .select("id, kind, occurred_at, source, auto_clocked_out")
+          .select("id, kind, occurred_at")
           .eq("employee_id", mapping.employee_id)
+          .eq("source", "tuya")
           .lt("occurred_at", occurredAt)
           .order("occurred_at", { ascending: false })
           .limit(1);
-        const lastEntry = (lastEntryRows?.[0] ?? null) as {
-          id: string; kind: "in" | "out"; occurred_at: string;
-          source: string | null; auto_clocked_out: boolean | null;
-        } | null;
-
-        // Karim 2026-06-14 ANTI-RECIDIVE : un badge REEL qui arrive peu apres un
-        // auto-OUT ESTIME du meme jour = la VRAIE sortie. Avant, comme le dernier
-        // event etait un OUT, l'alternance basculait ce tap en IN FANTOME (bug
-        // Omaima 14/06 : badge OUT 20:07 -> IN, prestations faussees + session
-        // fantome). Desormais on REMPLACE l'auto-OUT estime par le badge reel
-        // (heure exacte), sans creer d'IN parasite. Slot-agnostique (par employe).
-        const lastIsAutoOut =
-          lastEntry?.kind === "out" &&
-          (lastEntry.source === "auto_close" || lastEntry.auto_clocked_out === true);
-        const deltaFromLastH = lastEntry
-          ? (new Date(occurredAt).getTime() - new Date(lastEntry.occurred_at).getTime()) / 3600_000
+        const lastReal = (lastRealRows?.[0] ?? null) as { id: string; kind: "in" | "out"; occurred_at: string } | null;
+        const realDeltaH = lastReal
+          ? (new Date(occurredAt).getTime() - new Date(lastReal.occurred_at).getTime()) / 3600_000
           : Infinity;
-        if (
-          lastIsAutoOut &&
-          lastEntry!.occurred_at.slice(0, 10) === today &&
-          deltaFromLastH > -0.5 && deltaFromLastH < 3
-        ) {
-          const accessLogIdReplace = `${dev.tuya_device_id}_${log.event_time}_${userIdLocal}`;
-          // Re-poll : si ce tap est deja pose, on ne re-traite pas.
-          const { data: dupRepl } = await supabase
-            .from("clock_entries").select("id").eq("tuya_access_log_id", accessLogIdReplace).limit(1);
-          if (dupRepl && dupRepl.length > 0) { out.skipped_duplicate++; continue; }
-          const { error: replErr } = await supabase
-            .from("clock_entries")
-            .update({
-              occurred_at: occurredAt,
-              source: "tuya",
-              auto_clocked_out: false,
-              entry_method: "tap",
-              tuya_access_log_id: accessLogIdReplace,
-              notes: `OUT reel (badge Tuya ${occurredAt.slice(11, 16)}) - remplace l'auto-OUT estime de ${lastEntry!.occurred_at.slice(11, 16)}`,
-            })
-            .eq("id", lastEntry!.id);
-          if (!replErr) {
-            out.entries_inserted++;
-            continue; // pas de nouvel event, pas d'IN fantome
-          }
-          // sinon : on retombe sur la logique d'alternance normale ci-dessous.
-        }
-
-        const openInRecent =
-          lastEntry?.kind === "in" &&
-          new Date(occurredAt).getTime() - new Date(lastEntry.occurred_at).getTime() < 16 * 3600_000;
+        const openInRecent = lastReal?.kind === "in" && realDeltaH < 18;
         const alternanceKind: "in" | "out" = openInRecent ? "out" : "in";
+
+        if (alternanceKind === "out") {
+          // Le vrai OUT remplace l'estimation : supprime l'auto-OUT posé entre le
+          // IN réel ouvert et maintenant.
+          await supabase.from("clock_entries").delete()
+            .eq("employee_id", mapping.employee_id)
+            .eq("source", "auto_close")
+            .gt("occurred_at", lastReal!.occurred_at)
+            .lte("occurred_at", occurredAt);
+        } else {
+          // Nouveau IN : si une session est restée ouverte (dernier event = IN,
+          // oubli/fantôme de la veille), on la clôt AVANT (OUT estimé) pour éviter
+          // le rejet anti-double et ne pas perdre ce badge.
+          const { data: lastAnyRows } = await supabase
+            .from("clock_entries").select("kind, occurred_at")
+            .eq("employee_id", mapping.employee_id)
+            .lt("occurred_at", occurredAt)
+            .order("occurred_at", { ascending: false }).limit(1);
+          const lastAny = (lastAnyRows?.[0] ?? null) as { kind: "in" | "out"; occurred_at: string } | null;
+          if (lastAny?.kind === "in") {
+            const inMs = new Date(lastAny.occurred_at).getTime();
+            const dayEndMs = new Date(lastAny.occurred_at.slice(0, 10) + "T23:00:00Z").getTime();
+            const estMs = Math.min(inMs + 3600_000, Math.max(dayEndMs, inMs + 60_000));
+            await supabase.from("clock_entries").insert({
+              employee_id: mapping.employee_id,
+              kind: "out",
+              occurred_at: new Date(estMs).toISOString(),
+              source: "auto_close",
+              auto_clocked_out: true,
+              entry_method: "auto_shift",
+              notes: "Auto-fermeture session restee ouverte (nouveau badge IN detecte ensuite)",
+            });
+          }
+        }
         // Compteur du jour conserve uniquement pour la note de tracabilite.
         const { count: priorCount } = await supabase
           .from("clock_entries")
