@@ -124,39 +124,45 @@ export async function submitSignatureAction(input: {
       }),
     }).catch(() => {});
 
-    // Mail employe (si email connu)
-    if (employeeEmail) {
-      const subjectEmp = `Ton contrat signé — ${docTitle}`;
-      // Karim 2026-06-15 : ne plus déverser le HTML brut du super layout dans le
-      // mail. Confirmation propre ; la copie complète suit (PDF).
-      const bodyEmp = `Bonjour ${employeeName.split(" ")[0]},\n\nTon ${docTitle} est officiellement signé. ✅\n\nSigné le : ${new Date(nowISO).toLocaleString("fr-BE")}\n\nUne copie complète du contrat (avec les deux signatures) te sera envoyée par mail. Tu peux la conserver précieusement.\n\nBienvenue dans l'équipe !\n\n---\nCaftanRH`;
-      fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-        body: JSON.stringify({
-          service_id: SERVICE_ID,
-          template_id: TEMPLATE_ID,
-          user_id: PUBLIC_KEY,
-          template_params: {
-            to_email: employeeEmail,
-            email: employeeEmail,
-            recipient: employeeEmail,
-            user_email: employeeEmail,
-            candidate_email: employeeEmail,
-            to: employeeEmail,
-            to_name: employeeName,
-            name: employeeName,
-            from_name: "CaftanRH",
-            reply_to: "hr@caftanfactory.com",
-            subject: subjectEmp,
-            message: bodyEmp,
-            html_message: bodyEmp.replace(/\n/g, "<br>"),
-            body: bodyEmp,
-            html: bodyEmp.replace(/\n/g, "<br>"),
-            content: bodyEmp,
+    // Karim 2026-06-15 : le mail employé « copie à suivre » ne livrait JAMAIS le
+    // contrat. On l'envoie désormais RÉELLEMENT en pièce jointe (bloc ci-dessous).
+  }
+
+  // Karim 2026-06-15 : ENVOI RÉEL du contrat signé au candidat (+ archive RH en
+  // bcc) en pièce jointe. signedBody = le « super layout » avec les DEUX
+  // signatures intégrées. On l'envoie en HTML (ouvrable + imprimable -> PDF via
+  // le navigateur ; le projet n'a pas de moteur HTML→PDF). Via Resend/Gmail SMTP
+  // (PJ natives), best-effort : n'échoue jamais la signature.
+  const docTitle2 = contract.template?.title ?? "Contrat de travail";
+  if (employeeEmail && signedBody) {
+    try {
+      const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");
+      const slug =
+        employeeName.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
+        "contrat";
+      await sendMailWithAttachments({
+        to: employeeEmail,
+        toName: employeeName,
+        subject: `Ton contrat signé — ${docTitle2}`,
+        body:
+          `Bonjour ${employeeName.split(" ")[0]},\n\n` +
+          `Ton ${docTitle2} est officiellement signé. ✅\n` +
+          `Tu le trouveras en pièce jointe (avec les deux signatures) : ouvre-le pour le consulter, ` +
+          `l'imprimer ou l'enregistrer en PDF. Conserve-le précieusement.\n\n` +
+          `Bienvenue dans l'équipe !\n\nCaftanRH`,
+        attachments: [
+          {
+            filename: `Contrat_signe_${slug}.html`,
+            content: new TextEncoder().encode(signedBody),
+            contentType: "text/html; charset=utf-8",
           },
-        }),
-      }).catch(() => {});
+        ],
+        bccHr: true,
+        source: "contract_signed_copy",
+        employeeId: contract.employee_id,
+      });
+    } catch (e) {
+      console.warn("[sign] envoi contrat signé:", (e as Error).message);
     }
   }
 
