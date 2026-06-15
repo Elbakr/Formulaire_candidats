@@ -26,13 +26,11 @@ export async function renderHtmlToPdf(html: string): Promise<Uint8Array> {
 
   let executablePath: string | undefined;
   let args: string[] = [];
-  let defaultViewport: { width: number; height: number } | null = null;
 
   if (isServerless) {
     const chromium = (await import("@sparticuz/chromium")).default;
     executablePath = await chromium.executablePath();
     args = chromium.args;
-    defaultViewport = chromium.defaultViewport;
   } else {
     executablePath = localChromePath();
     args = ["--no-sandbox", "--disable-setuid-sandbox"];
@@ -42,11 +40,11 @@ export async function renderHtmlToPdf(html: string): Promise<Uint8Array> {
     args,
     executablePath,
     headless: true,
-    defaultViewport,
+    defaultViewport: null,
   });
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 });
+    await page.setContent(html, { waitUntil: "load", timeout: 30_000 });
     const pdf = await page.pdf({
       printBackground: true,
       preferCSSPageSize: true, // respecte @page (A4 + marges) du super layout
