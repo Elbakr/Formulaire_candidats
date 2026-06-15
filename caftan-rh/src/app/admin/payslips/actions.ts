@@ -643,9 +643,32 @@ export async function deleteBatchAction(batchId: string): Promise<{ ok: boolean;
 export async function getPayslipPdfUrlAction(payslipId: string): Promise<{ ok: boolean; url?: string; error?: string }> {
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
-  const { data: payslip } = await admin.from("payslips").select("pdf_storage_path").eq("id", payslipId).single();
+  // Karim 2026-06-15 : on récupère aussi le nom + période pour NOMMER le fichier
+  // téléchargé proprement (sinon le navigateur prend l'URL signée Supabase,
+  // illisible « pleindecaracteres.supabase… »).
+  const { data: payslip } = await admin
+    .from("payslips")
+    .select("pdf_storage_path, period_year, period_month, payment_holder_name, employee:employees(full_name)")
+    .eq("id", payslipId)
+    .single();
   if (!payslip?.pdf_storage_path) return { ok: false, error: "PDF introuvable" };
-  const { data } = await admin.storage.from("payslips").createSignedUrl(payslip.pdf_storage_path, 3600);
+  const p = payslip as unknown as {
+    pdf_storage_path: string;
+    period_year: number | null;
+    period_month: number | null;
+    payment_holder_name: string | null;
+    employee: { full_name: string | null } | null;
+  };
+  const name = p.employee?.full_name ?? p.payment_holder_name ?? "employe";
+  const slug =
+    name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
+    "employe";
+  const period =
+    p.period_year && p.period_month ? `_${p.period_year}-${String(p.period_month).padStart(2, "0")}` : "";
+  const filename = `Fiche_de_paie_${slug}${period}.pdf`;
+  const { data } = await admin.storage
+    .from("payslips")
+    .createSignedUrl(payslip.pdf_storage_path, 3600, { download: filename });
   if (!data?.signedUrl) return { ok: false, error: "URL non disponible" };
   return { ok: true, url: data.signedUrl };
 }
