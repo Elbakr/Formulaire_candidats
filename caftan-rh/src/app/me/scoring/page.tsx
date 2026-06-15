@@ -1,4 +1,4 @@
-import { Star, FileBarChart, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Star, FileBarChart, TrendingUp, TrendingDown, Minus, CalendarX2, ShieldCheck } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { startOfWeek, addDays, toISODate } from "@/lib/planning";
 import { getLocale } from "@/lib/locale-server";
 import { t, type TranslationKey } from "@/lib/i18n";
+import { loadValidationReliabilityForEmployees } from "@/lib/scoring/validation-reliability";
 
 // 7 axes Discovery (recrutement.html EVAL_CRIT)
 const SCORE_AXES: Array<[string, TranslationKey]> = [
@@ -49,8 +50,9 @@ export default async function MyScoringPage() {
   const today = new Date();
   const monday = startOfWeek(today);
   const twelveWeeksBack = toISODate(addDays(monday, -84));
+  const sixtyDaysBack = toISODate(addDays(today, -60));
 
-  const [{ data: scoreRow }, { data: evals }, { data: weeklyRatings }] = await Promise.all([
+  const [{ data: scoreRow }, { data: evals }, { data: weeklyRatings }, { data: absencesRaw }, reliabilityMap] = await Promise.all([
     supabase.from("employee_scores").select("*").eq("employee_id", employee.id).single(),
     supabase
       .from("evaluations")
@@ -64,6 +66,13 @@ export default async function MyScoringPage() {
       .eq("employee_id", employee.id)
       .gte("week_monday", twelveWeeksBack)
       .order("week_monday", { ascending: true }),
+    supabase
+      .from("unplanned_absences")
+      .select("id, date, reason, status")
+      .eq("employee_id", employee.id)
+      .gte("date", sixtyDaysBack)
+      .order("date", { ascending: false }),
+    loadValidationReliabilityForEmployees([employee.id], 6),
   ]);
 
   const weekly = (weeklyRatings ?? []) as Array<{ week_monday: string; rating: number }>;
@@ -99,6 +108,31 @@ export default async function MyScoringPage() {
     created_at: string;
   }>;
 
+  // --- Absences imprévues 60 jours ---
+  const absences = (absencesRaw ?? []) as Array<{ id: string; date: string; reason: string | null; status: string | null }>;
+  const absenceCount = absences.length;
+  // 15 pts de pénalité par absence, borné 0-100
+  const absenceScore = Math.max(0, Math.min(100, 100 - absenceCount * 15));
+  type AbsenceBand = "exemplary" | "ok" | "attention" | "danger";
+  function absenceBand(score: number): AbsenceBand {
+    if (score >= 95) return "exemplary";
+    if (score >= 70) return "ok";
+    if (score >= 40) return "attention";
+    return "danger";
+  }
+  const absScoreBand = absenceBand(absenceScore);
+
+  // --- Fiabilité post-validation ---
+  const reliability = reliabilityMap.get(employee.id) ?? null;
+
+  // Couleurs par bande
+  const bandColors: Record<string, { bg: string; text: string }> = {
+    exemplary: { bg: "bg-success-light", text: "text-success" },
+    ok: { bg: "bg-info-light", text: "text-info" },
+    attention: { bg: "bg-warn-light", text: "text-warn" },
+    danger: { bg: "bg-danger-light", text: "text-danger" },
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -131,6 +165,93 @@ export default async function MyScoringPage() {
           <Stat label={t("scoring.shifts_12m", locale)} value={`${r?.shifts_done ?? 0} / ${r?.shifts_total ?? 0}`} />
           <Stat label={t("scoring.leave_days", locale)} value={`${r?.time_off_days_12m ?? 0}`} />
         </div>
+      </Card>
+
+      {/* ── Absences imprévues 60 jours ── */}
+      <Card>
+        <div className="p-4 border-b border-line flex items-center gap-2">
+          <CalendarX2 className="h-4 w-4 text-ink-3 shrink-0" />
+          <div>
+            <h2 className="font-bold">{t("scoring.absences.title", locale)}</h2>
+            <p className="text-xs text-ink-3 mt-0.5">{t("scoring.absences.hint", locale)}</p>
+          </div>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-4">
+          <div className="bg-surface-2 rounded-md p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{t("scoring.absences.score_label", locale)}</div>
+            <div className="text-3xl font-extrabold font-mono mt-1 text-gold-dark">
+              {absenceScore.toFixed(0)}<span className="text-sm text-ink-3 font-normal">/100</span>
+            </div>
+            <span className={`inline-block mt-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${bandColors[absScoreBand].bg} ${bandColors[absScoreBand].text}`}>
+              {t(`scoring.absences.band.${absScoreBand}`, locale)}
+            </span>
+          </div>
+          <div className="bg-surface-2 rounded-md p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{t("scoring.absences.count_label", locale)}</div>
+            <div className="text-3xl font-extrabold font-mono mt-1">
+              {absenceCount}
+            </div>
+            <p className="text-xs text-ink-2 mt-1">
+              {absenceCount === 0
+                ? t("scoring.absences.count_zero", locale)
+                : absenceCount === 1
+                ? t("scoring.absences.count_one", locale, { n: absenceCount })
+                : t("scoring.absences.count_many", locale, { n: absenceCount })}
+            </p>
+          </div>
+        </div>
+        {absences.length > 0 && (
+          <ul className="divide-y divide-line border-t border-line">
+            {absences.map((ab) => (
+              <li key={ab.id} className="px-4 py-2 flex items-center gap-3 text-sm">
+                <span className="text-ink-3 font-mono text-xs w-24 shrink-0">{formatDate(ab.date)}</span>
+                <span className="text-ink-2 truncate">{ab.reason ?? "—"}</span>
+                {ab.status && (
+                  <span className="ml-auto text-[10px] uppercase font-bold text-ink-3 shrink-0">{ab.status}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* ── Fiabilité post-validation ── */}
+      <Card>
+        <div className="p-4 border-b border-line flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-ink-3 shrink-0" />
+          <div>
+            <h2 className="font-bold">{t("scoring.reliability_detail.title", locale)}</h2>
+            <p className="text-xs text-ink-3 mt-0.5">{t("scoring.reliability_detail.hint", locale)}</p>
+          </div>
+        </div>
+        {reliability == null || (reliability.accepted === 0 && reliability.cancelled_after_validation === 0 && reliability.refused === 0) ? (
+          <div className="p-6 text-center text-sm text-ink-3">{t("scoring.reliability_detail.no_data", locale)}</div>
+        ) : (
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-surface-2 rounded-md p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{t("scoring.reliability_detail.score_label", locale)}</div>
+                <div className="text-3xl font-extrabold font-mono mt-1 text-gold-dark">
+                  {reliability.score.toFixed(0)}<span className="text-sm text-ink-3 font-normal">/100</span>
+                </div>
+                <span className={`inline-block mt-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${bandColors[reliability.band].bg} ${bandColors[reliability.band].text}`}>
+                  {t(`scoring.reliability_detail.band.${reliability.band}`, locale)}
+                </span>
+              </div>
+              <div className="bg-surface-2 rounded-md p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{t("scoring.reliability_detail.honored_label", locale)}</div>
+                <div className="text-3xl font-extrabold font-mono mt-1">
+                  {reliability.honored_pct.toFixed(0)}<span className="text-sm text-ink-3 font-normal">%</span>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <Stat label={t("scoring.reliability_detail.accepted", locale)} value={String(reliability.accepted)} />
+              <Stat label={t("scoring.reliability_detail.cancelled", locale)} value={String(reliability.cancelled_after_validation)} />
+              <Stat label={t("scoring.reliability_detail.refused", locale)} value={String(reliability.refused)} />
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card>

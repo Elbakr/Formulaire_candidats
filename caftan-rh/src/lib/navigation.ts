@@ -171,6 +171,7 @@ export function getNavSections(role: Role): NavGroup[] {
     { href: "/rh/hub", label: "🎛 Centre RH", icon: "LayoutDashboard" },
     { href: "/rh", label: "Tableau de bord", icon: "LayoutDashboard" },
     { href: "/rh/candidates", label: "Candidats", icon: "Users" },
+    { href: "/admin/candidates/reserve", label: "Vivier (réserve)", icon: "Users" },
     { href: "/admin/candidates/duplicates", label: "Purge doublons candidats 🧹", icon: "Users" },
     { href: "/admin/employees/duplicates", label: "Doublons employés ⚠️", icon: "Users" },
     { href: "/rh/top-candidates", label: "Top candidats", icon: "Star" },
@@ -200,6 +201,7 @@ export function getNavSections(role: Role): NavGroup[] {
   if (isAdmin(role)) {
     rhItems.push(
       { href: "/admin/cdd-renewals", label: "Renouvellements CDD", icon: "RefreshCw" },
+      { href: "/admin/settings/acquisition", label: "Config acquisition", icon: "Sparkles" },
       { href: "/admin/absences", label: "Absences imprévues", icon: "AlertCircle" },
       { href: "/admin/holidays", label: "Jours fériés & fermetures", icon: "Calendar" },
       { href: "/admin/seasonal", label: "Saisonnalités", icon: "Sparkles" },

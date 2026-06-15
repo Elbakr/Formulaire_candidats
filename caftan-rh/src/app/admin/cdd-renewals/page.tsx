@@ -24,6 +24,9 @@ type RawRow = {
   decided_by: string | null;
   decided_at: string | null;
   decision_note: string | null;
+  proposed_weekly_hours: number | null;
+  proposed_start_date: string | null;
+  proposed_end_date: string | null;
   employees: { full_name: string; job_title: string | null } | null;
 };
 
@@ -52,6 +55,9 @@ function toCardProps(r: RawRow, today: Date): RenewalCardProps {
     rationale: r.rationale,
     trends: (r.trends ?? fallbackTrends) as RenewalCardProps["trends"],
     siteLoadForecast: r.site_load_forecast ?? {},
+    proposedWeeklyHours: r.proposed_weekly_hours ?? null,
+    proposedStartDate: r.proposed_start_date ?? null,
+    proposedEndDate: r.proposed_end_date ?? null,
   };
 }
 
@@ -64,6 +70,7 @@ export default async function CddRenewalsPage() {
     .select(
       `id, employee_id, contract_end_date, prepared_at, recommendation, rationale,
        global_score, trends, site_load_forecast, status, decided_by, decided_at, decision_note,
+       proposed_weekly_hours, proposed_start_date, proposed_end_date,
        employees(full_name, job_title)`,
     )
     .order("contract_end_date", { ascending: true });

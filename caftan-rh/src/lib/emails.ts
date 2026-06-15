@@ -146,6 +146,105 @@ export function sendInterviewInvite(args: { to: string; fullName: string; whenLo
   });
 }
 
+const TYPE_LABEL_FR: Record<string, string> = {
+  phone: "entretien téléphonique",
+  video: "entretien en visioconférence",
+  onsite: "entretien sur place",
+};
+const TYPE_LABEL_NL: Record<string, string> = {
+  phone: "telefonisch interview",
+  video: "video-interview",
+  onsite: "interview ter plaatse",
+};
+
+/** Mail de CONFIRMATION envoyé immédiatement après la planification de l'entretien. */
+export function sendInterviewConfirmation(args: {
+  to: string;
+  fullName: string;
+  whenLocal: string;
+  whenLocalNl: string;
+  location: string;
+  type: string;
+  durationMin: number;
+  candidateId?: string;
+  interviewId?: string;
+}) {
+  const typeFr = TYPE_LABEL_FR[args.type] ?? "entretien";
+  const typeNl = TYPE_LABEL_NL[args.type] ?? "interview";
+  return sendEmail({
+    to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    source: "interview-confirmation",
+    sourceRef: args.interviewId ?? args.candidateId,
+    subject: `${BRAND.name} — Confirmation de ton entretien / Bevestiging van jouw interview`,
+    html: shell(
+      "Entretien confirmé / Interview bevestigd",
+      `<p>Bonjour ${args.fullName},</p>
+       <p>Voici la confirmation de ton ${typeFr} chez ${BRAND.name}.</p>
+       <table style="border-collapse:collapse;width:100%;font-size:14px;margin:12px 0">
+         <tr><td style="padding:6px 0;color:#71717a;width:120px">Date &amp; heure</td><td style="padding:6px 0;font-weight:600">${args.whenLocal}</td></tr>
+         <tr><td style="padding:6px 0;color:#71717a">Type</td><td style="padding:6px 0;font-weight:600">${typeFr} (${args.durationMin} min)</td></tr>
+         <tr><td style="padding:6px 0;color:#71717a">Lieu / Lien</td><td style="padding:6px 0;font-weight:600">${args.location}</td></tr>
+       </table>
+       <p>Si tu ne peux pas te présenter, réponds à cet email le plus tôt possible.</p>
+       <hr style="border:none;border-top:1px solid #e4e4e7;margin:18px 0"/>
+       <p style="color:#71717a;font-size:13px">Hallo ${args.fullName},</p>
+       <p style="color:#71717a;font-size:13px">Hierbij de bevestiging van jouw ${typeNl} bij ${BRAND.name}.</p>
+       <table style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0;color:#71717a">
+         <tr><td style="padding:4px 0;width:120px">Datum &amp; tijd</td><td style="padding:4px 0;font-weight:600">${args.whenLocalNl}</td></tr>
+         <tr><td style="padding:4px 0">Type</td><td style="padding:4px 0;font-weight:600">${typeNl} (${args.durationMin} min)</td></tr>
+         <tr><td style="padding:4px 0">Locatie / Link</td><td style="padding:4px 0;font-weight:600">${args.location}</td></tr>
+       </table>
+       <p style="color:#71717a;font-size:13px">Kan je niet aanwezig zijn? Antwoord dan zo snel mogelijk op deze e-mail.</p>`,
+    ),
+  });
+}
+
+/** Mail de RAPPEL envoyé ~24 h avant l'entretien. */
+export function sendInterviewReminder(args: {
+  to: string;
+  fullName: string;
+  whenLocal: string;
+  whenLocalNl: string;
+  location: string;
+  type: string;
+  durationMin: number;
+  candidateId?: string;
+  interviewId?: string;
+}) {
+  const typeFr = TYPE_LABEL_FR[args.type] ?? "entretien";
+  const typeNl = TYPE_LABEL_NL[args.type] ?? "interview";
+  return sendEmail({
+    to: args.to,
+    recipientName: args.fullName,
+    candidateId: args.candidateId,
+    source: "interview-reminder",
+    sourceRef: args.interviewId ?? args.candidateId,
+    subject: `${BRAND.name} — Rappel : ton entretien demain / Herinnering: jouw interview morgen`,
+    html: shell(
+      "Rappel entretien / Herinnering interview",
+      `<p>Bonjour ${args.fullName},</p>
+       <p>Ton ${typeFr} chez ${BRAND.name} a lieu <strong>demain</strong>.</p>
+       <table style="border-collapse:collapse;width:100%;font-size:14px;margin:12px 0">
+         <tr><td style="padding:6px 0;color:#71717a;width:120px">Date &amp; heure</td><td style="padding:6px 0;font-weight:600">${args.whenLocal}</td></tr>
+         <tr><td style="padding:6px 0;color:#71717a">Type</td><td style="padding:6px 0;font-weight:600">${typeFr} (${args.durationMin} min)</td></tr>
+         <tr><td style="padding:6px 0;color:#71717a">Lieu / Lien</td><td style="padding:6px 0;font-weight:600">${args.location}</td></tr>
+       </table>
+       <p>À demain ! Si tu as un empêchement de dernière minute, contacte-nous immédiatement en répondant à cet email.</p>
+       <hr style="border:none;border-top:1px solid #e4e4e7;margin:18px 0"/>
+       <p style="color:#71717a;font-size:13px">Hallo ${args.fullName},</p>
+       <p style="color:#71717a;font-size:13px">Jouw ${typeNl} bij ${BRAND.name} vindt <strong>morgen</strong> plaats.</p>
+       <table style="border-collapse:collapse;width:100%;font-size:13px;margin:8px 0;color:#71717a">
+         <tr><td style="padding:4px 0;width:120px">Datum &amp; tijd</td><td style="padding:4px 0;font-weight:600">${args.whenLocalNl}</td></tr>
+         <tr><td style="padding:4px 0">Type</td><td style="padding:4px 0;font-weight:600">${typeNl} (${args.durationMin} min)</td></tr>
+         <tr><td style="padding:4px 0">Locatie / Link</td><td style="padding:4px 0;font-weight:600">${args.location}</td></tr>
+       </table>
+       <p style="color:#71717a;font-size:13px">Tot morgen! Als je verhinderd bent, neem dan zo snel mogelijk contact met ons op door op deze e-mail te antwoorden.</p>`,
+    ),
+  });
+}
+
 export function sendRejection(args: { to: string; fullName: string; candidateId?: string }) {
   return sendEmail({
     to: args.to,

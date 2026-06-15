@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import {
-  sendInterviewInvite,
+  sendInterviewConfirmation,
   sendRejection,
   sendOffer,
 } from "@/lib/emails";
@@ -15,12 +15,13 @@ async function fetchAppContext(applicationId: string) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("applications")
-    .select(`id, candidate:candidates(email, full_name), job:jobs(title)`)
+    .select(`id, candidate_id, candidate:candidates(id, email, full_name), job:jobs(title)`)
     .eq("id", applicationId)
     .single();
   return data as {
     id: string;
-    candidate: { email: string; full_name: string } | null;
+    candidate_id: string | null;
+    candidate: { id?: string; email: string; full_name: string } | null;
     job: { title: string } | null;
   } | null;
 }
@@ -121,7 +122,7 @@ export async function scheduleInterviewAction(formData: FormData) {
     .update({ status: "rdv_scheduled" })
     .eq("id", applicationId);
 
-  // Email d'invitation à l'entretien + log dans messages
+  // Mail de CONFIRMATION d'entretien + log dans messages (best-effort, ne bloque pas)
   const ctx = await fetchAppContext(applicationId);
   if (ctx?.candidate?.email) {
     const where =
@@ -131,18 +132,28 @@ export async function scheduleInterviewAction(formData: FormData) {
           ? `Téléphone ${location || ""}`
           : location || "Sur place — adresse communiquée";
     const whenLocal = formatDateTime(scheduledAt);
-    await sendInterviewInvite({
-      to: ctx.candidate.email,
-      fullName: ctx.candidate.full_name,
-      whenLocal,
-      location: where,
-    });
+    // Format NL identique (même locale fr-BE pour l'heure, même string)
+    const whenLocalNl = whenLocal;
+    try {
+      await sendInterviewConfirmation({
+        to: ctx.candidate.email,
+        fullName: ctx.candidate.full_name,
+        whenLocal,
+        whenLocalNl,
+        location: where,
+        type,
+        durationMin: duration,
+        candidateId: ctx.candidate_id ?? ctx.candidate.id,
+      });
+    } catch {
+      // best-effort : ne bloque pas la planification
+    }
     await supabase.from("messages").insert({
       application_id: applicationId,
       direction: "outbound",
       sender_id: profile.id,
-      subject: "Convocation à un entretien",
-      body: `Tu es convoqué·e à un entretien le ${whenLocal} (${where}).`,
+      subject: "Confirmation d'entretien",
+      body: `Confirmation de ton entretien le ${whenLocal} (${where}).`,
     });
   }
 

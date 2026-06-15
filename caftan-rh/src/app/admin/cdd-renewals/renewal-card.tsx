@@ -43,6 +43,10 @@ export type RenewalCardProps = {
     absences_30d: Trend;
   };
   siteLoadForecast: Record<string, "under_staffed" | "balanced" | "over_staffed">;
+  /** Termes proposés pré-remplis (reco ou valeurs persistées). */
+  proposedWeeklyHours: number | null;
+  proposedStartDate: string | null;
+  proposedEndDate: string | null;
 };
 
 const RECO_BADGE: Record<RenewalCardProps["recommendation"], { label: string; cls: string }> = {
@@ -88,6 +92,16 @@ export function RenewalCard(props: RenewalCardProps) {
   const [pending, startTransition] = useTransition();
   const [showReject, setShowReject] = useState(false);
   const [decisionNote, setDecisionNote] = useState("");
+  // Termes proposés — pré-remplis depuis la reco, éditables avant envoi.
+  const [proposedWeeklyHours, setProposedWeeklyHours] = useState<string>(
+    props.proposedWeeklyHours != null ? String(props.proposedWeeklyHours) : "",
+  );
+  const [proposedStartDate, setProposedStartDate] = useState<string>(
+    props.proposedStartDate ?? "",
+  );
+  const [proposedEndDate, setProposedEndDate] = useState<string>(
+    props.proposedEndDate ?? "",
+  );
 
   const isLocked = props.status !== "pending";
   const recoBadge = RECO_BADGE[props.recommendation];
@@ -106,7 +120,12 @@ export function RenewalCard(props: RenewalCardProps) {
 
   function send() {
     startTransition(async () => {
-      const r = await sendRenewalProposalAction({ recommendationId: props.recommendationId });
+      const r = await sendRenewalProposalAction({
+        recommendationId: props.recommendationId,
+        proposedWeeklyHours: proposedWeeklyHours ? Number(proposedWeeklyHours) : null,
+        proposedStartDate: proposedStartDate || null,
+        proposedEndDate: proposedEndDate || null,
+      });
       if (r?.error) toast.error(r.error);
       else toast.success("Proposition envoyée. Manager + employé notifiés.");
     });
@@ -214,6 +233,55 @@ export function RenewalCard(props: RenewalCardProps) {
           ))}
         </div>
       ) : null}
+
+      {/* Termes proposés — pré-remplis, éditables avant envoi (règle d'or : auto mais éditable). */}
+      <div className="mb-3 rounded-md border border-line bg-surface-2 p-3">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3 mb-2">
+          Termes proposés pour le renouvellement
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[11px] font-bold text-ink-2 mb-1">
+              Heures / semaine
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={40}
+              step={0.5}
+              value={proposedWeeklyHours}
+              onChange={(e) => setProposedWeeklyHours(e.target.value)}
+              disabled={isLocked || pending}
+              placeholder="ex. 24"
+              className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold/50 disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-ink-2 mb-1">
+              Date de début proposée
+            </label>
+            <input
+              type="date"
+              value={proposedStartDate}
+              onChange={(e) => setProposedStartDate(e.target.value)}
+              disabled={isLocked || pending}
+              className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold/50 disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-ink-2 mb-1">
+              Date de fin proposée
+            </label>
+            <input
+              type="date"
+              value={proposedEndDate}
+              onChange={(e) => setProposedEndDate(e.target.value)}
+              disabled={isLocked || pending}
+              className="w-full rounded-md border border-line bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gold/50 disabled:opacity-50"
+            />
+          </div>
+        </div>
+      </div>
 
       <Textarea
         rows={4}

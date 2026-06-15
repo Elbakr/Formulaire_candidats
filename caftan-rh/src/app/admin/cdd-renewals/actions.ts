@@ -42,6 +42,12 @@ export async function updateRationaleAction(input: {
 
 export async function sendRenewalProposalAction(input: {
   recommendationId: string;
+  /** Heures/semaine proposées (éditables par la RH avant envoi). */
+  proposedWeeklyHours?: number | null;
+  /** Date de début du nouveau CDD proposée. */
+  proposedStartDate?: string | null;
+  /** Date de fin du nouveau CDD proposée. */
+  proposedEndDate?: string | null;
 }): Promise<{ ok?: boolean; error?: string }> {
   const { profile } = await requireRole(["admin", "rh"]);
   const supabase = await createClient();
@@ -65,15 +71,35 @@ export async function sendRenewalProposalAction(input: {
   const employee = emp as unknown as EmpRow | null;
   if (!employee) return { error: "Employé introuvable." };
 
-  // 1. Update statut.
+  // Construit le résumé des termes pour la note de décision et les notifs.
+  const termsParts: string[] = [];
+  if (input.proposedWeeklyHours != null) {
+    termsParts.push(`${input.proposedWeeklyHours}h/sem.`);
+  }
+  if (input.proposedStartDate) termsParts.push(`début ${input.proposedStartDate}`);
+  if (input.proposedEndDate) termsParts.push(`fin ${input.proposedEndDate}`);
+  const termsLabel = termsParts.length > 0 ? ` (${termsParts.join(", ")})` : "";
+
+  // 1. Persiste statut + termes proposés.
+  const updatePayload: Record<string, unknown> = {
+    status: "sent",
+    decided_by: profile.id,
+    decided_at: new Date().toISOString(),
+    decision_note: `Proposition de renouvellement envoyée${termsLabel}.`,
+  };
+  if (input.proposedWeeklyHours != null) {
+    updatePayload.proposed_weekly_hours = input.proposedWeeklyHours;
+  }
+  if (input.proposedStartDate) {
+    updatePayload.proposed_start_date = input.proposedStartDate;
+  }
+  if (input.proposedEndDate) {
+    updatePayload.proposed_end_date = input.proposedEndDate;
+  }
+
   const { error: upErr } = await supabase
     .from("cdd_renewal_recommendations")
-    .update({
-      status: "sent",
-      decided_by: profile.id,
-      decided_at: new Date().toISOString(),
-      decision_note: "Proposition de renouvellement envoyée.",
-    })
+    .update(updatePayload)
     .eq("id", input.recommendationId);
   if (upErr) return { error: upErr.message };
 
@@ -83,7 +109,9 @@ export async function sendRenewalProposalAction(input: {
       recipient_id: employee.profile_id,
       kind: "cdd_renewal",
       title: `Renouvellement CDD proposé — fin de contrat le ${rec.contract_end_date}`,
-      body: `Karim te propose de renouveler ton CDD (fin actuelle : ${rec.contract_end_date}). Ton manager te recontacte prochainement pour finaliser les modalités.`,
+      body:
+        `Karim te propose de renouveler ton CDD (fin actuelle : ${rec.contract_end_date})${termsLabel}. ` +
+        `Ton manager te recontacte prochainement pour finaliser les modalités.`,
       link: "/me",
       data: { recommendation_id: rec.id },
     });
@@ -94,7 +122,9 @@ export async function sendRenewalProposalAction(input: {
       recipient_id: employee.manager_id,
       kind: "cdd_renewal",
       title: `Renouvellement CDD à finaliser — ${employee.full_name} (fin ${rec.contract_end_date})`,
-      body: `${employee.full_name} a reçu une proposition de renouvellement (contrat actuel : fin le ${rec.contract_end_date}). Envoie l'offre formelle (template cdd_renewal_propose) dès que possible.`,
+      body:
+        `${employee.full_name} a reçu une proposition de renouvellement (contrat actuel : fin le ${rec.contract_end_date})${termsLabel}. ` +
+        `Envoie l'offre formelle (template cdd_renewal_propose) dès que possible.`,
       link: "/admin/cdd-renewals",
       data: { recommendation_id: rec.id },
     });
