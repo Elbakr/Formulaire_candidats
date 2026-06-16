@@ -93,7 +93,7 @@ jobs:
           MAP['0 4 * * *']='candidate-match-rescore'
           MAP['*/30 * * * *']='payslip-imap-poll'
           MAP['0 4 * * 1']='leave-balance-recompute'
-          MAP['0 */6 * * *']='check-mail-links'
+          MAP['0 */6 * * *']='check-mail-links selftest'
           MAP['0 3 1 * *']='rgpd-anonymize'
           MAP['0 7 1 * *']='monthly-admin-report'
           MAP['5 0 1 1 *']='leave-balance-new-year'
