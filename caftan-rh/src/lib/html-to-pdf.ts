@@ -1,57 +1,43 @@
-// Karim 2026-06-15 : rendu HTML -> PDF A4 FIDÈLE via Chromium headless.
-// Utilisé pour générer le PDF des contrats (super layout pixel-perfect) :
-// pièce jointe du mail de signature + téléchargement candidat/RH.
+// Karim 2026-06-16 : rendu HTML -> PDF A4 FIDÈLE via un service externe (PDFShift).
+// Décision : le Chromium in-house (@sparticuz) ne s'embarquait pas correctement
+// dans la fonction Vercel. On passe par un service HTML→PDF fiable.
 //
-// - Sur Vercel/serverless : binaire @sparticuz/chromium (conçu pour Lambda).
-// - En local : Chrome système si dispo (CHROME_PATH, sinon chemins usuels).
-// preferCSSPageSize=true -> respecte le @page (A4 + marges) du CONTRACT_CSS.
+// Même signature que la version précédente -> tous les appelants (route PDF,
+// mail de contrat signé) marchent sans changement. Si PDFSHIFT_API_KEY manque,
+// on throw -> les appelants retombent sur leur repli (pièce jointe HTML).
+//
+// Config requise : variable d'env PDFSHIFT_API_KEY (compte pdfshift.io).
+// Le HTML (super layout) contient son propre CSS @page (A4 + marges) -> use_print
+// pour appliquer la feuille d'impression.
 
 import "server-only";
 
-function localChromePath(): string | undefined {
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  const candidates = [
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  ];
-  return candidates[0];
-}
+const PDFSHIFT_ENDPOINT = "https://api.pdfshift.io/v3/convert/pdf";
 
 export async function renderHtmlToPdf(html: string): Promise<Uint8Array> {
-  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.AWS_EXECUTION_ENV;
-  const puppeteer = await import("puppeteer-core");
-
-  let executablePath: string | undefined;
-  let args: string[] = [];
-
-  if (isServerless) {
-    const chromium = (await import("@sparticuz/chromium")).default;
-    executablePath = await chromium.executablePath();
-    args = chromium.args;
-  } else {
-    executablePath = localChromePath();
-    args = ["--no-sandbox", "--disable-setuid-sandbox"];
+  const key = process.env.PDFSHIFT_API_KEY;
+  if (!key || !key.trim()) {
+    throw new Error("PDFSHIFT_API_KEY manquant (service PDF non configuré).");
   }
 
-  const browser = await puppeteer.launch({
-    args,
-    executablePath,
-    headless: true,
-    defaultViewport: null,
-  });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "load", timeout: 30_000 });
-    const pdf = await page.pdf({
-      printBackground: true,
-      preferCSSPageSize: true, // respecte @page (A4 + marges) du super layout
+  const res = await fetch(PDFSHIFT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + Buffer.from(`api:${key.trim()}`).toString("base64"),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      source: html,
       format: "A4",
-    });
-    return new Uint8Array(pdf);
-  } finally {
-    await browser.close().catch(() => undefined);
+      use_print: true, // applique le CSS @page / @media print du super layout
+      sandbox: false,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`PDFShift HTTP ${res.status}: ${txt.slice(0, 200)}`);
   }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
 }
