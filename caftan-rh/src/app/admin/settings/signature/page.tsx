@@ -133,11 +133,11 @@ export default async function SignatureSettingsPage() {
             C&apos;est gratuit, déjà fonctionnel, valable légalement (eIDAS Art. 25).
           </p>
           <p>
-            <span className="font-bold">Si tu veux un upgrade gratuit avec meilleur design</span> : déploie <span className="font-bold text-blue-700">DocuSeal self-hosted</span> (1h via Docker).
-            Open source, équivalent visuel DocuSign, gratuit à vie.
+            <span className="font-bold">Si tu veux un upgrade gratuit avec meilleur design</span> : déploie un <span className="font-bold text-blue-700">outil de signature électronique self-hosted</span> (1h via Docker).
+            Open source, équivalent visuel aux grandes plateformes, gratuit à vie.
           </p>
           <p>
-            <span className="font-bold">Pour les contrats sensibles ou litige potentiel</span> : <span className="font-bold text-amber-700">DocuSign Business Pro EU</span> (40€/mois) reste la référence QES.
+            <span className="font-bold">Pour les contrats sensibles ou litige potentiel</span> : <span className="font-bold text-amber-700">une signature électronique qualifiée (QES) tierce</span> (≈ 40€/mois) reste la référence légale.
             On peut activer cas par cas plutôt que pour tous.
           </p>
         </div>

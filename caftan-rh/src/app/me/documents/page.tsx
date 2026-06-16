@@ -1,6 +1,7 @@
 import { FileText, Download } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
@@ -15,11 +16,57 @@ const KIND_KEYS: Record<string, TranslationKey> = {
   other: "documents.kind.other",
 };
 
+type SignedContract = {
+  id: string;
+  signing_token: string;
+  signed_at: string;
+  template: { name: string; title: string } | null;
+};
+
 export default async function MyDocumentsPage() {
   const { user } = await requireProfile();
   const supabase = await createClient();
+  const admin = createAdminClient();
   const locale = await getLocale();
 
+  // ── Contrats signés ──────────────────────────────────────────────────────
+  // Résoudre l'employee lié à ce compte (profile_id, puis fallback email).
+  let signedContracts: SignedContract[] = [];
+  {
+    let empId: string | null = null;
+
+    const { data: empByProfile } = await admin
+      .from("employees")
+      .select("id")
+      .eq("profile_id", user.id)
+      .maybeSingle();
+
+    if (empByProfile) {
+      empId = (empByProfile as { id: string }).id;
+    } else if (user.email) {
+      const { data: empByEmail } = await admin
+        .from("employees")
+        .select("id")
+        .ilike("email", user.email)
+        .maybeSingle();
+      if (empByEmail) empId = (empByEmail as { id: string }).id;
+    }
+
+    if (empId) {
+      const { data } = await admin
+        .from("employee_contracts")
+        .select(
+          "id, signing_token, signed_at, template:contract_templates(name, title)",
+        )
+        .eq("employee_id", empId)
+        .eq("status", "signed")
+        .order("signed_at", { ascending: false });
+
+      signedContracts = ((data ?? []) as unknown as SignedContract[]);
+    }
+  }
+
+  // ── Documents de candidature ─────────────────────────────────────────────
   // First get the user's candidate IDs
   const { data: cands } = await supabase
     .from("candidates")
@@ -69,44 +116,89 @@ export default async function MyDocumentsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{t("documents.title", locale)}</h1>
         <p className="text-sm text-ink-2">{t("documents.subtitle", locale)}</p>
       </div>
-      <Card>
-        {docsWithUrl.length === 0 ? (
-          <div className="p-10 text-center">
-            <FileText className="h-10 w-10 text-ink-3 mx-auto mb-3" />
-            <p className="text-sm text-ink-2">{t("documents.empty", locale)}</p>
-          </div>
-        ) : (
-          <ul className="divide-y divide-line">
-            {docsWithUrl.map((d) => (
-              <li key={d.id} className="p-3 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-md bg-gold-light text-gold-dark flex items-center justify-center">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm truncate">{d.file_name}</div>
-                  <div className="text-xs text-ink-3">
-                    {kindLabel(d.kind)} ·{" "}
-                    {d.size_bytes ? `${(d.size_bytes / 1024).toFixed(1)} Ko · ` : ""}
-                    {formatDateTime(d.created_at)}
+
+      {/* ── Section : Mes contrats ── */}
+      {signedContracts.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold">
+            {t("documents.contracts.title", locale)}
+          </h2>
+          <Card>
+            <ul className="divide-y divide-line">
+              {signedContracts.map((c) => {
+                const title =
+                  c.template?.title ||
+                  t("documents.contracts.fallback_title", locale);
+                return (
+                  <li key={c.id} className="p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-md bg-gold-light text-gold-dark flex items-center justify-center shrink-0">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-sm truncate">{title}</div>
+                      <div className="text-xs text-ink-3">
+                        {t("documents.contracts.signed_on", locale)}{" "}
+                        {formatDateTime(c.signed_at)}
+                      </div>
+                    </div>
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={`/api/contracts/sign/${c.signing_token}/pdf?download=1`}
+                        download
+                      >
+                        <Download className="h-3.5 w-3.5" />{" "}
+                        {t("documents.contracts.download", locale)}
+                      </a>
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Section : Documents de candidature ── */}
+      <div className="space-y-2">
+        <Card>
+          {docsWithUrl.length === 0 ? (
+            <div className="p-10 text-center">
+              <FileText className="h-10 w-10 text-ink-3 mx-auto mb-3" />
+              <p className="text-sm text-ink-2">{t("documents.empty", locale)}</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {docsWithUrl.map((d) => (
+                <li key={d.id} className="p-3 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-md bg-gold-light text-gold-dark flex items-center justify-center">
+                    <FileText className="h-5 w-5" />
                   </div>
-                </div>
-                {d.url ? (
-                  <Button asChild size="sm" variant="outline">
-                    <a href={d.url} target="_blank" rel="noopener noreferrer">
-                      <Download className="h-3.5 w-3.5" /> {t("documents.view", locale)}
-                    </a>
-                  </Button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm truncate">{d.file_name}</div>
+                    <div className="text-xs text-ink-3">
+                      {kindLabel(d.kind)} ·{" "}
+                      {d.size_bytes ? `${(d.size_bytes / 1024).toFixed(1)} Ko · ` : ""}
+                      {formatDateTime(d.created_at)}
+                    </div>
+                  </div>
+                  {d.url ? (
+                    <Button asChild size="sm" variant="outline">
+                      <a href={d.url} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5" /> {t("documents.view", locale)}
+                      </a>
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

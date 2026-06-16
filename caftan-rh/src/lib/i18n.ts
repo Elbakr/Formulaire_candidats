@@ -102,6 +102,10 @@ const FR = {
   "documents.kind.id_card": "Pièce d'identité",
   "documents.kind.diploma": "Diplôme",
   "documents.kind.other": "Autre",
+  "documents.contracts.title": "Mes contrats",
+  "documents.contracts.signed_on": "Signé le",
+  "documents.contracts.download": "Télécharger (PDF)",
+  "documents.contracts.fallback_title": "Contrat de travail",
 
   // Page Messages (/me/messages)
   "messages.title": "Messages",
@@ -794,6 +798,10 @@ const NL: Record<TranslationKey, string> = {
   "documents.kind.id_card": "Identiteitskaart",
   "documents.kind.diploma": "Diploma",
   "documents.kind.other": "Andere",
+  "documents.contracts.title": "Mijn contracten",
+  "documents.contracts.signed_on": "Ondertekend op",
+  "documents.contracts.download": "Downloaden (PDF)",
+  "documents.contracts.fallback_title": "Arbeidscontract",
 
   "messages.title": "Berichten",
   "messages.subtitle":

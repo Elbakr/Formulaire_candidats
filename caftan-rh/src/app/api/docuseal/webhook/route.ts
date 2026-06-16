@@ -8,6 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { verifyDocusealWebhook } from "@/lib/docuseal-client";
 import { getPublicBaseUrl } from "@/lib/public-base-url";
+import { sendAppMail } from "@/lib/app-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,30 @@ export async function POST(request: NextRequest) {
   const employeeId = event.data.metadata?.employee_id;
   const contractId = event.data.metadata?.contract_id;
   const terminationId = event.data.metadata?.termination_id;
+
+  // Karim 2026-06-16 : GARDE flux interne.
+  // Si le contrat ciblé est géré par le flux de signature interne (/sign),
+  // on ignore silencieusement ce webhook DocuSeal pour éviter tout double-update.
+  // Un contrat est « interne » s'il possède un signing_token (= lien magique /sign)
+  // ou s'il n'a pas de docuseal_submission_id (= jamais passé par DocuSeal).
+  // Les contrats legacy DocuSeal (docuseal_submission_id non nul, signing_token nul)
+  // traversent normalement.
+  if (contractId) {
+    const { data: existingContract } = await admin
+      .from("employee_contracts")
+      .select("signing_token, docuseal_submission_id")
+      .eq("id", contractId)
+      .maybeSingle();
+    if (existingContract) {
+      const isInternalFlow =
+        !!existingContract.signing_token ||
+        !existingContract.docuseal_submission_id;
+      if (isInternalFlow) {
+        console.log("[docuseal/webhook] ignored — contrat géré par le flux interne", contractId);
+        return NextResponse.json({ ok: true, ignored: true, reason: "internal flow" });
+      }
+    }
+  }
 
   // Karim 2026-06-02 : branch RUPTURE AMIABLE (contract_terminations).
   // Couvre form.completed (1 partie signe) + submission.completed (toutes signe).
@@ -187,15 +212,12 @@ export async function POST(request: NextRequest) {
             }
 
             // 3. Mail a hr@caftanfactory.com (boite commune) + tous les RH/admin perso
-            const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-            const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-            const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-            if (SERVICE && TEMPLATE && KEY && signedDownloadUrl) {
+            if (signedDownloadUrl) {
               const recipients = new Set<string>(["hr@caftanfactory.com"]);
               for (const hr of hrList) if (hr.email) recipients.add(hr.email);
 
               const subject = `Convention de rupture signée — ${empName}`;
-              const body = `Bonjour,
+              const hrBody = `Bonjour,
 
 La convention de cessation de contrat de travail de COMMUN ACCORD de ${empName} a été signée par les 2 parties (signature électronique eIDAS).
 
@@ -214,21 +236,17 @@ ${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/rh/documents?employee=${t.employee_id}
 • Archiver dans le dossier comptable
 
 L'équipe CaftanRH`;
-              const params = {
-                from_name: "CaftanRH - Rupture signée", reply_to: "hr@caftanfactory.com",
-                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-                body, content: body, html: body.replace(/\n/g, "<br>"),
-                pdf_url: signedDownloadUrl,
-              };
               for (const to of recipients) {
                 try {
-                  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-                    body: JSON.stringify({
-                      service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
-                      template_params: { ...params, to_email: to, email: to, user_email: to, candidate_email: to, to, to_name: "RH", name: "RH", candidate_name: "RH" },
-                    }),
+                  await sendAppMail({
+                    to,
+                    toName: "RH",
+                    subject,
+                    body: hrBody,
+                    attachmentUrls: [{ name: "Convention de cessation signée.pdf", url: signedDownloadUrl }],
+                    source: "termination_signed",
+                    sourceRef: terminationId,
+                    employeeId: t.employee_id,
                   });
                 } catch { /* non bloquant */ }
               }
@@ -252,38 +270,17 @@ Nous te souhaitons le meilleur pour la suite.
 
 L'équipe Caftan Factory (By AMD Megastore)`;
                 try {
-                  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-                    body: JSON.stringify({
-                      service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
-                      template_params: {
-                        from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-                        subject: `Ta convention de cessation signée — ${empName}`,
-                        message: empBody, html_message: empBody.replace(/\n/g, "<br>"),
-                        body: empBody, content: empBody, html: empBody.replace(/\n/g, "<br>"),
-                        pdf_url: signedDownloadUrl,
-                        to_email: empEmail, email: empEmail, user_email: empEmail, candidate_email: empEmail,
-                        to: empEmail, to_name: empName, name: empName, candidate_name: empName,
-                      },
-                    }),
+                  await sendAppMail({
+                    to: empEmail,
+                    toName: empName,
+                    subject: `Ta convention de cessation signée — ${empName}`,
+                    body: empBody,
+                    attachmentUrls: [{ name: "Convention de cessation signée.pdf", url: signedDownloadUrl }],
+                    source: "termination_signed",
+                    sourceRef: terminationId,
+                    employeeId: t.employee_id,
                   });
-
-                  // Log mail dans outbound_mails
-                  try {
-                    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-                    await logOutboundMail({
-                      recipient_email: empEmail,
-                      recipient_name: empName,
-                      subject: `Ta convention de cessation signée — ${empName}`,
-                      body: empBody,
-                      source: "contract_signature",
-                      source_ref: terminationId,
-                      employee_id: t.employee_id,
-                      attachments: [{ name: "Convention de cessation signée.pdf", url: signedDownloadUrl }],
-                    });
-                  } catch { /* */ }
-                } catch { /* */ }
+                } catch { /* non bloquant */ }
               }
             }
           } catch (e) {
@@ -419,13 +416,10 @@ L'équipe Caftan Factory (By AMD Megastore)`;
           await admin.from("notifications").insert(inserts);
 
           // Mail rappel a hr@caftanfactory.com + chaque RH
-          const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-          const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-          const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-          if (SERVICE && TEMPLATE && PUBLIC_KEY) {
+          {
             const recipients = new Set(["hr@caftanfactory.com", ...hrList.map((h) => h.email).filter((e): e is string => !!e)]);
-            const subject = `🚨 DIMONA URGENTE — Contrat signé ${empName}`;
-            const body = `Bonjour,\n\nLe contrat de ${empName} vient d'être signé électroniquement.\n\n` +
+            const dimonaSubject = `🚨 DIMONA URGENTE — Contrat signé ${empName}`;
+            const dimonaBody = `Bonjour,\n\nLe contrat de ${empName} vient d'être signé électroniquement.\n\n` +
               `⚠ La Dimona IN doit être déclarée AVANT le 1er jour de travail (obligation légale ONSS).\n\n` +
               `Actions disponibles sur la fiche employé :\n` +
               `• Ouvrir le portail ONSS Dimona (déclaration manuelle)\n` +
@@ -434,18 +428,15 @@ L'équipe Caftan Factory (By AMD Megastore)`;
               `Lien direct : ${getPublicBaseUrl()}/planning/employees/${employeeId}\n\n` +
               `L'équipe CaftanRH`;
             for (const to of recipients) {
-              const params = {
-                to_email: to, email: to, user_email: to, candidate_email: to,
-                to, to_name: "RH", name: "RH", candidate_name: "RH",
-                from_name: "CaftanRH - Alerte Dimona", reply_to: "hr@caftanfactory.com",
-                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-                body, html: body.replace(/\n/g, "<br>"), content: body,
-              };
               try {
-                await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-                  body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params }),
+                await sendAppMail({
+                  to,
+                  toName: "RH",
+                  subject: dimonaSubject,
+                  body: dimonaBody,
+                  source: "dimona_reminder",
+                  sourceRef: contractId,
+                  employeeId,
                 });
               } catch { /* non bloquant */ }
             }
@@ -488,7 +479,7 @@ L'équipe Caftan Factory (By AMD Megastore)`;
             recipient_id: hrId,
             kind: "contract_signed",
             title: `Contrat signé : ${name}`,
-            body: `Le contrat de ${name} a été signé électroniquement via DocuSeal.`,
+            body: `Le contrat de ${name} a été signé électroniquement.`,
             link: contractId ? `/planning/employees/${employeeId}/contract` : `/planning/employees/${employeeId}`,
             data: { submissionId, employeeId, contractId },
           })),
@@ -510,20 +501,14 @@ L'équipe Caftan Factory (By AMD Megastore)`;
   return NextResponse.json({ ok: true });
 }
 
-// Karim 2026-05-29 : envoi du contrat signe final via EmailJS depuis
-// hr@caftanfactory.com. EmailJS ne gere pas les attachements PDF facilement,
-// donc on envoie le LIEN vers le PDF signe (hebergee chez DocuSeal).
+// Karim 2026-06-16 : migré de EmailJS direct vers sendAppMail (app-mail.ts).
+// Envoie le contrat signé final aux 2 parties avec le lien PDF sécurisé.
 async function sendSignedContractCopy(args: {
   to: string;
   recipientName: string;
   signedPdfUrl: string;
   language: "fr" | "nl" | "en";
 }) {
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) return;
-
   const MSG = {
     fr: {
       subject: "Votre contrat signé — Caftan Factory (By AMD Megastore)",
@@ -554,21 +539,14 @@ async function sendSignedContractCopy(args: {
   const msg = MSG[args.language];
   const firstName = args.recipientName.split(/\s+/)[0] ?? args.recipientName;
   const body = msg.body(firstName, args.signedPdfUrl);
-  const params = {
-    to_email: args.to, email: args.to, user_email: args.to, candidate_email: args.to,
-    to: args.to, to_name: args.recipientName, name: args.recipientName, candidate_name: args.recipientName,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject: msg.subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, html: body.replace(/\n/g, "<br>"), content: body,
-    signed_pdf_url: args.signedPdfUrl,
-  };
   try {
-    await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({
-        service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params,
-      }),
+    await sendAppMail({
+      to: args.to,
+      toName: args.recipientName,
+      subject: msg.subject,
+      body,
+      attachmentUrls: [{ name: "Contrat signé.pdf", url: args.signedPdfUrl }],
+      source: "contract_signed",
     });
   } catch (e) {
     console.warn("[docuseal/webhook] sendSignedContractCopy err:", e);
