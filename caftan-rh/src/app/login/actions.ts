@@ -102,44 +102,22 @@ export async function requestPasswordResetAction(
   const actionLink = linkData?.properties?.action_link;
   if (!actionLink) return { error: "Impossible de générer le lien." };
 
-  // Envoie via EmailJS depuis hr@caftanfactory.com (pas de rate limit)
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) {
-    return { error: "EmailJS non configure (NEXT_PUBLIC_EMAILJS_*)." };
-  }
+  // Envoie via le pipeline mail unifie (Gmail SMTP -> Resend -> EmailJS).
+  const { sendAppMail } = await import("@/lib/app-mail");
   const body = `Bonjour,\n\nTu as demandé à réinitialiser ton mot de passe CaftanRH.\n\n` +
     `Clique sur le lien sécurisé ci-dessous pour définir un nouveau mot de passe :\n\n` +
     `👉 ${actionLink}\n\n` +
     `Ce lien expire dans 1 heure. Si tu n'as rien demandé, ignore simplement ce mail.\n\n` +
     `L'équipe CaftanRH`;
-  const params = {
-    to_email: email, email, user_email: email, candidate_email: email,
-    to: email, to_name: email, name: email, candidate_name: email,
-    from_name: "CaftanRH", reply_to: "hr@caftanfactory.com",
+  const r = await sendAppMail({
+    to: email,
+    toName: email,
     subject: "Réinitialisation de ton mot de passe CaftanRH",
-    message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, html: body.replace(/\n/g, "<br>"), content: body,
-    reset_url: actionLink,
-  };
-  try {
-    const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({
-        service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY,
-        template_params: params,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      return { error: `EmailJS HTTP ${res.status}: ${txt.slice(0, 150)}` };
-    }
-    return { ok: true };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
+    body,
+    source: "password_reset",
+  });
+  if (!r.ok) return { error: r.error ?? "Échec de l'envoi du mail." };
+  return { ok: true };
 }
 
 /**

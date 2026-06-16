@@ -135,10 +135,8 @@ export async function closeEmployment(
 }
 
 async function sendEndNoticeEmail(email: string | null, fullName: string | null, eff: string) {
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!email || !SERVICE || !TEMPLATE || !KEY) return;
+  if (!email) return;
+  const { sendAppMail } = await import("@/lib/app-mail");
   const first = (fullName ?? "").split(/\s+/)[0] ?? "";
   const body =
     `Bonjour ${first},\n\n` +
@@ -147,20 +145,12 @@ async function sendEndNoticeEmail(email: string | null, fullName: string | null,
     `L'équipe RH te transmettra les documents de fin de contrat (C4, solde de tout compte) dans les meilleurs délais.\n\n` +
     `Au plaisir,\nCaftan Factory — RH`;
   try {
-    await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({
-        service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
-        template_params: {
-          to_email: email, email, user_email: email, candidate_email: email, to: email,
-          to_name: fullName || email, name: fullName || email,
-          from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-          subject: "Fin de ton contrat — Caftan Factory",
-          message: body, html_message: body.replace(/\n/g, "<br>"),
-          body, html: body.replace(/\n/g, "<br>"), content: body,
-        },
-      }),
+    await sendAppMail({
+      to: email,
+      toName: fullName || email,
+      subject: "Fin de ton contrat — Caftan Factory",
+      body,
+      source: "employment_end",
     });
   } catch { /* best-effort */ }
 }

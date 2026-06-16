@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { closeEmployment } from "@/lib/employment-lifecycle";
+import { notify } from "@/lib/notify";
 
 async function loadRecord(id: string) {
   const supabase = await createClient();
@@ -105,21 +106,21 @@ export async function sendRenewalProposalAction(input: {
 
   // 2. Notification à l'employé (si profil rattaché).
   if (employee.profile_id) {
-    await supabase.from("notifications").insert({
-      recipient_id: employee.profile_id,
+    await notify({
+      recipientId: employee.profile_id,
       kind: "cdd_renewal",
       title: `Renouvellement CDD proposé — fin de contrat le ${rec.contract_end_date}`,
       body:
         `Karim te propose de renouveler ton CDD (fin actuelle : ${rec.contract_end_date})${termsLabel}. ` +
         `Ton manager te recontacte prochainement pour finaliser les modalités.`,
-      link: "/me",
+      link: "/me/contract-info",
       data: { recommendation_id: rec.id },
     });
   }
   // 3. Notification au manager.
   if (employee.manager_id) {
-    await supabase.from("notifications").insert({
-      recipient_id: employee.manager_id,
+    await notify({
+      recipientId: employee.manager_id,
       kind: "cdd_renewal",
       title: `Renouvellement CDD à finaliser — ${employee.full_name} (fin ${rec.contract_end_date})`,
       body:
@@ -164,8 +165,8 @@ export async function discussRenewalAction(input: {
   if (upErr) return { error: upErr.message };
 
   if (employee.manager_id) {
-    await supabase.from("notifications").insert({
-      recipient_id: employee.manager_id,
+    await notify({
+      recipientId: employee.manager_id,
       kind: "cdd_renewal",
       title: `Discussion CDD à organiser — ${employee.full_name} (fin ${rec.contract_end_date})`,
       body: `Karim souhaite échanger avec toi avant la décision de renouvellement de ${employee.full_name} (contrat se terminant le ${rec.contract_end_date}). Prends contact rapidement pour ne pas dépasser le délai.`,

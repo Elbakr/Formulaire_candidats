@@ -92,12 +92,8 @@ export async function sendCandidateMagicLink(
     `${base}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}` +
     `&type=magiclink&next=${encodeURIComponent(nextPath)}`;
 
-  // 3. Envoi via EmailJS (depuis hr@caftanfactory.com, pas de rate limit).
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) return { error: "EmailJS non configuré." };
-
+  // 3. Envoi via le pipeline mail unifie (Gmail SMTP -> Resend -> EmailJS).
+  const { sendAppMail } = await import("@/lib/app-mail");
   const first = (opts?.fullName ?? "").split(/\s+/)[0] ?? "";
   const body =
     `Bonjour ${first},\n\n` +
@@ -106,25 +102,13 @@ export async function sendCandidateMagicLink(
     `👉 ${actionLink}\n\n` +
     `Ce lien expire dans 1 heure. Si tu n'as rien demandé, ignore ce mail.\n\n` +
     `À bientôt,\nCaftan Factory (By AMD Megastore) — Recrutement`;
-  const params = {
-    to_email: email, email, user_email: email, candidate_email: email,
-    to: email, to_name: opts?.fullName || email, name: opts?.fullName || email,
-    candidate_name: opts?.fullName || email,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+  const r = await sendAppMail({
+    to: email,
+    toName: opts?.fullName || email,
     subject: "Ton lien de connexion — Caftan Factory",
-    message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, html: body.replace(/\n/g, "<br>"), content: body,
-    login_url: actionLink,
-  };
-  try {
-    const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params }),
-    });
-    if (!res.ok) return { error: `EmailJS HTTP ${res.status}` };
-    return { ok: true };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
+    body,
+    source: "magic_link",
+  });
+  if (!r.ok) return { error: r.error ?? "Échec de l'envoi du mail." };
+  return { ok: true };
 }
