@@ -32,11 +32,7 @@ async function sendEmployerCopyMail(args: {
   employerName: string;
   templateLabel: string;
 }): Promise<void> {
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return;
-
+  const { sendAppMail } = await import("@/lib/app-mail");
   const body = `Bonjour,
 
 📋 ARCHIVE CONTRAT — Un contrat ${args.templateLabel} a été envoyé à signer.
@@ -50,33 +46,14 @@ Si tu n'as pas effectué cet envoi, contacte un admin immédiatement.
 
 CaftanRH
 `;
-  const params = {
-    to_email: args.employerEmail, email: args.employerEmail, user_email: args.employerEmail,
-    to: args.employerEmail, to_name: "Employeur", name: "Employeur",
-    candidate_name: "Employeur", candidate_email: args.employerEmail,
-    from_name: "CaftanRH (archive)", reply_to: "hr@caftanfactory.com",
+  await sendAppMail({
+    to: args.employerEmail,
+    toName: "Employeur",
     subject: `[Archive] Contrat envoyé à ${args.employeeName}`,
-    message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, html: body.replace(/\n/g, "<br>"), content: body,
-    signing_url: args.signingUrl,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+    body,
+    source: "contract_employer_archive",
+    attachmentUrls: [{ name: "Lien de signature", url: args.signingUrl }],
   });
-  // Karim 2026-05-31 : archive la copie employeur dans outbound_mails
-  try {
-    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-    await logOutboundMail({
-      recipient_email: args.employerEmail,
-      recipient_name: "Employeur (archive)",
-      subject: `[Archive] Contrat envoyé à ${args.employeeName}`,
-      body,
-      source: "contract_employer_archive",
-      attachments: [{ name: "Lien de signature", url: args.signingUrl }],
-      status: res.ok ? "sent" : "failed",
-    });
-  } catch {}
 }
 
 /**

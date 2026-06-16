@@ -4,7 +4,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
-import { logOutboundMail } from "@/lib/outbound-mail-log";
+import { sendAppMail } from "@/lib/app-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +59,6 @@ export async function GET(request: NextRequest) {
     .select("id, full_name, email")
     .in("role", ["admin", "rh"]);
 
-  const employerEmail = process.env.HR_NOTIFY_EMAIL ?? "hr@caftanfactory.com";
-
   // 1 mail par admin/rh listant toutes les fiches dues
   const lines = rows.map((r) =>
     `- ${r.employee?.full_name ?? "Employé"} : ${Number(r.amount_to_pay).toFixed(2)} € (${r.period_label ?? `${r.period_month}/${r.period_year}`}) — initialement différée jusqu'au ${r.scheduled_payment_date}`,
@@ -84,32 +82,16 @@ CaftanRH (cron automatique)
   let notified = 0;
   for (const rh of rhs ?? []) {
     if (!rh.email) continue;
-    const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-    const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-    const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-    if (!SERVICE || !TEMPLATE || !KEY) break;
-    const params = {
-      to_email: rh.email, email: rh.email, user_email: rh.email,
-      to: rh.email, to_name: rh.full_name ?? "RH",
-      from_name: "CaftanRH (cron)", reply_to: employerEmail,
-      subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-      body, content: body,
-    };
     try {
-      await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-        body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
-      });
-      await logOutboundMail({
-        recipient_email: rh.email,
-        recipient_name: rh.full_name,
+      const result = await sendAppMail({
+        to: rh.email,
+        toName: rh.full_name ?? "RH",
         subject,
         body,
-        source: "manual",
-        source_ref: "cron_secondary_notify",
-        sender_name: "CaftanRH cron",
+        source: "payslip_secondary",
       });
-      notified++;
+      if (result.ok) notified++;
+      else console.error("[payslip-secondary-notify] mail err:", result.error);
     } catch (e) {
       console.error("[payslip-secondary-notify] mail err:", (e as Error).message);
     }

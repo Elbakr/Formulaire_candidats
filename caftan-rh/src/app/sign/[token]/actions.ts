@@ -87,46 +87,26 @@ export async function submitSignatureAction(input: {
   const employeeEmail = (emp as { email: string | null } | null)?.email ?? null;
   const employeeName = (emp as { full_name: string } | null)?.full_name ?? contract.full_name;
 
-  // Envoi mails (RH + employe) via EmailJS
-  const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY) {
+  // Mail RH : notif "X a signé"
+  {
     const docTitle = contract.template?.title ?? "Contrat de travail";
     const subjectRH = `CaftanRH — ${employeeName} a signé son ${docTitle}`;
     const bodyRH = `Salut Karim,\n\n${employeeName} a signé son ${docTitle} le ${new Date(nowISO).toLocaleString("fr-BE")}.\nIP : ${ip}\n\nLe contrat complet est consultable sur la fiche employé :\n/planning/employees/${contract.employee_id}/contract\n\nLa signature électronique est valable légalement (eIDAS, Belgique).\n\nCaftanRH`;
-    // Mail RH (toi)
-    fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({
-        service_id: SERVICE_ID,
-        template_id: TEMPLATE_ID,
-        user_id: PUBLIC_KEY,
-        template_params: {
-          to_email: "elbazikarim@gmail.com",
-          email: "elbazikarim@gmail.com",
-          recipient: "elbazikarim@gmail.com",
-          user_email: "elbazikarim@gmail.com",
-          candidate_email: "elbazikarim@gmail.com",
-          to: "elbazikarim@gmail.com",
-          to_name: "Karim",
-          name: "Karim",
-          from_name: "CaftanRH",
-          reply_to: "hr@caftanfactory.com",
-          subject: subjectRH,
-          message: bodyRH,
-          html_message: bodyRH.replace(/\n/g, "<br>"),
-          body: bodyRH,
-          html: bodyRH.replace(/\n/g, "<br>"),
-          content: bodyRH,
-        },
-      }),
-    }).catch(() => {});
-
-    // Karim 2026-06-15 : le mail employé « copie à suivre » ne livrait JAMAIS le
-    // contrat. On l'envoie désormais RÉELLEMENT en pièce jointe (bloc ci-dessous).
+    try {
+      const { sendAppMail } = await import("@/lib/app-mail");
+      await sendAppMail({
+        to: "elbazikarim@gmail.com",
+        toName: "Karim",
+        subject: subjectRH,
+        body: bodyRH,
+        source: "contract_signed_rh",
+        employeeId: contract.employee_id,
+      });
+    } catch { /* best-effort */ }
   }
+
+  // Karim 2026-06-15 : le mail employé « copie à suivre » ne livrait JAMAIS le
+  // contrat. On l'envoie désormais RÉELLEMENT en pièce jointe (bloc ci-dessous).
 
   // Karim 2026-06-15 : ENVOI RÉEL du contrat signé au candidat (+ archive RH en
   // bcc) en pièce jointe. signedBody = le « super layout » avec les DEUX

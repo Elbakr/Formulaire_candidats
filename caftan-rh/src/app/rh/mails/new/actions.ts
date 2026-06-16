@@ -2,7 +2,7 @@
 
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { logOutboundMail } from "@/lib/outbound-mail-log";
+import { sendAppMail } from "@/lib/app-mail";
 
 export async function uploadMailAttachmentAction(
   formData: FormData,
@@ -35,12 +35,7 @@ interface SendManualArgs {
 }
 
 export async function sendManualMailAction(args: SendManualArgs): Promise<{ ok: boolean; error?: string }> {
-  const { profile } = await requireRole(["admin", "rh"]);
-
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return { ok: false, error: "EmailJS non configuré" };
+  await requireRole(["admin", "rh"]);
 
   let fullBody = args.body;
   if (args.attachments.length > 0) {
@@ -50,35 +45,16 @@ export async function sendManualMailAction(args: SendManualArgs): Promise<{ ok: 
     }
   }
 
-  const params = {
-    to_email: args.recipient_email, email: args.recipient_email, user_email: args.recipient_email,
-    candidate_email: args.recipient_email,
-    to: args.recipient_email, to_name: args.recipient_name ?? args.recipient_email,
-    name: args.recipient_name ?? "", candidate_name: args.recipient_name ?? "",
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+  const result = await sendAppMail({
+    to: args.recipient_email,
+    toName: args.recipient_name ?? undefined,
     subject: args.subject,
-    message: fullBody, html_message: fullBody.replace(/\n/g, "<br>"),
-    body: fullBody, html: fullBody.replace(/\n/g, "<br>"), content: fullBody,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
-  });
-  const sent = res.ok;
-  await logOutboundMail({
-    recipient_email: args.recipient_email,
-    recipient_name: args.recipient_name,
-    employee_id: args.employee_id,
-    sender_profile_id: profile.id,
-    sender_name: profile.full_name ?? "Caftan Factory (By AMD Megastore)",
-    subject: args.subject,
-    body: args.body,
-    source: "manual",
-    attachments: args.attachments,
-    status: sent ? "sent" : "failed",
-    error_message: sent ? undefined : `EmailJS HTTP ${res.status}`,
+    body: fullBody,
+    source: "manual_rh",
+    employeeId: args.employee_id ?? undefined,
+    attachmentUrls: args.attachments.map((a) => ({ name: a.name, url: a.url })),
   });
 
-  if (!sent) return { ok: false, error: `EmailJS HTTP ${res.status}` };
+  if (!result.ok) return { ok: false, error: result.error ?? "Envoi mail échoué" };
   return { ok: true };
 }

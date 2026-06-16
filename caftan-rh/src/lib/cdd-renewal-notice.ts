@@ -3,15 +3,12 @@
 // 15 jours avant la fin du contrat, on PREPARE un pre-avis (ligne
 // cdd_renewal_responses avec token unique). RH l'envoie en 1 clic (ou auto si
 // active). Le travailleur repond via une page /renewal/{token} : Oui/Non +
-// dates de disponibilite + raison + appreciation. Email via EmailJS (canal
-// employes, comme les fiches de paie), independant de Gmail/Resend.
+// dates de disponibilite + raison + appreciation.
 
 import crypto from "node:crypto";
 import { getOutboundBaseUrl } from "@/lib/public-base-url";
+import { sendAppMail } from "@/lib/app-mail";
 
-const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
 // Karim 2026-06-13 : lien externe -> jamais localhost/tunnel (cf. getOutboundBaseUrl).
 const BASE_URL = getOutboundBaseUrl();
 
@@ -50,9 +47,6 @@ export async function sendRenewalPreNotice(
   admin: Admin,
   row: { id: string; employee_id: string; contract_end_date: string; token: string },
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!SERVICE || !TEMPLATE || !PUBLIC_KEY) {
-    return { ok: false, error: "EmailJS non configuré (NEXT_PUBLIC_EMAILJS_*)." };
-  }
   const { data: emp } = await admin
     .from("employees")
     .select("full_name, email")
@@ -63,27 +57,17 @@ export async function sendRenewalPreNotice(
   if (!email) return { ok: false, error: "Cet employé n'a pas d'adresse email." };
 
   const { subject, body } = buildRenewalEmail(fullName, row.contract_end_date, row.token);
-  const html = body.replace(/\n/g, "<br>");
-  const params = {
-    to_email: email, email, to: email, to_name: fullName, name: fullName,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject, message: body, html_message: html, body, content: body, html,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: PUBLIC_KEY, template_params: params }),
+  const result = await sendAppMail({
+    to: email,
+    toName: fullName ?? undefined,
+    subject,
+    body,
+    source: "cdd_renewal_prenotice",
+    employeeId: row.employee_id,
   });
-  if (!res.ok) return { ok: false, error: `Envoi EmailJS HTTP ${res.status}` };
+  if (!result.ok) return { ok: false, error: result.error ?? "Envoi mail échoué" };
 
   await admin.from("cdd_renewal_responses").update({ sent_at: new Date().toISOString() }).eq("id", row.id);
-  try {
-    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-    await logOutboundMail({
-      recipient_email: email, recipient_name: fullName, subject, body,
-      source: "cdd_renewal_prenotice", source_ref: row.id, employee_id: row.employee_id,
-    });
-  } catch { /* log best-effort */ }
   return { ok: true };
 }
 

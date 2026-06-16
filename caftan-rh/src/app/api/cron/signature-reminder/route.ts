@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { sendAppMail } from "@/lib/app-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,6 @@ function daysSince(iso: string): number {
 }
 
 async function sendReminderMail(to: string, name: string, kind: "contract" | "termination", days: number, link: string) {
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return false;
-
   const docLabel = kind === "contract" ? "contrat de travail" : "convention de cessation";
   const urgency = days >= 7 ? "DERNIER RAPPEL" : days >= 5 ? "RAPPEL" : "Rappel";
   const subject = `${urgency} — Signature de ton ${docLabel} en attente`;
@@ -38,20 +34,9 @@ Si tu rencontres un souci, réponds à ce mail.
 
 L'équipe Caftan Factory (By AMD Megastore)`;
 
-  const params = {
-    to_email: to, email: to, user_email: to, candidate_email: to,
-    to, to_name: name, name, candidate_name: name,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, content: body, html: body.replace(/\n/g, "<br>"),
-  };
   try {
-    const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-      body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
-    });
-    return res.ok;
+    const result = await sendAppMail({ to, toName: name, subject, body, source: "signature_reminder" });
+    return result.ok;
   } catch {
     return false;
   }

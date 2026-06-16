@@ -61,10 +61,7 @@ export async function sendInfoRequestMailAction(
   }
   const link = `${BASE_URL}/contract-info/${token}`;
 
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return { error: "EmailJS non configuré" };
+  const { sendAppMail } = await import("@/lib/app-mail");
 
   const firstName = emp.full_name?.split(" ")[0] ?? "";
   const missingList = missing.map((m, i) => `  ${i + 1}. ${m.label}`).join("\n");
@@ -85,35 +82,16 @@ Si tu as une question, réponds simplement à ce mail.
 Caftan Factory (By AMD Megastore) — RH
 `;
 
-  const params = {
-    to_email: emp.email, email: emp.email, user_email: emp.email, candidate_email: emp.email,
-    to: emp.email, to_name: emp.full_name, name: emp.full_name, candidate_name: emp.full_name,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject: `CaftanRH - Compléter ton dossier (${missing.length} infos manquantes)`,
-    message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, html: body.replace(/\n/g, "<br>"), content: body,
-    info_link: link,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+  const subject = `CaftanRH - Compléter ton dossier (${missing.length} infos manquantes)`;
+  const result = await sendAppMail({
+    to: emp.email,
+    toName: emp.full_name ?? undefined,
+    subject,
+    body,
+    source: "info_request",
+    employeeId: emp.id,
   });
-  if (!res.ok) return { error: `EmailJS HTTP ${res.status}` };
-
-  // Karim 2026-05-31 : archive le mail dans outbound_mails
-  try {
-    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-    await logOutboundMail({
-      recipient_email: emp.email,
-      recipient_name: emp.full_name,
-      subject: `CaftanRH - Compléter ton dossier (${missing.length} infos manquantes)`,
-      body,
-      source: "info_request",
-      source_ref: emp.id,
-      employee_id: emp.id,
-      attachments: [{ name: "Lien dossier (token)", url: link }],
-    });
-  } catch {}
+  if (!result.ok) return { error: result.error ?? "Envoi mail échoué" };
 
   return { ok: true, sent_to: emp.email };
 }

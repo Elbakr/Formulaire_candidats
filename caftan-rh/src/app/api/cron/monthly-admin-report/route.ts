@@ -100,13 +100,14 @@ Liens utiles :
   // Envoi
   let sent = false;
   try {
-    const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");
-    const result = await sendMailWithAttachments({
+    const { sendAppMail } = await import("@/lib/app-mail");
+    const result = await sendAppMail({
       to: "elbazikarim@gmail.com",
       toName: "Karim Elbazi",
       subject: `📊 CaftanRH — Rapport mensuel ${period}`,
       body,
       bccHr: true,
+      source: "monthly_report",
     });
     sent = result.ok;
   } catch (e) {
