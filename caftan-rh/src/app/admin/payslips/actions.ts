@@ -654,34 +654,45 @@ export async function getPayslipPdfUrlAction(payslipId: string): Promise<{ ok: b
 }
 
 /**
- * Karim 2026-05-30 : met a jour l avance + recalcule amount_to_pay + regénère QR.
- * Cette action est utilisable depuis la fiche payslip directement (inline).
+ * Karim 2026-06-16 : cœur du recalcul avance/montant/QR, partagé entre
+ * l'action UI (setAdvanceAndRecomputeAction) et l'endpoint cron
+ * (POST /api/cron/payslip-recompute). Pas de requireRole ici — l'appelant
+ * est responsable de l'authentification.
+ *
+ * Règle métier sur les fiches secondaires : l'avance ne s'impute jamais sur
+ * une fiche secondaire (is_secondary=true) — elle est consommée uniquement
+ * par la fiche principale du mois. Pour cette fonction on applique l'avance
+ * passée en paramètre telle quelle (c'est l'appelant qui passe 0 si besoin).
  */
-export async function setAdvanceAndRecomputeAction(
+export async function recomputePayslipAdvance(
+  admin: ReturnType<typeof createAdminClient>,
   payslipId: string,
   newAdvance: number,
-): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+): Promise<{ ok: boolean; amount_to_pay?: number; qr?: "generated" | "none"; error?: string }> {
   if (newAdvance < 0) return { ok: false, error: "Montant negatif interdit" };
-  const admin = createAdminClient();
 
   const { data: payslip } = await admin
     .from("payslips")
-    .select("employee_id, net_amount, period_year, period_month, payment_iban, payment_holder_name")
+    .select("employee_id, net_amount, period_year, period_month, payment_iban, payment_holder_name, is_secondary")
     .eq("id", payslipId)
     .single();
   if (!payslip) return { ok: false, error: "Fiche introuvable" };
-  if (!payslip.employee_id) return { ok: false, error: "Associe d abord la fiche a un employé" };
+  if (!payslip.employee_id) return { ok: false, error: "Associe d abord la fiche a un employe" };
 
-  // Update advance sur employee
-  await admin.from("employees").update({
-    salary_advance_amount: newAdvance,
-    salary_advance_updated_at: new Date().toISOString(),
-  }).eq("id", payslip.employee_id);
+  // Règle métier : les fiches secondaires ne déduisent jamais d'avance
+  const effectiveAdvance = payslip.is_secondary ? 0 : newAdvance;
+
+  // Update advance sur employee (uniquement si fiche principale)
+  if (!payslip.is_secondary) {
+    await admin.from("employees").update({
+      salary_advance_amount: newAdvance,
+      salary_advance_updated_at: new Date().toISOString(),
+    }).eq("id", payslip.employee_id);
+  }
 
   // Recalcule sur la fiche
   const net = Number(payslip.net_amount);
-  const advanceDeducted = Math.min(newAdvance, net);
+  const advanceDeducted = Math.min(effectiveAdvance, net);
   const amountToPay = Math.max(0, net - advanceDeducted);
 
   // Regenere QR
@@ -721,6 +732,26 @@ export async function setAdvanceAndRecomputeAction(
   }).eq("id", payslipId);
   if (error) return { ok: false, error: error.message };
 
+  return {
+    ok: true,
+    amount_to_pay: amountToPay,
+    qr: qrPayload ? "generated" : "none",
+  };
+}
+
+/**
+ * Karim 2026-05-30 : met a jour l avance + recalcule amount_to_pay + regénère QR.
+ * Cette action est utilisable depuis la fiche payslip directement (inline).
+ */
+export async function setAdvanceAndRecomputeAction(
+  payslipId: string,
+  newAdvance: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (newAdvance < 0) return { ok: false, error: "Montant negatif interdit" };
+  const admin = createAdminClient();
+  const result = await recomputePayslipAdvance(admin, payslipId, newAdvance);
+  if (!result.ok) return { ok: false, error: result.error };
   revalidatePath("/admin/payslips");
   return { ok: true };
 }

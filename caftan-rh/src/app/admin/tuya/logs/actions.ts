@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { fetchUnlockLogs, listDeviceUsers, parseUnlockValue } from "@/lib/tuya-client";
+import { reingestTuyaWindow } from "@/lib/tuya-reingest";
 
 export type ResolvedLog = {
   device_id: string;
@@ -237,6 +238,15 @@ export async function quickEnrollAction(args: {
 
   revalidatePath("/admin/tuya/logs");
   revalidatePath("/admin/tuya/users");
+
+  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  try {
+    await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuya_device_id });
+  } catch {
+    // Non bloquant : le mapping est deja persiste, la re-ingestion peut etre
+    // relancee manuellement via /api/cron/tuya-reingest si besoin.
+  }
+
   return { ok: true };
 }
 
@@ -364,6 +374,14 @@ export async function createEmployeeAndEnrollAction(args: {
   revalidatePath("/admin/tuya/logs");
   revalidatePath("/admin/tuya/users");
   revalidatePath("/planning/employees");
+
+  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  try {
+    await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuya_device_id });
+  } catch {
+    // Non bloquant.
+  }
+
   return { ok: true, employee_id: employeeId };
 }
 

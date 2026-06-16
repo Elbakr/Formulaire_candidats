@@ -12,6 +12,7 @@
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { reingestTuyaWindow } from "@/lib/tuya-reingest";
 
 export type FingerprintMapping = {
   id: string;
@@ -94,6 +95,12 @@ export async function addFingerprintMappingAction(args: {
       const { error } = await supabase.from("tuya_user_mapping").update({ is_active: true }).eq("id", row.id);
       if (error) return { error: error.message };
     }
+    // Re-ingestion best-effort (mapping reactive ou confirme).
+    try {
+      await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuyaDeviceId });
+    } catch {
+      // Non bloquant.
+    }
     return { ok: true };
   }
 
@@ -109,6 +116,14 @@ export async function addFingerprintMappingAction(args: {
   if (error) return { error: error.message };
 
   revalidatePath(`/planning/employees/${args.employeeId}`);
+
+  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  try {
+    await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuyaDeviceId });
+  } catch {
+    // Non bloquant.
+  }
+
   return { ok: true };
 }
 

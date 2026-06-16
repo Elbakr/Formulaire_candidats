@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { reingestTuyaWindow } from "@/lib/tuya-reingest";
 
 export type AddMappingPayload = {
   tuya_device_id: string;
@@ -31,6 +32,14 @@ export async function addMappingAction(payload: AddMappingPayload) {
   });
   if (error) return { ok: false as const, error: error.message };
   revalidatePath("/admin/tuya/users");
+
+  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  try {
+    await reingestTuyaWindow({ sinceDays: 2, deviceId: payload.tuya_device_id });
+  } catch {
+    // Non bloquant.
+  }
+
   return { ok: true as const };
 }
 
@@ -63,6 +72,21 @@ export async function updateMappingAction(args: {
   if (error) return { ok: false as const, error: error.message };
   revalidatePath("/admin/tuya/users");
   revalidatePath("/admin/tuya/logs");
+
+  // Re-ingestion best-effort si le mapping est (re)active ou si le slot change.
+  // On cible le device mis a jour (ou on re-fetche la ligne pour le deduire).
+  const shouldReingest = args.is_active === true || args.tuya_user_id !== undefined || args.tuya_device_id !== undefined;
+  if (shouldReingest) {
+    try {
+      // Si le device_id est fourni dans la mise a jour, on l utilise directement.
+      // Sinon on laisse reingestTuyaWindow tourner sur tous les devices (leger
+      // sur 2j et auto-dedup).
+      await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuya_device_id });
+    } catch {
+      // Non bloquant.
+    }
+  }
+
   return { ok: true as const };
 }
 
