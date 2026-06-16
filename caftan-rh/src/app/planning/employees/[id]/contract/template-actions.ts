@@ -153,51 +153,27 @@ export async function createContractAndSendForSignatureAction(input: {
   if (insErr) return { error: insErr.message };
   const contractId = (row as { id: string }).id;
 
-  // 5. Envoi mail signature via EmailJS
+  // 5. Envoi mail signature via sendAppMail
   // Karim 2026-06-13 : lien de signature ENVOYE A L'EMPLOYE -> getOutboundBaseUrl
   // (jamais localhost si le mail part du PC en dev, jamais le tunnel jetable :
   // toujours l'alias prod stable, joignable PC eteint).
   const { getOutboundBaseUrl } = await import("@/lib/public-base-url");
+  const { sendAppMail } = await import("@/lib/app-mail");
   const baseUrl = getOutboundBaseUrl();
   const signingUrl = `${baseUrl}/sign/${signingToken}`;
   let mailStatus = 0;
   try {
-    const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-    const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-    const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-    if (SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY) {
-      const empName = (emp as { full_name: string }).full_name;
-      const subject = `CaftanRH — Ton contrat de travail à signer (${preview.templateName ?? "contrat"})`;
-      const body = `Bonjour ${empName.split(" ")[0]},\n\nTon contrat de travail est prêt. Pour le lire et le signer numériquement, ouvre ce lien :\n\n${signingUrl}\n\nLe lien est valide 14 jours.\n\nLa signature se fait au doigt sur ton téléphone ou à la souris sur ordinateur. Une fois signé, tu recevras une copie PDF par mail.\n\nÀ bientôt,\nCaftanRH`;
-      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-        body: JSON.stringify({
-          service_id: SERVICE_ID,
-          template_id: TEMPLATE_ID,
-          user_id: PUBLIC_KEY,
-          template_params: {
-            to_email: employeeEmail,
-            email: employeeEmail,
-            recipient: employeeEmail,
-            user_email: employeeEmail,
-            candidate_email: employeeEmail,
-            to: employeeEmail,
-            to_name: empName,
-            name: empName,
-            from_name: "CaftanRH",
-            reply_to: "hr@caftanfactory.com",
-            subject,
-            message: body,
-            html_message: body.replace(/\n/g, "<br>"),
-            body,
-            html: body.replace(/\n/g, "<br>"),
-            content: body,
-          },
-        }),
-      });
-      mailStatus = res.status;
-    }
+    const empName = (emp as { full_name: string }).full_name;
+    const subject = `CaftanRH — Ton contrat de travail à signer (${preview.templateName ?? "contrat"})`;
+    const body = `Bonjour ${empName.split(" ")[0]},\n\nTon contrat de travail est prêt. Pour le lire et le signer numériquement, ouvre ce lien :\n\n${signingUrl}\n\nLe lien est valide 14 jours.\n\nLa signature se fait au doigt sur ton téléphone ou à la souris sur ordinateur. Une fois signé, tu recevras une copie PDF par mail.\n\nÀ bientôt,\nCaftanRH`;
+    const result = await sendAppMail({
+      to: employeeEmail,
+      toName: empName,
+      subject,
+      body,
+      source: "contract_signing_invite",
+    });
+    mailStatus = result.ok ? 200 : 500;
   } catch {
     /* mail failed but contract created */
   }

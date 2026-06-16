@@ -414,11 +414,8 @@ export async function sendPayslipToEmployeeAction(
   }
   const signed = { signedUrl };
 
-  // Envoi via EmailJS
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return { ok: false, error: "EmailJS non configure" };
+  // Envoi via sendAppMail
+  const { sendAppMail } = await import("@/lib/app-mail");
 
   const lang = (emp.preferred_language ?? "fr") as "fr" | "nl" | "en";
   const messages = {
@@ -437,37 +434,20 @@ export async function sendPayslipToEmployeeAction(
   };
   const m = messages[lang];
 
-  const params = {
-    to_email: destEmail, email: destEmail, user_email: destEmail, candidate_email: destEmail,
-    to: destEmail, to_name: emp.full_name, name: emp.full_name, candidate_name: emp.full_name,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-    subject: m.subject, message: m.body, html_message: m.body.replace(/\n/g, "<br>"),
-    body: m.body, content: m.body, html: m.body.replace(/\n/g, "<br>"),
-    pdf_url: signed.signedUrl,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+  const mailResult = await sendAppMail({
+    to: destEmail,
+    toName: emp.full_name ?? destEmail,
+    subject: m.subject,
+    body: m.body,
+    attachmentUrls: [{ name: payslip.pdf_filename ?? "Fiche de paie", url: signed.signedUrl }],
+    source: "payslip_share",
+    sourceRef: payslipId,
+    employeeId: payslip.employee_id,
   });
-  if (!res.ok) return { ok: false, error: `Mail HTTP ${res.status}` };
+  if (!mailResult.ok) return { ok: false, error: mailResult.error ?? "Echec envoi mail" };
 
-  // Karim 2026-05-31 : archive le mail envoyé dans outbound_mails
-  try {
-    const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-    const isExternal = recipientEmail && recipientEmail.trim() !== "" && recipientEmail.toLowerCase() !== (emp.email ?? "").toLowerCase();
-    await logOutboundMail({
-      recipient_email: destEmail,
-      recipient_name: emp.full_name,
-      subject: m.subject,
-      body: m.body,
-      source: isExternal ? "payslip_share_external" : "payslip_share",
-      source_ref: payslipId,
-      employee_id: payslip.employee_id,
-      attachments: [{ name: payslip.pdf_filename ?? "Fiche de paie", url: signed.signedUrl }],
-    });
-  } catch {}
-
-  // Karim 2026-05-31 : audit log dédié (en plus de outbound_mails)
+  // Karim 2026-06-16 : outbound_mails déjà journalisé par sendAppMail.
+  // audit log dédié (document_audit_log)
   try {
     const { logDocAudit } = await import("@/lib/document-audit-log");
     await logDocAudit({
@@ -476,7 +456,7 @@ export async function sendPayslipToEmployeeAction(
       doc_ref: payslipId,
       doc_label: `Fiche de paie ${payslip.period_label ?? ""}`.trim(),
       action: "share_email",
-      channel: "emailjs",
+      channel: "app_mail",
       actor_profile_id: null,
       recipient_email: destEmail,
       signed_url_path: payslip.pdf_storage_path,

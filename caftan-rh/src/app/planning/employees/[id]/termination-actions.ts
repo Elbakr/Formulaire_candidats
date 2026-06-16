@@ -435,30 +435,23 @@ export async function syncTerminationDocusealAction(
     }
 
     // Mail HR + employee (replique du webhook)
-    const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-    const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-    const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
+    const { sendAppMail } = await import("@/lib/app-mail");
     const baseAppUrl = getPublicBaseUrl();
-    if (SERVICE && TEMPLATE && KEY && signedUrl) {
+    if (signedUrl) {
       const recipients = new Set<string>(["hr@caftanfactory.com", ...hrList.map((h) => h.email).filter((e): e is string => !!e)]);
       const subject = `Convention de rupture signée — ${empName}`;
       const body = `Bonjour,\n\nLa convention de cessation de contrat de ${empName} a été signée par les 2 parties.\n\n📅 Date de fin : ${t.effective_date}\n\n📎 PDF signé (lien 7j) :\n${signedUrl}\n\nValise documents : ${baseAppUrl}/rh/documents?employee=${t.employee_id}\n\n⚠ Actions : Dimona OUT · solde tout compte · certificat C4.\n\nL'équipe CaftanRH`;
       for (const to of recipients) {
         try {
-          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-            body: JSON.stringify({
-              service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
-              template_params: {
-                from_name: "CaftanRH - Rupture signée", reply_to: "hr@caftanfactory.com",
-                subject, message: body, html_message: body.replace(/\n/g, "<br>"),
-                body, content: body, html: body.replace(/\n/g, "<br>"),
-                to_email: to, email: to, user_email: to, candidate_email: to,
-                to, to_name: "RH", name: "RH", candidate_name: "RH",
-                pdf_url: signedUrl,
-              },
-            }),
+          await sendAppMail({
+            to,
+            toName: "RH",
+            subject,
+            body,
+            attachmentUrls: [{ name: "Convention signée.pdf", url: signedUrl }],
+            source: "termination_signed_hr",
+            sourceRef: terminationId,
+            employeeId: t.employee_id,
           });
         } catch { /* */ }
       }
@@ -467,32 +460,15 @@ export async function syncTerminationDocusealAction(
         const empFirst = empName.split(/\s+/)[0];
         const empBody = `Bonjour ${empFirst},\n\nTa convention de cessation de contrat amiable est signée par les 2 parties.\n\n📅 Date de fin : ${t.effective_date}\n\n📎 Télécharge ton PDF :\n${signedUrl}\n\nÉgalement dans ton espace : ${baseAppUrl}/me/termination\n\nL'équipe Caftan Factory`;
         try {
-          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-            body: JSON.stringify({
-              service_id: SERVICE, template_id: TEMPLATE, user_id: KEY,
-              template_params: {
-                from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
-                subject: `Ta convention signée — ${empName}`,
-                message: empBody, html_message: empBody.replace(/\n/g, "<br>"),
-                body: empBody, content: empBody, html: empBody.replace(/\n/g, "<br>"),
-                to_email: empEmail, email: empEmail, user_email: empEmail, candidate_email: empEmail,
-                to: empEmail, to_name: empName, name: empName, candidate_name: empName,
-                pdf_url: signedUrl,
-              },
-            }),
-          });
-          const { logOutboundMail } = await import("@/lib/outbound-mail-log");
-          await logOutboundMail({
-            recipient_email: empEmail,
-            recipient_name: empName,
+          await sendAppMail({
+            to: empEmail,
+            toName: empName,
             subject: `Ta convention signée — ${empName}`,
             body: empBody,
-            source: "contract_signature",
-            source_ref: terminationId,
-            employee_id: t.employee_id,
-            attachments: [{ name: "Convention signée.pdf", url: signedUrl }],
+            attachmentUrls: [{ name: "Convention signée.pdf", url: signedUrl }],
+            source: "termination_signed_employee",
+            sourceRef: terminationId,
+            employeeId: t.employee_id,
           });
         } catch { /* */ }
       }
@@ -666,10 +642,7 @@ export async function sendTerminationForSignatureAction(
     ? `\n\nLien signature employeur (pour Karim/RH) :\n${employerSigningUrl}`
     : "";
 
-  const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-  const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-  const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-  if (!SERVICE || !TEMPLATE || !KEY) return { error: "EmailJS non configuré" };
+  const { sendAppMail: sendTerminationMail } = await import("@/lib/app-mail");
 
   const firstName = emp.full_name?.split(" ")[0] ?? "";
   const baseUrl = getPublicBaseUrl();
@@ -692,23 +665,19 @@ ${baseUrl}/me/termination${employerLinkLine}
 Bien à toi,
 L'équipe Caftan Factory (By AMD Megastore)`;
 
-  const params = {
-    to_email: emp.email, email: emp.email, user_email: emp.email, candidate_email: emp.email,
-    to: emp.email, to_name: emp.full_name, name: emp.full_name, candidate_name: emp.full_name,
-    from_name: "Caftan Factory (By AMD Megastore)", reply_to: "hr@caftanfactory.com",
+  const mailResult = await sendTerminationMail({
+    to: emp.email!,
+    toName: emp.full_name ?? emp.email!,
     subject: `Convention de cessation de contrat - signature requise`,
-    message: body, html_message: body.replace(/\n/g, "<br>"),
-    body, content: body, html: body.replace(/\n/g, "<br>"),
-    pdf_url: signed.signedUrl,
-  };
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
+    body,
+    attachmentUrls: [{ name: "Convention de cessation.html", url: signed.signedUrl }],
+    source: "contract_signature",
+    sourceRef: terminationId,
+    employeeId: t.employee_id,
   });
-  if (!res.ok) return { error: `Mail HTTP ${res.status}` };
+  if (!mailResult.ok) return { error: mailResult.error ?? "Echec envoi mail" };
 
-  // Log mail + audit
+  // Log audit + stockage email_outbound_id (sendAppMail a déjà loggé dans outbound_mails)
   try {
     const { logOutboundMail } = await import("@/lib/outbound-mail-log");
     const r = await logOutboundMail({
@@ -740,7 +709,7 @@ L'équipe Caftan Factory (By AMD Megastore)`;
       doc_ref: terminationId,
       doc_label: "Convention cessation contrat commun accord",
       action: "share_email",
-      channel: "emailjs",
+      channel: "app_mail",
       actor_profile_id: profile.id,
       recipient_email: emp.email,
       signed_url_path: t.pdf_storage_path,

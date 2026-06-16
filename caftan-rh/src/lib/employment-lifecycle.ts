@@ -120,7 +120,7 @@ export async function closeEmployment(
           kind: "employment_end_notice",
           title: "Fin de ton contrat",
           body: `Ton contrat chez Caftan Factory prend fin le ${eff}. Merci pour ton engagement. L'équipe RH revient vers toi pour les documents de fin (C4, solde).`,
-          link: "/me",
+          link: "/me/documents",
           data: { effective_date: eff, cause },
         });
         // Email best-effort via EmailJS (canal employé).

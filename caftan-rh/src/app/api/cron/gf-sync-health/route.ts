@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getPublicBaseUrl } from "@/lib/public-base-url";
+import { sendAppMail } from "@/lib/app-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -109,14 +110,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Mail via EmailJS (best effort)
+  // Mail via sendAppMail (best effort)
   try {
-    const SERVICE = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-    const TEMPLATE = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-    const KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-    if (SERVICE && TEMPLATE && KEY) {
-      const base = getPublicBaseUrl();
-      const body = `Sync GF en panne — diag automatique :
+    const base = getPublicBaseUrl();
+    const body = `Sync GF en panne — diag automatique :
 
 ${issues.map((i, n) => `${n + 1}. ${i}`).join("\n")}
 
@@ -130,24 +127,18 @@ Aller voir :
 - Diag : node scripts/diag-gf-sync.mjs
 
 — CaftanRH monitoring`;
-      const recipients = new Set<string>(["elbazikarim@gmail.com"]);
-      for (const hr of hrList) if (hr.email) recipients.add(hr.email);
-      for (const to of recipients) {
-        const params = {
-          to_email: to, email: to, user_email: to, candidate_email: to,
-          to, to_name: "Admin RH", name: "Admin RH", candidate_name: "Admin",
-          from_name: "CaftanRH monitoring", reply_to: "hr@caftanfactory.com",
-          subject: "🚨 CaftanRH — Sync GF en panne", message: body,
-          html_message: body.replace(/\n/g, "<br>"),
-          body, html: body.replace(/\n/g, "<br>"), content: body,
-        };
-        try {
-          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-            method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" },
-            body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: params }),
-          });
-        } catch {/* non bloquant */}
-      }
+    const recipients = new Set<string>(["elbazikarim@gmail.com"]);
+    for (const hr of hrList) if (hr.email) recipients.add(hr.email);
+    for (const to of recipients) {
+      try {
+        await sendAppMail({
+          to,
+          toName: "Admin RH",
+          subject: "🚨 CaftanRH — Sync GF en panne",
+          body,
+          source: "gf_sync_health",
+        });
+      } catch {/* non bloquant */}
     }
   } catch {/* */}
 
