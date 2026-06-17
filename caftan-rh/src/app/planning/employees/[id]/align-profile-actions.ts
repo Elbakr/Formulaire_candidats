@@ -44,6 +44,17 @@ export async function alignProfileToContractAction(
   const pick = (field: string, contractFallback: unknown): string =>
     overrides[field] !== undefined ? overrides[field] : String(contractFallback ?? "");
 
+  // Karim 2026-06-17 : la colonne employees.work_time_kind a une contrainte
+  // CHECK (work_time_kind in ('full','part')). Écrire 'partial' = violation =
+  // UPDATE rejeté (= le « warning rouge » constaté). On normalise donc TOUTE
+  // valeur entrante vers la convention 'part'/'full'.
+  const normKind = (v: unknown): "full" | "part" | null => {
+    const s = String(v ?? "").toLowerCase().trim();
+    if (s === "part" || s === "partial" || s.includes("partiel")) return "part";
+    if (s === "full" || s.includes("plein")) return "full";
+    return null;
+  };
+
   const patch: Record<string, unknown> = {};
   const changeLog: string[] = [];
 
@@ -54,20 +65,13 @@ export async function alignProfileToContractAction(
         const hours = parseFloat(raw);
         if (!isNaN(hours) && hours > 0) {
           patch.weekly_hours = hours;
-          // Dérive work_time_kind automatiquement depuis les heures finales,
-          // sauf si l'opérateur a explicitement surchargé ce champ.
-          if (overrides.work_time_kind === undefined) {
-            patch.work_time_kind = hours < 38 ? "partial" : "full";
-          }
           changeLog.push(`weekly_hours : ${d.profileValue} → ${raw}`);
         }
         break;
       }
       case "work_time_kind": {
-        // Ne pas écraser la dérivation automatique déjà posée via weekly_hours
-        // sauf si l'opérateur a fourni un override explicite.
-        const raw = overrides.work_time_kind ?? (effTpl === "employee_pt" ? "partial" : "full");
-        patch.work_time_kind = raw === "partial" || raw === "part" ? "partial" : "full";
+        const raw = overrides.work_time_kind ?? (effTpl === "employee_pt" ? "part" : "full");
+        patch.work_time_kind = normKind(raw) ?? (effTpl === "employee_pt" ? "part" : "full");
         changeLog.push(`work_time_kind : ${d.profileValue} → ${patch.work_time_kind}`);
         break;
       }
@@ -97,6 +101,21 @@ export async function alignProfileToContractAction(
         patch.end_date = raw || null;
         changeLog.push(`end_date : ${d.profileValue} → ${raw || "(vide)"}`);
         break;
+      }
+    }
+  }
+
+  // Karim 2026-06-17 : COHÉRENCE DURE. Les heures pilotent le régime — il
+  // n'existe pas de « 24h temps plein ». Si on aligne les heures, le régime suit
+  // d'office (< 38h ⇒ temps partiel), quoi qu'ait choisi l'opérateur. C'est aussi
+  // ce qui évite que le trigger légal (full ⇒ force 38h) ne re-gonfle les heures.
+  if (patch.weekly_hours != null) {
+    const h = Number(patch.weekly_hours);
+    if (!isNaN(h) && h > 0) {
+      const coherent: "full" | "part" = h < 38 ? "part" : "full";
+      if (patch.work_time_kind !== coherent) {
+        patch.work_time_kind = coherent;
+        changeLog.push(`work_time_kind (cohérence ${h}h) → ${coherent}`);
       }
     }
   }

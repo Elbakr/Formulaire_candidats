@@ -127,11 +127,13 @@ export async function resolveContractRenderInputs(
     if (both(empR.end_date, ctr.end_date))
       discrepancies.push({ field: "end_date", label: "Date de fin", profileValue: String(empR.end_date), contractValue: String(ctr.end_date) });
     // Régime horaire dérivé (la cause du bug Sanae : fiche "full" vs contrat 24h).
-    const prRaw = String(empR.work_time_kind ?? "");
-    const pr = prRaw === "part" ? "partial" : prRaw;
-    const cr = effTpl === "employee_pt" ? "partial" : effTpl === "employee" ? "full" : "";
-    if ((pr === "full" || pr === "partial") && cr && pr !== cr)
-      discrepancies.push({ field: "work_time_kind", label: "Régime horaire", profileValue: pr === "full" ? "temps plein" : "temps partiel", contractValue: cr === "full" ? "temps plein" : "temps partiel" });
+    // Valeurs CANONIQUES 'part'/'full' (= convention DB + contrainte CHECK) ; le
+    // libellé FR est rendu côté carte. Surtout PAS 'partial' (violerait le CHECK).
+    const prRaw = String(empR.work_time_kind ?? "").toLowerCase();
+    const pr = prRaw === "partial" ? "part" : prRaw;
+    const cr = effTpl === "employee_pt" ? "part" : effTpl === "employee" ? "full" : "";
+    if ((pr === "full" || pr === "part") && cr && pr !== cr)
+      discrepancies.push({ field: "work_time_kind", label: "Régime horaire", profileValue: pr, contractValue: cr });
   }
 
   // Lieu de travail : affectation primaire réelle d'abord, sinon workplace du contrat.

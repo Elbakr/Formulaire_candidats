@@ -32,6 +32,13 @@ function numAttrsFor(field: string): Record<string, string | number> {
   return {};
 }
 
+/** Libellé FR lisible pour le régime horaire (valeurs canoniques 'full'/'part'). */
+function regimeLabel(v: string): string {
+  if (v === "full") return "temps plein";
+  if (v === "part" || v === "partial") return "temps partiel";
+  return v;
+}
+
 // ─── Composant ──────────────────────────────────────────────────────────────
 
 export function AlignProfileCard({
@@ -70,7 +77,7 @@ export function AlignProfileCard({
       ) {
         const h = parseFloat(overrides.weekly_hours);
         if (!isNaN(h)) {
-          overrides.work_time_kind = h < 38 ? "partial" : "full";
+          overrides.work_time_kind = h < 38 ? "part" : "full";
         }
       }
 
@@ -119,19 +126,19 @@ export function AlignProfileCard({
                 </td>
                 <td className="py-1.5 pr-3 text-ink-3">
                   <span className="line-through decoration-red-400">
-                    {d.profileValue}
+                    {d.field === "work_time_kind" ? regimeLabel(d.profileValue) : d.profileValue}
                   </span>
                 </td>
                 <td className="py-1.5">
                   {d.field === "work_time_kind" ? (
-                    // Champ sélecteur pour le régime horaire
+                    // Champ sélecteur pour le régime horaire (valeurs 'full'/'part')
                     <select
-                      value={values[d.field] ?? d.contractValue}
+                      value={regimeLabel(values[d.field] ?? d.contractValue) === "temps plein" ? "full" : "part"}
                       onChange={(e) => handleChange(d.field, e.target.value)}
                       className="border border-amber-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
                     >
                       <option value="full">temps plein</option>
-                      <option value="partial">temps partiel</option>
+                      <option value="part">temps partiel</option>
                     </select>
                   ) : (
                     <Input

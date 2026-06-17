@@ -526,8 +526,10 @@ function WorkTimeAndHours({
   contractType: string | null;
 }) {
   const isStudent = contractType === "Étudiant" || contractType === "Etudiant";
+  // Karim 2026-06-17 : seuil unique 38h. < 38h ⇒ temps partiel d'office
+  // (il n'existe pas de « 24h temps plein »). Les heures pilotent le régime.
   const inferredKind: "full" | "part" =
-    (defaultHours ?? 0) >= 30 ? "full" : "part";
+    (defaultHours ?? 0) >= 38 ? "full" : "part";
   const initialKind =
     defaultKind === "full" || defaultKind === "part" ? defaultKind : inferredKind;
   const [kind, setKind] = useState<"full" | "part">(initialKind);
@@ -541,7 +543,7 @@ function WorkTimeAndHours({
     } else {
       const cur = parseInt(hours, 10);
       if (!Number.isFinite(cur) || cur < 13) setHours("13");
-      else if (cur > 30) setHours("30");
+      else if (cur >= 38) setHours("30");
     }
   }
 
@@ -549,16 +551,19 @@ function WorkTimeAndHours({
     if (isStudent) return;
     const n = parseInt(hours, 10);
     if (!Number.isFinite(n)) return;
-    if (kind === "full" && n !== 38) setHours("38");
-    if (kind === "part") {
+    // Les heures pilotent le régime : >= 38h ⇒ temps plein (38) ; < 38h ⇒ temps partiel.
+    if (n >= 38) {
+      setKind("full");
+      setHours("38");
+    } else {
+      setKind("part");
       if (n < 13) setHours("13");
-      else if (n > 30) setHours("30");
     }
   }
 
   const hoursDisabled = !isStudent && kind === "full";
   const min = isStudent ? 1 : kind === "full" ? 38 : 13;
-  const max = isStudent ? 38 : kind === "full" ? 38 : 30;
+  const max = isStudent ? 38 : kind === "full" ? 38 : 37;
 
   return (
     <>
