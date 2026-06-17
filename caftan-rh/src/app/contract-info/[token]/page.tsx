@@ -59,7 +59,10 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     .filter((f) => !f.adminOnly)
     .map((f) => ({ key: f.key, label: f.label }));
 
-  if (tok.completed_at || missing.length === 0) {
+  // Karim 2026-06-17 : on se base sur les champs RÉELLEMENT manquants, pas sur
+  // completed_at. Si une saisie a été perdue (ex. écrasée par une sauvegarde RH
+  // périmée), le travailleur doit pouvoir ressaisir via le même lien.
+  if (missing.length === 0) {
     return (
       <Shell>
         <div className="text-center py-4">

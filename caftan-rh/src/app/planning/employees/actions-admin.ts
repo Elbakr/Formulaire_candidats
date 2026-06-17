@@ -71,6 +71,34 @@ export async function saveEmployeeAdminAction(employeeId: string, formData: Form
     ot_eligible: formData.get("ot_eligible") === "on",
   };
 
+  // Karim 2026-06-17 : ANTI-ÉCRASEMENT. Une sauvegarde de fiche partie d'une page
+  // périmée NE DOIT PLUS effacer par du vide une donnée d'identité/banque déjà
+  // renseignée (ex. saisie par le travailleur via son lien « complète ton dossier »
+  // pendant que le RH avait la fiche ouverte). Pour ces champs, un champ vide du
+  // formulaire = « ne touche pas » (on garde la valeur en base). Pour CHANGER une
+  // valeur, il suffit d'en taper une nouvelle.
+  const PROTECT = [
+    "full_name", "email", "birth_date", "nrn",
+    "address", "postal_code", "city", "iban",
+  ] as const;
+  const { data: currentRaw } = await supabase
+    .from("employees")
+    .select("full_name,email,birth_date,nrn,address,postal_code,city,iban")
+    .eq("id", employeeId)
+    .maybeSingle();
+  const current = (currentRaw ?? {}) as Record<string, unknown>;
+  const preserved: string[] = [];
+  for (const k of PROTECT) {
+    const incoming = (payload as Record<string, unknown>)[k];
+    if ((incoming == null || incoming === "") && current[k] != null && current[k] !== "") {
+      (payload as Record<string, unknown>)[k] = current[k]; // garde l'existant
+      preserved.push(k);
+    }
+  }
+  if (preserved.length > 0) {
+    console.warn(`[saveEmployee ${employeeId}] champs préservés (form vide vs base remplie): ${preserved.join(", ")}`);
+  }
+
   const { error } = await supabase.from("employees").update(payload).eq("id", employeeId);
   if (error) return { error: error.message };
 
