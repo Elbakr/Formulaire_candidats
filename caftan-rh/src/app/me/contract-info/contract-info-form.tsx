@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { saveContractInfoAction } from "./actions";
+import { saveContractInfoAction, autosaveMyContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
+import { useFieldAutosave } from "@/hooks/use-field-autosave";
 
 type Missing = { key: string; label: string };
 
@@ -65,6 +66,13 @@ export function ContractInfoForm({
   const [cityAuto, setCityAuto] = useState(false);
   const maxBirth = useMemo(() => isoMinusYears(17), []);
 
+  // Karim 2026-06-17 : auto-save instantané (sans soumettre).
+  const save = useCallback(
+    (key: string, value: string) => autosaveMyContractInfoAction({ [key]: value }),
+    [],
+  );
+  const { autosave, savingKey, savedKeys } = useFieldAutosave(save);
+
   const hasNrn = missing.some((f) => f.key === "nrn");
   const hasCity = missing.some((f) => f.key === "city");
   const effectiveBirth = values.birth_date || defaults.birth_date || "";
@@ -89,6 +97,7 @@ export function ContractInfoForm({
     if (local) {
       setValues((v) => ({ ...v, city: local }));
       setCityAuto(true);
+      void autosave("city", local);
       return;
     }
     let cancelled = false;
@@ -97,6 +106,7 @@ export function ContractInfoForm({
       if (cancelled || !c || editedRef.current.has("city")) return;
       setValues((v) => ({ ...v, city: c }));
       setCityAuto(true);
+      void autosave("city", c);
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
   }, [values.postal_code, hasCity]);
@@ -143,7 +153,13 @@ export function ContractInfoForm({
                 </span>
               ) : null}
               <span className={`text-[10px] ml-auto ${filled ? "text-emerald-600" : "text-rose-600"}`}>
-                {filled ? "✓ Rempli" : "Requis pour contrat"}
+                {savingKey === f.key
+                  ? "enregistrement…"
+                  : savedKeys.has(f.key)
+                    ? "enregistré ✓"
+                    : filled
+                      ? "✓ Rempli"
+                      : "Requis pour contrat"}
               </span>
             </Label>
             {options ? (
@@ -151,7 +167,7 @@ export function ContractInfoForm({
                 id={f.key}
                 name={f.key}
                 value={values[f.key] ?? ""}
-                onChange={(e) => setField(f.key, e.target.value)}
+                onChange={(e) => { setField(f.key, e.target.value); void autosave(f.key, e.target.value); }}
                 className={`w-full bg-white mt-1 rounded-md border px-3 py-2 text-sm ${filled ? "border-emerald-300" : "border-rose-300"}`}
                 required
               >
@@ -165,6 +181,7 @@ export function ContractInfoForm({
                 name={f.key}
                 value={values[f.key] ?? ""}
                 onChange={(e) => setField(f.key, e.target.value)}
+                onBlur={() => void autosave(f.key, values[f.key] ?? "")}
                 type={meta.type}
                 placeholder={meta.placeholder}
                 inputMode={meta.inputMode as React.HTMLAttributes<HTMLInputElement>["inputMode"]}

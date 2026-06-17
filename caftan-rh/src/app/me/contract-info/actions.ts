@@ -106,3 +106,51 @@ export async function saveContractInfoAction(
 
   return { ok: true };
 }
+
+/**
+ * Karim 2026-06-17 : AUTO-SAVE instantané (sans soumettre). Persiste les champs
+ * fournis pour le worker connecté + horodate, SANS notifier la RH ni recalculer
+ * la complétude (réservés au bouton « Enregistrer »).
+ */
+export async function autosaveMyContractInfoAction(
+  values: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Non connecté" };
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+  if (!emp) return { ok: false, error: "Aucune fiche employé liée à ce compte" };
+  const empId = (emp as { id: string }).id;
+
+  const updates: Record<string, string> = {};
+  for (const key of ALLOWED_FIELDS) {
+    const v = values[key];
+    if (v != null && String(v).trim().length > 0) updates[key] = String(v).trim();
+  }
+  if (Object.keys(updates).length === 0) return { ok: true };
+  if (typeof updates.birth_date === "string" && updates.birth_date > isoMinusYears(17)) {
+    return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: subRow } = await supabase
+    .from("employees")
+    .select("worker_field_submissions")
+    .eq("id", empId)
+    .maybeSingle();
+  const submissions: Record<string, string> = {
+    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
+  };
+  for (const k of Object.keys(updates)) submissions[k] = nowIso;
+
+  const { error } = await supabase
+    .from("employees")
+    .update({ ...updates, worker_field_submissions: submissions })
+    .eq("id", empId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
