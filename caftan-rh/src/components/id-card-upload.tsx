@@ -182,8 +182,8 @@ export function IdCardUpload({
         Prends en photo les deux faces de ta carte. Elles seront fusionnées en un seul PDF.
       </p>
       <div className="flex gap-2">
-        <Side which="recto" value={recto} />
-        <Side which="verso" value={verso} />
+        {renderSide("recto", recto)}
+        {renderSide("verso", verso)}
       </div>
       <button
         type="button"
