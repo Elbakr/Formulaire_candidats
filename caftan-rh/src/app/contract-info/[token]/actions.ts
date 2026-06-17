@@ -70,3 +70,52 @@ export async function submitContractInfoAction(
   }
   return { ok: true };
 }
+
+/**
+ * Karim 2026-06-17 : AUTO-SAVE instantané (sans soumettre le formulaire). Appelé
+ * au fil de l'eau (blur/changement de champ) pour que la saisie du candidat soit
+ * persistée immédiatement — plus de perte si le formulaire n'est pas soumis.
+ * N'envoie PAS la notif RH et ne marque PAS le token "complété" (réservés au
+ * bouton « Enregistrer »).
+ */
+export async function autosaveContractInfoAction(
+  token: string,
+  values: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  const admin = createAdminClient();
+  const { data: tokRaw } = await admin
+    .from("contract_info_tokens")
+    .select("id, employee_id")
+    .eq("token", token)
+    .maybeSingle();
+  const tok = tokRaw as { id: string; employee_id: string } | null;
+  if (!tok) return { ok: false, error: "Lien invalide ou expiré." };
+
+  const update: Record<string, string> = {};
+  for (const k of ALLOWED) {
+    const v = (values[k] ?? "").trim();
+    if (v) update[k] = v;
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+  if (update.birth_date && update.birth_date > isoMinusYears(17)) {
+    return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: subRow } = await admin
+    .from("employees")
+    .select("worker_field_submissions")
+    .eq("id", tok.employee_id)
+    .maybeSingle();
+  const submissions: Record<string, string> = {
+    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
+  };
+  for (const k of Object.keys(update)) submissions[k] = nowIso;
+
+  const { error } = await admin
+    .from("employees")
+    .update({ ...update, worker_field_submissions: submissions })
+    .eq("id", tok.employee_id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}

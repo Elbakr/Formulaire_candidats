@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2, CheckCircle2, Check, X, Sparkles } from "lucide-react";
-import { submitContractInfoAction } from "./actions";
+import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
@@ -86,6 +86,25 @@ export function ContractInfoForm({
   const [err, setErr] = useState<string | null>(null);
   const [cityAuto, setCityAuto] = useState(false); // ville remplie automatiquement
   const editedRef = useRef<Set<string>>(new Set()); // champs modifies a la main
+  // Karim 2026-06-17 : auto-save instantané (sans soumettre) — indicateurs.
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+
+  async function autosave(key: string, raw: string) {
+    const v = (raw ?? "").trim();
+    if (!v) return;
+    if (key === "iban" && !ibanIsValid(v)) return; // n'enregistre pas un IBAN invalide
+    if (key === "birth_date" && v > maxBirth) return; // pas < 17 ans
+    setSavingKey(key);
+    try {
+      const r = await autosaveContractInfoAction(token, { [key]: key === "iban" ? normalizeIban(v) : v });
+      if (r.ok) setSavedKeys((s) => new Set(s).add(key));
+    } catch {
+      /* silencieux : la soumission finale reste le filet */
+    } finally {
+      setSavingKey(null);
+    }
+  }
 
   const hasCity = ordered.some((f) => f.key === "city");
   const hasNrn = ordered.some((f) => f.key === "nrn");
@@ -121,6 +140,7 @@ export function ContractInfoForm({
     if (local) {
       setValues((v) => ({ ...v, city: local }));
       setCityAuto(true);
+      void autosave("city", local);
       return;
     }
     let cancelled = false;
@@ -130,6 +150,7 @@ export function ContractInfoForm({
       if (editedRef.current.has("city")) return;
       setValues((v) => ({ ...v, city }));
       setCityAuto(true);
+      void autosave("city", city);
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
   }, [values.postal_code, hasCity]);
@@ -202,14 +223,22 @@ export function ContractInfoForm({
                   <Sparkles className="h-3 w-3" /> auto
                 </span>
               ) : null}
-              {filled && !isIban ? <Check className="h-3.5 w-3.5 text-success ml-auto" /> : null}
+              {savingKey === f.key ? (
+                <span className="ml-auto text-[10px] text-ink-3">enregistrement…</span>
+              ) : savedKeys.has(f.key) ? (
+                <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] font-semibold text-success">
+                  <Check className="h-3 w-3" /> enregistré
+                </span>
+              ) : filled && !isIban ? (
+                <Check className="h-3.5 w-3.5 text-success ml-auto" />
+              ) : null}
             </label>
 
             <div className="relative">
               {opts ? (
                 <select
                   value={values[f.key] ?? ""}
-                  onChange={(e) => setField(f.key, e.target.value)}
+                  onChange={(e) => { setField(f.key, e.target.value); void autosave(f.key, e.target.value); }}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
                     filled ? "border-success" : "border-line focus:border-gold",
@@ -227,10 +256,11 @@ export function ContractInfoForm({
                   value={values[f.key] ?? ""}
                   placeholder={placeholder(f.key)}
                   onChange={(e) => setField(f.key, e.target.value)}
-                  onBlur={isIban ? () => {
-                    // re-formate joliment l'IBAN au blur si valide
-                    if (ibanStatus === "ok") setValues((v) => ({ ...v, iban: formatIbanGroups(v.iban ?? "") }));
-                  } : undefined}
+                  onBlur={() => {
+                    // re-formate joliment l'IBAN au blur si valide, puis auto-save.
+                    if (isIban && ibanStatus === "ok") setValues((v) => ({ ...v, iban: formatIbanGroups(v.iban ?? "") }));
+                    void autosave(f.key, values[f.key] ?? "");
+                  }}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
                     isIban && ibanStatus === "ok" ? "border-success pr-9" :
