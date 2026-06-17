@@ -12,6 +12,7 @@ import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
 import { useFieldAutosave } from "@/hooks/use-field-autosave";
+import { IbanField } from "@/components/iban-field";
 
 type Missing = { key: string; label: string };
 
@@ -26,6 +27,7 @@ const FIELD_META: Record<string, { type: string; placeholder?: string; inputMode
   city: { type: "text", placeholder: "Bruxelles" },
   iban: { type: "text", placeholder: "BE XX XXXX XXXX XXXX" },
   bic: { type: "text", placeholder: "GEBABEBB" },
+  transport_price: { type: "number", placeholder: "52.00", inputMode: "numeric" },
 };
 
 // Champs à choix (rendus en <select> plutôt qu'en saisie libre).
@@ -137,6 +139,7 @@ export function ContractInfoForm({
       {missing.map((f) => {
         const meta = FIELD_META[f.key] ?? { type: "text" };
         const isCity = f.key === "city";
+        const isIban = f.key === "iban";
         const options = SELECT_OPTIONS[f.key];
         // Karim 2026-06-17 : rouge tant que vide, VERT dès que rempli correctement.
         const filled = (values[f.key] ?? "").trim() !== "";
@@ -162,7 +165,17 @@ export function ContractInfoForm({
                       : "Requis pour contrat"}
               </span>
             </Label>
-            {options ? (
+            {isIban ? (
+              <div className="mt-1">
+                <IbanField
+                  id={f.key}
+                  name={f.key}
+                  value={values.iban ?? ""}
+                  onChange={(v) => setField("iban", v)}
+                  onBlur={() => void autosave("iban", values.iban ?? "")}
+                />
+              </div>
+            ) : options ? (
               <select
                 id={f.key}
                 name={f.key}

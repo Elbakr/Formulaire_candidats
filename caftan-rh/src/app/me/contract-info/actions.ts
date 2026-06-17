@@ -12,7 +12,7 @@ const ALLOWED_FIELDS = [
   "full_name", "email", "phone",
   "birth_date", "nrn", "address", "postal_code", "city",
   "iban", "bic",
-  "transport_type", "transport_frequency",
+  "transport_type", "transport_frequency", "transport_price",
 ];
 
 export async function saveContractInfoAction(

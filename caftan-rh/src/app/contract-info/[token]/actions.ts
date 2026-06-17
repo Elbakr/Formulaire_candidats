@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { isoMinusYears } from "@/lib/be-validators";
 
 // Champs que le TRAVAILLEUR peut renseigner (non adminOnly, cf. contract-readiness).
-const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency"] as const;
+const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency", "transport_price"] as const;
 
 export async function submitContractInfoAction(
   token: string,

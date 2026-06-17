@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Loader2, CheckCircle2, Check, X, Sparkles } from "lucide-react";
+import { Loader2, CheckCircle2, Check, Sparkles } from "lucide-react";
+import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
@@ -25,11 +26,12 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
 
 // Ordre logique : la date de naissance avant le NISS (qu'elle pre-remplit),
 // le code postal avant la ville (qu'il auto-detecte).
-const FIELD_ORDER = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency"];
+const FIELD_ORDER = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency", "transport_price"];
 
 function inputType(key: string): string {
   if (key === "birth_date") return "date";
   if (key === "email") return "email";
+  if (key === "transport_price") return "number";
   if (key === "postal_code") return "text";
   return "text";
 }
@@ -40,6 +42,7 @@ function placeholder(key: string): string {
     case "postal_code": return "1000";
     case "city": return "Bruxelles";
     case "address": return "Rue, numéro";
+    case "transport_price": return "52.00";
     default: return "";
   }
 }
@@ -235,7 +238,13 @@ export function ContractInfoForm({
             </label>
 
             <div className="relative">
-              {opts ? (
+              {isIban ? (
+                <IbanField
+                  value={values.iban ?? ""}
+                  onChange={(v) => setField("iban", v)}
+                  onBlur={() => void autosave("iban", values.iban ?? "")}
+                />
+              ) : opts ? (
                 <select
                   value={values[f.key] ?? ""}
                   onChange={(e) => { setField(f.key, e.target.value); void autosave(f.key, e.target.value); }}
@@ -251,40 +260,20 @@ export function ContractInfoForm({
               ) : (
                 <input
                   type={inputType(f.key)}
-                  inputMode={f.key === "postal_code" ? "numeric" : undefined}
+                  inputMode={f.key === "postal_code" || f.key === "transport_price" ? "numeric" : undefined}
                   max={f.key === "birth_date" ? maxBirth : undefined}
                   value={values[f.key] ?? ""}
                   placeholder={placeholder(f.key)}
                   onChange={(e) => setField(f.key, e.target.value)}
-                  onBlur={() => {
-                    // re-formate joliment l'IBAN au blur si valide, puis auto-save.
-                    if (isIban && ibanStatus === "ok") setValues((v) => ({ ...v, iban: formatIbanGroups(v.iban ?? "") }));
-                    void autosave(f.key, values[f.key] ?? "");
-                  }}
+                  onBlur={() => void autosave(f.key, values[f.key] ?? "")}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
-                    isIban && ibanStatus === "ok" ? "border-success pr-9" :
-                    isIban && ibanStatus === "bad" ? "border-danger pr-9" :
-                    filled ? "border-success" :
-                    "border-line focus:border-gold",
+                    filled ? "border-success" : "border-line focus:border-gold",
                   ].join(" ")}
                 />
               )}
-              {isIban && ibanStatus !== "empty" ? (
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                  {ibanStatus === "ok"
-                    ? <Check className="h-4 w-4 text-success" />
-                    : <X className="h-4 w-4 text-danger" />}
-                </span>
-              ) : null}
             </div>
 
-            {isIban && ibanStatus === "bad" ? (
-              <p className="text-[11px] text-danger mt-1">IBAN invalide — vérifie les chiffres.</p>
-            ) : null}
-            {isIban && ibanStatus === "ok" ? (
-              <p className="text-[11px] text-success mt-1">IBAN valide ✓</p>
-            ) : null}
             {f.key === "nrn" ? (
               <p className="text-[11px] text-ink-3 mt-1">
                 Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.

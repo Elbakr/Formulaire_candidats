@@ -11,6 +11,7 @@ import { saveEmployeeAdminAction } from "../actions-admin";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { TRANSPORT_MODES } from "@/lib/config";
+import { IbanField } from "@/components/iban-field";
 import {
   validateNRN,
   formatNRN,
@@ -236,14 +237,10 @@ export function EmployeeAdminForm({
       <Section title="💳 Banque & transport">
         <div className="grid md:grid-cols-3 gap-3">
           <div className={isMissing("iban") ? "border-2 border-rose-400 bg-rose-50 rounded p-1.5 -m-1.5" : ""}>
-            <ValidatedField
-              label={isMissing("iban") ? "● IBAN (Requis contrat)" : "IBAN"}
-              name="iban"
-              defaultValue={employee.iban ?? ""}
-              placeholder="BE68 5390 0754 7034"
-              validator={validateBelgianIBAN}
-              formatter={formatIBAN}
-            />
+            <Label>{isMissing("iban") ? "● IBAN (Requis contrat)" : "IBAN"}</Label>
+            <div className="mt-1">
+              <IbanField name="iban" defaultValue={employee.iban ?? ""} />
+            </div>
           </div>
           <Field label="BIC" name="bic" defaultValue={employee.bic ?? ""} />
           <Field label="Titulaire compte" name="bank_holder" defaultValue={employee.bank_holder ?? ""} />
