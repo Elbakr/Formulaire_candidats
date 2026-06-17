@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { saveContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
+import { TRANSPORT_MODES } from "@/lib/config";
 
 type Missing = { key: string; label: string };
 
@@ -24,6 +25,20 @@ const FIELD_META: Record<string, { type: string; placeholder?: string; inputMode
   city: { type: "text", placeholder: "Bruxelles" },
   iban: { type: "text", placeholder: "BE XX XXXX XXXX XXXX" },
   bic: { type: "text", placeholder: "GEBABEBB" },
+};
+
+// Champs à choix (rendus en <select> plutôt qu'en saisie libre).
+const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  transport_type: [
+    { value: "", label: "— choisir —" },
+    ...TRANSPORT_MODES.map((m) => ({ value: m, label: m })),
+  ],
+  transport_frequency: [
+    { value: "", label: "— choisir —" },
+    { value: "mensuel", label: "Abonnement mensuel" },
+    { value: "annuel", label: "Abonnement annuel" },
+    { value: "sans_objet", label: "Sans abonnement" },
+  ],
 };
 
 export function ContractInfoForm({
@@ -112,29 +127,52 @@ export function ContractInfoForm({
       {missing.map((f) => {
         const meta = FIELD_META[f.key] ?? { type: "text" };
         const isCity = f.key === "city";
+        const options = SELECT_OPTIONS[f.key];
+        // Karim 2026-06-17 : rouge tant que vide, VERT dès que rempli correctement.
+        const filled = (values[f.key] ?? "").trim() !== "";
+        const boxCls = filled
+          ? "border-2 border-emerald-400 bg-emerald-50 rounded p-2"
+          : "border-2 border-rose-400 bg-rose-50 rounded p-2";
         return (
-          <div key={f.key} className="border-2 border-rose-400 bg-rose-50 rounded p-2">
-            <Label htmlFor={f.key} className="text-rose-900 font-semibold flex items-center gap-1">
-              <span className="text-rose-600">●</span> {f.label}
+          <div key={f.key} className={boxCls}>
+            <Label htmlFor={f.key} className={`font-semibold flex items-center gap-1 ${filled ? "text-emerald-900" : "text-rose-900"}`}>
+              <span className={filled ? "text-emerald-600" : "text-rose-600"}>●</span> {f.label}
               {isCity && cityAuto ? (
                 <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-success">
                   <Sparkles className="h-3 w-3" /> auto
                 </span>
               ) : null}
-              <span className="text-[10px] text-rose-600 ml-auto">Requis pour contrat</span>
+              <span className={`text-[10px] ml-auto ${filled ? "text-emerald-600" : "text-rose-600"}`}>
+                {filled ? "✓ Rempli" : "Requis pour contrat"}
+              </span>
             </Label>
-            <Input
-              id={f.key}
-              name={f.key}
-              value={values[f.key] ?? ""}
-              onChange={(e) => setField(f.key, e.target.value)}
-              type={meta.type}
-              placeholder={meta.placeholder}
-              inputMode={meta.inputMode as React.HTMLAttributes<HTMLInputElement>["inputMode"]}
-              max={f.key === "birth_date" ? maxBirth : undefined}
-              className="bg-white border-rose-300 mt-1"
-              required
-            />
+            {options ? (
+              <select
+                id={f.key}
+                name={f.key}
+                value={values[f.key] ?? ""}
+                onChange={(e) => setField(f.key, e.target.value)}
+                className={`w-full bg-white mt-1 rounded-md border px-3 py-2 text-sm ${filled ? "border-emerald-300" : "border-rose-300"}`}
+                required
+              >
+                {options.map((o) => (
+                  <option key={o.value} value={o.value} disabled={o.value === ""}>{o.label}</option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                id={f.key}
+                name={f.key}
+                value={values[f.key] ?? ""}
+                onChange={(e) => setField(f.key, e.target.value)}
+                type={meta.type}
+                placeholder={meta.placeholder}
+                inputMode={meta.inputMode as React.HTMLAttributes<HTMLInputElement>["inputMode"]}
+                max={f.key === "birth_date" ? maxBirth : undefined}
+                className={`bg-white mt-1 ${filled ? "border-emerald-300" : "border-rose-300"}`}
+                required
+              />
+            )}
             {f.key === "nrn" ? (
               <p className="text-[10px] text-ink-3 mt-1">
                 Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.

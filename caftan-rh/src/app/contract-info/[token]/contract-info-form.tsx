@@ -5,12 +5,27 @@ import { Loader2, CheckCircle2, Check, X, Sparkles } from "lucide-react";
 import { submitContractInfoAction } from "./actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
+import { TRANSPORT_MODES } from "@/lib/config";
 
 type Field = { key: string; label: string };
 
+// Champs à choix (rendus en <select>).
+const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  transport_type: [
+    { value: "", label: "— choisir —" },
+    ...TRANSPORT_MODES.map((m) => ({ value: m, label: m })),
+  ],
+  transport_frequency: [
+    { value: "", label: "— choisir —" },
+    { value: "mensuel", label: "Abonnement mensuel" },
+    { value: "annuel", label: "Abonnement annuel" },
+    { value: "sans_objet", label: "Sans abonnement" },
+  ],
+};
+
 // Ordre logique : la date de naissance avant le NISS (qu'elle pre-remplit),
 // le code postal avant la ville (qu'il auto-detecte).
-const FIELD_ORDER = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban"];
+const FIELD_ORDER = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency"];
 
 function inputType(key: string): string {
   if (key === "birth_date") return "date";
@@ -174,36 +189,57 @@ export function ContractInfoForm({
       {ordered.map((f) => {
         const isIban = f.key === "iban";
         const isCity = f.key === "city";
+        const opts = SELECT_OPTIONS[f.key];
+        // Karim 2026-06-17 : vert dès que le champ est rempli (hors IBAN qui a sa
+        // propre validation mod-97).
+        const filled = (values[f.key] ?? "").trim() !== "";
         return (
           <div key={f.key}>
-            <label className="block text-xs font-semibold text-ink-2 mb-1">
+            <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
               {f.label}
               {isCity && cityAuto ? (
                 <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-success">
                   <Sparkles className="h-3 w-3" /> auto
                 </span>
               ) : null}
+              {filled && !isIban ? <Check className="h-3.5 w-3.5 text-success ml-auto" /> : null}
             </label>
 
             <div className="relative">
-              <input
-                type={inputType(f.key)}
-                inputMode={f.key === "postal_code" ? "numeric" : undefined}
-                max={f.key === "birth_date" ? maxBirth : undefined}
-                value={values[f.key] ?? ""}
-                placeholder={placeholder(f.key)}
-                onChange={(e) => setField(f.key, e.target.value)}
-                onBlur={isIban ? () => {
-                  // re-formate joliment l'IBAN au blur si valide
-                  if (ibanStatus === "ok") setValues((v) => ({ ...v, iban: formatIbanGroups(v.iban ?? "") }));
-                } : undefined}
-                className={[
-                  "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
-                  isIban && ibanStatus === "ok" ? "border-success pr-9" :
-                  isIban && ibanStatus === "bad" ? "border-danger pr-9" :
-                  "border-line focus:border-gold",
-                ].join(" ")}
-              />
+              {opts ? (
+                <select
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                  className={[
+                    "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
+                    filled ? "border-success" : "border-line focus:border-gold",
+                  ].join(" ")}
+                >
+                  {opts.map((o) => (
+                    <option key={o.value} value={o.value} disabled={o.value === ""}>{o.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={inputType(f.key)}
+                  inputMode={f.key === "postal_code" ? "numeric" : undefined}
+                  max={f.key === "birth_date" ? maxBirth : undefined}
+                  value={values[f.key] ?? ""}
+                  placeholder={placeholder(f.key)}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                  onBlur={isIban ? () => {
+                    // re-formate joliment l'IBAN au blur si valide
+                    if (ibanStatus === "ok") setValues((v) => ({ ...v, iban: formatIbanGroups(v.iban ?? "") }));
+                  } : undefined}
+                  className={[
+                    "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
+                    isIban && ibanStatus === "ok" ? "border-success pr-9" :
+                    isIban && ibanStatus === "bad" ? "border-danger pr-9" :
+                    filled ? "border-success" :
+                    "border-line focus:border-gold",
+                  ].join(" ")}
+                />
+              )}
               {isIban && ibanStatus !== "empty" ? (
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
                   {ibanStatus === "ok"

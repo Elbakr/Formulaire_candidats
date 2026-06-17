@@ -12,6 +12,7 @@ const ALLOWED_FIELDS = [
   "full_name", "email", "phone",
   "birth_date", "nrn", "address", "postal_code", "city",
   "iban", "bic",
+  "transport_type", "transport_frequency",
 ];
 
 export async function saveContractInfoAction(
@@ -47,9 +48,21 @@ export async function saveContractInfoAction(
     return { error: "La date de naissance doit correspondre à au moins 17 ans." };
   }
 
+  // Karim 2026-06-17 : horodate la soumission par le travailleur (statut admin).
+  const nowIso = new Date().toISOString();
+  const { data: subRow } = await supabase
+    .from("employees")
+    .select("worker_field_submissions")
+    .eq("id", (emp as { id: string }).id)
+    .maybeSingle();
+  const submissions: Record<string, string> = {
+    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
+  };
+  for (const k of Object.keys(updates)) submissions[k] = nowIso;
+
   const { error } = await supabase
     .from("employees")
-    .update(updates)
+    .update({ ...updates, worker_field_submissions: submissions })
     .eq("id", (emp as { id: string }).id);
   if (error) return { error: error.message };
 

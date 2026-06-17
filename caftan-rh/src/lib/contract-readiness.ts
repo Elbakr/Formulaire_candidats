@@ -30,6 +30,9 @@ const COMMON_REQUIRED: RequiredFieldDef[] = [
   { key: "postal_code", label: "Code postal", pageSection: "Identification" },
   { key: "city", label: "Ville", pageSection: "Identification" },
   { key: "iban", label: "IBAN bancaire", pageSection: "Banque & transport" },
+  // Karim 2026-06-17 : transport déclaré par le travailleur (remboursement secsoc).
+  { key: "transport_type", label: "Type de transport", pageSection: "Banque & transport" },
+  { key: "transport_frequency", label: "Périodicité de l'abonnement", pageSection: "Banque & transport" },
   // Karim 2026-05-30 : admin-only (decidés par admin/RH, pas candidate)
   { key: "weekly_hours", label: "Heures/semaine", pageSection: "Contrat", adminOnly: true },
   { key: "start_date", label: "Date d'entrée", pageSection: "Contrat", adminOnly: true },

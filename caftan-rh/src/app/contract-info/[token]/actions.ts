@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { isoMinusYears } from "@/lib/be-validators";
 
 // Champs que le TRAVAILLEUR peut renseigner (non adminOnly, cf. contract-readiness).
-const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban"] as const;
+const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency"] as const;
 
 export async function submitContractInfoAction(
   token: string,
@@ -31,7 +31,23 @@ export async function submitContractInfoAction(
     return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
   }
 
-  const { error } = await admin.from("employees").update(update).eq("id", tok.employee_id);
+  // Karim 2026-06-17 : horodate la SOUMISSION par le travailleur pour chaque champ
+  // renseigné (statut « soumis à HH:MM » côté fiche admin). Fusion avec l'existant.
+  const nowIso = new Date().toISOString();
+  const { data: subRow } = await admin
+    .from("employees")
+    .select("worker_field_submissions")
+    .eq("id", tok.employee_id)
+    .maybeSingle();
+  const submissions: Record<string, string> = {
+    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
+  };
+  for (const k of Object.keys(update)) submissions[k] = nowIso;
+
+  const { error } = await admin
+    .from("employees")
+    .update({ ...update, worker_field_submissions: submissions })
+    .eq("id", tok.employee_id);
   if (error) return { ok: false, error: error.message };
   await admin.from("contract_info_tokens").update({ completed_at: new Date().toISOString() }).eq("id", tok.id);
 

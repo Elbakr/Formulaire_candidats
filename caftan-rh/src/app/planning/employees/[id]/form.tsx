@@ -25,6 +25,20 @@ import {
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
+// Karim 2026-06-17 : statut de soumission self-service par le travailleur.
+// Vert « soumis à HH:MM » (heure de Bruxelles) si le travailleur a renseigné le
+// champ via son lien/espace ; orange « non soumis par l'employé » sinon.
+function SubmittedStatus({ subs, field }: { subs?: Record<string, string> | null; field: string }) {
+  const iso = subs?.[field];
+  if (iso) {
+    const t = new Date(iso).toLocaleTimeString("fr-BE", {
+      hour: "2-digit", minute: "2-digit", timeZone: "Europe/Brussels",
+    });
+    return <p className="text-[10px] font-semibold text-emerald-600 mt-0.5">✓ soumis à {t}</p>;
+  }
+  return <p className="text-[10px] font-semibold text-amber-600 mt-0.5">⚠ non soumis par l&apos;employé</p>;
+}
+
 type Employee = {
   id: string;
   full_name: string;
@@ -49,6 +63,7 @@ type Employee = {
   transport_type: string | null;
   transport_price: string | null;
   transport_frequency: string | null;
+  worker_field_submissions?: Record<string, string> | null;
   nrn: string | null;
   address: string | null;
   postal_code: string | null;
@@ -233,7 +248,7 @@ export function EmployeeAdminForm({
           <Field label="BIC" name="bic" defaultValue={employee.bic ?? ""} />
           <Field label="Titulaire compte" name="bank_holder" defaultValue={employee.bank_holder ?? ""} />
           <div>
-            <Label>Type transport</Label>
+            <Label>Type de transport</Label>
             <Select name="transport_type" defaultValue={employee.transport_type ?? "none"}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -243,6 +258,7 @@ export function EmployeeAdminForm({
                 ))}
               </SelectContent>
             </Select>
+            <SubmittedStatus subs={employee.worker_field_submissions} field="transport_type" />
           </div>
           <Field
             label="Prix transport (€)"
@@ -253,15 +269,16 @@ export function EmployeeAdminForm({
             placeholder="52.00"
           />
           <div>
-            <Label>Période du tarif transport</Label>
+            <Label>Périodicité de l&apos;abonnement</Label>
             <Select name="transport_frequency" defaultValue={employee.transport_frequency ?? "mensuel"}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="mensuel">Tarif mensuel</SelectItem>
-                <SelectItem value="annuel">Tarif annuel</SelectItem>
+                <SelectItem value="mensuel">Abonnement mensuel</SelectItem>
+                <SelectItem value="annuel">Abonnement annuel</SelectItem>
+                <SelectItem value="sans_objet">Sans abonnement</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-ink-3 mt-0.5">Le prix saisi ci-dessus correspond à un abonnement…</p>
+            <SubmittedStatus subs={employee.worker_field_submissions} field="transport_frequency" />
           </div>
         </div>
       </Section>

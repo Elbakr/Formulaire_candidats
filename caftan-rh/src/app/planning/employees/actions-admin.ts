@@ -80,10 +80,11 @@ export async function saveEmployeeAdminAction(employeeId: string, formData: Form
   const PROTECT = [
     "full_name", "email", "birth_date", "nrn",
     "address", "postal_code", "city", "iban",
+    "transport_type", "transport_frequency",
   ] as const;
   const { data: currentRaw } = await supabase
     .from("employees")
-    .select("full_name,email,birth_date,nrn,address,postal_code,city,iban")
+    .select("full_name,email,birth_date,nrn,address,postal_code,city,iban,transport_type,transport_frequency")
     .eq("id", employeeId)
     .maybeSingle();
   const current = (currentRaw ?? {}) as Record<string, unknown>;
