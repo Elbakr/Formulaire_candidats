@@ -68,7 +68,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     supabase.from("tuya_devices").select("tuya_device_id, tuya_device_name").eq("is_active", true).eq("is_pointage", true).order("tuya_device_name"),
     supabase
       .from("contract_terminations")
-      .select("id, initiated_by, status, earliest_effective_date, request_note")
+      .select("id, initiated_by, status, earliest_effective_date, request_note, immediate_requested")
       .eq("employee_id", id)
       .in("status", ["pending_admin", "approved", "sent_for_signature"])
       .order("requested_at", { ascending: false })
@@ -76,7 +76,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       .maybeSingle(),
   ]);
   const pendingTermination = (pendingTerminationRaw ?? null) as {
-    id: string; initiated_by: string; status: string; earliest_effective_date: string; request_note: string | null;
+    id: string; initiated_by: string; status: string; earliest_effective_date: string; request_note: string | null; immediate_requested?: boolean;
   } | null;
   const tuyaDevices = (tuyaDevicesRaw ?? []) as Array<{ tuya_device_id: string; tuya_device_name: string }>;
   const sites = (sitesRaw ?? []) as Array<{

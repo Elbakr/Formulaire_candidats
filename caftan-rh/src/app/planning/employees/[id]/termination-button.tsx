@@ -24,7 +24,7 @@ interface Props {
   employeeId: string;
   employeeFullName: string;
   defaultRepresentativeName?: string;
-  pendingTermination?: { id: string; initiated_by: string; status: string; earliest_effective_date: string; request_note: string | null } | null;
+  pendingTermination?: { id: string; initiated_by: string; status: string; earliest_effective_date: string; request_note: string | null; immediate_requested?: boolean } | null;
 }
 
 function todayPlus(d: number): string {
@@ -59,6 +59,9 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
   const [loadingContext, setLoadingContext] = useState(false);
 
   // Karim 2026-06-02 : chargement context au moment de l'ouverture du dialog
+  const isPendingFromWorker = pendingTermination?.initiated_by === "employee" && pendingTermination.status === "pending_admin";
+  const workerWantsImmediate = isPendingFromWorker && !!pendingTermination?.immediate_requested;
+
   useEffect(() => {
     if (!open) return;
     setLoadingContext(true);
@@ -67,13 +70,20 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
       if (r.ok) {
         setRecipientEmail(r.employee_email);
         setHistory(r.history);
+        // Karim 2026-06-17 : pour une rupture initiée par l'admin, propose d'office
+        // la date la plus plausible (éditable). Pour une demande travailleur, on
+        // garde sa date minimale (earliest_effective_date) déjà pré-remplie.
+        if (!isPendingFromWorker && r.suggestedEffectiveDate) setEffectiveDate(r.suggestedEffectiveDate);
       }
       setLoadingContext(false);
     })();
-  }, [open, employeeId]);
+  }, [open, employeeId, isPendingFromWorker]);
 
-  const isPendingFromWorker = pendingTermination?.initiated_by === "employee" && pendingTermination.status === "pending_admin";
-  const minDate = pendingTermination?.earliest_effective_date ?? todayPlus(0);
+  // Si le travailleur a demandé un arrêt anticipé, l'admin peut fixer une date
+  // immédiate/proche (pas de plancher). Sinon, plancher = earliest_effective_date.
+  const minDate = workerWantsImmediate
+    ? todayPlus(0)
+    : (pendingTermination?.earliest_effective_date ?? todayPlus(0));
 
   async function handleCreateOrApprove() {
     if (!representativeName.trim()) {
@@ -190,6 +200,15 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
             </div>
           )}
 
+          {workerWantsImmediate && (
+            <div className="bg-orange-50 border border-orange-200 rounded p-3 text-xs text-orange-900">
+              <strong>⚡ Le travailleur a demandé un départ anticipé</strong> (si l&apos;organisation
+              peut l&apos;absorber sans préjudice). À ton appréciation : tu peux fixer une date
+              <strong> immédiate / la plus proche possible</strong> ci-dessous — le plancher des 3 jours
+              planifiés ne s&apos;applique pas.
+            </div>
+          )}
+
           {/* Karim 2026-06-02 : email destinataire visible */}
           <div className={`text-xs rounded p-2 ${recipientEmail ? "bg-blue-50 border border-blue-200" : "bg-red-50 border border-red-200"}`}>
             <span className="font-semibold">Destinataire signature :</span>{" "}
@@ -250,6 +269,13 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
                   value={effectiveDate}
                   onChange={(e) => setEffectiveDate(e.target.value)}
                 />
+                <p className="text-[10px] text-ink-3 mt-0.5">
+                  {workerWantsImmediate
+                    ? "Départ anticipé demandé : fixe la date immédiate / la plus proche possible."
+                    : isPendingFromWorker
+                      ? "Plancher : 3 jours planifiés après la demande du travailleur."
+                      : "Date la plus plausible proposée automatiquement — modifiable."}
+                </p>
               </div>
               <div>
                 <Label>Représentant employeur</Label>

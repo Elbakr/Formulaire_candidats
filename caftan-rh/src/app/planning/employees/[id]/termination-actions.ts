@@ -40,6 +40,42 @@ function todayPlus(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function addDaysISO(fromISO: string, days: number): string {
+  const d = new Date(fromISO + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Karim 2026-06-17 : date de fin de rupture la plus plausible / minimale.
+ * Règle : au moins 3 jours PLANIFIÉS (jours où le travailleur est au planning)
+ * après `fromISO`. Si le planning n'est pas défini (moins de 3 jours à venir),
+ * on prend `fromISO` + 4 jours calendaires.
+ */
+async function computeEarliestTerminationDate(employeeId: string, fromISO: string): Promise<string> {
+  try {
+    const admin = createAdminClient();
+    const { data: shifts } = await admin
+      .from("shifts")
+      .select("date, status")
+      .eq("employee_id", employeeId)
+      .gt("date", fromISO)
+      .order("date", { ascending: true })
+      .limit(90);
+    const dates = Array.from(
+      new Set(
+        ((shifts ?? []) as Array<{ date: string; status: string | null }>)
+          .filter((s) => (s.status ?? "") !== "cancelled")
+          .map((s) => s.date),
+      ),
+    );
+    if (dates.length >= 3) return dates[2]; // 3e jour planifié
+  } catch {
+    /* fallback ci-dessous */
+  }
+  return addDaysISO(fromISO, 4); // planning non défini -> +4 jours
+}
+
 /**
  * Stocke le HTML rendu de la lettre dans le bucket terminations.
  * Retourne le storage path.
@@ -160,7 +196,8 @@ export async function initiateTerminationByRHAction(opts: {
  */
 export async function requestTerminationByEmployeeAction(opts: {
   reason?: string;
-}): Promise<ActionResult<{ terminationId: string; earliestEffectiveDate: string }>> {
+  immediate?: boolean;
+}): Promise<ActionResult<{ terminationId: string; earliestEffectiveDate: string; immediate: boolean }>> {
   const user = await requireUser();
   const admin = createAdminClient();
   const { data: emp } = await admin
@@ -180,7 +217,12 @@ export async function requestTerminationByEmployeeAction(opts: {
   const employerOrgKey = (lastPayslip?.employer_org_key as string | undefined) ?? "amd_megastore";
 
   const requestedAt = new Date().toISOString();
-  const earliest = todayPlus(3);
+  // Karim 2026-06-17 : au moins 3 jours PLANIFIÉS après la demande (ou +4 si pas
+  // de planning). C'est aussi la date de fin AUTOMATIQUE si l'arrêt immédiat
+  // n'est pas demandé.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const earliest = await computeEarliestTerminationDate(emp.id, todayISO);
+  const immediate = !!opts.immediate;
   const { data: row, error } = await admin
     .from("contract_terminations")
     .insert({
@@ -190,6 +232,7 @@ export async function requestTerminationByEmployeeAction(opts: {
       initiator_profile_id: user.id,
       requested_at: requestedAt,
       earliest_effective_date: earliest,
+      immediate_requested: immediate,
       status: "pending_admin",
       request_note: opts.reason ?? null,
     })
@@ -198,7 +241,7 @@ export async function requestTerminationByEmployeeAction(opts: {
   if (error || !row) return { error: error?.message ?? "Insert KO" };
 
   revalidatePath("/me/profile");
-  return { ok: true, data: { terminationId: row.id, earliestEffectiveDate: earliest } };
+  return { ok: true, data: { terminationId: row.id, earliestEffectiveDate: earliest, immediate } };
 }
 
 /**
@@ -216,16 +259,23 @@ export async function approveTerminationAction(opts: {
   const admin = createAdminClient();
   const { data: t } = await admin
     .from("contract_terminations")
-    .select("id, employee_id, initiated_by, earliest_effective_date, status")
+    .select("id, employee_id, initiated_by, earliest_effective_date, status, immediate_requested")
     .eq("id", opts.terminationId)
     .single();
   if (!t) return { error: "Rupture introuvable" };
   if (t.status !== "pending_admin" && t.status !== "approved") {
     return { error: `Statut actuel ${t.status} ne permet pas la validation` };
   }
-  if (t.initiated_by === "employee" && opts.effectiveDate < t.earliest_effective_date) {
+  // Karim 2026-06-17 : le minimum « 3 jours planifiés » s'applique aux demandes
+  // travailleur SAUF si l'arrêt immédiat a été demandé (l'admin décide alors à
+  // son appréciation d'une date immédiate ou la plus proche possible).
+  if (
+    t.initiated_by === "employee" &&
+    !t.immediate_requested &&
+    opts.effectiveDate < t.earliest_effective_date
+  ) {
     return {
-      error: `Date effective trop tôt. Minimum requis : ${t.earliest_effective_date} (cooling-off 3 jours)`,
+      error: `Date effective trop tôt. Minimum requis : ${t.earliest_effective_date} (3 jours planifiés). L'arrêt immédiat n'a pas été demandé par le travailleur.`,
     };
   }
 
@@ -291,6 +341,7 @@ export async function getTerminationContextAction(
 ): Promise<{
   ok: boolean;
   employee_email: string | null;
+  suggestedEffectiveDate: string;
   history: Array<{
     id: string;
     status: string;
@@ -305,6 +356,8 @@ export async function getTerminationContextAction(
   await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
   const { data: emp } = await admin.from("employees").select("email").eq("id", employeeId).maybeSingle();
+  // Karim 2026-06-17 : date de rupture la plus plausible proposée à l'admin (éditable).
+  const suggestedEffectiveDate = await computeEarliestTerminationDate(employeeId, new Date().toISOString().slice(0, 10));
   const { data: rows } = await admin
     .from("contract_terminations")
     .select(`
@@ -318,6 +371,7 @@ export async function getTerminationContextAction(
   return {
     ok: true,
     employee_email: (emp?.email as string | null) ?? null,
+    suggestedEffectiveDate,
     history: (rows ?? []).map((r) => ({
       id: r.id as string,
       status: r.status as string,

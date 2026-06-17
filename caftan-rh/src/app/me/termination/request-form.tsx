@@ -11,6 +11,7 @@ import { requestTerminationByEmployeeAction } from "@/app/planning/employees/[id
 export function TerminationRequestForm() {
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [immediate, setImmediate] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function submit() {
@@ -19,12 +20,12 @@ export function TerminationRequestForm() {
       return;
     }
     startTransition(async () => {
-      const res = await requestTerminationByEmployeeAction({ reason: reason || undefined });
+      const res = await requestTerminationByEmployeeAction({ reason: reason || undefined, immediate });
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      toast.success(`Demande envoyée. Date min. autorisée : ${res.data?.earliestEffectiveDate}`);
+      toast.success(`Demande envoyée. Date de fin prévue : ${res.data?.earliestEffectiveDate}`);
       // refresh la page pour afficher la carte "en cours"
       window.location.reload();
     });
@@ -40,7 +41,10 @@ export function TerminationRequestForm() {
         La demande sera soumise à validation RH/Admin. Aucune notification automatique de fin de contrat
         n&apos;est déclenchée tant qu&apos;elle n&apos;est pas validée et signée par les deux parties.
         <br />
-        <strong>Délai minimum entre ta demande et la date de fin : 3 jours.</strong>
+        <strong>
+          Délai minimum : 3 jours planifiés après ta demande (ou 4 jours si aucun planning n&apos;est défini).
+        </strong>{" "}
+        Sans demande d&apos;arrêt anticipé ci-dessous, la fin prendra effet à cette date.
       </p>
 
       <div>
@@ -52,6 +56,21 @@ export function TerminationRequestForm() {
           placeholder="Ex. nouvelle opportunité professionnelle, raisons personnelles..."
         />
       </div>
+
+      <label className="flex items-start gap-2 text-xs cursor-pointer rounded-md border border-amber-200 bg-amber-50 p-2">
+        <input
+          type="checkbox"
+          checked={immediate}
+          onChange={(e) => setImmediate(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span className="text-amber-900">
+          <strong>Départ anticipé si possible.</strong> Si l&apos;organisation peut l&apos;absorber
+          sans préjudice pour le service, je souhaite que mon départ prenne effet dans les meilleurs
+          délais — idéalement immédiatement. Je comprends que l&apos;employeur décide, à son
+          appréciation, d&apos;un arrêt immédiat ou de la date la plus proche possible.
+        </span>
+      </label>
 
       <label className="flex items-start gap-2 text-xs cursor-pointer">
         <input
