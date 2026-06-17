@@ -24,19 +24,30 @@ export type IdCardDoc = {
   created_at: string;
 };
 
-/** Fusionne 1..n images (recto/verso) en un seul PDF A4, une image par page. */
+/**
+ * Fusionne recto + verso sur UNE SEULE page A4 (empilés verticalement, chacun
+ * centré dans sa moitié). Karim 2026-06-17 : préféré à une page par face.
+ */
 export async function buildIdCardPdf(images: IdCardImage[]): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  for (const img of images) {
+  const page = pdf.addPage([A4_W, A4_H]);
+  const count = Math.max(images.length, 1);
+  const slotH = (A4_H - MARGIN * 2) / count; // hauteur d'un emplacement (1 par face)
+  const maxW = A4_W - MARGIN * 2;
+  const GAP = 14;
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
     const isPng = /png/i.test(img.mime);
     const embedded = isPng ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
-    const maxW = A4_W - MARGIN * 2;
-    const maxH = A4_H - MARGIN * 2;
+    const maxH = slotH - GAP;
     const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
     const w = embedded.width * scale;
     const h = embedded.height * scale;
-    const page = pdf.addPage([A4_W, A4_H]);
-    page.drawImage(embedded, { x: (A4_W - w) / 2, y: (A4_H - h) / 2, width: w, height: h });
+    // Emplacement i compté depuis le HAUT de la zone utile.
+    const slotTopY = A4_H - MARGIN - i * slotH;
+    const y = slotTopY - slotH + (slotH - h) / 2; // centré verticalement dans l'emplacement
+    const x = (A4_W - w) / 2;
+    page.drawImage(embedded, { x, y, width: w, height: h });
   }
   return await pdf.save();
 }

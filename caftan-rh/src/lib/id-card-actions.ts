@@ -86,23 +86,32 @@ export async function sendIdCardToSecsocAction(
   const doc = await getEmployeeIdCard(admin, employeeId);
   if (!doc) return { ok: false, error: "Aucune carte d'identité enregistrée pour cet employé." };
 
-  const { data: signed } = await admin.storage.from("documents").createSignedUrl(doc.storage_path, 7 * 24 * 3600);
-  if (!signed?.signedUrl) return { ok: false, error: "Impossible de générer le lien du document." };
+  // Karim 2026-06-17 : on attache le VRAI fichier PDF (octets) — l'envoi par
+  // « attachmentUrls » ne produisait aucune pièce jointe.
+  const { data: blob, error: dlErr } = await admin.storage.from("documents").download(doc.storage_path);
+  if (dlErr || !blob) return { ok: false, error: "Carte d'identité introuvable dans le stockage." };
+  const bytes = new Uint8Array(await blob.arrayBuffer());
 
   const { data: emp } = await admin.from("employees").select("full_name").eq("id", employeeId).maybeSingle();
   const name = (emp as { full_name?: string } | null)?.full_name ?? "Employé";
 
-  const { sendAppMail } = await import("@/lib/app-mail");
-  const r = await sendAppMail({
-    to: "hr@caftanfactory.com",
-    toName: "Secrétariat social / RH",
-    subject: `Carte d'identité — ${name}`,
-    body: `Bonjour,\n\nVeuillez trouver ci-joint la carte d'identité (recto/verso) de ${name} pour le dossier.\n\nEnvoyée par ${profile.full_name ?? profile.email}.\n\nCaftanRH`,
-    attachmentUrls: [{ name: doc.file_name, url: signed.signedUrl }],
-    source: "id_card_secsoc",
-    sourceRef: employeeId,
-    employeeId,
-  });
-  if (!r.ok) return { ok: false, error: r.error ?? "Échec de l'envoi." };
+  try {
+    const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");
+    const res = await sendMailWithAttachments({
+      to: "hr@caftanfactory.com",
+      toName: "Secrétariat social / RH",
+      subject: `Carte d'identité — ${name}`,
+      body: `Bonjour,\n\nVeuillez trouver ci-joint la carte d'identité (recto/verso) de ${name} pour le dossier.\n\nEnvoyée par ${profile.full_name ?? profile.email}.\n\nCaftanRH`,
+      attachments: [{ filename: doc.file_name, content: bytes, contentType: "application/pdf" }],
+      source: "id_card_secsoc",
+      sourceRef: employeeId,
+      employeeId,
+    });
+    if (res && (res as { ok?: boolean }).ok === false) {
+      return { ok: false, error: (res as { error?: string }).error ?? "Échec de l'envoi." };
+    }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Échec de l'envoi." };
+  }
   return { ok: true };
 }

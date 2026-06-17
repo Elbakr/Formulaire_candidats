@@ -97,19 +97,22 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const mode: "print" | "esign" = req.nextUrl.searchParams.get("mode") === "print" ? "print" : "esign";
 
   const employer = EMPLOYER_INFO[t.employer_org_key] ?? EMPLOYER_INFO.amd_megastore;
-  const html = renderTerminationLetterHtml({
-    employer_org_name: employer.name,
-    employer_address: employer.address,
-    employer_city: employer.city,
-    employer_representative_name: t.employer_representative_name,
-    employee_full_name: emp.full_name ?? "",
-    employee_address: emp.address ?? "",
-    employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),
-    effective_date_iso: t.effective_date ?? new Date().toISOString().slice(0, 10),
-    signing_city: t.city ?? "Schaerbeek",
-    signing_date_iso: new Date().toISOString().slice(0, 10),
-    mode,
-  });
+  const html = renderTerminationLetterHtml(
+    {
+      employer_org_name: employer.name,
+      employer_address: employer.address,
+      employer_city: employer.city,
+      employer_representative_name: t.employer_representative_name,
+      employee_full_name: emp.full_name ?? "",
+      employee_address: emp.address ?? "",
+      employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),
+      effective_date_iso: t.effective_date ?? new Date().toISOString().slice(0, 10),
+      signing_city: t.city ?? "Schaerbeek",
+      signing_date_iso: new Date().toISOString().slice(0, 10),
+      mode,
+    },
+    { toolbar: true }, // barre Imprimer + Fermer (sortie du mode aperçu)
+  );
 
   // Audit log de la consultation
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;

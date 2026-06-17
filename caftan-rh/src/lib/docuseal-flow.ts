@@ -304,7 +304,9 @@ const STUDENT_COMPACT_OVERRIDE = `
   }
 `;
 
-const CONTRACT_CSS = `
+// Karim 2026-06-17 : exporté pour réutilisation par la convention de rupture
+// (même « Super Layout » : Calibri/A4, titre encadré, bloc parties, cases signature).
+export const CONTRACT_CSS = `
   @page {
     size: A4 portrait;
     /* Karim v8 : marges proches des originaux SD Worx */

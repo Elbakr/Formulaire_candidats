@@ -1,13 +1,11 @@
-// Karim 2026-06-01 : génère la lettre officielle "Cessation du contrat de
-// travail de commun accord" (modèle 402.00 belge) en HTML, fidèle au PDF
-// original. Conservée en HTML pour pouvoir :
-//   - L'afficher en preview avant envoi
-//   - L'imprimer (window.print) côté client
-//   - La convertir en PDF côté server (via Puppeteer si on a un service)
-//
-// Format papier : A4 portrait, marges 2.5cm.
+// Karim 2026-06-01 / refonte 2026-06-17 : convention « Cessation du contrat de
+// travail de commun accord » (modèle 402.00 belge) rendue dans le MÊME « Super
+// Layout » que les contrats (CSS Calibri/A4 partagé, titre encadré, bloc parties
+// Entre/Et, cases de signature). Objectif : cohérence visuelle de TOUS les
+// documents générés + règle de pagination « titre + corps sur la même page ».
 
 import "server-only";
+import { CONTRACT_CSS } from "@/lib/docuseal-flow";
 
 export interface TerminationLetterData {
   // Employeur
@@ -20,14 +18,19 @@ export interface TerminationLetterData {
   employee_address: string;
   employee_city: string;
   // Convention
-  effective_date_iso: string;  // YYYY-MM-DD
-  signing_city: string;        // "Schaerbeek"
-  signing_date_iso: string;    // YYYY-MM-DD (date à laquelle la convention est signée)
-  // Karim 2026-06-01 : mode de rendu pour la zone signature.
-  //  - "esign"  : mention "Lu et approuvé — signé électroniquement... eIDAS"
-  //  - "print"  : mention manuscrite classique "(précédée de la mention « lu et approuvé »)"
-  //               + cases vides (signature stylo)
+  effective_date_iso: string; // YYYY-MM-DD
+  signing_city: string; // "Schaerbeek"
+  signing_date_iso: string; // YYYY-MM-DD
+  // "esign" : mention électronique eIDAS ; "print" : mention manuscrite (stylo).
   mode?: "esign" | "print";
+}
+
+function escapeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function formatDateBE(iso: string): string {
@@ -35,317 +38,146 @@ function formatDateBE(iso: string): string {
     const d = new Date(iso + "T00:00:00");
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const yy = String(d.getFullYear()).slice(2);
-    return `${dd}-${mm}-${yy}`;
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
   } catch {
     return iso;
   }
 }
 
+function partiesBlock(d: TerminationLetterData): string {
+  const e = escapeHtml;
+  const v = (val: string) => (val ? e(val) : `<span class="dotted-fill"></span>`);
+  const rep = (d.employer_representative_name ?? "").trim();
+  return `
+<div class="parties-block">
+  <table>
+    <tr><td class="col-prefix">Entre</td><td class="col-label">L'employeur</td><td class="col-sep">:</td><td class="col-value"><strong>${e(d.employer_org_name)}</strong></td></tr>
+    <tr><td class="col-prefix"></td><td class="col-label">Adresse</td><td class="col-sep">:</td><td class="col-value">${v(d.employer_address)}</td></tr>
+    <tr><td class="col-prefix"></td><td class="col-label">Localité</td><td class="col-sep">:</td><td class="col-value">${v(d.employer_city)}</td></tr>
+    <tr><td class="col-prefix"></td><td class="col-label">Représenté par</td><td class="col-sep">:</td><td class="col-value">${rep ? e(rep) : `<span class="dotted-fill"></span>`}</td></tr>
+    <tr><td class="col-prefix">Et</td><td class="col-label">Le travailleur</td><td class="col-sep">:</td><td class="col-value"><strong>${e(d.employee_full_name)}</strong></td></tr>
+    <tr><td class="col-prefix"></td><td class="col-label">Adresse</td><td class="col-sep">:</td><td class="col-value">${v(d.employee_address)}</td></tr>
+    <tr><td class="col-prefix"></td><td class="col-label">Localité</td><td class="col-sep">:</td><td class="col-value">${v(d.employee_city)}</td></tr>
+  </table>
+</div>
+<p class="convenu-line">IL EST CONVENU CE QUI SUIT :</p>`.trim();
+}
+
 /**
- * Karim 2026-06-01 : variante DocuSeal — embarque les balises
- * <signature-field role="Employee"/Employer"> que DocuSeal interprète pour
- * placer les zones de signature dans le PDF A4 généré.
- *
- * Utilisé via POST /templates/html sur DocuSeal Cloud (cf. docuseal-flow.ts
- * pour le pattern de référence sur les contrats).
+ * Cœur du rendu : produit le document complet « Super Layout ».
+ *  - opts.forSigning : place le marqueur <!--EMPLOYEE_SIG--> (remplacé par l'image
+ *    de la signature du travailleur lors de la signature interne).
+ *  - opts.employerSignatureDataUrl : signature employeur pré-apposée (image).
+ *  - opts.toolbar : ajoute une barre (Imprimer / Fermer) pour l'aperçu standalone.
  */
+function renderTerminationSuperLayout(
+  d: TerminationLetterData,
+  opts: { forSigning?: boolean; employerSignatureDataUrl?: string | null; toolbar?: boolean } = {},
+): string {
+  const effectiveStr = formatDateBE(d.effective_date_iso);
+  const signingStr = formatDateBE(d.signing_date_iso);
+  const preSigned = !!opts.employerSignatureDataUrl;
+  const isPrint = d.mode === "print";
+
+  const employeeZone = opts.forSigning
+    ? `<div class="sig-zone"><!--EMPLOYEE_SIG--></div>`
+    : `<div class="sig-zone"></div>`;
+  const employeeSub = isPrint
+    ? `<div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>`
+    : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`;
+
+  const employerZone = preSigned
+    ? `<div class="sig-zone"><img src="${opts.employerSignatureDataUrl}" alt="Signature employeur" style="display:block;max-width:100%;max-height:50px;margin:0 auto;"></div>`
+    : `<div class="sig-zone"></div>`;
+  const employerSub = isPrint
+    ? ""
+    : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`;
+
+  const toolbar = opts.toolbar
+    ? `<div class="no-print" style="position:sticky;top:0;z-index:10;background:rgba(255,255,255,0.96);border-bottom:1px solid #d6d8dd;padding:8px 12px;display:flex;gap:8px;justify-content:flex-end;backdrop-filter:blur(6px);">
+        <button type="button" onclick="if(window.history.length>1){window.history.back()}else{window.close()}" style="background:#eef0f4;color:#111;border:1px solid #d6d8dd;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;">← Fermer</button>
+        <button type="button" onclick="window.print()" style="background:#0b5fff;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;">🖨️ Imprimer (PDF)</button>
+      </div>
+      <style>@media print{.no-print{display:none!important}}</style>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Cessation du contrat de travail - Commun accord</title>
+<style>${CONTRACT_CSS}</style>
+</head>
+<body class="contract-employee">
+${toolbar}
+<div class="doc-title"><h1>CESSATION DU CONTRAT DE TRAVAIL DE COMMUN ACCORD</h1></div>
+
+${partiesBlock(d)}
+
+<section class="article-block">
+  <p>Conformément aux dispositions de l'article 1134 du Code Civil, le contrat de travail liant les soussignés prend fin, de leur commun accord, le <strong>${effectiveStr}</strong>.</p>
+  <p>Cette cessation des relations de travail ne s'accompagne d'aucune notification de préavis ni d'aucun paiement d'une quelconque indemnité compensatoire de préavis.</p>
+  <p>Moyennant l'exécution de la présente convention, chacune des parties renonce à se prévaloir à l'égard de l'autre de tous droits nés ou à naître en raison ou à l'occasion des relations de travail ayant existé entre elles.</p>
+  <p>De plus, chaque partie renonce à se prévaloir de toute erreur de droit ou de fait et de toute omission relative à l'existence ou à l'étendue de ses droits.</p>
+</section>
+
+<div class="sign-group" style="page-break-inside:avoid;break-inside:avoid;">
+  <p class="closing-line">Fait en deux exemplaires à <strong>${escapeHtml(d.signing_city)}</strong>, le ${signingStr}.<br>Chaque partie reconnaît avoir reçu un exemplaire de la présente convention.</p>
+  <div class="signatures">
+    <div class="sig-row">
+      <div class="sig-cell">
+        <div class="sig-box">
+          <div class="sig-title">Signature du travailleur</div>
+          ${employeeZone}
+          ${employeeSub}
+        </div>
+      </div>
+      <div class="sig-cell">
+        <div class="sig-box">
+          <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+          ${preSigned ? `<div class="sig-sub">(pré-signée numériquement)</div>` : ""}
+          ${employerZone}
+          ${employerSub}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  if (window.location.search.includes('print=1')) { setTimeout(() => window.print(), 400); }
+</script>
+</body>
+</html>`;
+}
+
+/** Aperçu / impression standalone (barre Imprimer + Fermer). */
+export function renderTerminationLetterHtml(
+  d: TerminationLetterData,
+  opts?: { toolbar?: boolean },
+): string {
+  return renderTerminationSuperLayout(d, { toolbar: opts?.toolbar ?? false });
+}
+
+/** Document à signer en interne : employeur pré-signé + marqueur signature travailleur. */
+export function renderTerminationLetterForInternalSign(
+  d: TerminationLetterData,
+  opts?: { employerSignatureDataUrl?: string | null },
+): string {
+  return renderTerminationSuperLayout(
+    { ...d, mode: "esign" },
+    { forSigning: true, employerSignatureDataUrl: opts?.employerSignatureDataUrl ?? null, toolbar: false },
+  );
+}
+
 /**
- * Karim 2026-06-01 : DocuSeal version. Si employerSignatureDataUrl fourni
- * (signature Karim deja enregistree dans profiles.signature_data_url), elle
- * est embedded comme image dans le PDF → 1 seul signataire DocuSeal (Employee).
- * Sinon, 2 signataires (Employer + Employee) via signature-field.
+ * Compat DocuSeal (DORMANT — la rupture est passée en signature interne). Conservé
+ * pour que `docuseal-termination.ts` (non utilisé) reste compilable. Ne pas réactiver
+ * sans réintroduire les <signature-field> DocuSeal.
  */
 export function renderTerminationLetterForDocuSeal(
   d: TerminationLetterData,
   opts?: { employerSignatureDataUrl?: string | null },
 ): string {
-  // Force mode esign pour DocuSeal
-  const baseHtml = renderTerminationLetterHtml({ ...d, mode: "esign" });
-  // Karim 2026-06-01 : date FR formatée (JJ/MM/AAAA), basée sur la date
-  // de génération du template DocuSeal. Pas de <date-field> dynamique
-  // (DocuSeal le rendait avec une date imprévisible 06/01/2023).
-  const now = new Date();
-  const dateFR = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
-  const preSigned = !!opts?.employerSignatureDataUrl;
-
-  const employerSigBlock = preSigned
-    ? `<div style="margin-top: 10pt;">
-        <img src="${opts!.employerSignatureDataUrl}" alt="Signature employeur" style="display: block; max-width: 100%; max-height: 50pt; margin: 0 auto;">
-      </div>
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
-        <br><em>(pré-signée numériquement par l'employeur)</em>
-      </div>`
-    : `<div style="margin-top: 10pt;">
-        <signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
-      </div>
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
-      </div>`;
-
-  return baseHtml.replace(
-    /<div class="signatures">[\s\S]*?<\/div>\s*<\/div>\s*<script>/,
-    `<div class="signatures">
-    <div class="sig-box">
-      <div class="sig-title">Signature du travailleur</div>
-      <div style="margin-top: 10pt;">
-        <signature-field name="Signature travailleur" role="Employee" required="true" style="display: block; width: 100%; height: 50pt;"></signature-field>
-      </div>
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
-      </div>
-    </div>
-    <div class="sig-box">
-      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      ${employerSigBlock}
-    </div>
-  </div>
-  </div>
-  <script>`,
-  );
-}
-
-/**
- * Karim 2026-06-17 : variante SIGNATURE INTERNE (remplace DocuSeal).
- * Produit EXACTEMENT ton layout 402.00 validé (renderTerminationLetterHtml) en
- * y intégrant :
- *   - l'employeur PRÉ-SIGNÉ (image de signature) s'il est fourni ;
- *   - un marqueur <!--EMPLOYEE_SIG--> dans la case travailleur, remplacé par
- *     l'image de sa signature au moment où il signe sur /sign-termination/[token].
- * Le HTML résultant est stocké tel quel (signed_body) puis converti en PDF
- * (PDFShift) — donc le document signé EST ton layout, sans dépendance externe.
- */
-export function renderTerminationLetterForInternalSign(
-  d: TerminationLetterData,
-  opts?: { employerSignatureDataUrl?: string | null },
-): string {
-  const baseHtml = renderTerminationLetterHtml({ ...d, mode: "esign" });
-  const now = new Date();
-  const dateFR = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
-  const employerSigBlock = opts?.employerSignatureDataUrl
-    ? `<div style="margin-top: 10pt;">
-        <img src="${opts.employerSignatureDataUrl}" alt="Signature employeur" style="display: block; max-width: 100%; max-height: 50pt; margin: 0 auto;">
-      </div>
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
-        <br><em>(pré-signée par l'employeur)</em>
-      </div>`
-    : `<div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)
-      </div>`;
-
-  return baseHtml.replace(
-    /<div class="signatures">[\s\S]*?<\/div>\s*<\/div>\s*<script>/,
-    `<div class="signatures">
-    <div class="sig-box">
-      <div class="sig-title">Signature du travailleur</div>
-      <!--EMPLOYEE_SIG-->
-      <div class="sig-sub" style="margin-top: 6pt;">
-        Lu et approuvé — signé électroniquement (eIDAS UE n° 910/2014)
-      </div>
-    </div>
-    <div class="sig-box">
-      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      ${employerSigBlock}
-    </div>
-  </div>
-  </div>
-  <script>`,
-  );
-}
-
-export function renderTerminationLetterHtml(d: TerminationLetterData): string {
-  const effectiveStr = formatDateBE(d.effective_date_iso);
-  const signingStr = formatDateBE(d.signing_date_iso);
-  const repFilled = (d.employer_representative_name ?? "").trim();
-  const repDisplay = repFilled
-    ? repFilled
-    : "………………………………………………………………………………………………………….…………...………………………………………";
-
-  return `<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<title>Cessation du contrat de travail - Commun accord</title>
-<style>
-  @page { size: A4 portrait; margin: 2.5cm 2.2cm; }
-  * { box-sizing: border-box; }
-  /* Karim 2026-06-01 : wrapper A4 visible en preview navigateur (fond gris,
-     page blanche centree avec ombre). En print, on revient au flow natif. */
-  html { background: #eceef2; }
-  body {
-    font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
-    font-size: 11pt;
-    line-height: 1.5;
-    color: #000;
-    margin: 0;
-    padding: 24pt 0;
-  }
-  .toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: rgba(255,255,255,0.95);
-    border-bottom: 1px solid #d6d8dd;
-    padding: 8pt 16pt;
-    text-align: right;
-    backdrop-filter: blur(6px);
-    margin: -24pt 0 24pt 0;
-  }
-  .toolbar button {
-    background: #0b5fff;
-    color: #fff;
-    border: none;
-    padding: 8pt 16pt;
-    border-radius: 6px;
-    font-size: 10.5pt;
-    cursor: pointer;
-    font-weight: 600;
-  }
-  .toolbar button:hover { background: #084ad8; }
-  .a4-page {
-    width: 21cm;
-    min-height: 29.7cm;
-    max-width: 21cm;
-    margin: 0 auto;
-    padding: 2.5cm 2.2cm;
-    background: #fff;
-    box-shadow: 0 4pt 16pt rgba(0,0,0,0.12);
-  }
-  @media print {
-    html, body { background: #fff !important; padding: 0 !important; }
-    .toolbar { display: none !important; }
-    .a4-page {
-      width: auto;
-      max-width: none;
-      margin: 0;
-      padding: 0;
-      box-shadow: none;
-      min-height: 0;
-    }
-  }
-  h1.title {
-    text-align: center;
-    border: 1.5pt solid #000;
-    padding: 8pt 10pt;
-    font-size: 13.5pt;
-    font-weight: 700;
-    letter-spacing: 0.5pt;
-    margin: 0 0 28pt 0;
-  }
-  .header-block { margin-bottom: 20pt; }
-  .header-row { display: flex; align-items: baseline; margin-bottom: 4pt; }
-  .header-row .col-side { width: 50pt; font-weight: 700; flex-shrink: 0; }
-  .header-row .col-label { width: 100pt; font-weight: 700; flex-shrink: 0; }
-  .header-row .col-value { flex: 1; }
-  .header-row .col-label-light { width: 100pt; flex-shrink: 0; }
-  .il-est { font-weight: 700; margin: 22pt 0 14pt 0; }
-  p { margin: 0 0 12pt 0; text-align: justify; }
-  .fait { margin: 26pt 0 14pt 0; }
-  .signatures {
-    display: flex;
-    gap: 18pt;
-    margin-top: 8pt;
-  }
-  .sig-box {
-    flex: 1;
-    border: 0.6pt solid #000;
-    min-height: 90pt;
-    padding: 6pt 8pt;
-    font-size: 9.5pt;
-    text-align: center;
-  }
-  .sig-box .sig-title { font-weight: 400; }
-  .sig-box .sig-sub { font-size: 8pt; font-style: italic; }
-  .dotted { letter-spacing: 0; }
-</style>
-</head>
-<body>
-  <div class="toolbar no-print">
-    <button onclick="window.print()" type="button">🖨️ Imprimer (PDF)</button>
-  </div>
-  <div class="a4-page">
-  <h1 class="title">CESSATION DU CONTRAT DE TRAVAIL DE COMMUN ACCORD</h1>
-
-  <div class="header-block">
-    <div class="header-row">
-      <div class="col-side">Entre</div>
-      <div class="col-label">L'employeur</div>
-      <div class="col-value">: ${d.employer_org_name}</div>
-    </div>
-    <div class="header-row">
-      <div class="col-side"></div>
-      <div class="col-label-light">Adresse</div>
-      <div class="col-value">: ${d.employer_address}</div>
-    </div>
-    <div class="header-row">
-      <div class="col-side"></div>
-      <div class="col-label-light">Localité</div>
-      <div class="col-value">: ${d.employer_city}</div>
-    </div>
-    <div class="header-row">
-      <div class="col-side"></div>
-      <div class="col-label-light">Représenté par</div>
-      <div class="col-value">: <span class="dotted">${repDisplay}</span></div>
-    </div>
-
-    <div class="header-row" style="margin-top:8pt;">
-      <div class="col-side">Et</div>
-      <div class="col-label">le travailleur</div>
-      <div class="col-value">: ${d.employee_full_name}</div>
-    </div>
-    <div class="header-row">
-      <div class="col-side"></div>
-      <div class="col-label-light">Adresse</div>
-      <div class="col-value">: ${d.employee_address}</div>
-    </div>
-    <div class="header-row">
-      <div class="col-side"></div>
-      <div class="col-label-light">Localité</div>
-      <div class="col-value">: ${d.employee_city}</div>
-    </div>
-  </div>
-
-  <div class="il-est">IL EST CONVENU CE QUI SUIT :</div>
-
-  <p>Conformément aux dispositions de l'article 1134 du Code Civil, le contrat de travail liant les soussignés prend fin, de leur commun accord, le ${effectiveStr}</p>
-
-  <p>Cette cessation des relations de travail ne s'accompagne donc d'aucune notification de préavis ni d'aucun paiement d'une quelconque indemnité compensatoire de préavis.</p>
-
-  <p>Moyennant l'exécution de la présente convention, chacune des parties renonce à se prévaloir à l'égard de l'autre de tous droits nés ou à naître en raison ou à l'occasion des relations de travail ayant existé entre elles.</p>
-
-  <p>De plus, chaque partie renonce à se prévaloir de toute erreur de droit ou de fait et de toute omission relative à l'existence ou à l'étendue de ses droits.</p>
-
-  <p>Chaque partie reconnaît avoir reçu un exemplaire de la présente convention.</p>
-
-  <div class="fait">Fait en deux exemplaires à ${d.signing_city}, le ${signingStr}</div>
-
-  <div class="signatures">
-    <div class="sig-box">
-      <div class="sig-title">Signature du travailleur</div>
-      ${
-        d.mode === "print"
-          ? `<div class="sig-sub">(précédée de la mention manuscrite « lu et approuvé »)</div>`
-          : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`
-      }
-    </div>
-    <div class="sig-box">
-      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
-      ${
-        d.mode === "print"
-          ? ""
-          : `<div class="sig-sub">Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)</div>`
-      }
-    </div>
-  </div>
-  </div>
-  <script>
-    // Karim 2026-06-01 : auto-print si ?print=1 dans l URL
-    if (window.location.search.includes('print=1')) {
-      setTimeout(() => window.print(), 400);
-    }
-  </script>
-</body>
-</html>`;
+  return renderTerminationLetterForInternalSign(d, opts);
 }

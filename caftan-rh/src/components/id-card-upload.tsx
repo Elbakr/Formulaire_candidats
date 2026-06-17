@@ -142,12 +142,9 @@ export function IdCardUpload({
   }
 
   function renderSide(which: "recto" | "verso", value: string | null) {
+    const label = which === "recto" ? "Recto" : "Verso";
     return (
-      <label
-        className={`flex-1 cursor-pointer rounded-lg border-2 border-dashed p-3 text-center transition-colors ${
-          value ? "border-emerald-400 bg-emerald-50" : "border-rose-300 bg-rose-50"
-        }`}
-      >
+      <label className="flex-1 cursor-pointer">
         <input
           type="file"
           accept="image/*"
@@ -156,18 +153,35 @@ export function IdCardUpload({
           onChange={(e) => onPick(which, e.target.files?.[0])}
           disabled={pending}
         />
-        <div className="flex flex-col items-center gap-1">
-          {busyField === which ? (
-            <Loader2 className="h-5 w-5 animate-spin text-ink-3" />
-          ) : value ? (
-            <Check className="h-5 w-5 text-emerald-600" />
+        {/* Cadre en forme de carte d'identité (ratio ISO 85,6 x 54 mm ≈ 1,585). */}
+        <div
+          className="relative w-full overflow-hidden rounded-lg border-2 border-dashed bg-white"
+          style={{ aspectRatio: "1.585 / 1", borderColor: value ? "#34d399" : "#fca5a5" }}
+        >
+          {value ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={value} alt={label} className="absolute inset-0 h-full w-full object-cover" />
+              <span className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <Check className="h-3 w-3" />
+              </span>
+            </>
+          ) : busyField === which ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-ink-3" />
+            </div>
           ) : (
-            <Upload className="h-5 w-5 text-rose-500" />
+            <div className="absolute inset-2 flex flex-col items-center justify-center gap-1 rounded-md border border-dashed border-ink-3/40 text-center">
+              <Upload className="h-5 w-5 text-rose-500" />
+              <span className="text-xs font-semibold text-rose-700">{label}</span>
+              <span className="px-2 text-[10px] leading-tight text-ink-3">
+                Centre la carte et remplis tout le cadre
+              </span>
+            </div>
           )}
-          <span className={`text-xs font-semibold ${value ? "text-emerald-800" : "text-rose-700"}`}>
-            {which === "recto" ? "Recto" : "Verso"}
-          </span>
-          <span className="text-[10px] text-ink-3">{value ? "✓ photo ajoutée" : "ajouter la photo"}</span>
+        </div>
+        <div className={`mt-1 text-center text-[10px] font-semibold ${value ? "text-emerald-700" : "text-rose-600"}`}>
+          {label}{value ? " ✓" : ""}
         </div>
       </label>
     );
@@ -179,7 +193,8 @@ export function IdCardUpload({
         <IdCard className="h-4 w-4 text-gold-dark" /> Carte d&apos;identité (recto + verso)
       </div>
       <p className="text-[11px] text-ink-3">
-        Prends en photo les deux faces de ta carte. Elles seront fusionnées en un seul PDF.
+        Place chaque face <strong>dans le cadre</strong> (forme de la carte), bien centrée et
+        remplissant tout le cadre. Recto + verso seront fusionnés sur une <strong>seule page PDF</strong>.
       </p>
       <div className="flex gap-2">
         {renderSide("recto", recto)}
