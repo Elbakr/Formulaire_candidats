@@ -1,13 +1,14 @@
 "use client";
 
-// Karim 2026-06-17 : dépôt de la carte d'identité (recto + verso). Les 2 images
-// sont compressées côté client (JPEG ~1400px) puis envoyées ; le serveur les
-// fusionne en UN seul PDF stocké dans la fiche travailleur. Utilisable côté
-// travailleur (lien magique / espace /me) et côté admin/RH (fiche).
+// Karim 2026-06-17 : dépôt de la carte d'identité (recto + verso). La capture se
+// fait via une CAMÉRA IN-APP avec cadre de visée en forme de carte (le tap n'ouvre
+// plus l'appareil photo standard sans repère). Les 2 images sont recadrées sur le
+// cadre puis compressées (JPEG) ; le serveur les fusionne sur UNE seule page PDF.
 
 import { useState, useTransition } from "react";
-import { Loader2, IdCard, Check, Upload, RefreshCw } from "lucide-react";
+import { Loader2, IdCard, Check, Upload, RefreshCw, Camera } from "lucide-react";
 import { toast } from "sonner";
+import { IdCardCamera } from "@/components/id-card-camera";
 import {
   saveIdCardAdminAction,
   saveIdCardMeAction,
@@ -16,20 +17,19 @@ import {
 } from "@/lib/id-card-actions";
 
 type Kind = "admin" | "me" | "token";
+type Side = "recto" | "verso";
 
-async function fileToCompressedJpeg(file: File, maxDim = 1400, quality = 0.82): Promise<string> {
-  const dataUrl: string = await new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result as string);
-    r.onerror = () => rej(new Error("lecture fichier KO"));
-    r.readAsDataURL(file);
-  });
-  const img: HTMLImageElement = await new Promise((res, rej) => {
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
     const i = new window.Image();
     i.onload = () => res(i);
     i.onerror = () => rej(new Error("image illisible"));
-    i.src = dataUrl;
+    i.src = src;
   });
+}
+
+async function compressDataUrl(dataUrl: string, maxDim = 1400, quality = 0.82): Promise<string> {
+  const img = await loadImage(dataUrl);
   let { width, height } = img;
   const scale = Math.min(1, maxDim / Math.max(width, height));
   width = Math.round(width * scale);
@@ -58,24 +58,21 @@ export function IdCardUpload({
 }) {
   const [recto, setRecto] = useState<string | null>(null);
   const [verso, setVerso] = useState<string | null>(null);
-  const [busyField, setBusyField] = useState<"recto" | "verso" | null>(null);
+  const [cameraFor, setCameraFor] = useState<Side | null>(null);
+  const [busyField, setBusyField] = useState<Side | null>(null);
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
   const [replace, setReplace] = useState(false);
 
-  async function onPick(which: "recto" | "verso", file: File | undefined) {
-    if (!file) return;
-    if (!/^image\//.test(file.type)) {
-      toast.error("Choisis une image (photo) de ta carte.");
-      return;
-    }
+  async function onCameraCapture(which: Side, dataUrl: string) {
+    setCameraFor(null);
     setBusyField(which);
     try {
-      const b64 = await fileToCompressedJpeg(file);
+      const b64 = await compressDataUrl(dataUrl);
       if (which === "recto") setRecto(b64);
       else setVerso(b64);
     } catch {
-      toast.error("Image illisible, réessaie avec une autre photo.");
+      toast.error("Image illisible, réessaie.");
     } finally {
       setBusyField(null);
     }
@@ -141,19 +138,16 @@ export function IdCardUpload({
     );
   }
 
-  function renderSide(which: "recto" | "verso", value: string | null) {
+  function renderSide(which: Side, value: string | null) {
     const label = which === "recto" ? "Recto" : "Verso";
     return (
-      <label className="flex-1 cursor-pointer">
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => onPick(which, e.target.files?.[0])}
-          disabled={pending}
-        />
-        {/* Cadre en forme de carte d'identité (ratio ISO 85,6 x 54 mm ≈ 1,585). */}
+      <button
+        type="button"
+        onClick={() => setCameraFor(which)}
+        disabled={pending}
+        className="flex-1 text-left"
+      >
+        {/* Cadre en forme de carte d'identité (ratio ISO ≈ 1,585). */}
         <div
           className="relative w-full overflow-hidden rounded-lg border-2 border-dashed bg-white"
           style={{ aspectRatio: "1.585 / 1", borderColor: value ? "#34d399" : "#fca5a5" }}
@@ -172,18 +166,17 @@ export function IdCardUpload({
             </div>
           ) : (
             <div className="absolute inset-2 flex flex-col items-center justify-center gap-1 rounded-md border border-dashed border-ink-3/40 text-center">
-              <Upload className="h-5 w-5 text-rose-500" />
+              <Camera className="h-5 w-5 text-rose-500" />
               <span className="text-xs font-semibold text-rose-700">{label}</span>
-              <span className="px-2 text-[10px] leading-tight text-ink-3">
-                Centre la carte et remplis tout le cadre
-              </span>
+              <span className="px-2 text-[10px] leading-tight text-ink-3">Prendre en photo dans le cadre</span>
             </div>
           )}
         </div>
         <div className={`mt-1 text-center text-[10px] font-semibold ${value ? "text-emerald-700" : "text-rose-600"}`}>
-          {label}{value ? " ✓" : ""}
+          {label}
+          {value ? " ✓ — toucher pour refaire" : ""}
         </div>
-      </label>
+      </button>
     );
   }
 
@@ -193,8 +186,8 @@ export function IdCardUpload({
         <IdCard className="h-4 w-4 text-gold-dark" /> Carte d&apos;identité (recto + verso)
       </div>
       <p className="text-[11px] text-ink-3">
-        Place chaque face <strong>dans le cadre</strong> (forme de la carte), bien centrée et
-        remplissant tout le cadre. Recto + verso seront fusionnés sur une <strong>seule page PDF</strong>.
+        Touche un cadre pour ouvrir la caméra : <strong>aligne la carte dans le cadre</strong> et remplis-le.
+        Recto + verso seront fusionnés sur une <strong>seule page PDF</strong>.
       </p>
       <div className="flex gap-2">
         {renderSide("recto", recto)}
@@ -209,6 +202,14 @@ export function IdCardUpload({
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         Enregistrer ma carte d&apos;identité
       </button>
+
+      {cameraFor ? (
+        <IdCardCamera
+          label={cameraFor === "recto" ? "Recto" : "Verso"}
+          onCapture={(dataUrl) => onCameraCapture(cameraFor, dataUrl)}
+          onClose={() => setCameraFor(null)}
+        />
+      ) : null}
     </div>
   );
 }
