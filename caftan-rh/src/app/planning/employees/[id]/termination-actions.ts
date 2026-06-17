@@ -598,49 +598,44 @@ export async function sendTerminationForSignatureAction(
     .maybeSingle();
   const employerSignatureDataUrl = (sigRow as { signature_data_url: string | null } | null)?.signature_data_url ?? null;
 
-  const { createTerminationTemplate, createTerminationSubmission } = await import("@/lib/docuseal-termination");
-  const tmpl = await createTerminationTemplate({
-    employer_org_name: employer.name,
-    employer_address: employer.address,
-    employer_city: employer.city,
-    employer_representative_name: tDetails.employer_representative_name as string | null,
-    employee_full_name: emp.full_name ?? "",
-    employee_address: emp.address ?? "",
-    employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),
-    effective_date_iso: (tDetails.effective_date as string) ?? new Date().toISOString().slice(0, 10),
-    signing_city: (tDetails.city as string) ?? "Schaerbeek",
-    signing_date_iso: new Date().toISOString().slice(0, 10),
-    templateNameSuffix: terminationId.slice(0, 8),
-    employerSignatureDataUrl,
-  });
-  if (!tmpl.ok) return { error: tmpl.error };
+  // Karim 2026-06-17 : SIGNATURE INTERNE (remplace DocuSeal). On rend TON layout
+  // 402.00 validé, employeur pré-signé (si signature stockée) + un marqueur pour
+  // la signature du travailleur, on le stocke (signed_body), et on génère un token
+  // magique vers /sign-termination/[token]. Plus aucune dépendance DocuSeal.
+  void employerSignerEmail;
+  const { renderTerminationLetterForInternalSign } = await import("@/lib/termination-letter");
+  const employeeCityStr = emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? "");
+  const signedBody = renderTerminationLetterForInternalSign(
+    {
+      employer_org_name: employer.name,
+      employer_address: employer.address,
+      employer_city: employer.city,
+      employer_representative_name: tDetails.employer_representative_name as string | null,
+      employee_full_name: emp.full_name ?? "",
+      employee_address: emp.address ?? "",
+      employee_city: employeeCityStr,
+      effective_date_iso: (tDetails.effective_date as string) ?? new Date().toISOString().slice(0, 10),
+      signing_city: (tDetails.city as string) ?? "Schaerbeek",
+      signing_date_iso: new Date().toISOString().slice(0, 10),
+    },
+    { employerSignatureDataUrl },
+  );
 
-  const sub = await createTerminationSubmission({
-    templateId: tmpl.templateId,
-    employeeName: emp.full_name ?? "",
-    employeeEmail: emp.email,
-    employerName: (tDetails.employer_representative_name as string) || "Karim Elbazi",
-    employerEmail: employerSignerEmail,
-    metadata: { termination_id: terminationId },
-    replyTo: "hr@caftanfactory.com",
-    preSigned: !!employerSignatureDataUrl,
-  });
-  if (!sub.ok) return { error: sub.error };
-
-  const employeeSigningUrl = sub.signingUrls.find((s) => s.role === "Employee")?.url;
-  if (!employeeSigningUrl) return { error: "DocuSeal n'a pas retourné l'URL signature employee" };
-  const employerSigningUrl = sub.signingUrls.find((s) => s.role === "Employer")?.url;
-
-  // Stocke submission_id pour récupération du PDF signé plus tard
+  const signToken = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+  const expiresAt = new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString();
   await admin
     .from("contract_terminations")
-    .update({ docuseal_submission_id: String(sub.submissionId) })
+    .update({
+      signing_token: signToken,
+      signing_token_expires_at: expiresAt,
+      signed_body: signedBody,
+      // employeur pré-signé si une signature stockée est disponible
+      ...(employerSignatureDataUrl ? { employer_signed_at: new Date().toISOString() } : {}),
+    })
     .eq("id", terminationId);
 
-  const signed = { signedUrl: employeeSigningUrl };
-  const employerLinkLine = employerSigningUrl
-    ? `\n\nLien signature employeur (pour Karim/RH) :\n${employerSigningUrl}`
-    : "";
+  const signed = { signedUrl: `${getPublicBaseUrl()}/sign-termination/${signToken}` };
+  const employerLinkLine = "";
 
   const { sendAppMail: sendTerminationMail } = await import("@/lib/app-mail");
 
@@ -670,7 +665,7 @@ L'équipe Caftan Factory (By AMD Megastore)`;
     toName: emp.full_name ?? emp.email!,
     subject: `Convention de cessation de contrat - signature requise`,
     body,
-    attachmentUrls: [{ name: "Convention de cessation.html", url: signed.signedUrl }],
+    attachmentUrls: [],
     source: "contract_signature",
     sourceRef: terminationId,
     employeeId: t.employee_id,

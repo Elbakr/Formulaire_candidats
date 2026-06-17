@@ -106,6 +106,55 @@ export function renderTerminationLetterForDocuSeal(
   );
 }
 
+/**
+ * Karim 2026-06-17 : variante SIGNATURE INTERNE (remplace DocuSeal).
+ * Produit EXACTEMENT ton layout 402.00 validé (renderTerminationLetterHtml) en
+ * y intégrant :
+ *   - l'employeur PRÉ-SIGNÉ (image de signature) s'il est fourni ;
+ *   - un marqueur <!--EMPLOYEE_SIG--> dans la case travailleur, remplacé par
+ *     l'image de sa signature au moment où il signe sur /sign-termination/[token].
+ * Le HTML résultant est stocké tel quel (signed_body) puis converti en PDF
+ * (PDFShift) — donc le document signé EST ton layout, sans dépendance externe.
+ */
+export function renderTerminationLetterForInternalSign(
+  d: TerminationLetterData,
+  opts?: { employerSignatureDataUrl?: string | null },
+): string {
+  const baseHtml = renderTerminationLetterHtml({ ...d, mode: "esign" });
+  const now = new Date();
+  const dateFR = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+  const employerSigBlock = opts?.employerSignatureDataUrl
+    ? `<div style="margin-top: 10pt;">
+        <img src="${opts.employerSignatureDataUrl}" alt="Signature employeur" style="display: block; max-width: 100%; max-height: 50pt; margin: 0 auto;">
+      </div>
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement le ${dateFR} (eIDAS UE n° 910/2014)
+        <br><em>(pré-signée par l'employeur)</em>
+      </div>`
+    : `<div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signature électronique conforme eIDAS (UE n° 910/2014)
+      </div>`;
+
+  return baseHtml.replace(
+    /<div class="signatures">[\s\S]*?<\/div>\s*<\/div>\s*<script>/,
+    `<div class="signatures">
+    <div class="sig-box">
+      <div class="sig-title">Signature du travailleur</div>
+      <!--EMPLOYEE_SIG-->
+      <div class="sig-sub" style="margin-top: 6pt;">
+        Lu et approuvé — signé électroniquement (eIDAS UE n° 910/2014)
+      </div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+      ${employerSigBlock}
+    </div>
+  </div>
+  </div>
+  <script>`,
+  );
+}
+
 export function renderTerminationLetterHtml(d: TerminationLetterData): string {
   const effectiveStr = formatDateBE(d.effective_date_iso);
   const signingStr = formatDateBE(d.signing_date_iso);

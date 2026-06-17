@@ -5,7 +5,7 @@
 // note + actions Imprimer / Envoyer signature.
 
 import { useState, useTransition, useEffect } from "react";
-import { FileSignature, Printer, Mail, Eye, AlertTriangle, Loader2, RefreshCw, Clock } from "lucide-react";
+import { FileSignature, Printer, Mail, Eye, AlertTriangle, Loader2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,6 @@ import {
   getTerminationLetterUrlAction,
   sendTerminationForSignatureAction,
   getTerminationContextAction,
-  syncTerminationDocusealAction,
 } from "./termination-actions";
 
 interface Props {
@@ -163,22 +162,6 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
     });
   }
 
-  async function handleSync() {
-    if (!createdId) return;
-    startTransition(async () => {
-      const res = await syncTerminationDocusealAction(createdId);
-      if (!res.ok) {
-        toast.error(res.error ?? "Sync KO");
-        return;
-      }
-      if (res.updated) {
-        toast.success("Signature confirmée — mails HR + employé envoyés, notifications créées.");
-      } else {
-        toast.info(`Statut DocuSeal : ${res.status ?? "inconnu"} (pas encore signé)`);
-      }
-    });
-  }
-
   const label = isPendingFromWorker ? "Demande rupture (à valider)" : "Rupture amiable";
   const variant = isPendingFromWorker ? "danger" : "outline";
 
@@ -310,13 +293,13 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
                   Envoyer à {recipientEmail ? recipientEmail.split("@")[0] : "?"}
                 </Button>
               </div>
-              {/* Karim 2026-06-02 : bouton sync DocuSeal (fallback webhook) */}
-              <div className="text-center">
-                <Button variant="ghost" size="sm" onClick={handleSync} disabled={pending}>
-                  <RefreshCw className={`h-3.5 w-3.5 ${pending ? "animate-spin" : ""}`} />
-                  Vérifier signature (sync DocuSeal manuel)
-                </Button>
-              </div>
+              {/* Karim 2026-06-17 : signature INTERNE — dès que le travailleur signe
+                  via son lien, la convention est finalisée automatiquement (PDF + mails
+                  aux 2 parties + clôture). Plus de sync manuel à faire. */}
+              <p className="text-[11px] text-ink-3 text-center">
+                Le travailleur signe via le lien reçu par mail. La convention se finalise
+                ensuite automatiquement (PDF + mails aux 2 parties).
+              </p>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
               </DialogFooter>
