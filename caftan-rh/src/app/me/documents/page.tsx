@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
 import { getLocale } from "@/lib/locale-server";
 import { t, type TranslationKey } from "@/lib/i18n";
+import { getEmployeeIdCard } from "@/lib/id-card";
+import { IdCardUpload } from "@/components/id-card-upload";
 
 const KIND_KEYS: Record<string, TranslationKey> = {
   cv: "documents.kind.cv",
@@ -28,6 +30,15 @@ export default async function MyDocumentsPage() {
   const supabase = await createClient();
   const admin = createAdminClient();
   const locale = await getLocale();
+
+  // ── Carte d'identité (recto/verso -> PDF) ────────────────────────────────
+  const { data: meEmp } = await admin
+    .from("employees")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+  const meEmpId = (meEmp as { id: string } | null)?.id ?? null;
+  const idCard = meEmpId ? await getEmployeeIdCard(admin, meEmpId) : null;
 
   // ── Contrats signés ──────────────────────────────────────────────────────
   // Résoudre l'employee lié à ce compte (profile_id, puis fallback email).
@@ -121,6 +132,17 @@ export default async function MyDocumentsPage() {
         <h1 className="text-2xl font-bold">{t("documents.title", locale)}</h1>
         <p className="text-sm text-ink-2">{t("documents.subtitle", locale)}</p>
       </div>
+
+      {/* ── Section : Carte d'identité ── */}
+      {meEmpId && (
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold">Carte d&apos;identité</h2>
+          <IdCardUpload
+            kind="me"
+            existing={idCard ? { fileName: idCard.file_name, at: idCard.created_at } : null}
+          />
+        </div>
+      )}
 
       {/* ── Section : Mes contrats ── */}
       {signedContracts.length > 0 && (

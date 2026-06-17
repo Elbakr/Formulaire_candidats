@@ -1,5 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMissingFields } from "@/lib/contract-readiness";
+import { getEmployeeIdCard } from "@/lib/id-card";
+import { IdCardUpload } from "@/components/id-card-upload";
 import { ContractInfoForm } from "./contract-info-form";
 
 export const dynamic = "force-dynamic";
@@ -59,16 +61,23 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     .filter((f) => !f.adminOnly)
     .map((f) => ({ key: f.key, label: f.label }));
 
-  // Karim 2026-06-17 : on se base sur les champs RÉELLEMENT manquants, pas sur
-  // completed_at. Si une saisie a été perdue (ex. écrasée par une sauvegarde RH
-  // périmée), le travailleur doit pouvoir ressaisir via le même lien.
-  if (missing.length === 0) {
+  // Karim 2026-06-17 : la carte d'identité (recto/verso -> PDF) fait partie du
+  // dossier obligatoire. Le dossier n'est complet que si champs + CI sont fournis.
+  const idCard = await getEmployeeIdCard(admin, tok.employee_id);
+  const idCardExisting = idCard ? { fileName: idCard.file_name, at: idCard.created_at } : null;
+  const fieldsDone = missing.length === 0;
+
+  // Karim 2026-06-17 : on se base sur les champs RÉELLEMENT manquants (pas sur
+  // completed_at) + la présence de la CI. Si une saisie a été perdue (ex. écrasée
+  // par une sauvegarde RH périmée), le travailleur peut ressaisir via le même lien.
+  if (fieldsDone && idCard) {
     return (
       <Shell>
         <div className="text-center py-4">
           <div className="text-base font-bold text-ink">Merci {firstName} !</div>
           <p className="text-sm text-ink-2 mt-1">
-            Ton dossier est complet. Rien d'autre à faire — l'équipe RH revient vers toi.
+            Ton dossier est complet (infos + carte d&apos;identité). Rien d&apos;autre à faire —
+            l&apos;équipe RH revient vers toi.
           </p>
         </div>
       </Shell>
@@ -79,14 +88,19 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     <Shell>
       <p className="text-sm text-ink-2 leading-relaxed mb-4">
         Bonjour <b className="text-ink">{firstName}</b>, pour finaliser ton dossier et préparer ton contrat,
-        merci de compléter les informations ci-dessous. Ça prend une minute 🙏
+        merci de compléter les éléments ci-dessous. Ça prend une minute 🙏
       </p>
-      <ContractInfoForm
-        token={token}
-        fields={missing}
-        firstName={firstName}
-        birthDate={(emp.birth_date as string) ?? null}
-      />
+      {!fieldsDone && (
+        <ContractInfoForm
+          token={token}
+          fields={missing}
+          firstName={firstName}
+          birthDate={(emp.birth_date as string) ?? null}
+        />
+      )}
+      <div className="mt-4">
+        <IdCardUpload kind="token" token={token} existing={idCardExisting} />
+      </div>
     </Shell>
   );
 }

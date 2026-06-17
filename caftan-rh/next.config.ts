@@ -30,6 +30,10 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     serverActions: {
+      // Karim 2026-06-17 : upload carte d'identité (images base64 recto+verso)
+      // dépasse la limite par défaut de 1 Mo. On monte à 8 Mo (les images sont
+      // déjà compressées côté client avant envoi).
+      bodySizeLimit: "8mb",
       allowedOrigins: [
         "*.trycloudflare.com",
         "*.ngrok-free.app",

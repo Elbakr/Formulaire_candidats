@@ -407,6 +407,18 @@ export async function sendContractForSignatureAction(
     }
   }
 
+  // 1b-bis. Karim 2026-06-17 : carte d'identité OBLIGATOIRE avant l'envoi du contrat.
+  {
+    const { getEmployeeIdCard } = await import("@/lib/id-card");
+    const idCard = await getEmployeeIdCard(admin, args.employeeId);
+    if (!idCard) {
+      return {
+        error:
+          "⛔ Carte d'identité manquante. Dépose le recto + le verso (sur la fiche, section « Carte d'identité », ou via le lien envoyé au travailleur) avant d'envoyer le contrat à signer.",
+      };
+    }
+  }
+
   // 1c. Règle légale : contrat signé AVANT la date de début (sinon CDI, loi 3/7/1978).
   // Dérogation admin : si date passée et role=admin, on redirige l'envoi vers son mail.
   const todayISO = new Date().toISOString().slice(0, 10);

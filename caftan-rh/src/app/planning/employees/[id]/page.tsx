@@ -17,6 +17,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { resolveContractRenderInputs } from "@/lib/contract-render-inputs";
 import { AlignProfileCard } from "./align-profile-card";
+import { IdCardAdminPanel } from "./id-card-admin-panel";
 import { EmployeeSiteNav } from "./employee-site-nav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -97,6 +98,22 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     const adminClient = createAdminClient();
     const renderInputs = await resolveContractRenderInputs(adminClient, id);
     if (renderInputs.ok) alignDiscrepancies = renderInputs.discrepancies;
+  } catch {
+    /* non bloquant */
+  }
+
+  // Karim 2026-06-17 : carte d'identité (recto/verso -> PDF) — statut + lien.
+  let idCardExisting: { fileName: string; at: string } | null = null;
+  let idCardDownloadUrl: string | null = null;
+  try {
+    const adminCi = createAdminClient();
+    const { getEmployeeIdCard } = await import("@/lib/id-card");
+    const ci = await getEmployeeIdCard(adminCi, id);
+    if (ci) {
+      idCardExisting = { fileName: ci.file_name, at: ci.created_at };
+      const { data: s } = await adminCi.storage.from("documents").createSignedUrl(ci.storage_path, 60 * 60);
+      idCardDownloadUrl = s?.signedUrl ?? null;
+    }
   } catch {
     /* non bloquant */
   }
@@ -182,6 +199,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
       {/* Karim 2026-06-15 : encart cohérence fiche <-> contrat (disparaît si 0 discordances). */}
       <AlignProfileCard employeeId={id} discrepancies={alignDiscrepancies} />
+
+      {/* Karim 2026-06-17 : carte d'identité (recto/verso -> PDF) — requise pour le contrat. */}
+      <Card>
+        <div className="p-4 space-y-2">
+          <div className="font-bold text-sm">Carte d&apos;identité</div>
+          <IdCardAdminPanel employeeId={id} existing={idCardExisting} downloadUrl={idCardDownloadUrl} />
+        </div>
+      </Card>
 
       {/* Karim 2026-05-31 task #66 : nav rapide scroll-spy sticky right */}
       <QuickNav />
