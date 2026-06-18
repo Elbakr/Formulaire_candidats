@@ -96,13 +96,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   // signature stylo), sinon mention eIDAS pour signature electronique.
   const mode: "print" | "esign" = req.nextUrl.searchParams.get("mode") === "print" ? "print" : "esign";
 
-  const employer = EMPLOYER_INFO[t.employer_org_key] ?? EMPLOYER_INFO.amd_megastore;
+  // Karim 2026-06-18 : entité du SITE du travailleur (signature de la bonne entité).
+  const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
+  const org = await resolveEmployerOrgForEmployee(admin, t.employee_id);
+  const employer = {
+    name: org?.name ?? EMPLOYER_INFO.amd_megastore.name,
+    address: org?.address ?? EMPLOYER_INFO.amd_megastore.address,
+    city: org?.locality ?? EMPLOYER_INFO.amd_megastore.city,
+  };
   const html = renderTerminationLetterHtml(
     {
       employer_org_name: employer.name,
       employer_address: employer.address,
       employer_city: employer.city,
-      employer_representative_name: t.employer_representative_name,
+      employer_representative_name: t.employer_representative_name ?? org?.representative ?? null,
+      employer_signature_label: org?.signature_label ?? null,
       employee_full_name: emp.full_name ?? "",
       employee_address: emp.address ?? "",
       employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),

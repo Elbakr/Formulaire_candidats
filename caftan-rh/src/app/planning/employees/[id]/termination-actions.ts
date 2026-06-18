@@ -113,12 +113,15 @@ async function buildLetterHtml(terminationId: string): Promise<string | null> {
     .eq("id", t.employee_id)
     .single();
   if (!emp) return null;
-  const employer = EMPLOYER_INFO[t.employer_org_key] ?? EMPLOYER_INFO.amd_megastore;
+  // Karim 2026-06-18 : entité du SITE du travailleur (signature de la bonne entité).
+  const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
+  const org = await resolveEmployerOrgForEmployee(admin, t.employee_id);
   return renderTerminationLetterHtml({
-    employer_org_name: employer.name,
-    employer_address: employer.address,
-    employer_city: employer.city,
-    employer_representative_name: t.employer_representative_name,
+    employer_org_name: org?.name ?? "AMD MEGASTORE SRL",
+    employer_address: org?.address ?? "Rue de Brabant 230",
+    employer_city: org?.locality ?? "1030 Schaerbeek",
+    employer_representative_name: t.employer_representative_name ?? org?.representative ?? null,
+    employer_signature_label: org?.signature_label ?? null,
     employee_full_name: emp.full_name ?? "",
     employee_address: emp.address ?? "",
     employee_city: emp.postal_code ? `${emp.postal_code} ${emp.city ?? ""}`.trim() : (emp.city ?? ""),
@@ -635,11 +638,14 @@ export async function sendTerminationForSignatureAction(
     .single();
   if (!tDetails) return { error: "Détails rupture KO" };
 
-  const EMPLOYER_INFO: Record<string, { name: string; address: string; city: string; email: string }> = {
-    amd_megastore: { name: "AMD MEGASTORE SRL", address: "Rue de Brabant 230", city: "1030 Schaerbeek", email: "hr@caftanfactory.com" },
-    caftan_factory: { name: "Caftan Factory", address: "Rue de Brabant 230", city: "1030 Schaerbeek", email: "hr@caftanfactory.com" },
+  // Karim 2026-06-18 : entité du SITE du travailleur (signature de la bonne entité).
+  const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
+  const org = await resolveEmployerOrgForEmployee(admin, t.employee_id);
+  const employer = {
+    name: org?.name ?? "AMD MEGASTORE SRL",
+    address: org?.address ?? "Rue de Brabant 230",
+    city: org?.locality ?? "1030 Schaerbeek",
   };
-  const employer = EMPLOYER_INFO[tDetails.employer_org_key as string] ?? EMPLOYER_INFO.amd_megastore;
   const employerSignerEmail = (process.env.DOCUSEAL_EMPLOYER_EMAIL ?? "elbazikarim@gmail.com").trim();
 
   // Karim 2026-06-01 : charge la signature stockee de l'admin (pattern
@@ -664,7 +670,8 @@ export async function sendTerminationForSignatureAction(
       employer_org_name: employer.name,
       employer_address: employer.address,
       employer_city: employer.city,
-      employer_representative_name: tDetails.employer_representative_name as string | null,
+      employer_representative_name: (tDetails.employer_representative_name as string | null) ?? org?.representative ?? null,
+      employer_signature_label: org?.signature_label ?? null,
       employee_full_name: emp.full_name ?? "",
       employee_address: emp.address ?? "",
       employee_city: employeeCityStr,

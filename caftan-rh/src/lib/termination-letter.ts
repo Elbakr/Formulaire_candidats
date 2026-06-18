@@ -23,6 +23,9 @@ export interface TerminationLetterData {
   signing_date_iso: string; // YYYY-MM-DD
   // "esign" : mention électronique eIDAS ; "print" : mention manuscrite (stylo).
   mode?: "esign" | "print";
+  // Karim 2026-06-18 : libellé de signature de l'entité (ex. « Caftan Factory By
+  // AMD Megastore » / « Caftan Factory » / « Homix »).
+  employer_signature_label?: string | null;
 }
 
 function escapeHtml(s: string): string {
@@ -136,6 +139,7 @@ ${partiesBlock(d)}
       <div class="sig-cell">
         <div class="sig-box">
           <div class="sig-title">Signature de l'employeur ou de son délégué</div>
+          ${d.employer_signature_label ? `<div style="font-weight:bold;font-size:9.5pt;margin-top:2pt;">${escapeHtml(d.employer_signature_label)}</div>` : ""}
           ${preSigned ? `<div class="sig-sub">(pré-signée numériquement)</div>` : ""}
           ${employerZone}
           ${employerSub}
