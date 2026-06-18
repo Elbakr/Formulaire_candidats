@@ -31,22 +31,34 @@ export function FixedOffDaysForm({
   const [days, setDays] = useState<number[]>(
     initial.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort(),
   );
+  const [savedTick, setSavedTick] = useState(false);
+
+  // Karim 2026-06-18 : auto-save dès le toggle (sans cliquer Enregistrer).
+  function persist(arr: number[], viaButton: boolean) {
+    const fd = new FormData();
+    fd.set("fixed_off_days", JSON.stringify(arr));
+    startTransition(async () => {
+      const r = await updateMyFixedOffDaysAction(fd);
+      if (r?.error) {
+        toast.error(r.error);
+      } else if (viaButton) {
+        toast.success(t("availability.fixed_saved", locale));
+        router.refresh();
+      } else {
+        setSavedTick(true);
+        setTimeout(() => setSavedTick(false), 1500);
+      }
+    });
+  }
 
   function toggle(i: number) {
-    setDays((prev) => (prev.includes(i) ? prev.filter((d) => d !== i) : [...prev, i].sort()));
+    const next = days.includes(i) ? days.filter((d) => d !== i) : [...days, i].sort();
+    setDays(next);
+    void persist(next, false);
   }
 
   function save() {
-    const fd = new FormData();
-    fd.set("fixed_off_days", JSON.stringify(days));
-    startTransition(async () => {
-      const r = await updateMyFixedOffDaysAction(fd);
-      if (r?.error) toast.error(r.error);
-      else {
-        toast.success(t("availability.fixed_saved", locale));
-        router.refresh();
-      }
-    });
+    persist(days, true);
   }
 
   return (
@@ -69,7 +81,8 @@ export function FixedOffDaysForm({
           </button>
         ))}
       </div>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {savedTick ? <span className="text-[11px] font-semibold text-success">enregistré ✓</span> : null}
         <Button type="button" variant="gold" size="sm" onClick={save} disabled={pending}>
           {pending ? t("common.saving", locale) : t("common.save", locale)}
         </Button>
