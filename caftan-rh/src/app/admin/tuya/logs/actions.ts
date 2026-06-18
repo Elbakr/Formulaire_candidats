@@ -192,7 +192,7 @@ export async function quickEnrollAction(args: {
   employee_id: string;
   direction: "in" | "out";
   tuya_name?: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; recovered?: number }> {
   await requireRole(["admin"]);
   if (!args.tuya_device_id || !args.tuya_user_id || !args.employee_id) {
     return { ok: false, error: "device, tuya_user_id et employé requis" };
@@ -239,15 +239,20 @@ export async function quickEnrollAction(args: {
   revalidatePath("/admin/tuya/logs");
   revalidatePath("/admin/tuya/users");
 
-  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  // Re-ingestion : recupere les badges passes droppes sur ce slot. Karim 2026-06-18 :
+  // fenetre elargie a 30 jours (au lieu de 2) -> une empreinte mappee tardivement
+  // recupere tout son historique recent de presences, pas seulement 48h.
+  let recovered = 0;
   try {
-    await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuya_device_id });
+    const r = await reingestTuyaWindow({ sinceDays: 30, deviceId: args.tuya_device_id });
+    recovered = r.inserted;
   } catch {
     // Non bloquant : le mapping est deja persiste, la re-ingestion peut etre
     // relancee manuellement via /api/cron/tuya-reingest si besoin.
   }
+  revalidatePath("/admin/presence");
 
-  return { ok: true };
+  return { ok: true, recovered };
 }
 
 /**
@@ -312,7 +317,7 @@ export async function createEmployeeAndEnrollAction(args: {
   tuya_user_id: string;
   direction: "in" | "out";
   tuya_name?: string | null;
-}): Promise<{ ok: boolean; error?: string; employee_id?: string }> {
+}): Promise<{ ok: boolean; error?: string; employee_id?: string; recovered?: number }> {
   await requireRole(["admin"]);
   const fullName = args.full_name.trim();
   if (!fullName) return { ok: false, error: "Nom requis" };
@@ -375,14 +380,17 @@ export async function createEmployeeAndEnrollAction(args: {
   revalidatePath("/admin/tuya/users");
   revalidatePath("/planning/employees");
 
-  // Re-ingestion best-effort : recupere les badges passes droppes sur ce slot.
+  // Re-ingestion best-effort sur 30 jours (recupere l historique recent du slot).
+  let recovered = 0;
   try {
-    await reingestTuyaWindow({ sinceDays: 2, deviceId: args.tuya_device_id });
+    const r = await reingestTuyaWindow({ sinceDays: 30, deviceId: args.tuya_device_id });
+    recovered = r.inserted;
   } catch {
     // Non bloquant.
   }
+  revalidatePath("/admin/presence");
 
-  return { ok: true, employee_id: employeeId };
+  return { ok: true, employee_id: employeeId, recovered };
 }
 
 export async function runTuyaPollNowAction(args?: { lookbackDays?: number }) {

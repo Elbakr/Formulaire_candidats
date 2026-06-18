@@ -386,7 +386,8 @@ function EnrollModal({
         });
         if (!r.ok) toast.error(r.error ?? "Échec");
         else {
-          toast.success(`Empreinte ${direction.toUpperCase()} mappée à ${emp?.full_name}.`);
+          const rec = r.recovered ? ` · ${r.recovered} présence(s) récupérée(s) (30 j)` : " · aucune présence à récupérer (30 j)";
+          toast.success(`Empreinte ${direction.toUpperCase()} mappée à ${emp?.full_name}${rec}.`);
           onDone();
         }
       });
@@ -412,7 +413,8 @@ function EnrollModal({
         if (!r.ok) toast.error(r.error ?? "Échec création");
         else {
           const siteName = sites.find((s) => s.id === newSiteId)?.code ?? "?";
-          toast.success(`${newFullName} créé(e), assigné(e) au site ${siteName}, empreinte ${direction.toUpperCase()} mappée.`);
+          const rec = r.recovered ? ` · ${r.recovered} présence(s) récupérée(s) (30 j)` : "";
+          toast.success(`${newFullName} créé(e), assigné(e) au site ${siteName}, empreinte ${direction.toUpperCase()} mappée${rec}.`);
           onDone(r.employee_id ? { id: r.employee_id, full_name: newFullName.trim() } : undefined);
         }
       });
