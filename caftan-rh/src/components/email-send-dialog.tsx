@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import emailjs from "@emailjs/browser";
 import { Send, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +20,7 @@ import {
 import {
   prepareEmailBatchAction,
   prepareFreeformEmailAction,
-  logEmailSentAction,
+  sendCandidateEmailsAction,
 } from "@/app/rh/email/actions";
 import { toast } from "sonner";
 
@@ -33,24 +32,6 @@ type Template = {
   needs_dates: boolean;
   needs_times: boolean;
 };
-
-const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
-const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-const FROM_NAME = process.env.NEXT_PUBLIC_EMAILJS_FROM_NAME || "CaftanRH";
-const REPLY_TO = process.env.NEXT_PUBLIC_EMAILJS_REPLY_TO || "hr@caftanfactory.com";
-
-let emailjsInitialized = false;
-function ensureEmailJSInit() {
-  if (emailjsInitialized || !PUBLIC_KEY) return emailjsInitialized;
-  try {
-    emailjs.init({ publicKey: PUBLIC_KEY });
-    emailjsInitialized = true;
-  } catch (e) {
-    console.warn("EmailJS init failed:", e);
-  }
-  return emailjsInitialized;
-}
 
 type Mode = "template" | "freeform";
 
@@ -113,14 +94,7 @@ export function EmailSendDialog({
   const showDates = tmpl?.needs_dates ?? false;
   const showTimes = tmpl?.needs_times ?? false;
 
-  const emailjsConfigured = !!SERVICE_ID && !!TEMPLATE_ID && !!PUBLIC_KEY;
-
   async function send() {
-    if (!emailjsConfigured) {
-      toast.error("EmailJS non configuré. Vérifie NEXT_PUBLIC_EMAILJS_* dans .env.local.");
-      return;
-    }
-
     if (mode === "template" && !slug) {
       toast.error("Choisis un template.");
       return;
@@ -175,36 +149,13 @@ export function EmailSendDialog({
         return;
       }
 
-      ensureEmailJSInit();
-
-      const total = prep.emails.length;
-      setProgress({ done: 0, total });
-      let sent = 0;
-      const failures: Array<{ to: string; error: string }> = [];
-
-      // 2) Pour chaque destinataire, envoyer via EmailJS (browser)
-      for (let i = 0; i < prep.emails.length; i++) {
-        const m = prep.emails[i];
-        try {
-          await emailjs.send(SERVICE_ID!, TEMPLATE_ID!, {
-            to_email: m.to_email,
-            to_name: m.to_name,
-            from_name: FROM_NAME,
-            reply_to: REPLY_TO,
-            subject: m.subject,
-            message: m.body,
-          }, { publicKey: PUBLIC_KEY! });
-          sent += 1;
-          // Log success in messages table
-          await logEmailSentAction(m.application_id, m.subject, m.body, "emailjs");
-        } catch (e) {
-          const err = (e as { text?: string; message?: string })?.text
-            ?? (e as Error)?.message
-            ?? "EmailJS error";
-          failures.push({ to: m.to_email, error: err });
-        }
-        setProgress({ done: i + 1, total });
-      }
+      // 2) Envoi SERVEUR via le pipeline applicatif (Gmail SMTP primaire ->
+      // Resend -> EmailJS). Plus d'envoi EmailJS direct côté client (quota).
+      setProgress({ done: 0, total: prep.emails.length });
+      const res = await sendCandidateEmailsAction(prep.emails);
+      const sent = res.sent;
+      const failures = res.failures;
+      setProgress({ done: prep.emails.length, total: prep.emails.length });
 
       if (sent > 0) {
         toast.success(`${sent} email(s) envoyé(s).${failures.length > 0 ? ` ${failures.length} échec(s).` : ""}`, { duration: 6000 });
@@ -223,7 +174,7 @@ export function EmailSendDialog({
   }
 
   const canSend =
-    !pending && emailjsConfigured && (mode === "template" ? !!slug : !!freeSubject.trim() && !!freeBody.trim());
+    !pending && (mode === "template" ? !!slug : !!freeSubject.trim() && !!freeBody.trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -232,7 +183,6 @@ export function EmailSendDialog({
           <DialogTitle>Envoyer un email</DialogTitle>
           <DialogDescription>
             Destinataire(s) : {recipientPreview} ({applicationIds.length})
-            {!emailjsConfigured ? <span className="block text-danger mt-1">⚠ EmailJS non configuré</span> : null}
           </DialogDescription>
         </DialogHeader>
 

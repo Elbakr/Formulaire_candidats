@@ -197,6 +197,47 @@ export async function prepareFreeformEmailAction(args: {
   return { ok: true, emails, invalidCount: invalid };
 }
 
+/**
+ * Karim 2026-06-18 : ENVOI des emails candidat via le pipeline applicatif
+ * (sendAppMail : Gmail SMTP primaire -> Resend -> EmailJS). Remplace l'ancien
+ * envoi EmailJS DIRECT côté client (gratuit, 200/mois -> « quota exceeded »).
+ * Loggé dans outbound_mails + messages.
+ */
+export async function sendCandidateEmailsAction(
+  emails: PreparedEmail[],
+): Promise<{ ok: boolean; sent: number; failures: Array<{ to: string; error: string }> }> {
+  await requireRole(["admin", "rh", "manager"]);
+  const { sendAppMail } = await import("@/lib/app-mail");
+  let sent = 0;
+  const failures: Array<{ to: string; error: string }> = [];
+  for (const m of (emails ?? [])) {
+    try {
+      const r = await sendAppMail({
+        to: m.to_email,
+        toName: m.to_name,
+        subject: m.subject,
+        body: m.body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        htmlBody: m.body,
+        source: "candidate_email",
+        sourceRef: m.application_id,
+      });
+      if (r.ok) {
+        sent++;
+        try {
+          await logEmailSentAction(m.application_id, m.subject, m.body, r.provider ?? "smtp_gmail");
+        } catch {
+          /* log best-effort */
+        }
+      } else {
+        failures.push({ to: m.to_email, error: r.error ?? "échec d'envoi" });
+      }
+    } catch (e) {
+      failures.push({ to: m.to_email, error: (e as Error).message });
+    }
+  }
+  return { ok: true, sent, failures };
+}
+
 export async function logEmailSentAction(
   applicationId: string,
   subject: string,
