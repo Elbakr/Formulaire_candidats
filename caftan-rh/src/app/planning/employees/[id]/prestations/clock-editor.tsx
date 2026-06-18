@@ -6,7 +6,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -157,6 +157,52 @@ export function ClockEditor({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Karim 2026-06-18 : bouton « Corriger les pointages » présent sur CHAQUE jour
+ * (y compris les jours sans shift / sans badge remonté). Déplie l'éditeur de
+ * pointages du jour (ajouter / modifier / supprimer). Pour les non-admins, affiche
+ * simplement les pointages en lecture seule.
+ */
+export function DayCorrect({
+  employeeId,
+  day,
+  entries,
+  canEdit,
+}: {
+  employeeId: string;
+  day: string;
+  entries: Entry[];
+  canEdit: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (!canEdit) {
+    return entries.length > 0 ? (
+      <ClockEditor employeeId={employeeId} day={day} entries={entries} canEdit={false} />
+    ) : null;
+  }
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 rounded border border-gold/40 bg-gold-light/30 px-2 py-1 text-[11px] font-semibold text-gold-dark hover:bg-gold-light/60"
+        title="Ajouter / modifier / supprimer un pointage de ce jour"
+      >
+        <Wrench className="h-3 w-3" />
+        Corriger les pointages
+        {entries.length === 0 ? <span className="text-ink-3 font-normal">(aucun pointage)</span> : null}
+      </button>
+      {open ? (
+        <div className="mt-1.5">
+          <ClockEditor employeeId={employeeId} day={day} entries={entries} canEdit />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

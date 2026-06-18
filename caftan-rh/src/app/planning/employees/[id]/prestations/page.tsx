@@ -29,7 +29,7 @@ import {
 import { formatDurationMin } from "@/lib/clock";
 import { PrestationsViewTabs, type PrestationsView } from "./prestations-view-tabs";
 import { EditClockOutButton } from "./edit-clockout-button";
-import { ClockEditor } from "./clock-editor";
+import { DayCorrect } from "./clock-editor";
 import { AddShiftControls } from "./add-shift-controls";
 
 type Shift = {
@@ -730,6 +730,13 @@ export default async function EmployeePrestationsPage(props: {
             const isToday = iso === todayISO;
             const dayPlanned = rows.reduce((a, r) => a + r.plannedMinutes, 0);
             const dayWorked = rows.reduce((a, r) => a + (r.workedMinutes ?? 0), 0);
+            // Karim 2026-06-18 : tous les pointages du jour (dédupliqués) pour le
+            // bouton « Corriger les pointages » présent sur CHAQUE jour.
+            const dayEntries = rows
+              .flatMap((r) => [r.clockIn, r.clockOut])
+              .filter((x): x is NonNullable<typeof x> => !!x)
+              .filter((e, i, arr) => arr.findIndex((z) => z.id === e.id) === i)
+              .map((e) => ({ id: e.id, kind: e.kind, occurred_at: e.occurred_at, source: e.source }));
             return (
               <div
                 key={iso}
@@ -774,6 +781,14 @@ export default async function EmployeePrestationsPage(props: {
                     ))}
                   </div>
                 ) : null}
+                {/* Karim 2026-06-18 : bouton « Corriger les pointages » sur CHAQUE
+                    jour (même Repos / données non remontées). */}
+                <DayCorrect
+                  employeeId={employee.id}
+                  day={iso}
+                  entries={dayEntries}
+                  canEdit={canEditAutoOut}
+                />
               </div>
             );
           })}
@@ -927,20 +942,6 @@ function ShiftRow({
         {!clockIn && !isAbsent ? (
           <Badge variant="muted">À venir</Badge>
         ) : null}
-      </div>
-      {/* Karim 2026-05-25 : editeur pointages (tous types) pour admin/rh */}
-      <div className="basis-full">
-        <ClockEditor
-          employeeId={employeeId}
-          day={shift.date}
-          entries={[clockIn, clockOut].filter((x): x is NonNullable<typeof x> => !!x).map((e) => ({
-            id: e.id,
-            kind: e.kind,
-            occurred_at: e.occurred_at,
-            source: e.source,
-          }))}
-          canEdit={canEditAutoOut}
-        />
       </div>
     </div>
   );
