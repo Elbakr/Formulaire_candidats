@@ -486,6 +486,10 @@ export async function sendContractForSignatureAction(
 
   // 4. Génère le « super layout » (employeur pré-signé), puis transforme la
   // zone signature employé en marqueur rempli à la signature.
+  // Karim 2026-06-18 : valeurs employeur depuis la table employer_orgs (éditable),
+  // pour l'entité choisie (args.orgKey, dont le défaut = entité du site).
+  const { getEmployerOrg, toContractEmployerOrg } = await import("@/lib/employer-orgs");
+  const orgRow = await getEmployerOrg(admin, args.orgKey);
   let html: string;
   try {
     html = await buildContractHtmlForDocuseal_publicForPreview({
@@ -493,6 +497,7 @@ export async function sendContractForSignatureAction(
       templateBodyMarkdown,
       employeeData: eff as Parameters<typeof buildContractHtmlForDocuseal_publicForPreview>[0]["employeeData"],
       employerOrg: args.orgKey,
+      employerData: orgRow ? toContractEmployerOrg(orgRow) : undefined,
       primarySite,
       employerSignatureDataUrl,
       employerRepresentativeOverride: representative,

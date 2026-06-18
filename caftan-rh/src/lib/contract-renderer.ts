@@ -127,10 +127,13 @@ export function buildContractVariables(input: {
   };
   primarySite?: { code: string; name: string; address?: string | null; city?: string | null } | null;
   employerOrg?: EmployerOrgKey;
+  // Karim 2026-06-18 : si fourni, l'entité vient de la table employer_orgs (éditable
+  // via /admin/entities) au lieu de la constante. Prime sur employerOrg.
+  employerData?: EmployerOrg;
   overrides?: Partial<ContractVariables>;
 }): ContractVariables {
   // Karim 2026-05-29 : selectionne l entite juridique. Default AMD Megastore.
-  const org = EMPLOYER_ORGS[input.employerOrg ?? DEFAULT_EMPLOYER_ORG];
+  const org = input.employerData ?? EMPLOYER_ORGS[input.employerOrg ?? DEFAULT_EMPLOYER_ORG];
   const e = input.employee;
   // Split nom complet en first + last (heuristique simple : 1er mot = prenom)
   const parts = (e.full_name ?? "").trim().split(/\s+/);

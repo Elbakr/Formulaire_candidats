@@ -6,6 +6,7 @@ import "server-only";
 // le bon libellé de signature.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { EmployerOrg as ContractEmployerOrg, EmployerOrgKey } from "@/lib/contract-renderer";
 
 export type EmployerOrg = {
   key: string;
@@ -32,6 +33,23 @@ const COLS =
 export async function listEmployerOrgs(admin: SupabaseClient): Promise<EmployerOrg[]> {
   const { data } = await admin.from("employer_orgs").select(COLS).order("sort_order");
   return (data ?? []) as EmployerOrg[];
+}
+
+/** Convertit une entité DB vers la forme attendue par le rendu de contrat. */
+export function toContractEmployerOrg(o: EmployerOrg): ContractEmployerOrg {
+  return {
+    key: o.key as EmployerOrgKey,
+    name: o.name,
+    bce: o.bce ?? "",
+    onss: o.onss ?? "",
+    rc: o.rc ?? "",
+    address: o.address ?? "",
+    locality: o.locality ?? "",
+    representative: o.representative ?? "",
+    co_representative: o.co_representative ?? undefined,
+    co_representative_email: o.co_representative_email ?? undefined,
+    paritary_commission: o.paritary_commission ?? "",
+  };
 }
 
 export async function getEmployerOrg(admin: SupabaseClient, key: string): Promise<EmployerOrg | null> {

@@ -13,7 +13,7 @@
 // encadre, articles soulignes/gras, cadres signature en bas. Voir
 // scripts/preview-docuseal-layout.html pour previewer le rendu sans DocuSeal.
 
-import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey } from "@/lib/contract-renderer";
+import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey, type EmployerOrg } from "@/lib/contract-renderer";
 
 /**
  * Karim 2026-05-29 : escape HTML special pour eviter injection.
@@ -770,6 +770,8 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
   templateBodyMarkdown: string;
   employeeData: Parameters<typeof buildContractVariables>[0]["employee"];
   employerOrg: EmployerOrgKey;
+  // Karim 2026-06-18 : entité depuis la table employer_orgs (éditable). Prime.
+  employerData?: EmployerOrg;
   primarySite?: Parameters<typeof buildContractVariables>[0]["primarySite"];
   employerSignatureDataUrl?: string | null;
   employerRepresentativeOverride?: string;
@@ -778,12 +780,15 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
     employee: args.employeeData,
     primarySite: args.primarySite,
     employerOrg: args.employerOrg,
+    employerData: args.employerData,
   });
   const rendered = renderContractTemplate(args.templateBodyMarkdown, vars);
   const { bodyWithoutHeader, partiesBlock } = extractPartiesAndConvenu(rendered, {
     templateCode: args.templateCode,
     employeeData: args.employeeData,
     employerOrg: args.employerOrg,
+    employerData: args.employerData,
+    employerRepresentativeOverride: args.employerRepresentativeOverride,
   });
   const bodyHtmlFull = markdownToHtml(bodyWithoutHeader);
   const titleEndMatch = bodyHtmlFull.match(/<div class="doc-title">[\s\S]*?<\/div>/);
@@ -792,7 +797,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
       + partiesBlock
       + bodyHtmlFull.slice(titleEndMatch.index! + titleEndMatch[0].length)
     : partiesBlock + bodyHtmlFull;
-  const org = EMPLOYER_ORGS[args.employerOrg];
+  const org = args.employerData ?? EMPLOYER_ORGS[args.employerOrg];
   return buildContractHtmlForDocuseal({
     contractBodyHtml: bodyHtml,
     templateCode: args.templateCode,
@@ -901,6 +906,8 @@ function extractPartiesAndConvenu(
     templateCode: "employee" | "employee_pt" | "student";
     employeeData: Parameters<typeof buildContractVariables>[0]["employee"];
     employerOrg: EmployerOrgKey;
+    employerData?: EmployerOrg;
+    employerRepresentativeOverride?: string;
   },
 ): { bodyWithoutHeader: string; partiesBlock: string } {
   // Le markdown commence par "# CONTRAT ..." suivi du bloc parties.
@@ -934,7 +941,7 @@ function extractPartiesAndConvenu(
   ].join("\n");
 
   // Construit le bloc parties en HTML
-  const org = EMPLOYER_ORGS[args.employerOrg];
+  const org = args.employerData ?? EMPLOYER_ORGS[args.employerOrg];
   const e = args.employeeData;
   // Format nom : "NOM Prenom" comme dans les PDF originaux
   const parts = (e.full_name ?? "").trim().split(/\s+/);
