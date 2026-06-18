@@ -89,7 +89,7 @@ export function formatIBAN(input: string): string {
 }
 
 /** Validation MOD-97 (norme ISO 13616). */
-function ibanChecksumOk(iban: string): boolean {
+export function ibanChecksumOk(iban: string): boolean {
   const rearranged = iban.slice(4) + iban.slice(0, 4);
   // Convertit lettres en chiffres : A=10, B=11, ..., Z=35
   let numeric = "";

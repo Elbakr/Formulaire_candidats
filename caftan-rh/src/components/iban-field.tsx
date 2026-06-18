@@ -1,51 +1,60 @@
 "use client";
 
-// Karim 2026-06-17 : champ IBAN unifié, réutilisable PARTOUT.
-//  - Pays par liste déroulante, défaut « Belgique (BE) » (préfixe pré-rempli).
-//  - Saisie restreinte aux chiffres pour BE (clavier numérique mobile) ; NL/FR
-//    autorisent les lettres (leurs IBAN en contiennent).
-//  - Validation MOD-97 (ISO 13616) en direct (✓ / ✗).
-//  - Émet l'IBAN complet (sans espaces) via onChange ET via un <input hidden>
-//    nommé (compatible formulaires FormData). Auto-géré (état interne) : marche
-//    aussi bien en contrôlé (onChange) qu'en non contrôlé (defaultValue).
+// Karim 2026-06-18 : champ IBAN unifié, réutilisable PARTOUT.
+//  - Pays par liste déroulante (BE, NL, FR d'abord, puis pays européens), défaut
+//    Belgique. La case (trigger) affiche le CODE court (« BE ») ; la liste ouverte
+//    montre le nom complet (« Belgique »).
+//  - Affichage IBAN NORMAL groupé par 4 « BE.. .... .... .... » (formatIBAN existant).
+//  - Saisie restreinte aux chiffres pour BE (clavier numérique mobile).
+//  - Validation : MOD-97 via la logique EXISTANTE (validateBelgianIBAN pour BE,
+//    ibanChecksumOk pour les autres). Aucune logique réinventée.
+//  - Émet l'IBAN complet (sans espaces) via onChange ET via un <input hidden> nommé
+//    (compatible FormData). Contrôlé (onChange) ou non (defaultValue).
 
 import { useState } from "react";
 import { Check, X } from "lucide-react";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import { formatIBAN, validateBelgianIBAN, ibanChecksumOk } from "@/lib/be-validators";
 
-type Country = { code: string; total: number; digitsOnly: boolean; label: string };
+type Country = { code: string; len: number; label: string };
+// Ordre actuel conservé : BE, NL, FR — puis autres pays européens.
 const COUNTRIES: Country[] = [
-  { code: "BE", total: 16, digitsOnly: true, label: "Belgique (BE)" },
-  { code: "NL", total: 18, digitsOnly: false, label: "Pays-Bas (NL)" },
-  { code: "FR", total: 27, digitsOnly: false, label: "France (FR)" },
+  { code: "BE", len: 16, label: "Belgique" },
+  { code: "NL", len: 18, label: "Pays-Bas" },
+  { code: "FR", len: 27, label: "France" },
+  { code: "LU", len: 20, label: "Luxembourg" },
+  { code: "DE", len: 22, label: "Allemagne" },
+  { code: "ES", len: 24, label: "Espagne" },
+  { code: "IT", len: 27, label: "Italie" },
+  { code: "PT", len: 25, label: "Portugal" },
+  { code: "AT", len: 20, label: "Autriche" },
+  { code: "IE", len: 22, label: "Irlande" },
+  { code: "FI", len: 18, label: "Finlande" },
+  { code: "GR", len: 27, label: "Grèce" },
+  { code: "PL", len: 28, label: "Pologne" },
+  { code: "CH", len: 21, label: "Suisse" },
+  { code: "GB", len: 22, label: "Royaume-Uni" },
 ];
 
 function cfgOf(code: string): Country {
   return COUNTRIES.find((c) => c.code === code) ?? COUNTRIES[0];
 }
-
-function mod97Ok(iban: string): boolean {
-  const s = iban.replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{6,30}$/.test(s)) return false;
-  const re = s.slice(4) + s.slice(0, 4);
-  let rem = 0;
-  for (const ch of re) {
-    const code = ch >= "A" && ch <= "Z" ? (ch.charCodeAt(0) - 55).toString() : ch;
-    for (const d of code) rem = (rem * 10 + Number(d)) % 97;
-  }
-  return rem === 1;
+function clean(s: string): string {
+  return (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
-
-function group(s: string): string {
-  return s.replace(/(.{4})/g, "$1 ").trim();
-}
-
-/** Sépare un IBAN en (pays, reste) ; pays par défaut BE. */
+/** Sépare un IBAN en (pays, reste). Pays par défaut BE. */
 function parse(value: string): { country: string; rest: string } {
-  const norm = (value || "").replace(/\s+/g, "").toUpperCase();
-  const found = COUNTRIES.find((c) => norm.startsWith(c.code));
-  if (found) return { country: found.code, rest: norm.slice(2) };
-  // pas de préfixe pays reconnu : on retire d'éventuelles lettres de tête.
-  return { country: "BE", rest: norm.replace(/^[A-Z]+/, "") };
+  const s = clean(value);
+  const found = COUNTRIES.find((c) => s.startsWith(c.code));
+  if (found) return { country: found.code, rest: s.slice(2) };
+  return { country: "BE", rest: s.replace(/^[A-Z]+/, "") };
+}
+function isValidFull(full: string): boolean {
+  const s = clean(full);
+  if (s.startsWith("BE")) return validateBelgianIBAN(s).valid;
+  const cc = COUNTRIES.find((c) => s.startsWith(c.code));
+  if (!cc) return false;
+  return s.length === cc.len && ibanChecksumOk(s);
 }
 
 export function IbanField({
@@ -69,53 +78,61 @@ export function IbanField({
 
   const cfg = cfgOf(country);
   const full = rest ? country + rest : "";
-  const status: "empty" | "ok" | "bad" = rest === "" ? "empty" : mod97Ok(full) ? "ok" : "bad";
+  const status: "empty" | "ok" | "bad" = rest === "" ? "empty" : isValidFull(full) ? "ok" : "bad";
 
   function emit(c: string, r: string) {
     onChange?.(r ? c + r : "");
   }
   function changeCountry(c: string) {
-    // tronque le reste si le nouveau pays a une longueur max plus courte.
-    const max = cfgOf(c).total - 2;
-    const r = rest.slice(0, max);
+    const r = rest.slice(0, cfgOf(c).len - 2);
     setCountry(c);
     setRest(r);
     emit(c, r);
   }
-  function changeRest(raw: string) {
-    let cleaned = raw.replace(/\s+/g, "").toUpperCase();
-    cleaned = cfg.digitsOnly ? cleaned.replace(/[^0-9]/g, "") : cleaned.replace(/[^0-9A-Z]/g, "");
-    cleaned = cleaned.slice(0, cfg.total - 2);
-    setRest(cleaned);
-    emit(country, cleaned);
+  function onInput(raw: string) {
+    let s = clean(raw);
+    // Si l'utilisateur (re)tape un préfixe pays connu, on le reconnaît ; sinon il
+    // tape juste le reste après le pays courant.
+    const known = COUNTRIES.find((c) => s.startsWith(c.code));
+    let cc = country;
+    if (known) {
+      cc = known.code;
+      s = s.slice(2);
+    }
+    const cc_cfg = cfgOf(cc);
+    if (cc === "BE") s = s.replace(/[^0-9]/g, ""); // BE : chiffres uniquement
+    s = s.slice(0, cc_cfg.len - 2);
+    setCountry(cc);
+    setRest(s);
+    emit(cc, s);
   }
 
   return (
     <div>
       <div className="flex gap-2">
-        <select
-          value={country}
-          onChange={(e) => changeCountry(e.target.value)}
-          aria-label="Pays du compte bancaire"
-          className="rounded-lg border-[1.5px] border-line bg-surface px-2 py-2 text-sm outline-none focus:border-gold"
-        >
-          {COUNTRIES.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.code} — {c.label.replace(/\s*\(.*\)$/, "")}
-            </option>
-          ))}
-        </select>
+        <Select value={country} onValueChange={changeCountry}>
+          <SelectTrigger className="w-[68px] shrink-0" aria-label="Pays du compte bancaire">
+            <span className="font-semibold">{country}</span>
+          </SelectTrigger>
+          <SelectContent>
+            {COUNTRIES.map((c) => (
+              <SelectItem key={c.code} value={c.code}>
+                {c.code} — {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="relative flex-1">
           <input
             id={id}
             type="text"
-            inputMode={cfg.digitsOnly ? "numeric" : "text"}
-            value={group(rest)}
-            onChange={(e) => changeRest(e.target.value)}
+            inputMode={cfg.code === "BE" ? "numeric" : "text"}
+            value={formatIBAN(full)}
+            onChange={(e) => onInput(e.target.value)}
             onBlur={onBlur}
-            placeholder={cfg.digitsOnly ? "0000 0000 0000 00" : "compte bancaire"}
+            placeholder={cfg.code === "BE" ? "BE.. .... .... ...." : `${cfg.code}.. .... ....`}
             className={[
-              "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
+              "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors tracking-wide",
               status === "ok" ? "border-success pr-9" : status === "bad" ? "border-danger pr-9" : "border-line focus:border-gold",
             ].join(" ")}
           />
