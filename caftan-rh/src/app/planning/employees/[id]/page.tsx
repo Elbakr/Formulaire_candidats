@@ -118,6 +118,17 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     /* non bloquant */
   }
 
+  // Karim 2026-06-18 : entité par défaut = celle du site du travailleur (signature).
+  let defaultOrgKey: "amd_megastore" | "caftan_factory" | "homix" | undefined;
+  try {
+    const adminOrg = createAdminClient();
+    const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
+    const o = await resolveEmployerOrgForEmployee(adminOrg, id);
+    defaultOrgKey = (o?.key as "amd_megastore" | "caftan_factory" | "homix") ?? undefined;
+  } catch {
+    /* non bloquant */
+  }
+
   // Onboarding (best effort, ne pas casser la page si vide)
   const { data: runRaw } = await supabase
     .from("onboarding_runs")
@@ -253,6 +264,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             weeklyHours={(emp as { weekly_hours: number | null }).weekly_hours}
             employeeRecord={emp as Record<string, unknown>}
             latestContract={latestContract ? { id: latestContract.id, docusealStatus: latestContract.docuseal_status, signedAt: latestContract.signed_at, signedPdfUrl: latestContract.signed_pdf_url } : null}
+            defaultOrgKey={defaultOrgKey}
           />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>

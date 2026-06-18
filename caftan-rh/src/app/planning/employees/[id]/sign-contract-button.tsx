@@ -39,10 +39,12 @@ type Props = {
     signedAt: string | null;
     signedPdfUrl: string | null;
   } | null;
+  // Karim 2026-06-18 : entité par défaut = celle du SITE du travailleur (éditable).
+  defaultOrgKey?: OrgKey;
 };
 
 type TemplateCode = "employee" | "employee_pt" | "student";
-type OrgKey = "amd_megastore" | "caftan_factory";
+type OrgKey = "amd_megastore" | "caftan_factory" | "homix";
 
 const TEMPLATE_LABELS: Record<TemplateCode, string> = {
   employee: "CDD temps plein",
@@ -53,6 +55,7 @@ const TEMPLATE_LABELS: Record<TemplateCode, string> = {
 const ORG_LABELS: Record<OrgKey, string> = {
   amd_megastore: "AMD Megastore SRL",
   caftan_factory: "Caftan Factory",
+  homix: "Homix",
 };
 
 // Karim 2026-05-30 : template par defaut du mail envoye au candidat.
@@ -98,12 +101,13 @@ export function SignContractButton({
   weeklyHours,
   employeeRecord,
   latestContract,
+  defaultOrgKey,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [infoRequestOpen, setInfoRequestOpen] = useState(false);
   const tplCode = deriveTemplateCode(contractType, workTimeKind, weeklyHours);
-  const [orgKey, setOrgKey] = useState<OrgKey>("amd_megastore");
+  const [orgKey, setOrgKey] = useState<OrgKey>(defaultOrgKey ?? "amd_megastore");
   const [employerEmail, setEmployerEmail] = useState<string>("hr@caftanfactory.com");
   const [mailBody, setMailBody] = useState<string>(DEFAULT_MAIL_BODY);
   const [pending, startTransition] = useTransition();
@@ -443,7 +447,7 @@ export function SignContractButton({
             <div>
               <label className="text-xs font-bold text-ink-2 block mb-1">Entité émettrice</label>
               <div className="inline-flex gap-1 rounded-md border border-line bg-surface p-0.5">
-                {(["amd_megastore", "caftan_factory"] as OrgKey[]).map((k) => (
+                {(["amd_megastore", "caftan_factory", "homix"] as OrgKey[]).map((k) => (
                   <button
                     key={k}
                     type="button"

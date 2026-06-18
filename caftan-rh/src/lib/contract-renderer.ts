@@ -8,7 +8,7 @@
 
 export type ContractVariables = Record<string, string | number | null | undefined>;
 
-export type EmployerOrgKey = "amd_megastore" | "caftan_factory";
+export type EmployerOrgKey = "amd_megastore" | "caftan_factory" | "homix";
 
 export type EmployerOrg = {
   key: EmployerOrgKey;
@@ -58,6 +58,19 @@ export const EMPLOYER_ORGS: Record<EmployerOrgKey, EmployerOrg> = {
     rc: "Bruxelles",
     address: "Adresse Bruxelles à compléter",
     locality: "1000 Bruxelles",
+    representative: "Karim Elbazi",
+    paritary_commission: "CP du commerce de détail indépendant n°201",
+  },
+  // Karim 2026-06-18 : nouvelle entité Homix (site G). Valeurs à compléter via
+  // /admin/entities (la rupture lit déjà la table employer_orgs).
+  homix: {
+    key: "homix",
+    name: "HOMIX",
+    bce: "à compléter",
+    onss: "à compléter",
+    rc: "Bruxelles",
+    address: "Adresse à compléter",
+    locality: "à compléter",
     representative: "Karim Elbazi",
     paritary_commission: "CP du commerce de détail indépendant n°201",
   },

@@ -278,7 +278,8 @@ export async function pollPayslipsFromImap(opts?: {
             const batchResult = await processBatch({
               pdfBytes: bytes,
               filename: pdf.filename ?? `inbound-${m.uid}.pdf`,
-              employerOrgKey: employer,
+              // Homix ne fait pas de fiches de paie : l'employeur détecté est amd/caftan.
+              employerOrgKey: employer as "amd_megastore" | "caftan_factory",
               uploadedBy: null, // null = auto/cron
               source: "email",  // canal = email entrant (employeur capturé via employerOrgKey)
             });
@@ -311,7 +312,7 @@ export async function pollPayslipsFromImap(opts?: {
                 imageBytes: bytes,
                 mediaType: img.mediaType,
                 filename: att.filename ?? `inbound-img-${m.uid}.jpg`,
-                fallbackEmployer: employer,
+                fallbackEmployer: employer as "amd_megastore" | "caftan_factory",
                 uploadedBy: null,
                 source: "email",
               });

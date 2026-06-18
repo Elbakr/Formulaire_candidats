@@ -34,12 +34,18 @@ export async function previewContractHtmlAction(
           | null
       )?.signature_data_url ?? null;
 
+  // Karim 2026-06-18 : entité = celle du SITE du travailleur (plus de amd_megastore
+  // codé en dur). Preview = ce qui sera signé.
+  const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
+  const orgRow = await resolveEmployerOrgForEmployee(admin, employeeId);
+  const employerOrgKey = ((orgRow?.key as "amd_megastore" | "caftan_factory" | "homix") ?? "amd_megastore");
+
   try {
     let html = await buildContractHtmlForDocuseal_publicForPreview({
       templateCode: effTpl,
       templateBodyMarkdown,
       employeeData: eff as Parameters<typeof buildContractHtmlForDocuseal_publicForPreview>[0]["employeeData"],
-      employerOrg: "amd_megastore",
+      employerOrg: employerOrgKey,
       primarySite,
       employerSignatureDataUrl,
       employerRepresentativeOverride: profile.full_name ?? "Karim Elbazi",
