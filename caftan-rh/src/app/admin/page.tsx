@@ -171,6 +171,7 @@ export default async function AdminPage() {
           <Button asChild variant="outline"><Link href="/admin/departments">Gérer les services</Link></Button>
           <Button asChild variant="outline"><Link href="/rh/jobs">Gérer les offres</Link></Button>
           <Button asChild variant="outline"><Link href="/admin/settings">Paramètres organisation</Link></Button>
+          <Button asChild variant="outline"><Link href="/admin/entities">Entités &amp; sites (signatures)</Link></Button>
         </div>
       </Card>
     </div>
