@@ -23,13 +23,15 @@ import { createAdminClient } from "@/lib/supabase/server";
 // pa[iy]e?s? matche : pai, pais, paie, paies, pay, pays, paye, payes.
 // (fiche|feuille|bulletin)s? matche singulier ET pluriel. Espaces souples.
 const SUBJECT_PATTERNS = [
-  /(fiche|feuille|bulletin)s?\s+de\s+pa[iy]e?s?/i, // fiche(s)/feuille(s)/bulletin(s) de paie/paies/paye/pai…
+  // fiche/feuille/bulletin/décompte DE paie/salaire/rémunération (sing. + pluriel, FR)
+  /(fiche|feuille|bulletin|d[ée]compte)s?\s+de\s+(pa[iy]e?s?|salaires?|r[ée]mun[ée]rations?)/i,
   /fiche[-_\s]*pa[iy]e?s?/i,                        // collé/tiret : fiche-paie, fichepaie
   /pay[\s-]?slips?/i,                               // payslip(s)
   /pay[\s-]?stubs?/i,                               // paystub(s)
   /loonbrie(f|ven)/i,                              // NL : loonbrief / loonbrieven
   /loonfiches?/i,                                  // NL variante
   /salarisstrook(en)?/i,                           // NL « fiche de salaire »
+  /salarisafrekening(en)?/i,                       // NL « décompte de salaire »
 ];
 
 // Entrée d'un mapping personnalisé expéditeur → employeur
@@ -122,7 +124,7 @@ export async function pollPayslipsFromImap(opts?: {
     details: [],
   };
 
-  const since = opts?.since ?? new Date(Date.now() - 90 * 24 * 3600 * 1000); // 90j par défaut
+  const since = opts?.since ?? new Date(Date.now() - 15 * 24 * 3600 * 1000); // Karim 2026-07-02 : 15j (fiches du mois)
   const maxPerRun = opts?.maxPerRun ?? 50;
   const markAsProcessed = opts?.markAsProcessed ?? true;
 
@@ -201,13 +203,11 @@ export async function pollPayslipsFromImap(opts?: {
         }
 
         const subject = parsed.subject ?? "";
-        // Karim 2026-07-01 : CONTENT-FIRST. Le sujet et l'expéditeur ne sont plus
-        // des barrières. Karim TRANSFÈRE les fiches depuis son adresse perso →
-        // l'expéditeur n'est jamais le secrétariat social, et le sujet est libre.
-        // On les garde comme INDICES ; c'est le CONTENU du PDF qui décide
-        // (isPayslipStartPage + detectEmployerFromText). L'employeur réel est de
-        // toute façon (re)détecté par fiche dans processBatch.
-        const subjectHint = subjectMatches(subject);
+        // Karim 2026-07-02 : le SUJET est le filtre PRINCIPAL (ne repérer que les
+        // mails "fiche/feuille/bulletin/décompte de paie/salaire" & variantes,
+        // sing. + pluriel). L'expéditeur reste un simple indice (Karim transfère
+        // depuis son perso). Le CONTENU du PDF sert de garde-fou anti-junk.
+        if (!subjectMatches(subject)) continue;
 
         const fromObj = parsed.from?.value?.[0];
         const fromEmail = fromObj?.address ?? "";
@@ -253,7 +253,12 @@ export async function pollPayslipsFromImap(opts?: {
         const pdfs = allAttachments.filter(looksLikePdf);
         const images = allAttachments
           .map((a) => ({ att: a, img: looksLikeImage(a) }))
-          .filter((x) => x.img.is && !looksLikePdf(x.att));
+          // Exclut les images INLINE (logos de signature, bannières cid) : ce ne
+          // sont pas des fiches. Sinon l'OCR crée des orphelines bidon (net=0).
+          .filter((x) => {
+            const a = x.att as { related?: boolean; contentDisposition?: string };
+            return x.img.is && !looksLikePdf(x.att) && a.related !== true && a.contentDisposition !== "inline";
+          });
 
         // Karim 2026-06-15 : si aucun PDF mais des images → chemin OCR vision.
         // Si ni PDF ni image → erreur descriptive.
@@ -269,39 +274,45 @@ export async function pollPayslipsFromImap(opts?: {
         for (const pdf of pdfs) {
           if (!pdf.content || !Buffer.isBuffer(pdf.content)) continue;
           const bytes = new Uint8Array(pdf.content);
-          let looksPayslip = subjectHint;
+          // Garde-fou CONTENU : dans un mail au sujet "paie", on n'ingère un PDF
+          // que s'il ressemble à une fiche (FEUILLE DE PAIE / LOONBRIEF ou entité
+          // Caftan/AMD). Si le PDF est illisible (scan sans texte), on fait
+          // confiance au sujet plutôt que de rater une vraie fiche.
+          let looksPayslip = false;
+          let extracted = false;
+          let textLen = 0;
           let contentEmployer: "amd_megastore" | "caftan_factory" | null = null;
           try {
             const pages = await extractPagesText(bytes);
+            extracted = true;
             const fullText = pages.map((p) => p.text).join("\n");
+            textLen = fullText.trim().length;
             contentEmployer = detectEmployerFromText(fullText);
             if (contentEmployer || pages.some((p) => isPayslipStartPage(p.text))) looksPayslip = true;
           } catch {
-            // extraction ratée : on retombe sur l'indice sujet
+            // extraction KO
           }
+          // PDF scanné = extraction en échec OU texte quasi vide (image-only, unpdf
+          // renvoie "" sans throw). Le sujet "paie" étant déjà validé, on fait
+          // confiance au sujet plutôt que de rater une vraie fiche scannée.
+          if (!extracted || textLen <= 20) looksPayslip = true;
           if (looksPayslip) payslipPdfs.push({ pdf, bytes, contentEmployer });
         }
 
-        // Images (OCR coûteux) : uniquement en l'absence de PDF de paie ET si un
-        // INDICE existe (sujet paie ou expéditeur reconnu), pour ne pas OCR-iser
-        // toutes les photos reçues.
-        const imagesToProcess =
-          payslipPdfs.length === 0 && (subjectHint || !!senderEmployer) ? images : [];
+        // Images (OCR coûteux) : uniquement en l'absence de PDF de paie. Le sujet
+        // "paie" est déjà validé (gate plus haut), donc pas de sur-OCR.
+        const imagesToProcess = payslipPdfs.length === 0 ? images : [];
 
         if (payslipPdfs.length === 0 && imagesToProcess.length === 0) {
-          // Rien qui ressemble à une paie. On n'alerte QUE si le sujet l'annonçait,
-          // pour ne pas spammer sur les emails normaux — mais jamais de rejet
-          // SILENCIEUX d'un vrai email de paie : soit traité, soit erreur explicite.
-          if (subjectHint) {
-            const attCount = allAttachments.length;
-            result.errors.push({
-              uid: m.uid,
-              subject,
-              error: attCount === 0
-                ? "Sujet 'fiche de paie' mais aucune pièce jointe (PDF non attaché — lien Drive / aperçu inline ?)."
-                : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme fiche de paie (types : ${allAttachments.map((a) => a.contentType ?? "?").join(", ")}).`,
-            });
-          }
+          // Sujet "paie" validé mais aucune PJ exploitable : jamais silencieux.
+          const attCount = allAttachments.length;
+          result.errors.push({
+            uid: m.uid,
+            subject,
+            error: attCount === 0
+              ? "Sujet 'fiche de paie' mais aucune pièce jointe (PDF non attaché — lien Drive / aperçu inline ?)."
+              : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme fiche de paie (types : ${allAttachments.map((a) => a.contentType ?? "?").join(", ")}).`,
+          });
           continue;
         }
 

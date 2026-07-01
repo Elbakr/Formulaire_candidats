@@ -618,6 +618,50 @@ export async function deleteBatchAction(batchId: string): Promise<{ ok: boolean;
 }
 
 /**
+ * Karim 2026-07-02 : supprime UNE fiche de paie (import erroné / doublon / orpheline).
+ * Hard-delete : ligne DB + fichier PDF dans storage. Réservé admin/rh.
+ * Le lien de pairage (paired_with_payslip_id) est en ON DELETE SET NULL côté FK,
+ * donc supprimer une fiche appairée ne casse pas l'autre.
+ */
+export async function deletePayslipAction(payslipId: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+
+  const { data: payslip } = await admin
+    .from("payslips")
+    .select("id, pdf_storage_path, payment_status")
+    .eq("id", payslipId)
+    .single();
+  if (!payslip) return { ok: false, error: "Fiche introuvable (déjà supprimée ?)" };
+
+  // Garde-fou conformité (registre paie BE / RGPD) : on n'efface JAMAIS une fiche
+  // dont le salaire a été payé (paid_at/paid_amount = preuve financière). La
+  // suppression vise les imports erronés / doublons / orphelines, pas les payées.
+  if (payslip.payment_status === "paid") {
+    return {
+      ok: false,
+      error: "Fiche déjà payée : suppression interdite (audit paie). Si c'est une erreur, annulez le paiement d'abord.",
+    };
+  }
+
+  const { error: delErr } = await admin.from("payslips").delete().eq("id", payslipId);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  // Best-effort : on retire le PDF du storage. Un fichier orphelin résiduel n'est
+  // pas bloquant (la ligne DB est déjà supprimée).
+  if (payslip.pdf_storage_path) {
+    try {
+      await admin.storage.from("payslips").remove([payslip.pdf_storage_path]);
+    } catch (e) {
+      console.warn("[deletePayslipAction] storage remove:", (e as Error).message);
+    }
+  }
+
+  revalidatePath("/admin/payslips");
+  return { ok: true };
+}
+
+/**
  * Karim 2026-05-30 : URL signee 1h pour voir/DL le PDF de la fiche.
  */
 export async function getPayslipPdfUrlAction(payslipId: string): Promise<{ ok: boolean; url?: string; error?: string }> {

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { QrCode, CheckCircle2, Mail, AlertCircle, Calendar, Loader2, Link2, Edit3, FileText, Wallet, Hourglass } from "lucide-react";
+import { QrCode, CheckCircle2, Mail, AlertCircle, Calendar, Loader2, Link2, Edit3, FileText, Wallet, Hourglass, Trash2 } from "lucide-react";
 import {
   markPayslipPaidAction,
   sendPayslipToEmployeeAction,
@@ -19,6 +19,7 @@ import {
   setAdvanceAndRecomputeAction,
   markPayslipsPaidBulkAction,
   sendPayslipsToEmployeesBulkAction,
+  deletePayslipAction,
 } from "./actions";
 import { toast } from "sonner";
 
@@ -297,8 +298,43 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
         <QrButton row={row} isLocked={isLocked} />
         <PayButton row={row} isLocked={isLocked} />
         <SendButton row={row} />
+        <DeleteButton row={row} />
       </div>
     </div>
+  );
+}
+
+// Karim 2026-07-02 : supprimer un import erroné / doublon / orpheline.
+// Interdit sur une fiche PAYÉE (audit paie). Purge aussi la sélection bulk.
+function DeleteButton({ row }: { row: PayslipRow }) {
+  const [pending, startTransition] = useTransition();
+  const bulk = useContext(BulkContext);
+  const isPaid = row.payment_status === "paid";
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={pending || isPaid}
+      title={isPaid ? "Fiche payée : suppression interdite (audit paie)" : "Supprimer cette fiche"}
+      onClick={() => {
+        if (isPaid) return;
+        const who = row.employee?.full_name ?? "Non associée";
+        const ok = window.confirm(
+          `Supprimer la fiche de ${who} (${row.period_label ?? `${row.period_month}/${row.period_year}`}) ` +
+            `— ${Number(row.amount_to_pay).toFixed(2)} € ?\n\nAction irréversible.`,
+        );
+        if (!ok) return;
+        startTransition(async () => {
+          const res = await deletePayslipAction(row.id);
+          if (res.ok) {
+            toast.success("Fiche supprimée");
+            if (bulk?.isSelected(row.id)) bulk.toggle(row.id); // retire l'id supprimé de la sélection
+          } else toast.error(res.error ?? "Erreur suppression");
+        });
+      }}
+    >
+      {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className={`w-4 h-4 ${isPaid ? "text-ink-3" : "text-red-600"}`} />}
+    </Button>
   );
 }
 
