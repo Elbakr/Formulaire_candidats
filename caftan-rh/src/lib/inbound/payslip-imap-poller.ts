@@ -15,6 +15,7 @@ import { simpleParser } from "mailparser";
 import { retryOnTransientImap } from "./imap-retry";
 import { processBatch } from "@/lib/payslip-processor";
 import { processImagePayslip } from "@/lib/payslip-image-processor";
+import { extractPagesText, isPayslipStartPage, detectEmployerFromText } from "@/lib/payslip-splitter";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -176,7 +177,9 @@ export async function pollPayslipsFromImap(opts?: {
 
       const candidates: Array<{ uid: number; source: Buffer | null }> = [];
       for await (const msg of client.fetch(
-        { since, seen: false }, // que les non-lus
+        { since }, // Karim 2026-07-01 : lus OU non lus. La dédup est déjà garantie
+                   // par le move vers CaftanRH-Processed (les traités quittent l'INBOX)
+                   // + l'unicité en base. Un email lu avant le tick n'est plus perdu.
         { uid: true, source: true, envelope: true },
         { uid: true },
       )) {
@@ -198,21 +201,23 @@ export async function pollPayslipsFromImap(opts?: {
         }
 
         const subject = parsed.subject ?? "";
-        if (!subjectMatches(subject)) continue;
-        result.matched++;
+        // Karim 2026-07-01 : CONTENT-FIRST. Le sujet et l'expéditeur ne sont plus
+        // des barrières. Karim TRANSFÈRE les fiches depuis son adresse perso →
+        // l'expéditeur n'est jamais le secrétariat social, et le sujet est libre.
+        // On les garde comme INDICES ; c'est le CONTENU du PDF qui décide
+        // (isPayslipStartPage + detectEmployerFromText). L'employeur réel est de
+        // toute façon (re)détecté par fiche dans processBatch.
+        const subjectHint = subjectMatches(subject);
 
         const fromObj = parsed.from?.value?.[0];
         const fromEmail = fromObj?.address ?? "";
         const fromName = fromObj?.name ?? null;
-        const employer = detectEmployer(fromEmail, fromName, customSenderMap);
-        if (!employer) {
-          result.errors.push({
-            uid: m.uid,
-            subject,
-            error: `Expéditeur non reconnu (${fromEmail}) — ajoute cet expéditeur dans /admin/payslips (Expéditeurs autorisés).`,
-          });
-          continue;
-        }
+        const senderEmployerRaw = detectEmployer(fromEmail, fromName, customSenderMap);
+        // Homix ne fait pas de fiches de paie → on le ramène à null (paie = amd/caftan).
+        const senderEmployer: "amd_megastore" | "caftan_factory" | null =
+          senderEmployerRaw === "amd_megastore" || senderEmployerRaw === "caftan_factory"
+            ? senderEmployerRaw
+            : null;
 
         // PDF attachments — Karim 2026-06-15 : détection ROBUSTE.
         // 1) content-type contient "pdf"  2) nom finit par .pdf
@@ -252,36 +257,73 @@ export async function pollPayslipsFromImap(opts?: {
 
         // Karim 2026-06-15 : si aucun PDF mais des images → chemin OCR vision.
         // Si ni PDF ni image → erreur descriptive.
-        if (pdfs.length === 0 && images.length === 0) {
-          const attCount = allAttachments.length;
-          result.errors.push({
-            uid: m.uid,
-            subject,
-            error: attCount === 0
-              ? "Aucune pièce jointe (le PDF n'est pas attaché — vérifie que c'est un vrai fichier joint, pas un lien Drive/aperçu inline)."
-              : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme PDF ou image (types : ${allAttachments.map((a) => a.contentType ?? "?").join(", ")}).`,
-          });
+        // Sniff CONTENU des PDF : on ne traite que ceux qui ressemblent à une
+        // fiche de paie (FEUILLE DE PAIE / LOONBRIEF, ou nom d'entité Caftan/AMD),
+        // pour ne pas ingérer un contrat/facture joint. L'employeur du contenu est
+        // servi en fallback à processBatch (qui le redétecte par fiche de toute façon).
+        const payslipPdfs: Array<{
+          pdf: (typeof pdfs)[number];
+          bytes: Uint8Array;
+          contentEmployer: "amd_megastore" | "caftan_factory" | null;
+        }> = [];
+        for (const pdf of pdfs) {
+          if (!pdf.content || !Buffer.isBuffer(pdf.content)) continue;
+          const bytes = new Uint8Array(pdf.content);
+          let looksPayslip = subjectHint;
+          let contentEmployer: "amd_megastore" | "caftan_factory" | null = null;
+          try {
+            const pages = await extractPagesText(bytes);
+            const fullText = pages.map((p) => p.text).join("\n");
+            contentEmployer = detectEmployerFromText(fullText);
+            if (contentEmployer || pages.some((p) => isPayslipStartPage(p.text))) looksPayslip = true;
+          } catch {
+            // extraction ratée : on retombe sur l'indice sujet
+          }
+          if (looksPayslip) payslipPdfs.push({ pdf, bytes, contentEmployer });
+        }
+
+        // Images (OCR coûteux) : uniquement en l'absence de PDF de paie ET si un
+        // INDICE existe (sujet paie ou expéditeur reconnu), pour ne pas OCR-iser
+        // toutes les photos reçues.
+        const imagesToProcess =
+          payslipPdfs.length === 0 && (subjectHint || !!senderEmployer) ? images : [];
+
+        if (payslipPdfs.length === 0 && imagesToProcess.length === 0) {
+          // Rien qui ressemble à une paie. On n'alerte QUE si le sujet l'annonçait,
+          // pour ne pas spammer sur les emails normaux — mais jamais de rejet
+          // SILENCIEUX d'un vrai email de paie : soit traité, soit erreur explicite.
+          if (subjectHint) {
+            const attCount = allAttachments.length;
+            result.errors.push({
+              uid: m.uid,
+              subject,
+              error: attCount === 0
+                ? "Sujet 'fiche de paie' mais aucune pièce jointe (PDF non attaché — lien Drive / aperçu inline ?)."
+                : `${attCount} pièce(s) jointe(s) mais aucune reconnue comme fiche de paie (types : ${allAttachments.map((a) => a.contentType ?? "?").join(", ")}).`,
+            });
+          }
           continue;
         }
+
+        result.matched++;
 
         let totalInserted = 0;
         let totalMatched = 0;
         let totalOrphan = 0;
 
-        // --- Chemin PDF (existant, inchangé) ---
-        for (const pdf of pdfs) {
-          if (!pdf.content || !Buffer.isBuffer(pdf.content)) continue;
-          const bytes = new Uint8Array(pdf.content);
+        // --- Chemin PDF ---
+        for (const { pdf, bytes, contentEmployer } of payslipPdfs) {
           result.pdfs_total++;
 
           try {
             const batchResult = await processBatch({
               pdfBytes: bytes,
               filename: pdf.filename ?? `inbound-${m.uid}.pdf`,
-              // Homix ne fait pas de fiches de paie : l'employeur détecté est amd/caftan.
-              employerOrgKey: employer as "amd_megastore" | "caftan_factory",
+              // Employeur : indice expéditeur → contenu → défaut. processBatch
+              // redétecte l'employeur réel par fiche depuis le contenu.
+              employerOrgKey: senderEmployer ?? contentEmployer ?? "amd_megastore",
               uploadedBy: null, // null = auto/cron
-              source: "email",  // canal = email entrant (employeur capturé via employerOrgKey)
+              source: "email",  // canal = email entrant
             });
             totalInserted += batchResult.matchedCount + batchResult.unmatchedCount;
             totalMatched += batchResult.matchedCount;
@@ -298,11 +340,10 @@ export async function pollPayslipsFromImap(opts?: {
           }
         }
 
-        // --- Chemin IMAGE → OCR Claude vision (nouveau) ---
-        // Activé uniquement si aucun PDF (évite de doubler le travail si le mail
-        // contient à la fois un PDF et un aperçu JPEG inline).
-        if (pdfs.length === 0) {
-          for (const { att, img } of images) {
+        // --- Chemin IMAGE → OCR Claude vision ---
+        // imagesToProcess est déjà filtré (vide s'il y a des PDF de paie ou sans indice).
+        {
+          for (const { att, img } of imagesToProcess) {
             if (!att.content || !Buffer.isBuffer(att.content)) continue;
             const bytes = new Uint8Array(att.content);
             result.pdfs_total++; // réutilise le compteur total pièces traitées
@@ -312,7 +353,7 @@ export async function pollPayslipsFromImap(opts?: {
                 imageBytes: bytes,
                 mediaType: img.mediaType,
                 filename: att.filename ?? `inbound-img-${m.uid}.jpg`,
-                fallbackEmployer: employer as "amd_megastore" | "caftan_factory",
+                fallbackEmployer: senderEmployer ?? "amd_megastore",
                 uploadedBy: null,
                 source: "email",
               });
@@ -344,7 +385,7 @@ export async function pollPayslipsFromImap(opts?: {
           uid: m.uid,
           subject,
           from: fromEmail,
-          employer,
+          employer: senderEmployer,
           pdf_count: pdfs.length,
           inserted: totalInserted,
           matched: totalMatched,
