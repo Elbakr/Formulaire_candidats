@@ -16,6 +16,7 @@ import {
   sendOffboardingPayslipsAction,
   listPayslipsForEmployeeAction,
   listActiveEmployeesAction,
+  prepareOffboardingPackAction,
 } from "./actions";
 import { TEMPLATES, CATEGORY_LABEL, getDefaultTemplateForOffboarding, type TemplateCategory } from "@/lib/message-templates";
 
@@ -41,6 +42,8 @@ export function OffboardingButton() {
   const [extraFiles, setExtraFiles] = useState<Array<{ name: string; size: number; type: string; base64: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showFullPreview, setShowFullPreview] = useState(false);
+  // Karim 2026-07-02 : info pack de sortie (dernier mois + statut payé)
+  const [packInfo, setPackInfo] = useState<{ allPaid: boolean; unpaidPeriods: string[]; lastMonthLabel: string; lang: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -55,18 +58,36 @@ export function OffboardingButton() {
       setPayslips([]);
       setSelectedIds(new Set());
       setTemplateId("");
+      setPackInfo(null);
       return;
     }
     (async () => {
       const r = await listPayslipsForEmployeeAction(selectedEmp.id);
       setPayslips(r.payslips);
-      setSelectedIds(new Set(r.payslips.slice(0, 2).map((p) => p.id)));
-      // Auto-select template selon contract_type
       const def = getDefaultTemplateForOffboarding(selectedEmp.contract_type);
       setTemplateId(def.id);
-      setCustomSubject("");
-      setCustomBody("");
-      setEditMode(false);
+      // Karim 2026-07-02 : préparation auto du pack de sortie — sélectionne les
+      // fiches du DERNIER MOIS travaillé (1 ou 2), vérifie qu'elles sont payées,
+      // et pré-remplit le message bilingue FR/NL (éditable).
+      const pack = await prepareOffboardingPackAction(selectedEmp.id);
+      if (pack.ok) {
+        setSelectedIds(new Set(pack.payslipIds ?? []));
+        setCustomSubject(pack.subject ?? "");
+        setCustomBody(pack.body ?? "");
+        setEditMode(true);
+        setPackInfo({
+          allPaid: !!pack.allPaid,
+          unpaidPeriods: pack.unpaidPeriods ?? [],
+          lastMonthLabel: pack.lastMonthLabel ?? "",
+          lang: pack.lang ?? "fr",
+        });
+      } else {
+        setSelectedIds(new Set(r.payslips.slice(0, 2).map((p) => p.id)));
+        setCustomSubject("");
+        setCustomBody("");
+        setEditMode(false);
+        setPackInfo(null);
+      }
     })();
   }, [selectedEmp]);
 
@@ -89,6 +110,7 @@ export function OffboardingButton() {
     setOverrideEmail("");
     setEditMode(false);
     setExtraFiles([]);
+    setPackInfo(null);
   }
 
   async function handleAddFiles(files: FileList | null) {
@@ -180,16 +202,17 @@ export function OffboardingButton() {
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Briefcase className="h-3.5 w-3.5" /> Envoi avec template
+        <Briefcase className="h-3.5 w-3.5" /> Pack de sortie
       </Button>
 
       <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); setOpen(o); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Envoi fiches de paie avec template RH</DialogTitle>
+            <DialogTitle>Pack de sortie — fiches de paie + message de remerciement</DialogTitle>
             <DialogDescription>
-              Sélectionne l&apos;employé + fiches + template de message. Les fiches sont envoyées en
-              <strong> pièces jointes natives</strong> si Resend est configuré, sinon en liens sécurisés (30 jours).
+              Sélectionne le travailleur : l&apos;app pré-remplit les fiches du <strong>dernier mois</strong> et un
+              message bilingue FR/NL. Le pack ne part que si les fiches sont <strong>payées</strong>. Fiches jointes en
+              PDF (natif si Resend/Gmail configuré, sinon liens sécurisés 30 jours).
             </DialogDescription>
           </DialogHeader>
 
@@ -259,6 +282,19 @@ export function OffboardingButton() {
                   </div>
                 )}
               </div>
+
+              {/* Karim 2026-07-02 : statut "pack de sortie" (dernier mois + payé) */}
+              {packInfo && !packInfo.allPaid && (
+                <div className="bg-red-50 border border-red-300 rounded p-2 text-[11px] text-red-800">
+                  ⚠ Fiche(s) du dernier mois ({packInfo.lastMonthLabel}) <strong>NON payée(s)</strong> : {packInfo.unpaidPeriods.join(", ")}.
+                  Marque-les comme payées avant d&apos;envoyer le pack — le message annonce des salaires versés.
+                </div>
+              )}
+              {packInfo && packInfo.allPaid && (
+                <div className="bg-green-50 border border-green-200 rounded p-2 text-[11px] text-green-800">
+                  ✓ Dernier mois ({packInfo.lastMonthLabel}) payé — pack prêt. Message pré-rempli en <strong>{packInfo.lang.toUpperCase()}</strong> (éditable ci-dessous).
+                </div>
+              )}
 
               <div>
                 <Label>Template de message</Label>
@@ -404,7 +440,7 @@ export function OffboardingButton() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button variant="gold" onClick={send} disabled={pending || !selectedEmp || (selectedIds.size === 0 && extraFiles.length === 0)}>
+            <Button variant="gold" onClick={send} disabled={pending || !selectedEmp || (selectedIds.size === 0 && extraFiles.length === 0) || (!!packInfo && !packInfo.allPaid)}>
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               Envoyer {(selectedIds.size + extraFiles.length) > 0 ? `(${selectedIds.size + extraFiles.length} PJ)` : ""}
             </Button>

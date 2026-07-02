@@ -98,7 +98,7 @@ export async function sendOffboardingPayslipsAction(args: {
 
   const { data: emp } = await admin
     .from("employees")
-    .select("id, full_name, email, contract_type, start_date, end_date, status, job_title")
+    .select("id, full_name, email, contract_type, start_date, end_date, status, job_title, preferred_language")
     .eq("id", args.employeeId)
     .single();
   if (!emp) return { ok: false, error: "Employee introuvable" };
@@ -109,10 +109,21 @@ export async function sendOffboardingPayslipsAction(args: {
   // Charge les fiches
   const { data: payslips } = await admin
     .from("payslips")
-    .select("id, employee_id, period_label, period_year, period_month, pdf_storage_path, pdf_filename, net_amount, amount_to_pay")
+    .select("id, employee_id, period_label, period_year, period_month, pdf_storage_path, pdf_filename, net_amount, amount_to_pay, payment_status")
     .in("id", args.payslipIds)
     .eq("employee_id", args.employeeId);
   if (!payslips || payslips.length === 0) return { ok: false, error: "Fiches introuvables" };
+
+  // Garde-fou (décision Karim 2026-07-02) : le pack de sortie ne part QUE si TOUTES
+  // les fiches sont marquées payées — le message annonce des salaires versés.
+  const unpaid = payslips.filter((p) => p.payment_status !== "paid");
+  if (unpaid.length > 0) {
+    const periods = unpaid.map((p) => p.period_label ?? `${p.period_month}/${p.period_year}`).join(", ");
+    return {
+      ok: false,
+      error: `Fiche(s) non payée(s) : ${periods}. Marque-les comme payées avant d'envoyer le pack (le message annonce des salaires versés).`,
+    };
+  }
 
   // Karim 2026-06-02 : download + watermark + accumule bytes pour pieces
   // jointes natives (Resend) + URLs signed comme fallback EmailJS.
@@ -193,24 +204,14 @@ export async function sendOffboardingPayslipsAction(args: {
     }
   }
 
-  // Karim 2026-06-02 : selection du template
-  const { getTemplateById, getDefaultTemplateForOffboarding } = await import("@/lib/message-templates");
-  const tpl = args.templateId
-    ? getTemplateById(args.templateId) ?? getDefaultTemplateForOffboarding(emp.contract_type)
-    : getDefaultTemplateForOffboarding(emp.contract_type);
+  // Karim 2026-07-02 : message "pack de sortie" bilingue FR/NL (langue = préférence
+  // du travailleur). customSubject/customBody (édités dans le dialog) priment.
+  const { buildOffboardingPackMessage, packLangFromPreferred } = await import("@/lib/offboarding-pack");
+  const lang = packLangFromPreferred(emp.preferred_language);
   const firstName = emp.full_name?.split(" ")[0] ?? "";
-  const periodsList = (attachmentBytes.length > 0 ? attachmentBytes : attachmentUrls).map((a) => `• ${a.period}`).join("\n");
-  const rendered = tpl.render({
-    firstName,
-    fullName: emp.full_name ?? "",
-    employerName: "Caftan Factory (By AMD Megastore)",
-    contractType: emp.contract_type,
-    periodsList,
-    currentYear: new Date().getFullYear(),
-    hrEmail: "hr@caftanfactory.com",
-  });
-  const subject = args.customSubject?.trim() || rendered.subject;
-  const body = args.customBody?.trim() || rendered.body;
+  const pack = buildOffboardingPackMessage(lang, { firstName });
+  const subject = args.customSubject?.trim() || pack.subject;
+  const body = args.customBody?.trim() || pack.body;
 
   // Karim 2026-06-02 : envoi via Resend (PJ natives) ou fallback EmailJS
   const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");
@@ -245,7 +246,7 @@ export async function sendOffboardingPayslipsAction(args: {
         employee_id: args.employeeId,
         doc_type: "payslip",
         doc_ref: psId,
-        doc_label: `Envoi départ (${tpl.label}) — ${attachmentUrls.length} fiche(s)`,
+        doc_label: `Pack de sortie (${lang.toUpperCase()}) — ${attachmentUrls.length} fiche(s)`,
         action: "share_email",
         channel: `${result.provider}_offboarding`,
         recipient_email: destEmail,
@@ -284,6 +285,79 @@ export async function listPayslipsForEmployeeAction(employeeId: string): Promise
     ok: true,
     employee: (emp ?? null) as { id: string; full_name: string; email: string | null; contract_type: string | null; status: string } | null,
     payslips: (rows ?? []) as Array<{ id: string; period_label: string | null; period_year: number; period_month: number; net_amount: number; amount_to_pay: number; payment_status: string }>,
+  };
+}
+
+/**
+ * Karim 2026-07-02 : prépare le "pack de sortie" — sélectionne les fiches du
+ * DERNIER MOIS travaillé (1 ou 2 : principale + secondaire du même mois), vérifie
+ * qu'elles sont PAYÉES, et pré-rédige le message bilingue FR/NL. Le dialog s'en
+ * sert pour pré-cocher les fiches et pré-remplir sujet/corps.
+ */
+export async function prepareOffboardingPackAction(employeeId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  lang?: "fr" | "nl";
+  subject?: string;
+  body?: string;
+  lastMonthLabel?: string;
+  payslipIds?: string[];
+  allPaid?: boolean;
+  unpaidPeriods?: string[];
+}> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+
+  const { data: emp } = await admin
+    .from("employees")
+    .select("id, full_name, end_date, preferred_language")
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (!emp) return { ok: false, error: "Employé introuvable" };
+
+  const { data: rows } = await admin
+    .from("payslips")
+    .select("id, period_year, period_month, period_label, payment_status")
+    .eq("employee_id", employeeId)
+    .order("period_year", { ascending: false })
+    .order("period_month", { ascending: false })
+    .limit(30);
+  const payslips = rows ?? [];
+  if (payslips.length === 0) return { ok: false, error: "Aucune fiche de paie pour ce travailleur." };
+
+  // Dernier mois travaillé : priorité au mois de end_date s'il a des fiches,
+  // sinon le mois le plus récent présent. On prend TOUTES les fiches de ce mois
+  // (principale + secondaire éventuelle → 1 ou 2 selon le secrétariat social).
+  let ty = payslips[0].period_year;
+  let tm = payslips[0].period_month;
+  if (emp.end_date) {
+    const d = new Date(emp.end_date);
+    const ey = d.getUTCFullYear();
+    const em = d.getUTCMonth() + 1;
+    if (payslips.some((p) => p.period_year === ey && p.period_month === em)) {
+      ty = ey;
+      tm = em;
+    }
+  }
+  const lastMonth = payslips.filter((p) => p.period_year === ty && p.period_month === tm);
+  const lastMonthLabel = lastMonth[0]?.period_label ?? `${String(tm).padStart(2, "0")}/${ty}`;
+
+  const unpaid = lastMonth.filter((p) => p.payment_status !== "paid");
+
+  const { buildOffboardingPackMessage, packLangFromPreferred } = await import("@/lib/offboarding-pack");
+  const lang = packLangFromPreferred(emp.preferred_language);
+  const firstName = emp.full_name?.split(" ")[0] ?? "";
+  const pack = buildOffboardingPackMessage(lang, { firstName });
+
+  return {
+    ok: true,
+    lang,
+    subject: pack.subject,
+    body: pack.body,
+    lastMonthLabel,
+    payslipIds: lastMonth.map((p) => p.id),
+    allPaid: unpaid.length === 0,
+    unpaidPeriods: unpaid.map((p) => p.period_label ?? `${p.period_month}/${p.period_year}`),
   };
 }
 
