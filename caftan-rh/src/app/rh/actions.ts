@@ -38,25 +38,32 @@ export async function updateApplicationStatusAction(applicationId: string, statu
     if (ctx?.candidate?.email) {
       let subject = "";
       let body = "";
+      let sendBlocked = false;
       if (status === "refused") {
         subject = "Suite donnée à ta candidature";
         body = `Suite à examen de ton dossier, nous ne pouvons pas donner suite à ta candidature pour cette fois-ci. Bonne continuation.`;
-        await sendRejection({ to: ctx.candidate.email, fullName: ctx.candidate.full_name });
+        const rr = (await sendRejection({ to: ctx.candidate.email, fullName: ctx.candidate.full_name })) as { blocked?: boolean } | undefined;
+        sendBlocked = !!rr?.blocked;
       } else if (status === "hired") {
         subject = "Bienvenue dans l'équipe !";
         body = `Nous avons le plaisir de te confirmer ton recrutement au poste de ${ctx.job?.title ?? "ton nouveau poste"}. À très vite pour les prochaines étapes.`;
-        await sendOffer({
+        const or = (await sendOffer({
           to: ctx.candidate.email,
           fullName: ctx.candidate.full_name,
           jobTitle: ctx.job?.title ?? "votre nouveau poste",
+        })) as { blocked?: boolean } | undefined;
+        sendBlocked = !!or?.blocked;
+      }
+      // Karim 2026-07-02 : si l'email a été bloqué (kill-switch), ne PAS écrire de
+      // fausse ligne 'outbound' dans le fil candidat (sinon trace 'contacté' fausse).
+      if (!sendBlocked) {
+        await supabase.from("messages").insert({
+          application_id: applicationId,
+          direction: "outbound",
+          subject,
+          body,
         });
       }
-      await supabase.from("messages").insert({
-        application_id: applicationId,
-        direction: "outbound",
-        subject,
-        body,
-      });
     }
   }
 

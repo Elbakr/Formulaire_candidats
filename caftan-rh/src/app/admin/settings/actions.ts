@@ -18,6 +18,8 @@ export async function saveSettingsAction(formData: FormData) {
     prayer_pause_winter: String(formData.get("prayer_pause_winter") ?? "12:55-13:45").trim(),
     prayer_pause_dst_start: String(formData.get("prayer_pause_dst_start") ?? "04-01").trim(),
     prayer_pause_dst_end: String(formData.get("prayer_pause_dst_end") ?? "10-01").trim(),
+    // Karim 2026-07-02 : kill-switch envois automatiques vers candidats/travailleurs.
+    auto_outbound_to_people_enabled: formData.get("auto_outbound_to_people_enabled") === "on",
   };
   const { error } = await supabase.from("org_settings").update(payload).eq("id", 1);
   if (error) return { error: error.message };

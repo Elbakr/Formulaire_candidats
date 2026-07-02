@@ -19,6 +19,7 @@ type Settings = {
   prayer_pause_winter?: string | null;
   prayer_pause_dst_start?: string | null;
   prayer_pause_dst_end?: string | null;
+  auto_outbound_to_people_enabled?: boolean | null;
 };
 
 export function SettingsForm({ initial }: { initial: Settings }) {
@@ -116,6 +117,25 @@ export function SettingsForm({ initial }: { initial: Settings }) {
             />
           </div>
         </div>
+      </fieldset>
+
+      <fieldset className="border border-line rounded-md p-4 space-y-2">
+        <legend className="text-sm font-bold px-2">Envois automatiques aux candidats / travailleurs</legend>
+        <p className="text-xs text-ink-3">
+          Contrôle l&apos;<strong>outreach automatique</strong> (rappels d&apos;entretien, convocations, refus, offres,
+          relances signature, notices de fin). Ne concerne PAS les envois manuels, l&apos;authentification (liens de
+          connexion) ni les confirmations. Quand c&apos;est désactivé, le système te notifie à la place.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="auto_outbound_to_people_enabled"
+            defaultChecked={initial.auto_outbound_to_people_enabled ?? false}
+            className="h-4 w-4 rounded border-line"
+          />
+          <span>Autoriser les emails automatiques vers les candidats/travailleurs</span>
+        </label>
+        <p className="text-[11px] text-ink-3">Décoché (recommandé) = aucun email automatique n&apos;est envoyé aux personnes.</p>
       </fieldset>
 
       <Button type="submit" variant="gold" disabled={pending}>

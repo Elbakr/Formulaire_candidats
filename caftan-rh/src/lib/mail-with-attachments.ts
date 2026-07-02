@@ -14,6 +14,7 @@ import {
   type OutboundMailAttachmentMeta,
   type OutboundMailProvider,
 } from "@/lib/outbound-mails-log";
+import { isAutoOutboundBlocked, reportBlockedOutbound } from "@/lib/outbound-guard";
 
 export interface MailAttachment {
   filename: string;
@@ -40,6 +41,10 @@ export interface SendMailOptions {
   sourceRef?: string;
   candidateId?: string;
   employeeId?: string;
+  // Karim 2026-07-02 : true = envoi AUTOMATIQUE (outreach système) vers une
+  // personne → soumis au kill-switch. Ne JAMAIS mettre sur un envoi manuel,
+  // l'auth ou une confirmation (reçu d'une action).
+  automated?: boolean;
 }
 
 export interface SendMailResult {
@@ -91,6 +96,20 @@ async function logSend(
  * (pieces jointes natives), sinon SMTP Gmail, sinon EmailJS avec liens.
  */
 export async function sendMailWithAttachments(opts: SendMailOptions): Promise<SendMailResult> {
+  // Karim 2026-07-02 : kill-switch — bloque l'outreach automatique vers les
+  // candidats/travailleurs (envois taggés automated:true). Journalise + notifie RH.
+  if (await isAutoOutboundBlocked(opts.automated)) {
+    await reportBlockedOutbound({
+      to: opts.to,
+      toName: opts.toName,
+      subject: opts.subject,
+      source: opts.source,
+      candidateId: opts.candidateId,
+      employeeId: opts.employeeId,
+    });
+    return { ok: false, provider: "none", error: "auto_outbound_blocked" };
+  }
+
   const RESEND_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.RESEND_FROM_EMAIL ?? "CaftanRH <onboarding@resend.dev>";
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];

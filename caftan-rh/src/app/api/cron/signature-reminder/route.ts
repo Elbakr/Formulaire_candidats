@@ -16,7 +16,7 @@ function daysSince(iso: string): number {
   return Math.floor((now - then) / (24 * 60 * 60 * 1000));
 }
 
-async function sendReminderMail(to: string, name: string, kind: "contract" | "termination", days: number, link: string) {
+async function sendReminderMail(to: string, name: string, kind: "contract" | "termination", days: number, link: string, employeeId?: string) {
   const docLabel = kind === "contract" ? "contrat de travail" : "convention de cessation";
   const urgency = days >= 7 ? "DERNIER RAPPEL" : days >= 5 ? "RAPPEL" : "Rappel";
   const subject = `${urgency} — Signature de ton ${docLabel} en attente`;
@@ -35,10 +35,14 @@ Si tu rencontres un souci, réponds à ce mail.
 L'équipe Caftan Factory (By AMD Megastore)`;
 
   try {
-    const result = await sendAppMail({ to, toName: name, subject, body, source: "signature_reminder" });
-    return result.ok;
+    const result = await sendAppMail({ to, toName: name, subject, body, source: "signature_reminder", automated: true, employeeId });
+    if (result.ok) return "sent";
+    // Karim 2026-07-02 : un envoi coupé par le kill-switch n'est PAS une panne —
+    // ne pas le compter en erreur (sinon fausse alerte de l'agent d'astreinte).
+    if (result.error === "auto_outbound_blocked") return "blocked";
+    return "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
@@ -88,9 +92,10 @@ export async function GET(req: NextRequest) {
       } catch { /* ignore */ }
     }
 
-    const ok = await sendReminderMail(emp.email, emp.full_name ?? "Travailleur", "termination", days, signingUrl);
-    if (ok) out.terminations_reminded++;
-    else out.errors.push(`mail KO ${t.id}`);
+    const st = await sendReminderMail(emp.email, emp.full_name ?? "Travailleur", "termination", days, signingUrl, t.employee_id);
+    if (st === "sent") out.terminations_reminded++;
+    else if (st === "failed") out.errors.push(`mail KO ${t.id}`);
+    // st === "blocked" : coupé par le kill-switch, attendu — ni compté ni erreur.
   }
 
   // === CONTRATS ===
@@ -127,9 +132,10 @@ export async function GET(req: NextRequest) {
           }
         } catch { /* ignore */ }
       }
-      const ok = await sendReminderMail(emp.email, emp.full_name ?? "Travailleur", "contract", days, signingUrl);
-      if (ok) out.contracts_reminded++;
-      else out.errors.push(`mail KO ${ct.id}`);
+      const st = await sendReminderMail(emp.email, emp.full_name ?? "Travailleur", "contract", days, signingUrl, ct.employee_id);
+      if (st === "sent") out.contracts_reminded++;
+      else if (st === "failed") out.errors.push(`mail KO ${ct.id}`);
+      // st === "blocked" : coupé par le kill-switch, attendu — ni compté ni erreur.
     }
   } catch (e) {
     out.errors.push(`contracts query: ${(e as Error).message}`);

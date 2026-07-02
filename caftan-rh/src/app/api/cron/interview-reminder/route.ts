@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     const where = buildWhereLabel(iv.type, iv.location, iv.meeting_url);
 
     try {
-      await sendInterviewReminder({
+      const sr = (await sendInterviewReminder({
         to: candidate.email,
         fullName: candidate.full_name,
         whenLocal,
@@ -94,20 +94,24 @@ export async function GET(request: NextRequest) {
         durationMin: iv.duration_min ?? 30,
         candidateId: app?.candidate_id ?? candidate.id,
         interviewId: iv.id,
-      });
-      results.reminded++;
+      })) as { blocked?: boolean } | undefined;
 
-      // Log dans messages (best-effort)
-      if (app?.id) {
-        try {
-          await admin.from("messages").insert({
-            application_id: app.id,
-            direction: "outbound",
-            subject: "Rappel entretien demain",
-            body: `Rappel automatique : entretien demain le ${whenLocal} (${where}).`,
-          });
-        } catch {
-          // best-effort : on ignore les erreurs de log
+      // Karim 2026-07-02 : si bloqué par le kill-switch, NE PAS compter 'reminded'
+      // ni logguer une ligne messages 'outbound' (sinon fausse trace 'candidat
+      // contacté'). reportBlockedOutbound a déjà journalisé + notifié RH.
+      if (!sr?.blocked) {
+        results.reminded++;
+        if (app?.id) {
+          try {
+            await admin.from("messages").insert({
+              application_id: app.id,
+              direction: "outbound",
+              subject: "Rappel entretien demain",
+              body: `Rappel automatique : entretien demain le ${whenLocal} (${where}).`,
+            });
+          } catch {
+            // best-effort : on ignore les erreurs de log
+          }
         }
       }
     } catch (e) {

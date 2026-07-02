@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { BRAND } from "@/lib/config";
 import { logOutboundMail } from "@/lib/outbound-mails-log";
+import { isAutoOutboundBlocked, reportBlockedOutbound } from "@/lib/outbound-guard";
 
 function getClient() {
   const key = process.env.RESEND_API_KEY;
@@ -22,6 +23,8 @@ type SendArgs = {
   recipientName?: string;
   candidateId?: string;
   employeeId?: string;
+  // Karim 2026-07-02 : true = outreach AUTOMATIQUE → soumis au kill-switch.
+  automated?: boolean;
 };
 
 export async function sendEmail({
@@ -34,7 +37,14 @@ export async function sendEmail({
   recipientName,
   candidateId,
   employeeId,
+  automated,
 }: SendArgs) {
+  // Karim 2026-07-02 : kill-switch outreach auto vers candidat/travailleur.
+  if (await isAutoOutboundBlocked(automated)) {
+    await reportBlockedOutbound({ to, toName: recipientName, subject, source, candidateId, employeeId });
+    return { skipped: true, blocked: true };
+  }
+
   const resend = getClient();
   if (!resend) {
     console.warn("[emails] RESEND_API_KEY missing — email not sent:", subject);
@@ -132,6 +142,7 @@ export function sendInterviewInvite(args: { to: string; fullName: string; whenLo
     to: args.to,
     recipientName: args.fullName,
     candidateId: args.candidateId,
+    automated: true,
     source: "interview-invite",
     sourceRef: args.candidateId,
     subject: `${BRAND.name} — Convocation à un entretien`,
@@ -219,6 +230,7 @@ export function sendInterviewReminder(args: {
     to: args.to,
     recipientName: args.fullName,
     candidateId: args.candidateId,
+    automated: true,
     source: "interview-reminder",
     sourceRef: args.interviewId ?? args.candidateId,
     subject: `${BRAND.name} — Rappel : ton entretien demain / Herinnering: jouw interview morgen`,
@@ -250,6 +262,7 @@ export function sendRejection(args: { to: string; fullName: string; candidateId?
     to: args.to,
     recipientName: args.fullName,
     candidateId: args.candidateId,
+    automated: true,
     source: "rejection",
     sourceRef: args.candidateId,
     subject: `${BRAND.name} — Suite donnée à ta candidature`,
@@ -268,6 +281,7 @@ export function sendOffer(args: { to: string; fullName: string; jobTitle: string
     recipientName: args.fullName,
     candidateId: args.candidateId,
     employeeId: args.employeeId,
+    automated: true,
     source: "offer",
     sourceRef: args.employeeId ?? args.candidateId,
     subject: `${BRAND.name} — Bienvenue dans l'équipe !`,

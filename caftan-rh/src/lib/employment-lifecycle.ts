@@ -124,7 +124,10 @@ export async function closeEmployment(
           data: { effective_date: eff, cause },
         });
         // Email best-effort via EmailJS (canal employé).
-        await sendEndNoticeEmail(emp.email, emp.full_name, eff);
+        // Karim 2026-07-02 : outreach auto SEULEMENT si déclenché par le cron
+        // (cause 'cron_end_date'). Une rupture finalisée À LA MAIN par l'admin
+        // n'est pas soumise au kill-switch (envoi manuel).
+        await sendEndNoticeEmail(emp.email, emp.full_name, eff, emp.id, cause === "cron_end_date");
       }
     }
 
@@ -134,7 +137,7 @@ export async function closeEmployment(
   }
 }
 
-async function sendEndNoticeEmail(email: string | null, fullName: string | null, eff: string) {
+async function sendEndNoticeEmail(email: string | null, fullName: string | null, eff: string, employeeId?: string, automated?: boolean) {
   if (!email) return;
   const { sendAppMail } = await import("@/lib/app-mail");
   const first = (fullName ?? "").split(/\s+/)[0] ?? "";
@@ -151,6 +154,8 @@ async function sendEndNoticeEmail(email: string | null, fullName: string | null,
       subject: "Fin de ton contrat — Caftan Factory",
       body,
       source: "employment_end",
+      automated,
+      employeeId,
     });
   } catch { /* best-effort */ }
 }
