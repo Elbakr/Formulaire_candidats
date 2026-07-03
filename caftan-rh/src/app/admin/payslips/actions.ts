@@ -378,6 +378,8 @@ export async function rematchOrphanPayslipsAction(): Promise<{
   rematched?: number;
   still_orphan?: number;
   conflicts?: number;
+  duplicates_skipped?: number;
+  repaired_secondaries?: number;
   details?: string[];
 }> {
   await requireRole(["admin", "rh"]);
@@ -385,7 +387,15 @@ export async function rematchOrphanPayslipsAction(): Promise<{
     const { rematchOrphanPayslips } = await import("@/lib/payslip-rematch");
     const r = await rematchOrphanPayslips();
     revalidatePath("/admin/payslips");
-    return { ok: true, rematched: r.rematched, still_orphan: r.still_orphan, conflicts: r.conflicts, details: r.details };
+    return {
+      ok: true,
+      rematched: r.rematched,
+      still_orphan: r.still_orphan,
+      conflicts: r.conflicts,
+      duplicates_skipped: r.duplicates_skipped,
+      repaired_secondaries: r.repaired_secondaries,
+      details: r.details,
+    };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

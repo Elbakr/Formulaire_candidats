@@ -24,10 +24,15 @@ export function RematchOrphansButton() {
             toast.error(r.error ?? "Échec du re-matching");
             return;
           }
-          if ((r.rematched ?? 0) > 0) {
+          const repaired = r.repaired_secondaries ?? 0;
+          const dup = r.duplicates_skipped ?? 0;
+          if ((r.rematched ?? 0) > 0 || repaired > 0) {
             toast.success(
-              `${r.rematched} fiche(s) rattachée(s)${r.conflicts ? `, ${r.conflicts} conflit(s)` : ""}. ${r.still_orphan ?? 0} encore orpheline(s).`,
-              { duration: 6000 },
+              `${r.rematched ?? 0} rattachée(s)` +
+                (repaired ? `, ${repaired} avance(s) réparée(s)` : "") +
+                (dup ? `, ${dup} doublon(s) ignoré(s)` : "") +
+                `. ${r.still_orphan ?? 0} encore orpheline(s).`,
+              { duration: 7000 },
             );
           } else {
             toast.info(`Aucune nouvelle association. ${r.still_orphan ?? 0} orpheline(s) restante(s).`);
