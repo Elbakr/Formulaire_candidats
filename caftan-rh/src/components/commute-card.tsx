@@ -7,7 +7,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Bus, Car, MapPin, RefreshCw } from "lucide-react";
-import { HEADQUARTERS, type CommuteResult } from "@/lib/commute";
+import { HEADQUARTERS, type CommuteResult } from "@/lib/commute-shared";
 import { computeCommuteAction } from "@/lib/commute-actions";
 
 export function CommuteCard({

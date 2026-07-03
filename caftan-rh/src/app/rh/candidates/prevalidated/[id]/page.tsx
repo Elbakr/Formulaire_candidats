@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getCandidateIdCard } from "@/lib/id-card";
 import { CommuteCard } from "@/components/commute-card";
-import type { CommuteResult } from "@/lib/commute";
+import type { CommuteResult } from "@/lib/commute-shared";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

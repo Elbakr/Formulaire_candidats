@@ -6,6 +6,7 @@ import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload } from "@/components/id-card-upload";
+import { BirthDatePicker } from "@/components/birth-date-picker";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
@@ -420,6 +421,12 @@ export function ContractInfoForm({
                   value={values.iban ?? ""}
                   onChange={(v) => setField("iban", v)}
                   onBlur={() => void autosave("iban", values.iban ?? "")}
+                />
+              ) : f.key === "birth_date" ? (
+                <BirthDatePicker
+                  value={values.birth_date ?? ""}
+                  maxIso={maxBirth}
+                  onChange={(v) => { setField("birth_date", v); void autosave("birth_date", v); }}
                 />
               ) : opts ? (
                 <select
