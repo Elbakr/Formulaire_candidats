@@ -13,6 +13,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { buildEmployeeProfile, inferMissingOut, formatCorrectionNote } from "@/lib/tuya-correction-inference";
+import { brusselsWallTimeToUtc } from "@/lib/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -113,13 +114,15 @@ async function handle(request: NextRequest) {
     if (outIso.slice(0, 10) !== orphanDay) {
       // OUT propose est un autre jour -> clamp
       const closeTime = orphan.site_id ? siteCloseFor(orphan.site_id, orphanDay) : null;
+      // Karim 2026-07-03 (audit) : offset +02:00 codé en dur -> faux en hiver (CET).
+      // Conversion heure MURALE belge -> UTC DST-correcte via brusselsWallTimeToUtc.
       if (closeTime) {
-        outIso = new Date(new Date(`${orphanDay}T${closeTime}:00+02:00`).getTime() + 30 * 60_000).toISOString();
+        outIso = new Date(brusselsWallTimeToUtc(orphanDay, closeTime).getTime() + 30 * 60_000).toISOString();
       } else {
         // Fallback : IN + 2h30 cappe a 23:59 meme jour
         const inTs = new Date(orphan.occurred_at).getTime();
         let proposed = inTs + 150 * 60_000;
-        const endOfDay = new Date(`${orphanDay}T23:59:00+02:00`).getTime();
+        const endOfDay = brusselsWallTimeToUtc(orphanDay, "23:59").getTime();
         if (proposed > endOfDay) proposed = endOfDay;
         outIso = new Date(proposed).toISOString();
       }
@@ -128,7 +131,7 @@ async function handle(request: NextRequest) {
       // OUT <= IN -> IN + 30 min cap a 23:59
       const inTs = new Date(orphan.occurred_at).getTime();
       let proposed = inTs + 30 * 60_000;
-      const endOfDay = new Date(`${orphanDay}T23:59:00+02:00`).getTime();
+      const endOfDay = brusselsWallTimeToUtc(orphanDay, "23:59").getTime();
       if (proposed > endOfDay) proposed = endOfDay;
       outIso = new Date(proposed).toISOString();
     }

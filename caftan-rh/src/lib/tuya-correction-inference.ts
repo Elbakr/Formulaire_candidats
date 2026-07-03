@@ -57,15 +57,22 @@ export type InferenceResult = {
 
 const HOUR_MS = 3600_000;
 const AUTO_APPLY_THRESHOLD = 85;
-const LOCAL_OFFSET_MS = 2 * HOUR_MS; // UTC+2 BE summer
+
+// Karim 2026-07-03 (audit) : offset UTC+2 codé en dur -> faux en hiver (CET, UTC+1)
+// => heures/jours décalés d'1h et reclassements IN/OUT erronés d'oct. à mars.
+// On lit l'heure/le jour RÉELS en Europe/Brussels (DST-correct, via Intl).
+const _hourFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Brussels", hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+const _dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Brussels", year: "numeric", month: "2-digit", day: "2-digit" });
 
 function localHour(iso: string): number {
-  const d = new Date(new Date(iso).getTime() + LOCAL_OFFSET_MS);
-  return d.getUTCHours() + d.getUTCMinutes() / 60;
+  const parts = _hourFmt.formatToParts(new Date(iso));
+  const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return h + m / 60;
 }
 
 function localDay(iso: string): string {
-  return new Date(new Date(iso).getTime() + LOCAL_OFFSET_MS).toISOString().slice(0, 10);
+  return _dayFmt.format(new Date(iso)); // en-CA -> YYYY-MM-DD
 }
 
 function median(arr: number[]): number {
