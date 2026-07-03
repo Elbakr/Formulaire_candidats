@@ -84,9 +84,16 @@ export async function submitContractInfoAction(
 
   const { error } = await applyUpdate(admin, target, update);
   if (error) return { ok: false, error };
+
+  // Karim 2026-07-03 (audit) : IDEMPOTENCE — ne compléter + notifier qu'UNE fois.
+  // Une re-soumission (retour arrière, double clic) ne doit pas dupliquer la notif RH.
+  const { data: tokRow } = await admin.from("contract_info_tokens").select("completed_at").eq("id", tokenId).maybeSingle();
+  if ((tokRow as { completed_at?: string | null } | null)?.completed_at) {
+    return { ok: true };
+  }
   await admin.from("contract_info_tokens").update({ completed_at: new Date().toISOString() }).eq("id", tokenId);
 
-  // Notifie RH que le dossier avance.
+  // Notifie RH que le dossier avance (première complétion uniquement).
   try {
     const { data: row } = await admin.from(target.table).select("full_name").eq("id", target.id).maybeSingle();
     const name = (row as { full_name?: string } | null)?.full_name ?? (target.isCandidate ? "Un candidat" : "Un employé");

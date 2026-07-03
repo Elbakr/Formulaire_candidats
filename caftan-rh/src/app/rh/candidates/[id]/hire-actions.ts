@@ -186,6 +186,24 @@ export async function hireCandidateAction(
   }
   steps.push({ label: "Fiche employé prête", status: "ok" });
 
+  // 3ter) Karim 2026-07-03 (audit) : reprise de la CARTE D'IDENTITÉ déclarée par le
+  // candidat (PDF recto/verso déjà en storage, lié candidate_id) -> on la rattache
+  // à l'employé pour que le dossier contrat ne soit pas bloqué "CI manquante".
+  try {
+    const { data: idDocs } = await admin
+      .from("documents")
+      .update({ employee_id: employeeId })
+      .eq("candidate_id", candidate.id)
+      .eq("kind", "id_card")
+      .is("employee_id", null)
+      .select("id");
+    if (idDocs && idDocs.length > 0) {
+      steps.push({ label: "Carte d'identité reprise du dossier candidat", status: "ok" });
+    }
+  } catch {
+    /* best-effort — ne bloque jamais l'embauche */
+  }
+
   // 3bis) Karim 2026-07-03 : rejeu des INDISPONIBILITÉS déclarées par le candidat
   // en pré-embauche (étape 2 du formulaire) -> employee_unavailabilities. L'auto-
   // planning les respecte immédiatement. Idempotent : on ne rejoue pas si la fiche

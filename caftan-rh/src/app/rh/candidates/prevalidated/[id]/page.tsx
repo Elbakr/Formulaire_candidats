@@ -49,6 +49,9 @@ export default async function PrevalidatedCandidatePage(
     .maybeSingle();
   if (!candRaw) notFound();
   const c = candRaw as Record<string, string | number | boolean | null>;
+  // Karim 2026-07-03 (audit) : cette vue est réservée aux candidats PRÉ-VALIDÉS
+  // (sans candidature). Un candidat normal a sa fiche /rh/candidates/[id].
+  if (c.prevalidated !== true) notFound();
 
   // Token (statut du lien + complétion).
   const { data: tokRaw } = await admin
@@ -104,8 +107,13 @@ export default async function PrevalidatedCandidatePage(
     { label: "Abonnement transport", value: val(c.transport_frequency as string) },
     { label: "Prix transport (€)", value: c.transport_price != null ? String(c.transport_price) : null },
   ];
-  const filled = rows.filter((r) => r.value !== null).length;
-  const missing = rows.filter((r) => r.value === null);
+  // Karim 2026-07-03 (audit) : pour un étudiant, état civil + personnes à charge
+  // ne sont pas demandés -> exclus du compteur et de la liste "à compléter".
+  const shownRows = isStudent === true
+    ? rows.filter((r) => r.label !== "État civil" && r.label !== "Personnes à charge")
+    : rows;
+  const filled = shownRows.filter((r) => r.value !== null).length;
+  const missing = shownRows.filter((r) => r.value === null);
 
   return (
     <div className="space-y-4">
@@ -153,13 +161,13 @@ export default async function PrevalidatedCandidatePage(
             </div>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-ink">{filled}/{rows.length}</div>
+            <div className="text-2xl font-bold text-ink">{filled}/{shownRows.length}</div>
             <div className="text-[10px] uppercase tracking-wider text-ink-3">champs renseignés</div>
           </div>
         </div>
 
         <div className="border-t border-line p-4 grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {rows.map((r) => (
+          {shownRows.map((r) => (
             <div key={r.label} className="bg-surface-2 rounded-md p-2.5">
               <div className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{r.label}</div>
               <div className={`text-sm font-semibold mt-0.5 ${r.value ? "" : "text-ink-3 italic font-normal"}`}>

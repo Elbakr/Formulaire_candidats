@@ -378,8 +378,8 @@ export function ContractInfoForm({
           </p>
           {isStudent === "true" ? (
             <div className="mt-2 rounded-lg border border-gold/40 bg-gold-light/40 p-2 text-[11px] text-ink-2">
-              <b>Contrat d&apos;occupation étudiant</b> : max 600 h/an à cotisation réduite. Ton établissement et
-              tes heures étudiant déjà utilisées cette année te seront demandés à l&apos;étape suivante.
+              <b>Contrat d&apos;occupation étudiant</b> : max 600 h/an à cotisation réduite. Le RH vérifiera avec toi
+              ton établissement et tes heures étudiant déjà utilisées cette année lors du pré-entretien.
               {" "}Si tu es aussi au CPAS, préviens ton assistant(e) social(e) : un job étudiant peut impacter ton
               revenu d&apos;intégration.
             </div>
