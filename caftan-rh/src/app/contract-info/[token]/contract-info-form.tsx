@@ -298,19 +298,61 @@ export function ContractInfoForm({
   }
 
   if (done) {
+    // Karim 2026-07-03 : écran de fin HONNÊTE — on ne fait pas croire que tout est
+    // complet si des champs demandés manquent encore. On remercie, on liste ce qui
+    // reste, on rappelle que le MÊME lien permet de compléter jusqu'à finalisation.
+    const stillMissing = (isCandidate
+      ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
+      : ordered
+    ).filter((f) => (values[f.key] ?? "").trim() === "");
+    const complete = stillMissing.length === 0;
+    const link = typeof window !== "undefined" ? window.location.href : "";
     return (
-      <div className="text-center py-6">
-        <div className="inline-flex h-14 w-14 rounded-full bg-success-light text-success items-center justify-center mb-3">
-          <CheckCircle2 className="h-7 w-7" />
+      <div className="py-4">
+        <div className="text-center">
+          <div className={`inline-flex h-14 w-14 rounded-full items-center justify-center mb-3 ${complete ? "bg-success-light text-success" : "bg-gold-light text-gold-dark"}`}>
+            <CheckCircle2 className="h-7 w-7" />
+          </div>
+          <h2 className="text-lg font-bold text-ink">Merci {firstName} !</h2>
         </div>
-        <h2 className="text-lg font-bold text-ink">Merci {firstName} !</h2>
-        <p className="text-sm text-ink-2 mt-1">
-          Ton dossier a bien été transmis au service RH.{isCandidate ? (
-            <> Ton engagement n&apos;est <b>pas encore effectif</b> : il le deviendra une fois la déclaration Dimona effectuée et ton contrat validé par le secrétariat social. Nous revenons vers toi très vite.</>
-          ) : (
-            <> L&apos;équipe RH revient vers toi pour la suite.</>
-          )}
-        </p>
+
+        {complete ? (
+          <p className="text-sm text-ink-2 mt-2 text-center">
+            Votre dossier est <b>complet</b> et a bien été transmis à notre service RH.{isCandidate ? (
+              <> Votre engagement n&apos;est <b>pas encore effectif</b> : il le deviendra une fois la déclaration Dimona effectuée et votre contrat validé par le secrétariat social. Nous revenons vers vous très prochainement.</>
+            ) : (
+              <> Notre équipe RH poursuit le traitement de votre dossier.</>
+            )}
+          </p>
+        ) : (
+          <div className="mt-2 space-y-3">
+            <p className="text-sm text-ink-2">
+              Vos informations ont bien été enregistrées, et nous vous en remercions. Pour <b>finaliser votre dossier</b>,
+              il reste toutefois quelques éléments à compléter :
+            </p>
+            <ul className="rounded-lg border border-gold/40 bg-gold-light/30 p-3 text-sm text-ink space-y-1">
+              {stillMissing.map((f) => (
+                <li key={f.key} className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-gold-dark inline-block" /> {f.label}
+                </li>
+              ))}
+            </ul>
+            <p className="text-sm text-ink-2">
+              Vous pouvez les renseigner à tout moment, à votre rythme, via ce <b>même lien sécurisé</b> — il reste
+              valable jusqu&apos;à la finalisation complète de votre dossier :
+            </p>
+            {link ? (
+              <div className="rounded-lg border border-line bg-surface-2 p-2 text-[11px] text-ink-2 break-all font-mono">{link}</div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => { setDone(false); setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
+              className="w-full rounded-xl bg-ink text-canvas font-bold py-3 text-sm active:scale-[0.98] transition-all"
+            >
+              Compléter maintenant
+            </button>
+          </div>
+        )}
       </div>
     );
   }

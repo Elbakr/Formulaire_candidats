@@ -95,19 +95,35 @@ export async function submitContractInfoAction(
 
   // Notifie RH que le dossier avance (première complétion uniquement).
   try {
-    const { data: row } = await admin.from(target.table).select("full_name").eq("id", target.id).maybeSingle();
-    const name = (row as { full_name?: string } | null)?.full_name ?? (target.isCandidate ? "Un candidat" : "Un employé");
+    // Karim 2026-07-03 : notif HONNÊTE — complet vs partiel (+ champs manquants).
+    const essentials = target.isCandidate
+      ? ["birth_date", "birth_place", "nrn", "nationality", "address", "postal_code", "city", "iban"]
+      : ["birth_date", "nrn", "address", "postal_code", "city", "iban"];
+    const { data: row } = await admin
+      .from(target.table)
+      .select(`full_name, ${essentials.join(", ")}`)
+      .eq("id", target.id)
+      .maybeSingle();
+    const r = (row ?? {}) as Record<string, unknown>;
+    const name = (r.full_name as string) ?? (target.isCandidate ? "Un candidat" : "Un employé");
+    const missingEssentials = essentials.filter((k) => !r[k] || String(r[k]).trim() === "");
+    const isComplete = missingEssentials.length === 0;
     // Karim 2026-07-03 : un candidat pré-validé n'a PAS de candidature -> la page
     // /rh/candidates/[id] (basée sur applications) renvoyait 404. Vue dédiée.
     const link = target.isCandidate ? `/rh/candidates/prevalidated/${target.id}` : `/planning/employees/${target.id}`;
     const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
+    const LABELS: Record<string, string> = {
+      birth_date: "date de naissance", birth_place: "lieu de naissance", nrn: "NISS",
+      nationality: "nationalité", address: "adresse", postal_code: "code postal", city: "commune", iban: "IBAN",
+    };
+    const missingLabels = missingEssentials.map((k) => LABELS[k] ?? k).join(", ");
     const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
       recipient_id: p.id,
       kind: "reminder" as const,
-      title: `Dossier complété : ${name}`,
-      body: target.isCandidate
-        ? `${name} (pré-validé) a renseigné ses infos d'embauche.`
-        : `${name} a renseigné ses infos manquantes. Le contrat peut avancer.`,
+      title: isComplete ? `Dossier COMPLET : ${name}` : `Dossier PARTIEL : ${name}`,
+      body: isComplete
+        ? (target.isCandidate ? `${name} (pré-validé) a complété tout son dossier d'embauche.` : `${name} a complété ses infos. Le contrat peut avancer.`)
+        : `${name} a enregistré ses infos mais il MANQUE encore : ${missingLabels}. Le lien reste actif pour compléter.`,
       link,
       data: target.isCandidate ? { candidate_id: target.id } : { employee_id: target.id },
     }));
