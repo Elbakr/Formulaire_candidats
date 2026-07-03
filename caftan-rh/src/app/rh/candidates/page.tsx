@@ -3,6 +3,7 @@ import { fetchApplications, fetchOpenJobs } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
 import { CandidatesTable } from "./candidates-table";
 import { NewCandidateButton } from "./new-candidate-button";
+import { PrevalidatedLinkButton } from "./prevalidated-link-button";
 import { ExportCandidatesButton } from "./export-button";
 import { GfSyncButton } from "@/app/admin/integrations/gravity-forms/sync-button";
 import { formatDateTime } from "@/lib/utils";
@@ -78,6 +79,7 @@ export default async function RhCandidatesPage() {
             </Link>
           )}
           <ExportCandidatesButton />
+          <PrevalidatedLinkButton />
           <NewCandidateButton jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
         </div>
       </div>

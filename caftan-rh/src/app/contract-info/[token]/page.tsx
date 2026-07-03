@@ -6,6 +6,22 @@ import { ContractInfoForm } from "./contract-info-form";
 
 export const dynamic = "force-dynamic";
 
+// Karim 2026-07-03 : champs secrétariat social demandés à un CANDIDAT pré-validé
+// (lien de pré-embauche). Le candidat remplit tout lui-même, à son rythme.
+const CANDIDATE_HIRING_FIELDS: Array<{ key: string; label: string }> = [
+  { key: "full_name", label: "Nom complet" },
+  { key: "email", label: "Email" },
+  { key: "birth_date", label: "Date de naissance" },
+  { key: "nrn", label: "Numéro national (NISS)" },
+  { key: "address", label: "Adresse" },
+  { key: "postal_code", label: "Code postal" },
+  { key: "city", label: "Commune" },
+  { key: "iban", label: "IBAN" },
+  { key: "transport_type", label: "Moyen de transport" },
+  { key: "transport_frequency", label: "Abonnement transport" },
+  { key: "transport_price", label: "Prix du transport (€)" },
+];
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main
@@ -26,50 +42,89 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function InvalidShell() {
+  return (
+    <Shell>
+      <div className="text-center py-4">
+        <div className="text-base font-bold text-ink">Lien invalide ou expiré</div>
+        <p className="text-sm text-ink-2 mt-1">Contacte l&apos;équipe RH si besoin.</p>
+      </div>
+    </Shell>
+  );
+}
+
 export default async function ContractInfoTokenPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const admin = createAdminClient();
   const { data: tokRaw } = await admin
     .from("contract_info_tokens")
-    .select("id, employee_id, completed_at")
+    .select("id, employee_id, candidate_id, completed_at")
     .eq("token", token)
     .maybeSingle();
-  const tok = tokRaw as { id: string; employee_id: string; completed_at: string | null } | null;
+  const tok = tokRaw as { id: string; employee_id: string | null; candidate_id: string | null; completed_at: string | null } | null;
+  if (!tok) return <InvalidShell />;
 
-  if (!tok) {
+  // ---------------------------------------------------------------------------
+  // CANDIDAT PRÉ-VALIDÉ (lien de pré-embauche) — Karim 2026-07-03
+  // ---------------------------------------------------------------------------
+  if (tok.candidate_id) {
+    const { data: candRaw } = await admin
+      .from("candidates")
+      .select("id, full_name, email, birth_date, nrn, address, postal_code, city, iban, transport_type, transport_frequency, transport_price, is_student")
+      .eq("id", tok.candidate_id)
+      .maybeSingle();
+    if (!candRaw) return <InvalidShell />;
+    const cand = candRaw as Record<string, unknown>;
+    const firstName = ((cand.full_name as string) ?? "").split(/\s+/)[0] ?? "";
+
+    const missing = CANDIDATE_HIRING_FIELDS.filter((f) => {
+      const v = cand[f.key];
+      return v === null || v === undefined || String(v).trim() === "";
+    });
+    const isStudent = typeof cand.is_student === "boolean" ? (cand.is_student as boolean) : null;
+
     return (
       <Shell>
-        <div className="text-center py-4">
-          <div className="text-base font-bold text-ink">Lien invalide ou expiré</div>
-          <p className="text-sm text-ink-2 mt-1">Contacte l'équipe RH si besoin.</p>
-        </div>
+        <p className="text-sm text-ink-2 leading-relaxed mb-4">
+          Bonjour{firstName ? <> <b className="text-ink">{firstName}</b></> : null}, bienvenue chez Caftan Factory 👋
+          Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme —
+          chaque champ est enregistré au fur et à mesure.
+        </p>
+        <ContractInfoForm
+          token={token}
+          fields={missing}
+          firstName={firstName}
+          birthDate={(cand.birth_date as string) ?? null}
+          isCandidate
+          initialIsStudent={isStudent}
+        />
       </Shell>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // EMPLOYÉ (dossier RH classique) — inchangé
+  // ---------------------------------------------------------------------------
+  if (!tok.employee_id) return <InvalidShell />;
+  const employeeId = tok.employee_id;
+
   const { data: empRaw } = await admin
     .from("employees")
     .select("id, full_name, email, contract_type, birth_date, nrn, address, postal_code, city, iban, weekly_hours, start_date, end_date")
-    .eq("id", tok.employee_id)
+    .eq("id", employeeId)
     .maybeSingle();
   const emp = (empRaw ?? {}) as Record<string, unknown>;
   const fullName = (emp.full_name as string) ?? "";
   const firstName = fullName.split(/\s+/)[0] ?? "";
 
-  // Champs manquants demandables au travailleur (on exclut les champs admin/RH).
   const missing = getMissingFields(emp, (emp.contract_type as string) ?? null)
     .filter((f) => !f.adminOnly)
     .map((f) => ({ key: f.key, label: f.label }));
 
-  // Karim 2026-06-17 : la carte d'identité (recto/verso -> PDF) fait partie du
-  // dossier obligatoire. Le dossier n'est complet que si champs + CI sont fournis.
-  const idCard = await getEmployeeIdCard(admin, tok.employee_id);
+  const idCard = await getEmployeeIdCard(admin, employeeId);
   const idCardExisting = idCard ? { fileName: idCard.file_name, at: idCard.created_at } : null;
   const fieldsDone = missing.length === 0;
 
-  // Karim 2026-06-17 : on se base sur les champs RÉELLEMENT manquants (pas sur
-  // completed_at) + la présence de la CI. Si une saisie a été perdue (ex. écrasée
-  // par une sauvegarde RH périmée), le travailleur peut ressaisir via le même lien.
   if (fieldsDone && idCard) {
     return (
       <Shell>

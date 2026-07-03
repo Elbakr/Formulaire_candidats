@@ -72,11 +72,15 @@ export function ContractInfoForm({
   fields,
   firstName,
   birthDate,
+  isCandidate = false,
+  initialIsStudent = null,
 }: {
   token: string;
   fields: Field[];
   firstName: string;
   birthDate?: string | null;
+  isCandidate?: boolean;
+  initialIsStudent?: boolean | null;
 }) {
   const ordered = useMemo(
     () => [...fields].sort((a, b) => FIELD_ORDER.indexOf(a.key) - FIELD_ORDER.indexOf(b.key)),
@@ -92,6 +96,22 @@ export function ContractInfoForm({
   // Karim 2026-06-17 : auto-save instantané (sans soumettre) — indicateurs.
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  // Karim 2026-07-03 : statut étudiant/non-étudiant (candidat pré-validé).
+  const [isStudent, setIsStudent] = useState<string>(
+    initialIsStudent === true ? "true" : initialIsStudent === false ? "false" : "",
+  );
+
+  async function saveStudent(v: string) {
+    setSavingKey("is_student");
+    try {
+      const r = await autosaveContractInfoAction(token, { is_student: v });
+      if (r.ok) setSavedKeys((s) => new Set(s).add("is_student"));
+    } catch {
+      /* silencieux */
+    } finally {
+      setSavingKey(null);
+    }
+  }
 
   async function autosave(key: string, raw: string) {
     const v = (raw ?? "").trim();
@@ -171,7 +191,7 @@ export function ContractInfoForm({
   function submit() {
     setErr(null);
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
-    if (filled.length === 0) {
+    if (filled.length === 0 && !(isCandidate && isStudent)) {
       setErr("Renseigne au moins une information.");
       return;
     }
@@ -187,6 +207,7 @@ export function ContractInfoForm({
     // normalise l'IBAN avant envoi
     const payload = { ...values };
     if (payload.iban) payload.iban = normalizeIban(payload.iban);
+    if (isCandidate && isStudent) payload.is_student = isStudent;
     start(async () => {
       const r = await submitContractInfoAction(token, payload);
       if (r.ok) setDone(true);
@@ -210,6 +231,40 @@ export function ContractInfoForm({
 
   return (
     <div className="space-y-3">
+      {isCandidate ? (
+        <div>
+          <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
+            Ton statut
+            {savingKey === "is_student" ? (
+              <span className="ml-auto text-[10px] text-ink-3">enregistrement…</span>
+            ) : savedKeys.has("is_student") || isStudent ? (
+              <Check className="h-3.5 w-3.5 text-success ml-auto" />
+            ) : null}
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { v: "false", l: "Non-étudiant" },
+              { v: "true", l: "Étudiant" },
+            ].map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                onClick={() => { setIsStudent(o.v); void saveStudent(o.v); }}
+                className={[
+                  "rounded-lg border-[1.5px] px-3 py-2.5 text-sm font-semibold transition-colors",
+                  isStudent === o.v ? "border-success bg-success-light text-ink" : "border-line bg-surface text-ink-2 hover:border-gold",
+                ].join(" ")}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-ink-3 mt-1">
+            Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).
+          </p>
+        </div>
+      ) : null}
+
       {ordered.map((f) => {
         const isIban = f.key === "iban";
         const isCity = f.key === "city";

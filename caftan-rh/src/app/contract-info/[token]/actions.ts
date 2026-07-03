@@ -3,66 +3,92 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { isoMinusYears } from "@/lib/be-validators";
 
-// Champs que le TRAVAILLEUR peut renseigner (non adminOnly, cf. contract-readiness).
+// Champs que la personne (travailleur OU candidat pré-validé) peut renseigner.
 const ALLOWED = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency", "transport_price"] as const;
+
+type Target = { table: "employees" | "candidates"; id: string; isCandidate: boolean };
+
+// Karim 2026-07-03 : un token contract_info peut viser un EMPLOYÉ (dossier RH
+// classique) ou un CANDIDAT pré-validé (lien de pré-embauche). On résout la cible.
+async function resolveTarget(
+  admin: ReturnType<typeof createAdminClient>,
+  token: string,
+): Promise<{ tokenId: string; target: Target } | null> {
+  const { data: tokRaw } = await admin
+    .from("contract_info_tokens")
+    .select("id, employee_id, candidate_id")
+    .eq("token", token)
+    .maybeSingle();
+  const tok = tokRaw as { id: string; employee_id: string | null; candidate_id: string | null } | null;
+  if (!tok) return null;
+  if (tok.candidate_id) return { tokenId: tok.id, target: { table: "candidates", id: tok.candidate_id, isCandidate: true } };
+  if (tok.employee_id) return { tokenId: tok.id, target: { table: "employees", id: tok.employee_id, isCandidate: false } };
+  return null;
+}
+
+function buildUpdate(values: Record<string, string>, isCandidate: boolean): { update: Record<string, unknown>; error?: string } {
+  const update: Record<string, unknown> = {};
+  for (const k of ALLOWED) {
+    const v = (values[k] ?? "").trim();
+    if (v) update[k] = v;
+  }
+  // Statut étudiant / non-étudiant : uniquement pour un candidat pré-validé.
+  if (isCandidate && typeof values.is_student === "string" && values.is_student !== "") {
+    update.is_student = values.is_student === "true";
+  }
+  if (typeof update.birth_date === "string" && update.birth_date > isoMinusYears(17)) {
+    return { update, error: "La date de naissance doit correspondre à au moins 17 ans." };
+  }
+  return { update };
+}
+
+async function applyUpdate(
+  admin: ReturnType<typeof createAdminClient>,
+  target: Target,
+  update: Record<string, unknown>,
+): Promise<{ error?: string }> {
+  const nowIso = new Date().toISOString();
+  const { data: subRow } = await admin.from(target.table).select("worker_field_submissions").eq("id", target.id).maybeSingle();
+  const submissions: Record<string, string> = {
+    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
+  };
+  for (const k of Object.keys(update)) submissions[k] = nowIso;
+  const { error } = await admin.from(target.table).update({ ...update, worker_field_submissions: submissions }).eq("id", target.id);
+  return { error: error?.message };
+}
 
 export async function submitContractInfoAction(
   token: string,
   values: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
   const admin = createAdminClient();
-  const { data: tokRaw } = await admin
-    .from("contract_info_tokens")
-    .select("id, employee_id, completed_at")
-    .eq("token", token)
-    .maybeSingle();
-  const tok = tokRaw as { id: string; employee_id: string; completed_at: string | null } | null;
-  if (!tok) return { ok: false, error: "Lien invalide ou expiré." };
+  const resolved = await resolveTarget(admin, token);
+  if (!resolved) return { ok: false, error: "Lien invalide ou expiré." };
+  const { tokenId, target } = resolved;
 
-  const update: Record<string, string> = {};
-  for (const k of ALLOWED) {
-    const v = (values[k] ?? "").trim();
-    if (v) update[k] = v;
-  }
+  const { update, error: vErr } = buildUpdate(values, target.isCandidate);
+  if (vErr) return { ok: false, error: vErr };
   if (Object.keys(update).length === 0) return { ok: false, error: "Aucune information saisie." };
 
-  // Karim 2026-06-15 : garde-fou serveur — âge minimum 17 ans.
-  if (update.birth_date && update.birth_date > isoMinusYears(17)) {
-    return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
-  }
-
-  // Karim 2026-06-17 : horodate la SOUMISSION par le travailleur pour chaque champ
-  // renseigné (statut « soumis à HH:MM » côté fiche admin). Fusion avec l'existant.
-  const nowIso = new Date().toISOString();
-  const { data: subRow } = await admin
-    .from("employees")
-    .select("worker_field_submissions")
-    .eq("id", tok.employee_id)
-    .maybeSingle();
-  const submissions: Record<string, string> = {
-    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
-  };
-  for (const k of Object.keys(update)) submissions[k] = nowIso;
-
-  const { error } = await admin
-    .from("employees")
-    .update({ ...update, worker_field_submissions: submissions })
-    .eq("id", tok.employee_id);
-  if (error) return { ok: false, error: error.message };
-  await admin.from("contract_info_tokens").update({ completed_at: new Date().toISOString() }).eq("id", tok.id);
+  const { error } = await applyUpdate(admin, target, update);
+  if (error) return { ok: false, error };
+  await admin.from("contract_info_tokens").update({ completed_at: new Date().toISOString() }).eq("id", tokenId);
 
   // Notifie RH que le dossier avance.
   try {
-    const { data: emp } = await admin.from("employees").select("full_name").eq("id", tok.employee_id).maybeSingle();
-    const name = (emp as { full_name?: string } | null)?.full_name ?? "Un employé";
+    const { data: row } = await admin.from(target.table).select("full_name").eq("id", target.id).maybeSingle();
+    const name = (row as { full_name?: string } | null)?.full_name ?? (target.isCandidate ? "Un candidat" : "Un employé");
+    const link = target.isCandidate ? `/rh/candidates/${target.id}` : `/planning/employees/${target.id}`;
     const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
     const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
       recipient_id: p.id,
       kind: "reminder" as const,
       title: `Dossier complété : ${name}`,
-      body: `${name} a renseigné ses infos manquantes. Le contrat peut avancer.`,
-      link: `/planning/employees/${tok.employee_id}`,
-      data: { employee_id: tok.employee_id },
+      body: target.isCandidate
+        ? `${name} (pré-validé) a renseigné ses infos d'embauche.`
+        : `${name} a renseigné ses infos manquantes. Le contrat peut avancer.`,
+      link,
+      data: target.isCandidate ? { candidate_id: target.id } : { employee_id: target.id },
     }));
     if (inserts.length > 0) await admin.from("notifications").insert(inserts);
   } catch {
@@ -72,50 +98,23 @@ export async function submitContractInfoAction(
 }
 
 /**
- * Karim 2026-06-17 : AUTO-SAVE instantané (sans soumettre le formulaire). Appelé
- * au fil de l'eau (blur/changement de champ) pour que la saisie du candidat soit
- * persistée immédiatement — plus de perte si le formulaire n'est pas soumis.
- * N'envoie PAS la notif RH et ne marque PAS le token "complété" (réservés au
- * bouton « Enregistrer »).
+ * AUTO-SAVE instantané (sans soumettre). N'envoie pas la notif RH, ne marque pas
+ * le token "complété". Fonctionne pour employé OU candidat pré-validé.
  */
 export async function autosaveContractInfoAction(
   token: string,
   values: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
   const admin = createAdminClient();
-  const { data: tokRaw } = await admin
-    .from("contract_info_tokens")
-    .select("id, employee_id")
-    .eq("token", token)
-    .maybeSingle();
-  const tok = tokRaw as { id: string; employee_id: string } | null;
-  if (!tok) return { ok: false, error: "Lien invalide ou expiré." };
+  const resolved = await resolveTarget(admin, token);
+  if (!resolved) return { ok: false, error: "Lien invalide ou expiré." };
+  const { target } = resolved;
 
-  const update: Record<string, string> = {};
-  for (const k of ALLOWED) {
-    const v = (values[k] ?? "").trim();
-    if (v) update[k] = v;
-  }
+  const { update, error: vErr } = buildUpdate(values, target.isCandidate);
+  if (vErr) return { ok: false, error: vErr };
   if (Object.keys(update).length === 0) return { ok: true };
-  if (update.birth_date && update.birth_date > isoMinusYears(17)) {
-    return { ok: false, error: "La date de naissance doit correspondre à au moins 17 ans." };
-  }
 
-  const nowIso = new Date().toISOString();
-  const { data: subRow } = await admin
-    .from("employees")
-    .select("worker_field_submissions")
-    .eq("id", tok.employee_id)
-    .maybeSingle();
-  const submissions: Record<string, string> = {
-    ...(((subRow as { worker_field_submissions?: Record<string, string> } | null)?.worker_field_submissions) ?? {}),
-  };
-  for (const k of Object.keys(update)) submissions[k] = nowIso;
-
-  const { error } = await admin
-    .from("employees")
-    .update({ ...update, worker_field_submissions: submissions })
-    .eq("id", tok.employee_id);
-  if (error) return { ok: false, error: error.message };
+  const { error } = await applyUpdate(admin, target, update);
+  if (error) return { ok: false, error };
   return { ok: true };
 }
