@@ -9,6 +9,7 @@ import { getCandidateIdCard } from "@/lib/id-card";
 import { validateNRN } from "@/lib/be-validators";
 import { CommuteCard } from "@/components/commute-card";
 import type { CommuteResult } from "@/lib/commute-shared";
+import { HireCandidateButton } from "../../[id]/hire-button";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +90,12 @@ export default async function PrevalidatedCandidatePage(
     idCardUrl = signed?.signedUrl ?? null;
   }
 
+  // Sites actifs pour le bouton « Embaucher ».
+  const { data: sitesRaw } = await admin
+    .from("sites").select("id, code, name").eq("is_active", true).order("sort_order");
+  const sitesForHire = (sitesRaw ?? []) as Array<{ id: string; code: string; name: string }>;
+  const alreadyHired = !!(await admin.from("employees").select("id").eq("candidate_id", id).limit(1).maybeSingle()).data;
+
   const fullName = (c.full_name as string) || "Candidat pré-validé";
   const isStudent = c.is_student;
 
@@ -132,6 +139,18 @@ export default async function PrevalidatedCandidatePage(
           <ArrowLeft className="h-3.5 w-3.5" /> Candidats
         </Link>
         <Badge variant="muted" className="text-xs">Pré-validé (hors candidature)</Badge>
+        <div className="ml-auto">
+          <HireCandidateButton
+            applicationId=""
+            prevalidatedCandidateId={id}
+            candidateName={fullName}
+            candidateHasEmail={!!c.email}
+            defaultPosition="Vendeur·euse"
+            sites={sitesForHire}
+            alreadyHired={alreadyHired}
+            defaultContractKind={isStudent === true ? "Étudiant" : "CDD"}
+          />
+        </div>
       </div>
 
       <Card>

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { hireCandidateAction, type HireResult } from "./hire-actions";
+import { hirePrevalidatedCandidateAction } from "../prevalidated-actions";
 
 type Site = { id: string; code: string; name: string };
 
@@ -47,6 +48,8 @@ export function HireCandidateButton({
   defaultPosition,
   sites,
   alreadyHired,
+  prevalidatedCandidateId,
+  defaultContractKind = "CDD",
 }: {
   applicationId: string;
   candidateName: string;
@@ -54,12 +57,16 @@ export function HireCandidateButton({
   defaultPosition: string;
   sites: Site[];
   alreadyHired: boolean;
+  // Karim 2026-07-03 : mode CANDIDAT PRÉ-VALIDÉ (sans candidature) — même dialog,
+  // route l'embauche vers hirePrevalidatedCandidateAction sans toucher au flux existant.
+  prevalidatedCandidateId?: string;
+  defaultContractKind?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
   const [result, setResult] = useState<HireResult | null>(null);
-  const [contractKind, setContractKind] = useState<string>("CDD");
+  const [contractKind, setContractKind] = useState<string>(defaultContractKind);
   const [siteId, setSiteId] = useState<string>(sites[0]?.id ?? "");
   const [copied, setCopied] = useState(false);
 
@@ -77,7 +84,9 @@ export function HireCandidateButton({
     formData.set("contract_kind", contractKind);
     formData.set("site_id", siteId);
     startTransition(async () => {
-      const r = await hireCandidateAction(applicationId, formData);
+      const r = prevalidatedCandidateId
+        ? await hirePrevalidatedCandidateAction(prevalidatedCandidateId, formData)
+        : await hireCandidateAction(applicationId, formData);
       setResult(r);
       if (r.error && !r.ok) {
         toast.error(r.error);

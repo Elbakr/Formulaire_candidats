@@ -6,9 +6,11 @@
 // + infos secrétariat social). Envoi du lien MANUEL (jamais bloqué par le kill-switch).
 
 import crypto from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getOutboundBaseUrl } from "@/lib/public-base-url";
+import { hireCandidateAction, type HireResult } from "./[id]/hire-actions";
 
 export async function createPrevalidatedCandidateAction(
   input: { fullName?: string; email?: string },
@@ -34,6 +36,67 @@ export async function createPrevalidatedCandidateAction(
 
   const link = `${getOutboundBaseUrl()}/contract-info/${token}`;
   return { ok: true, candidateId, link };
+}
+
+/**
+ * Karim 2026-07-03 : EMBAUCHE 1-CLIC d'un candidat PRÉ-VALIDÉ (sans candidature).
+ * Approche AUTONOME (ne modifie pas hireCandidateAction) : on crée une candidature-
+ * relais puis on RÉUTILISE tel quel le flux d'embauche éprouvé (fiche employé, reprise
+ * carte d'identité + indisponibilités, site, contrat, Dimona, compte auth). On patche
+ * ensuite les champs secrétariat social que le trigger/insert ne copie pas.
+ */
+export async function hirePrevalidatedCandidateAction(
+  candidateId: string,
+  formData: FormData,
+): Promise<HireResult> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+
+  const { data: candRaw } = await admin.from("candidates").select("*").eq("id", candidateId).maybeSingle();
+  const cand = candRaw as Record<string, unknown> | null;
+  if (!cand) return { error: "Candidat introuvable.", steps: [] };
+  if (cand.prevalidated !== true) return { error: "Ce candidat n'est pas un pré-validé.", steps: [] };
+
+  // Candidature-relais (réutilisée si déjà présente) pour rebrancher le flux existant.
+  let applicationId: string;
+  const { data: existingApp } = await admin
+    .from("applications").select("id").eq("candidate_id", candidateId)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (existingApp) {
+    applicationId = (existingApp as { id: string }).id;
+  } else {
+    const { data: app, error: appErr } = await admin
+      .from("applications").insert({ candidate_id: candidateId, job_id: null, status: "new" }).select("id").single();
+    if (appErr || !app) return { error: `Création candidature-relais : ${appErr?.message ?? "échec"}`, steps: [] };
+    applicationId = (app as { id: string }).id;
+  }
+
+  // Flux d'embauche COMPLET, réutilisé sans modification.
+  const result = await hireCandidateAction(applicationId, formData);
+  if (result.error || !result.employeeId) return result;
+
+  // Patch des champs secrétariat social non copiés par le trigger/insert (coalesce :
+  // on n'écrase jamais avec du vide).
+  const keys = ["nrn", "iban", "bic", "bank_holder", "birth_date", "birth_place", "nationality",
+    "address", "postal_code", "city", "education_level", "marital_status", "dependent_children",
+    "transport_type", "transport_frequency", "transport_price"];
+  const patch: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = cand[k];
+    if (v !== null && v !== undefined && String(v).trim() !== "") patch[k] = v;
+  }
+  if (Object.keys(patch).length > 0) {
+    await admin.from("employees").update(patch).eq("id", result.employeeId);
+    result.steps.push({ label: "Infos secrétariat social reprises du dossier candidat", status: "ok" });
+  }
+
+  // Consomme le token de pré-embauche.
+  await admin.from("contract_info_tokens").update({ completed_at: new Date().toISOString() })
+    .eq("candidate_id", candidateId).is("completed_at", null);
+
+  revalidatePath(`/rh/candidates/prevalidated/${candidateId}`);
+  revalidatePath(`/planning/employees/${result.employeeId}`);
+  return result;
 }
 
 export async function sendPrevalidatedLinkAction(
