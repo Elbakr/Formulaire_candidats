@@ -24,7 +24,14 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await pollPayslipsFromImap();
-    return NextResponse.json({ ok: true, ...result });
+    // Karim 2026-07-03 : filet — re-matche les orphelines (ex-employés archivés)
+    // après chaque import. Best-effort, ne fait jamais échouer le poll.
+    let rematched = 0;
+    try {
+      const { rematchOrphanPayslips } = await import("@/lib/payslip-rematch");
+      rematched = (await rematchOrphanPayslips()).rematched;
+    } catch { /* best-effort */ }
+    return NextResponse.json({ ok: true, ...result, rematched });
   } catch (e) {
     const msg = (e as Error).message;
     // Karim 2026-06-14 : aléa IMAP transitoire → 200 soft_error (pas de mail

@@ -368,6 +368,30 @@ export async function prepareOffboardingPackAction(employeeId: string): Promise<
 }
 
 /**
+ * Karim 2026-07-03 : re-matche les fiches de paie orphelines (employee_id NULL)
+ * vers les employés (actifs OU archivés) via payment_holder_name. Matcher
+ * conservateur — corrige les fiches d'ex-employés qui n'avaient pas matché.
+ */
+export async function rematchOrphanPayslipsAction(): Promise<{
+  ok: boolean;
+  error?: string;
+  rematched?: number;
+  still_orphan?: number;
+  conflicts?: number;
+  details?: string[];
+}> {
+  await requireRole(["admin", "rh"]);
+  try {
+    const { rematchOrphanPayslips } = await import("@/lib/payslip-rematch");
+    const r = await rematchOrphanPayslips();
+    revalidatePath("/admin/payslips");
+    return { ok: true, rematched: r.rematched, still_orphan: r.still_orphan, conflicts: r.conflicts, details: r.details };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
  * Karim 2026-05-31 : bulk - envoie plusieurs fiches par mail séquentiellement.
  */
 export async function sendPayslipsToEmployeesBulkAction(

@@ -224,11 +224,11 @@ export async function processImagePayslip(
       .single();
     const batchId = (batchRow?.id as string | undefined) ?? `img-${Date.now()}`;
 
-    // 5. Charge les employees actifs
+    // 5. Charge TOUS les employees (actifs + archivés) — Karim 2026-07-03 : un
+    // ex-employé reçoit encore ses dernières fiches ; le filtre actifs les orphelinait.
     const { data: empRows } = await admin
       .from("employees")
-      .select("id, full_name, nrn, email, iban, bic, salary_advance_amount, preferred_language")
-      .eq("status", "active");
+      .select("id, full_name, nrn, email, iban, bic, salary_advance_amount, preferred_language");
     const employees = (empRows ?? []) as Array<
       EmployeeBd & {
         email: string | null;

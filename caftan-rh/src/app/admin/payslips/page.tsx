@@ -14,6 +14,7 @@ import { BatchRow } from "./batch-row";
 import { PayslipsView } from "./payslips-view";
 import { OffboardingButton } from "./offboarding-button";
 import { ImapSyncButton } from "./imap-sync-button";
+import { RematchOrphansButton } from "./rematch-orphans-button";
 import { SenderMapConfig } from "./sender-map-config";
 import { getPayslipSenderMap } from "./sender-map-actions";
 
@@ -204,6 +205,7 @@ export default async function AdminPayslipsPage(props: {
       <div className="flex flex-wrap items-center gap-2">
         <OffboardingButton />
         <ImapSyncButton />
+        <RematchOrphansButton />
       </div>
 
       {/* Karim 2026-06-15 : mapping expéditeurs → employeur configurable sans code */}

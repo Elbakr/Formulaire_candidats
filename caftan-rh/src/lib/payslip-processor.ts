@@ -82,11 +82,14 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
     // 3. Split PDF
     const groups = await splitPayslipPdf(input.pdfBytes);
 
-    // Load employees pool for matching
+    // Load employees pool for matching.
+    // Karim 2026-07-03 : TOUS les employés (actifs ET archivés). Un ex-employé en
+    // fin de contrat reçoit encore ses dernières fiches de paie ; restreindre aux
+    // actifs les rendait systématiquement orphelines (ex. Nihad Loulichki, dont le
+    // NISS correspondait pourtant exactement).
     const { data: empRows } = await admin
       .from("employees")
-      .select("id, full_name, nrn, email, iban, bic, salary_advance_amount, preferred_language")
-      .eq("status", "active");
+      .select("id, full_name, nrn, email, iban, bic, salary_advance_amount, preferred_language");
     const employees = (empRows ?? []) as Array<EmployeeBd & {
       email: string | null;
       iban: string | null;
