@@ -12,11 +12,16 @@ const CANDIDATE_HIRING_FIELDS: Array<{ key: string; label: string }> = [
   { key: "full_name", label: "Nom complet" },
   { key: "email", label: "Email" },
   { key: "birth_date", label: "Date de naissance" },
+  { key: "birth_place", label: "Lieu de naissance" },
   { key: "nrn", label: "Numéro national (NISS)" },
+  { key: "nationality", label: "Nationalité" },
   { key: "address", label: "Adresse" },
   { key: "postal_code", label: "Code postal" },
   { key: "city", label: "Commune" },
   { key: "iban", label: "IBAN" },
+  { key: "education_level", label: "Niveau scolaire / dernier diplôme" },
+  { key: "marital_status", label: "État civil" },
+  { key: "dependent_children", label: "Personnes à charge (nombre)" },
   { key: "transport_type", label: "Moyen de transport" },
   { key: "transport_frequency", label: "Abonnement transport" },
   { key: "transport_price", label: "Prix du transport (€)" },
@@ -70,7 +75,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
   if (tok.candidate_id) {
     const { data: candRaw } = await admin
       .from("candidates")
-      .select("id, full_name, email, birth_date, nrn, address, postal_code, city, iban, transport_type, transport_frequency, transport_price, is_student")
+      .select("id, full_name, email, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, is_student")
       .eq("id", tok.candidate_id)
       .maybeSingle();
     if (!candRaw) return <InvalidShell />;

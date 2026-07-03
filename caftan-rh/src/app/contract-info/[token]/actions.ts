@@ -36,6 +36,18 @@ function buildUpdate(values: Record<string, string>, isCandidate: boolean): { up
   if (isCandidate && typeof values.is_student === "string" && values.is_student !== "") {
     update.is_student = values.is_student === "true";
   }
+  // Champs admin secrétariat social (candidat pré-validé, post-sélection).
+  if (isCandidate) {
+    for (const k of ["education_level", "nationality", "birth_place", "marital_status"]) {
+      const v = (values[k] ?? "").trim();
+      if (v) update[k] = v;
+    }
+    const dc = (values.dependent_children ?? "").trim();
+    if (dc !== "") {
+      const n = parseInt(dc, 10);
+      if (Number.isFinite(n) && n >= 0) update.dependent_children = n;
+    }
+  }
   if (typeof update.birth_date === "string" && update.birth_date > isoMinusYears(17)) {
     return { update, error: "La date de naissance doit correspondre à au moins 17 ans." };
   }

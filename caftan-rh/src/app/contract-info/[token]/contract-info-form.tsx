@@ -22,16 +22,46 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: "annuel", label: "Abonnement annuel" },
     { value: "sans_objet", label: "Sans abonnement" },
   ],
+  education_level: [
+    { value: "", label: "— choisir —" },
+    { value: "sans_diplome", label: "Sans diplôme" },
+    { value: "secondaire_inferieur", label: "Secondaire inférieur" },
+    { value: "secondaire_superieur", label: "Secondaire supérieur (CESS)" },
+    { value: "bachelier", label: "Bachelier" },
+    { value: "master", label: "Master ou +" },
+    { value: "autre", label: "Autre" },
+  ],
+  marital_status: [
+    { value: "", label: "— choisir —" },
+    { value: "celibataire", label: "Célibataire" },
+    { value: "marie", label: "Marié(e)" },
+    { value: "cohabitant_legal", label: "Cohabitant(e) légal(e)" },
+    { value: "divorce", label: "Divorcé(e)" },
+    { value: "veuf", label: "Veuf / Veuve" },
+  ],
+};
+
+// Karim 2026-07-03 : champs candidat réservés au parcours NON-ÉTUDIANT (précompte
+// professionnel). Masqués pour un étudiant (régime/cotisations différents).
+const NON_STUDENT_ONLY = new Set(["marital_status", "dependent_children"]);
+
+// Micro-explications (finalité) affichées sous certains champs candidat.
+const FIELD_HINTS: Record<string, string> = {
+  nationality: "Pour la déclaration Dimona (secrétariat social).",
+  birth_place: "Figure sur ta carte d'identité — pour la Dimona.",
+  education_level: "Facultatif — utile pour évaluer ta candidature.",
+  marital_status: "Pour le calcul de ton précompte professionnel.",
+  dependent_children: "Pour le calcul de ton précompte professionnel.",
 };
 
 // Ordre logique : la date de naissance avant le NISS (qu'elle pre-remplit),
 // le code postal avant la ville (qu'il auto-detecte).
-const FIELD_ORDER = ["full_name", "email", "birth_date", "nrn", "address", "postal_code", "city", "iban", "transport_type", "transport_frequency", "transport_price"];
+const FIELD_ORDER = ["full_name", "email", "birth_date", "birth_place", "nrn", "nationality", "address", "postal_code", "city", "iban", "education_level", "marital_status", "dependent_children", "transport_type", "transport_frequency", "transport_price"];
 
 function inputType(key: string): string {
   if (key === "birth_date") return "date";
   if (key === "email") return "email";
-  if (key === "transport_price") return "number";
+  if (key === "transport_price" || key === "dependent_children") return "number";
   if (key === "postal_code") return "text";
   return "text";
 }
@@ -43,6 +73,9 @@ function placeholder(key: string): string {
     case "city": return "Bruxelles";
     case "address": return "Rue, numéro";
     case "transport_price": return "52.00";
+    case "nationality": return "Belge, Marocaine…";
+    case "birth_place": return "Ville de naissance";
+    case "dependent_children": return "0";
     default: return "";
   }
 }
@@ -188,6 +221,12 @@ export function ContractInfoForm({
   const ibanStatus: "empty" | "ok" | "bad" =
     ibanRaw.trim() === "" ? "empty" : ibanIsValid(ibanRaw) ? "ok" : "bad";
 
+  // Bifurcation : pour un candidat, on masque les champs "non-étudiant" (état
+  // civil / enfants = précompte) tant qu'il n'a pas choisi « Non-étudiant ».
+  const visibleFields = isCandidate
+    ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
+    : ordered;
+
   function submit() {
     setErr(null);
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
@@ -262,10 +301,18 @@ export function ContractInfoForm({
           <p className="text-[11px] text-ink-3 mt-1">
             Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).
           </p>
+          {isStudent === "true" ? (
+            <div className="mt-2 rounded-lg border border-gold/40 bg-gold-light/40 p-2 text-[11px] text-ink-2">
+              <b>Contrat d&apos;occupation étudiant</b> : max 600 h/an à cotisation réduite. Ton établissement et
+              tes heures étudiant déjà utilisées cette année te seront demandés à l&apos;étape suivante.
+              {" "}Si tu es aussi au CPAS, préviens ton assistant(e) social(e) : un job étudiant peut impacter ton
+              revenu d&apos;intégration.
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {ordered.map((f) => {
+      {visibleFields.map((f) => {
         const isIban = f.key === "iban";
         const isCity = f.key === "city";
         const opts = SELECT_OPTIONS[f.key];
@@ -333,6 +380,8 @@ export function ContractInfoForm({
               <p className="text-[11px] text-ink-3 mt-1">
                 Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.
               </p>
+            ) : FIELD_HINTS[f.key] ? (
+              <p className="text-[11px] text-ink-3 mt-1">{FIELD_HINTS[f.key]}</p>
             ) : null}
           </div>
         );
