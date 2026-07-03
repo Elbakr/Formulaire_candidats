@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, createContext, useContext } from "react";
+import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ const MONTH_NAMES_FR = [
 ];
 
 export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
+  const router = useRouter();
   // Karim 2026-05-31 : bulk - state + helpers
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPending, startBulk] = useTransition();
@@ -108,6 +110,7 @@ export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
       if (res.ok) {
         toast.success(`${res.updated} fiche(s) marquée(s) payée(s)`);
         setSelected(new Set());
+        router.refresh();
       } else toast.error(res.error ?? "Erreur");
     });
   }
@@ -121,6 +124,7 @@ export function PayslipsTable({ rows }: { rows: PayslipRow[] }) {
         toast.success(`${res.sent} envoyée(s)${res.skipped ? `, ${res.skipped} échec(s)` : ""}`);
         if (res.errors && res.errors.length > 0) console.warn("Bulk send errors:", res.errors);
         setSelected(new Set());
+        router.refresh();
       } else toast.error("Erreur envoi");
     });
   }
@@ -268,9 +272,9 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
             <span className="font-medium truncate">{row.employee!.full_name}</span>
           )}
           {row.is_secondary && (
-            <Badge variant="muted" className="text-xs">
+            <Badge variant="muted" className="text-xs" title="2e fiche du mois — l'avance ne s'y déduit jamais (elle est consommée par la fiche principale)">
               <Calendar className="w-3 h-3 mr-1" />
-              Secondaire
+              Secondaire · avance N/A
             </Badge>
           )}
         </div>
@@ -291,7 +295,7 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
       <Badge className={`${statusLabel.className} shrink-0`}>{statusLabel.label}</Badge>
 
       <div className="flex items-center gap-1 flex-wrap justify-end ml-auto">
-        {!isOrphan && <AdvanceInlineInput row={row} />}
+        {!isOrphan && !row.is_secondary && <AdvanceInlineInput key={row.advance_deducted} row={row} />}
         <ViewPdfButton row={row} />
         <EditAmountButton row={row} />
         <AssignButton row={row} />
@@ -307,6 +311,7 @@ function PayslipRowCard({ row }: { row: PayslipRow }) {
 // Karim 2026-07-02 : supprimer un import erroné / doublon / orpheline.
 // Interdit sur une fiche PAYÉE (audit paie). Purge aussi la sélection bulk.
 function DeleteButton({ row }: { row: PayslipRow }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const bulk = useContext(BulkContext);
   const isPaid = row.payment_status === "paid";
@@ -329,6 +334,7 @@ function DeleteButton({ row }: { row: PayslipRow }) {
           if (res.ok) {
             toast.success("Fiche supprimée");
             if (bulk?.isSelected(row.id)) bulk.toggle(row.id); // retire l'id supprimé de la sélection
+            router.refresh();
           } else toast.error(res.error ?? "Erreur suppression");
         });
       }}
@@ -370,6 +376,7 @@ function ViewPdfButton({ row }: { row: PayslipRow }) {
 }
 
 function AdvanceInlineInput({ row }: { row: PayslipRow }) {
+  const router = useRouter();
   const [value, setValue] = useState(String(row.advance_deducted ?? 0));
   const [pending, startTransition] = useTransition();
   const initial = String(row.advance_deducted ?? 0);
@@ -393,8 +400,10 @@ function AdvanceInlineInput({ row }: { row: PayslipRow }) {
           }
           startTransition(async () => {
             const res = await setAdvanceAndRecomputeAction(row.id, n);
-            if (res.ok) toast.success(`Avance ${n.toFixed(2)} € → QR regénéré`);
-            else toast.error(res.error ?? "Erreur");
+            if (res.ok) {
+              toast.success(`Avance ${n.toFixed(2)} € enregistrée — net restant + QR recalculés`);
+              router.refresh();
+            } else toast.error(res.error ?? "Erreur");
           });
         }}
         onKeyDown={(e) => {
@@ -410,6 +419,7 @@ function AdvanceInlineInput({ row }: { row: PayslipRow }) {
 }
 
 function AssignButton({ row }: { row: PayslipRow }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; iban: string | null; status: string }>>([]);
   const [selected, setSelected] = useState(row.employee_id ?? "");
@@ -465,8 +475,9 @@ function AssignButton({ row }: { row: PayslipRow }) {
               startTransition(async () => {
                 const res = await reassignPayslipAction(row.id, selected);
                 if (res.ok) {
-                  toast.success("Fiche associée");
+                  toast.success("Fiche associée — net restant + QR recalculés");
                   setOpen(false);
+                  router.refresh();
                 } else toast.error(res.error ?? "Erreur");
               });
             }}
@@ -481,6 +492,7 @@ function AssignButton({ row }: { row: PayslipRow }) {
 }
 
 function EditAmountButton({ row }: { row: PayslipRow }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(row.net_amount));
   const [pending, startTransition] = useTransition();
@@ -510,8 +522,9 @@ function EditAmountButton({ row }: { row: PayslipRow }) {
               startTransition(async () => {
                 const res = await updatePayslipAmountAction(row.id, n);
                 if (res.ok) {
-                  toast.success("Montant mis à jour");
+                  toast.success("Montant mis à jour — net restant + QR recalculés");
                   setOpen(false);
+                  router.refresh();
                 } else toast.error(res.error ?? "Erreur");
               });
             }}
@@ -561,6 +574,7 @@ function QrButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
 }
 
 function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   if (row.payment_status === "paid") {
     return (
@@ -579,8 +593,10 @@ function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
         if (!confirm(`Confirmer le paiement de ${Number(row.amount_to_pay).toFixed(2)} € à ${row.employee?.full_name ?? "(non associée)"} ?`)) return;
         startTransition(async () => {
           const res = await markPayslipPaidAction(row.id);
-          if (res.ok) toast.success("Marqué payé");
-          else toast.error(res.error ?? "Erreur");
+          if (res.ok) {
+            toast.success("Marqué payé");
+            router.refresh();
+          } else toast.error(res.error ?? "Erreur");
         });
       }}
     >
@@ -590,6 +606,7 @@ function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
 }
 
 function SendButton({ row }: { row: PayslipRow }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState(row.employee?.email ?? "");
   const [pending, startTransition] = useTransition();
@@ -621,6 +638,7 @@ function SendButton({ row }: { row: PayslipRow }) {
                 if (res.ok) {
                   toast.success(`Envoyé à ${recipient}`);
                   setOpen(false);
+                  router.refresh();
                 } else toast.error(res.error ?? "Erreur");
               });
             }}

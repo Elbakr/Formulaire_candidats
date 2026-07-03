@@ -23,6 +23,7 @@ export interface RematchResult {
   still_orphan: number;
   conflicts: number;
   repaired_secondaries: number;
+  qr_generated: number;
   details: string[];
 }
 
@@ -31,7 +32,7 @@ const EPS = 0.01;
 export async function rematchOrphanPayslips(): Promise<RematchResult> {
   const admin = createAdminClient();
   const res: RematchResult = {
-    scanned: 0, rematched: 0, duplicates_skipped: 0, still_orphan: 0, conflicts: 0, repaired_secondaries: 0, details: [],
+    scanned: 0, rematched: 0, duplicates_skipped: 0, still_orphan: 0, conflicts: 0, repaired_secondaries: 0, qr_generated: 0, details: [],
   };
 
   // TOUS les employés (actifs + archivés), avec l'avance en cours.
@@ -100,7 +101,60 @@ export async function rematchOrphanPayslips(): Promise<RematchResult> {
   res.repaired_secondaries = rep.repaired;
   res.details.push(...rep.details);
 
+  // Garantit un QR sur toutes les fiches impayées à payer > 0.
+  const qr = await ensureUnpaidQrs();
+  res.qr_generated = qr.generated;
+  if (qr.failed.length) res.details.push(...qr.failed.map((f) => `QR KO — ${f}`));
+
   return res;
+}
+
+/**
+ * Karim 2026-07-03 : toute fiche IMPAYÉE avec amount_to_pay > 0 DOIT avoir un QR
+ * EPC correspondant au montant restant. On (re)génère le QR à partir du montant
+ * courant + IBAN/nom (employé si associé, sinon fiche). On ne touche PAS aux
+ * montants (pas de recalcul d'avance ici) — uniquement le QR.
+ */
+export async function ensureUnpaidQrs(): Promise<{ generated: number; failed: string[] }> {
+  const admin = createAdminClient();
+  const { data: fiches } = await admin
+    .from("payslips")
+    .select("id, employee_id, amount_to_pay, period_year, period_month, payment_iban, payment_holder_name")
+    .neq("payment_status", "paid")
+    .gt("amount_to_pay", 0);
+  const { generateEpcQr, defaultSalaryRemittance } = await import("@/lib/qr-epc");
+  let generated = 0;
+  const failed: string[] = [];
+  for (const f of (fiches ?? []) as Array<{ id: string; employee_id: string | null; amount_to_pay: number; period_year: number; period_month: number; payment_iban: string | null; payment_holder_name: string | null }>) {
+    let iban = f.payment_iban;
+    let holder = f.payment_holder_name;
+    let bic: string | null = null;
+    let lang = "fr";
+    if (f.employee_id) {
+      const { data: emp } = await admin.from("employees").select("full_name, iban, bic, preferred_language").eq("id", f.employee_id).maybeSingle();
+      const e = emp as { full_name?: string; iban?: string | null; bic?: string | null; preferred_language?: string | null } | null;
+      iban = e?.iban ?? iban;
+      holder = e?.full_name ?? holder;
+      bic = e?.bic ?? null;
+      lang = e?.preferred_language ?? "fr";
+    }
+    if (!iban || !holder) { failed.push(`${holder ?? f.id.slice(0, 8)} : IBAN ou nom manquant`); continue; }
+    try {
+      const epc = await generateEpcQr({
+        beneficiaryName: holder,
+        iban,
+        bic: bic ?? undefined,
+        amountEur: Number(f.amount_to_pay),
+        remittanceInfo: defaultSalaryRemittance(f.period_month, f.period_year, (lang as "fr" | "nl" | "en")),
+        purposeCode: "SALA",
+      });
+      await admin.from("payslips").update({ qr_epc_payload: epc.payload, qr_png_data_url: epc.qrPngDataUrl }).eq("id", f.id);
+      generated++;
+    } catch (e) {
+      failed.push(`${holder} : ${(e as Error).message}`);
+    }
+  }
+  return { generated, failed };
 }
 
 /**

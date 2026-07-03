@@ -26,10 +26,12 @@ export function RematchOrphansButton() {
           }
           const repaired = r.repaired_secondaries ?? 0;
           const dup = r.duplicates_skipped ?? 0;
-          if ((r.rematched ?? 0) > 0 || repaired > 0) {
+          const qr = r.qr_generated ?? 0;
+          if ((r.rematched ?? 0) > 0 || repaired > 0 || qr > 0) {
             toast.success(
               `${r.rematched ?? 0} rattachée(s)` +
                 (repaired ? `, ${repaired} avance(s) réparée(s)` : "") +
+                (qr ? `, ${qr} QR (re)généré(s)` : "") +
                 (dup ? `, ${dup} doublon(s) ignoré(s)` : "") +
                 `. ${r.still_orphan ?? 0} encore orpheline(s).`,
               { duration: 7000 },

@@ -380,6 +380,7 @@ export async function rematchOrphanPayslipsAction(): Promise<{
   conflicts?: number;
   duplicates_skipped?: number;
   repaired_secondaries?: number;
+  qr_generated?: number;
   details?: string[];
 }> {
   await requireRole(["admin", "rh"]);
@@ -394,6 +395,7 @@ export async function rematchOrphanPayslipsAction(): Promise<{
       conflicts: r.conflicts,
       duplicates_skipped: r.duplicates_skipped,
       repaired_secondaries: r.repaired_secondaries,
+      qr_generated: r.qr_generated,
       details: r.details,
     };
   } catch (e) {
@@ -603,24 +605,29 @@ export async function reassignPayslipAction(
   // Regenere le QR avec les nouvelles donnees
   const { data: payslip } = await admin
     .from("payslips")
-    .select("net_amount, period_year, period_month")
+    .select("net_amount, period_year, period_month, is_secondary, payment_iban, payment_holder_name")
     .eq("id", payslipId)
     .single();
   if (!payslip) return { ok: false, error: "Fiche introuvable" };
 
   const { generateEpcQr, defaultSalaryRemittance } = await import("@/lib/qr-epc");
-  const advance = Number(emp.salary_advance_amount ?? 0);
+  // Fiche secondaire : l'avance ne s'y déduit jamais (règle métier).
+  const advance = payslip.is_secondary ? 0 : Number(emp.salary_advance_amount ?? 0);
   const net = Number(payslip.net_amount);
   const advanceDeducted = Math.min(advance, net);
   const amountToPay = Math.max(0, net - advanceDeducted);
 
+  // Fallback IBAN/nom depuis la fiche si l'employé n'en a pas (comme recompute).
+  const iban = emp.iban ?? payslip.payment_iban;
+  const holder = emp.full_name ?? payslip.payment_holder_name;
+
   let qrPayload: string | null = null;
   let qrPng: string | null = null;
-  if (emp.iban && amountToPay > 0) {
+  if (iban && holder && amountToPay > 0) {
     try {
       const epc = await generateEpcQr({
-        beneficiaryName: emp.full_name,
-        iban: emp.iban,
+        beneficiaryName: holder,
+        iban,
         bic: emp.bic ?? undefined,
         amountEur: amountToPay,
         remittanceInfo: defaultSalaryRemittance(payslip.period_month, payslip.period_year, (emp.preferred_language ?? "fr") as "fr" | "nl" | "en"),
