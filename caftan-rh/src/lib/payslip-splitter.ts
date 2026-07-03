@@ -107,7 +107,9 @@ export function detectEmployeeName(pageText: string): { name: string | null; nis
       // Exclure faux positifs typiques HR Consult :
       // "AMD MEGASTORE SRL", "FEUILLE DE PAIE", "HUMAN RESOURCES CONSULT"
       const candidate = `${m[1]} ${m[2]}`.trim();
-      if (/^(AMD|HUMAN|FEUILLE|RUE|ROUTE|HR\s)/i.test(candidate)) continue;
+      // Karim 2026-07-03 : rejette les faux positifs (titre/ville/société captés à la
+      // place du nom, ex. "Schaerbeek FEUILLE DE PAIE"). Recherche CONTIENT, pas startsWith.
+      if (/FEUILLE\s+DE\s+PAIE|LOONBRIEF|D[ÉE]COMPTE|P[ÉE]CULE|\bPRIME\b|MEGASTORE|CONSULT|HUMAN|\bSRL\b|\bBV\b|EMPLOYEUR|TRAVAILLEUR|\bRUE\b|\bROUTE\b|STRAAT|SCHAERBEEK|MOLENBEEK|BRUXELLES|BRUSSEL|ANVERS|ANTWERPEN|\bHR\b/i.test(candidate)) continue;
       return { name: candidate, niss };
     }
   }
@@ -119,8 +121,29 @@ export function detectEmployeeName(pageText: string): { name: string | null; nis
  * (utile pour le groupement des pages multiples d une meme fiche).
  */
 export function isPayslipStartPage(pageText: string): boolean {
-  // Karim 2026-05-31 : supporte FR (FEUILLE DE PAIE) + NL (LOONBRIEF) pour sites Anvers
+  // Karim 2026-05-31 : supporte FR (FEUILLE DE PAIE) + NL (LOONBRIEF) pour sites Anvers.
   return /FEUILLE\s+DE\s+PAIE/i.test(pageText) || /LOONBRIEF/i.test(pageText);
+}
+
+// Karim 2026-07-03 : détecte le TITRE d'un document HR Consult ouvrant une fiche —
+// utilisé UNIQUEMENT pour le découpage (groupPagesByEmployee). "FEUILLE DE PAIE" /
+// "LOONBRIEF" comptent n'importe où (ce sont toujours des titres). Les documents
+// de fin de contrat (pécule de sortie, décompte, prime de fin d'année, 13e, NL) ne
+// comptent que s'ils apparaissent EN TÊTE de page (~300 premiers caractères) : ces
+// mots figurent aussi comme LIGNES de calcul sur une fiche normale, et les prendre
+// n'importe où sur-découperait une fiche légitime à 2 pages (revue adversariale).
+function isFicheBoundaryTitle(pageText: string): boolean {
+  if (/FEUILLE\s+DE\s+PAIE/i.test(pageText) || /LOONBRIEF/i.test(pageText)) return true;
+  const head = pageText.slice(0, 300);
+  return (
+    /D[ÉE]COMPTE(?:\s+DE\s+(?:SORTIE|D[ÉE]PART))?/i.test(head) ||
+    /P[ÉE]CULE\s+DE\s+VACANCES/i.test(head) ||
+    /PRIME\s+DE\s+FIN\s+D['’]ANN[ÉE]E/i.test(head) ||
+    /\b13[EÈ]?\s*(?:ME|ÈME)?\s*MOIS/i.test(head) ||
+    /VERTREKVAKANTIEGELD/i.test(head) ||
+    /EINDEJAARSPREMIE/i.test(head) ||
+    /AFREKENING/i.test(head)
+  );
 }
 
 /**
@@ -232,31 +255,67 @@ function parseAmountFr(s: string): number | null {
  * employee (meme nom + NISS si possible).
  */
 export function groupPagesByEmployee(pages: PageText[]): SplitGroup[] {
+  // Karim 2026-07-03 : découpage MULTI-ANCRAGES (fin du "un seul en-tête = seule
+  // frontière" qui fusionnait 2 fiches distinctes — cas Nihad : salaire + pécule).
+  // Une page OUVRE une nouvelle fiche si :
+  //   - c'est la 1ère page, OU
+  //   - elle porte un en-tête de document reconnu (isPayslipStartPage élargi), OU
+  //   - l'identité (NISS ou nom normalisé) DIFFÈRE du groupe courant (changement
+  //     de personne → frontière DURE, jamais fusionner 2 personnes), OU
+  //   - elle a son PROPRE total "net à payer" alors que le groupe courant en a
+  //     déjà un (2 fiches auto-portantes → on scinde).
+  // Sinon (aucun ancrage + même identité) = vraie page de continuation (annexe /
+  // 2e page d'une fiche) → rattachée au groupe courant.
   const groups: SplitGroup[] = [];
   let current: SplitGroup | null = null;
+  let currentHasNet = false;
+  let currentNet: number | null = null;
+  let currentNameNorm: string | null = null;
+  let currentNissNorm: string | null = null;
+
+  const normNiss = (n: string | null) => (n ? n.replace(/[.\-\s]/g, "") : null);
+  // Comparaison de nom INDÉPENDANTE DE L'ORDRE (NOM Prénom vs Prénom NOM = même
+  // personne) → évite un faux "changement d'identité" qui sur-découperait.
+  const sameNameTokens = (a: string, b: string) => {
+    const A = new Set(a.split(/\s+/).filter((t) => t.length >= 2));
+    const B = new Set(b.split(/\s+/).filter((t) => t.length >= 2));
+    if (A.size === 0 || A.size !== B.size) return false;
+    for (const t of A) if (!B.has(t)) return false;
+    return true;
+  };
+
   for (const p of pages) {
-    const isStart = isPayslipStartPage(p.text);
+    const isTitle = isFicheBoundaryTitle(p.text);
     const { name, niss } = detectEmployeeName(p.text);
+    const ownNet = detectAmountsAndPeriod(p.text).net;
+    const hasOwnNet = ownNet != null;
+    const nameNorm = name ? normalizeName(name) : null;
+    const nissNorm = normNiss(niss);
 
-    // Karim 2026-05-30 : CHAQUE "FEUILLE DE PAIE" = NOUVELLE fiche, sans exception.
-    // Meme si 2 fiches d affilee pour le meme employee (cas double fiche legitime
-    // ou regularisation), elles DOIVENT etre splittees pour pouvoir appliquer la
-    // regle "la plus petite est differee j+6". Pas de regroupement par NISS.
-    const startsNewGroup = isStart;
+    const identityChange =
+      current != null &&
+      ((!!nissNorm && !!currentNissNorm && nissNorm !== currentNissNorm) ||
+        (!!nameNorm && !!currentNameNorm && !sameNameTokens(nameNorm, currentNameNorm)));
 
-    if (!startsNewGroup && current && (!isStart) && (!name || (name === current.employeeNameRaw))) {
-      // Page CONTINUATION (pas de "FEUILLE DE PAIE" detectee) - rare, ex: annexe
+    // 2 nets DIFFÉRENTS (pas un simple récap répété) = 2 fiches auto-portantes.
+    const netPairSplit = hasOwnNet && currentHasNet && ownNet !== currentNet;
+
+    const opensNewFiche = current == null || isTitle || identityChange || netPairSplit;
+
+    if (!opensNewFiche && current) {
+      // Continuation : même personne, aucun nouvel ancrage.
       current.endPage = p.pageNumber;
       current.pages.push(p);
+      if (hasOwnNet && !currentHasNet) { currentHasNet = true; currentNet = ownNet; }
+      if (!currentNameNorm && nameNorm) { currentNameNorm = nameNorm; if (!current.employeeNameRaw) current.employeeNameRaw = name; }
+      if (!currentNissNorm && nissNorm) { currentNissNorm = nissNorm; if (!current.niss) current.niss = niss; }
     } else {
       if (current) groups.push(current);
-      current = {
-        employeeNameRaw: name,
-        niss,
-        startPage: p.pageNumber,
-        endPage: p.pageNumber,
-        pages: [p],
-      };
+      current = { employeeNameRaw: name, niss, startPage: p.pageNumber, endPage: p.pageNumber, pages: [p] };
+      currentHasNet = hasOwnNet;
+      currentNet = ownNet;
+      currentNameNorm = nameNorm;
+      currentNissNorm = nissNorm;
     }
   }
   if (current) groups.push(current);
