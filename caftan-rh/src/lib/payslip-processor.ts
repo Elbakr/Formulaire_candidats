@@ -98,22 +98,13 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
       preferred_language: string | null;
     }>;
 
-    // Load employer bank account (for QR sender info - currently not used in EPC but for reference)
-    const { data: bankRows } = await admin
-      .from("employer_bank_accounts")
-      .select("holder_name, iban, bic")
-      .eq("employer_org_key", input.employerOrgKey)
-      .eq("is_default", true)
-      .limit(1);
-    const bankAccount = bankRows?.[0];
-
     const processed: ProcessedPayslip[] = [];
     let matchedCount = 0;
     let unmatchedCount = 0;
     let insertedCount = 0;
     const debugLog: string[] = [];
     debugLog.push(`Splitter detected ${groups.length} groups`);
-    debugLog.push(`Pool employees actifs : ${employees.length}`);
+    debugLog.push(`Pool employees (actifs + archivés) : ${employees.length}`);
     // Karim 2026-05-30 : sample texte page 1 + fin de page pour diagnostic
     if (groups[0]?.rawText) {
       const rt = groups[0].rawText.replace(/\s+/g, " ");
@@ -182,13 +173,20 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
           pairedWith = other.id;
           scheduledPaymentDate = computeScheduledDate(periodYear, periodMonth, 6);
         } else {
-          // L'autre est secondaire (la plus petite) -> on doit la flagger
+          // L'autre est secondaire (la plus petite) -> on doit la flagger.
+          // Karim 2026-07-03 : une secondaire ne déduit JAMAIS d'avance -> on
+          // remet son avance à 0 + amount_to_pay = net + on annule son QR (il
+          // encodait net-avance, périmé). Sinon avance fantôme sur la secondaire.
           await admin
             .from("payslips")
             .update({
               is_secondary: true,
               paired_with_payslip_id: null,  // sera setté juste apres
               scheduled_payment_date: computeScheduledDate(periodYear, periodMonth, 6),
+              advance_deducted: 0,
+              amount_to_pay: otherNet,
+              qr_epc_payload: null,
+              qr_png_data_url: null,
             })
             .eq("id", other.id);
           pairedWith = other.id;
@@ -283,6 +281,28 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
           : Math.max(0, net - preservedAdvance);
         // employee_id : garde celui existant si pas detecte ce coup-ci
         const finalEmployeeId = emp?.id ?? duplicate.employee_id;
+
+        // Karim 2026-07-03 : REGENERE le QR sur newAmountToPay (avance PRESERVEE),
+        // pas sur qrPayload (calcule sur l'avance COURANTE) -> sinon le QR encode un
+        // montant != amount_to_pay stocke = surpaiement au scan.
+        let dupQrPayload: string | null = null;
+        let dupQrPng: string | null = null;
+        if (!preservedPaid && effectiveIban && effectiveHolder && newAmountToPay > 0) {
+          try {
+            const epc = await generateEpcQr({
+              beneficiaryName: effectiveHolder,
+              iban: effectiveIban,
+              bic: emp?.bic ?? undefined,
+              amountEur: newAmountToPay,
+              remittanceInfo: defaultSalaryRemittance(periodMonth, periodYear, (emp?.preferred_language ?? "fr") as "fr" | "nl" | "en"),
+              purposeCode: "SALA",
+            });
+            dupQrPayload = epc.payload;
+            dupQrPng = epc.qrPngDataUrl;
+          } catch (e) {
+            debugLog.push(`  -> DEDUP QR FAIL : ${(e as Error).message}`);
+          }
+        }
         await admin.from("payslips").update({
           employee_id: finalEmployeeId,
           employer_org_key: groupEmployer,
@@ -295,8 +315,8 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
             ? `Fiche_paie_${slug}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`
             : `Orphan_p${g.pageRange[0]}-${g.pageRange[1]}_${periodYear}-${String(periodMonth).padStart(2, "0")}.pdf`,
           source_batch_id: batchId,
-          qr_epc_payload: preservedPaid ? null : qrPayload,
-          qr_png_data_url: preservedPaid ? null : qrPng,
+          qr_epc_payload: preservedPaid ? null : dupQrPayload,
+          qr_png_data_url: preservedPaid ? null : dupQrPng,
           scheduled_payment_date: scheduledPaymentDate,
           paired_with_payslip_id: pairedWith,
           hrconsult_doc_ref: finalEmployeeId ? null : (g.employeeNameRaw ? `Nom detecte: ${g.employeeNameRaw}` : "Nom non detecte"),

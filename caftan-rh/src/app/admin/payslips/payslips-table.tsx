@@ -401,7 +401,11 @@ function AdvanceInlineInput({ row }: { row: PayslipRow }) {
           startTransition(async () => {
             const res = await setAdvanceAndRecomputeAction(row.id, n);
             if (res.ok) {
-              toast.success(`Avance ${n.toFixed(2)} € enregistrée — net restant + QR recalculés`);
+              toast.success(
+                res.qr === "generated"
+                  ? `Avance ${n.toFixed(2)} € enregistrée — net restant + QR régénérés`
+                  : `Avance ${n.toFixed(2)} € enregistrée — net restant recalculé (pas de QR : à payer 0 ou IBAN manquant)`,
+              );
               router.refresh();
             } else toast.error(res.error ?? "Erreur");
           });
@@ -540,6 +544,13 @@ function EditAmountButton({ row }: { row: PayslipRow }) {
 
 function QrButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
   const [open, setOpen] = useState(false);
+  if (row.payment_status === "paid") {
+    return (
+      <Button variant="ghost" size="sm" disabled title="Fiche payée — QR retiré (anti double paiement)">
+        <QrCode className="w-4 h-4 opacity-30" />
+      </Button>
+    );
+  }
   if (!row.qr_png_data_url) {
     return (
       <Button variant="ghost" size="sm" disabled title="QR non disponible (IBAN manquant ?)">

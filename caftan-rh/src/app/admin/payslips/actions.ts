@@ -62,6 +62,9 @@ export async function markPayslipsPaidBulkAction(
         paid_at: nowISO,
         paid_amount: r.amount_to_pay,
         payment_note: note ?? "Marqué payé en bloc",
+        // Karim 2026-07-03 : fiche payée = plus de QR scannable (anti double paiement).
+        qr_epc_payload: null,
+        qr_png_data_url: null,
       })
       .eq("id", r.id);
     if (Number(r.advance_deducted) > 0 && r.employee_id) {
@@ -448,6 +451,10 @@ export async function markPayslipPaidAction(payslipId: string, note?: string): P
       paid_at: new Date().toISOString(),
       paid_amount: payslip.amount_to_pay,
       payment_note: note ?? null,
+      // Karim 2026-07-03 : une fiche payée ne doit plus exposer de QR scannable
+      // (risque de re-scan = double paiement).
+      qr_epc_payload: null,
+      qr_png_data_url: null,
     })
     .eq("id", payslipId);
   if (updErr) return { ok: false, error: updErr.message };
@@ -669,33 +676,43 @@ export async function updatePayslipAmountAction(
 
   const { data: payslip } = await admin
     .from("payslips")
-    .select("employee_id, period_year, period_month, advance_deducted")
+    .select("employee_id, period_year, period_month, advance_deducted, is_secondary, payment_iban, payment_holder_name")
     .eq("id", payslipId)
     .single();
   if (!payslip) return { ok: false, error: "Fiche introuvable" };
 
-  const { data: emp } = await admin
-    .from("employees")
-    .select("full_name, iban, bic, preferred_language, salary_advance_amount")
-    .eq("id", payslip.employee_id)
-    .single();
-  if (!emp) return { ok: false, error: "Employee introuvable" };
+  // Employé optionnel : une fiche ORPHELINE (employee_id null) doit pouvoir être
+  // corrigée aussi (le parser rate justement plus souvent les orphelines).
+  type EmpRow = { full_name: string; iban: string | null; bic: string | null; preferred_language: string | null; salary_advance_amount: number | null };
+  let emp: EmpRow | null = null;
+  if (payslip.employee_id) {
+    const { data } = await admin
+      .from("employees")
+      .select("full_name, iban, bic, preferred_language, salary_advance_amount")
+      .eq("id", payslip.employee_id)
+      .maybeSingle();
+    emp = (data as EmpRow | null) ?? null;
+  }
 
-  const advance = Number(emp.salary_advance_amount ?? 0);
+  // is_secondary => avance toujours 0 (invariant). Orpheline => pas d'avance.
+  const advance = payslip.is_secondary ? 0 : Number(emp?.salary_advance_amount ?? 0);
   const advanceDeducted = Math.min(advance, newNetAmount);
   const amountToPay = Math.max(0, newNetAmount - advanceDeducted);
+
+  const iban = emp?.iban ?? payslip.payment_iban;
+  const holder = emp?.full_name ?? payslip.payment_holder_name;
 
   const { generateEpcQr, defaultSalaryRemittance } = await import("@/lib/qr-epc");
   let qrPayload: string | null = null;
   let qrPng: string | null = null;
-  if (emp.iban && amountToPay > 0) {
+  if (iban && holder && amountToPay > 0) {
     try {
       const epc = await generateEpcQr({
-        beneficiaryName: emp.full_name,
-        iban: emp.iban,
-        bic: emp.bic ?? undefined,
+        beneficiaryName: holder,
+        iban,
+        bic: emp?.bic ?? undefined,
         amountEur: amountToPay,
-        remittanceInfo: defaultSalaryRemittance(payslip.period_month, payslip.period_year, (emp.preferred_language ?? "fr") as "fr" | "nl" | "en"),
+        remittanceInfo: defaultSalaryRemittance(payslip.period_month, payslip.period_year, (emp?.preferred_language ?? "fr") as "fr" | "nl" | "en"),
         purposeCode: "SALA",
       });
       qrPayload = epc.payload;
@@ -777,6 +794,13 @@ export async function deletePayslipAction(payslipId: string): Promise<{ ok: bool
       console.warn("[deletePayslipAction] storage remove:", (e as Error).message);
     }
   }
+
+  // Karim 2026-07-03 : si on vient de supprimer la PRINCIPALE d'un couple, la
+  // secondaire restante devient "isolée" (avance forcée à 0). On la repromeut.
+  try {
+    const { repairLoneSecondaries } = await import("@/lib/payslip-rematch");
+    await repairLoneSecondaries();
+  } catch { /* best-effort */ }
 
   revalidatePath("/admin/payslips");
   return { ok: true };
@@ -911,14 +935,14 @@ export async function recomputePayslipAdvance(
 export async function setAdvanceAndRecomputeAction(
   payslipId: string,
   newAdvance: number,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; qr?: "generated" | "none" }> {
   await requireRole(["admin", "rh"]);
   if (newAdvance < 0) return { ok: false, error: "Montant negatif interdit" };
   const admin = createAdminClient();
   const result = await recomputePayslipAdvance(admin, payslipId, newAdvance);
   if (!result.ok) return { ok: false, error: result.error };
   revalidatePath("/admin/payslips");
-  return { ok: true };
+  return { ok: true, qr: result.qr };
 }
 
 /**
