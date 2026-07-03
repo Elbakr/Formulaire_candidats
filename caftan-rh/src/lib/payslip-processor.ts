@@ -382,6 +382,17 @@ export async function processBatch(input: ProcessBatchInput): Promise<ProcessBat
       insertedCount++;
       debugLog.push(`  -> INSERTED payslip ${payslipRow.id.slice(0, 8)} amount_to_pay=${amountToPay}`);
 
+      // Karim 2026-07-03 : avance CONSOMMÉE à l'import (décision). Dès qu'une fiche
+      // déduit l'avance, on la remet à 0 sur l'employé -> jamais déduite deux fois
+      // (ex. 2 mois impayés simultanés). Uniquement fiche principale + match réel.
+      if (advanceDeducted > 0 && emp?.id && !isSecondary) {
+        await admin
+          .from("employees")
+          .update({ salary_advance_amount: 0, salary_advance_updated_at: new Date().toISOString() })
+          .eq("id", emp.id);
+        debugLog.push(`  -> Avance ${advanceDeducted} consommee -> remise a 0 sur ${emp.full_name}`);
+      }
+
       // Si on a paired et qu'on est la principale, set paired_with sur l autre
       if (pairedWith && !isSecondary) {
         await admin.from("payslips").update({ paired_with_payslip_id: payslipRow.id }).eq("id", pairedWith);
