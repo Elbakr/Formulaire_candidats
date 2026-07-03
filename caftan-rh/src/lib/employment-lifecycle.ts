@@ -49,12 +49,13 @@ export async function closeEmployment(
   try {
     const { data: empRaw } = await admin
       .from("employees")
-      .select("id, profile_id, full_name, email, contract_type, status, end_date, preferred_language")
+      .select("id, profile_id, full_name, email, contract_type, status, end_date, preferred_language, offboarding_pack_sent_at")
       .eq("id", employeeId)
       .maybeSingle();
     const emp = empRaw as {
       id: string; profile_id: string | null; full_name: string | null; email: string | null;
       contract_type: string | null; status: string | null; end_date: string | null; preferred_language: string | null;
+      offboarding_pack_sent_at: string | null;
     } | null;
     if (!emp) return { archived: false };
 
@@ -62,9 +63,18 @@ export async function closeEmployment(
     const due = eff <= todayISO();
     const wasArchived = emp.status === "archived";
 
-    // 1. end_date (toujours) + 2. archive si la date est atteinte.
+    // Karim 2026-07-03 : à la fin de contrat, le CRON (cause 'cron_end_date')
+    // n'ARCHIVE PAS tant que le pack de sortie n'a pas été envoyé
+    // (offboarding_pack_sent_at). L'employé reste "en sortie" (actif + end_date
+    // passé + pack non envoyé) et RH est notifié une fois pour l'envoyer. Les
+    // archivages MANUELS (rupture, non-renouvellement) restent immédiats.
+    const packSent = !!emp.offboarding_pack_sent_at;
+    const gateForOffboarding = cause === "cron_end_date" && !packSent;
+    const willArchive = due && !gateForOffboarding;
+
+    // 1. end_date (toujours) + 2. archive uniquement si on ne gate pas.
     const update: Record<string, unknown> = { end_date: eff };
-    if (due) update.status = "archived";
+    if (willArchive) update.status = "archived";
     await admin.from("employees").update(update).eq("id", employeeId);
 
     let role: string | null = null;
@@ -73,13 +83,14 @@ export async function closeEmployment(
       role = (prof as { role?: string } | null)?.role ?? null;
     }
 
-    if (due && !wasArchived) {
+    if (willArchive && !wasArchived) {
       // clôt les affectations + coupe l'accès.
       await admin.from("site_assignments").update({ end_date: eff }).eq("employee_id", employeeId).is("end_date", null);
       if (emp.profile_id) await banAuthUser(true, emp.profile_id, role);
     }
 
-    // 3. Dimona OUT préparée (validation humaine), idempotent.
+    // 3. Dimona OUT préparée (validation humaine), idempotent. À l'échéance
+    // (obligation légale), même si l'archivage est différé pour le pack.
     const workerType = emp.contract_type === "Étudiant" ? "STU" : "OTH";
     await admin.from("dimona_declarations").upsert({
       employee_id: employeeId,
@@ -90,22 +101,53 @@ export async function closeEmployment(
       status: "pending",
     }, { onConflict: "employee_id,kind" });
 
-    // 4. Notif RH : Dimona OUT à déclarer (1 par employé, dédup via tag-like check).
+    // 4. Notif RH : Dimona OUT à déclarer — dédup (1 par employé, sinon le cron
+    // quotidien re-notifierait chaque jour un employé "en sortie").
     try {
-      const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
-      const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
-        recipient_id: p.id,
-        kind: "dimona_out_todo",
-        title: `Dimona OUT à déclarer — ${emp.full_name ?? "employé"}`,
-        body: `Fin de contrat le ${eff} (${cause === "non_renewal" ? "non-renouvellement" : cause === "termination" ? "rupture" : "fin CDD"}). Déclare la sortie Dimona.`,
-        link: `/planning/employees/${employeeId}`,
-        data: { employee_id: employeeId, effective_date: eff },
-      }));
-      if (inserts.length > 0) await admin.from("notifications").insert(inserts);
+      const { data: existingDimona } = await admin
+        .from("notifications").select("id")
+        .eq("kind", "dimona_out_todo").contains("data", { employee_id: employeeId })
+        .limit(1).maybeSingle();
+      if (!existingDimona) {
+        const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
+        const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
+          recipient_id: p.id,
+          kind: "dimona_out_todo",
+          title: `Dimona OUT à déclarer — ${emp.full_name ?? "employé"}`,
+          body: `Fin de contrat le ${eff} (${cause === "non_renewal" ? "non-renouvellement" : cause === "termination" ? "rupture" : "fin CDD"}). Déclare la sortie Dimona.`,
+          link: `/planning/employees/${employeeId}`,
+          data: { employee_id: employeeId, effective_date: eff },
+        }));
+        if (inserts.length > 0) await admin.from("notifications").insert(inserts);
+      }
     } catch { /* best-effort */ }
 
-    // 5. Notice de fin au travailleur — 1 SEULE fois (dédup via notification marqueur).
-    const wantNotice = opts?.sendNotice ?? (due && !wasArchived);
+    // 4b. "En sortie" : contrat terminé mais pack pas encore envoyé → notifier RH
+    // (1 fois) d'envoyer le pack, puis STOP (ni archivage ni notice de fin).
+    if (gateForOffboarding && due) {
+      try {
+        const { data: existingTodo } = await admin
+          .from("notifications").select("id")
+          .eq("kind", "offboarding_pack_todo").contains("data", { employee_id: employeeId })
+          .limit(1).maybeSingle();
+        if (!existingTodo) {
+          const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
+          const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
+            recipient_id: p.id,
+            kind: "offboarding_pack_todo",
+            title: `Pack de sortie à envoyer — ${emp.full_name ?? "employé"}`,
+            body: `Contrat terminé le ${eff}. Envoie le pack de sortie (fiches payées + C4) : l'employé sera archivé automatiquement ensuite.`,
+            link: "/admin/payslips",
+            data: { employee_id: employeeId, effective_date: eff },
+          }));
+          if (inserts.length > 0) await admin.from("notifications").insert(inserts);
+        }
+      } catch { /* best-effort */ }
+      return { archived: false };
+    }
+
+    // 5. Notice de fin au travailleur — 1 SEULE fois, uniquement à l'archivage réel.
+    const wantNotice = opts?.sendNotice ?? (willArchive && !wasArchived);
     if (wantNotice && emp.profile_id) {
       const { data: already } = await admin
         .from("notifications")
@@ -131,7 +173,7 @@ export async function closeEmployment(
       }
     }
 
-    return { archived: !!due };
+    return { archived: willArchive };
   } catch {
     return { archived: false };
   }

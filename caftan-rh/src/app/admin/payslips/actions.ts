@@ -254,6 +254,12 @@ export async function sendOffboardingPayslipsAction(args: {
     }
   } catch { /* */ }
 
+  // Karim 2026-07-03 : le pack de sortie est parti → on horodate. Le cron archivera
+  // alors l'employé automatiquement (fin du gate "en sortie").
+  try {
+    await admin.from("employees").update({ offboarding_pack_sent_at: new Date().toISOString() }).eq("id", args.employeeId);
+  } catch { /* best-effort */ }
+
   revalidatePath("/admin/payslips");
   return { ok: true, sent: true, sentTo: destEmail, provider: result.provider };
 }
