@@ -156,34 +156,47 @@ export async function GET(request: NextRequest) {
     const inDateISO = new Date(c.occurred_at).toISOString().slice(0, 10);
     const siteId = shift?.site_id ?? c.site_id;
 
-    // 1. Cherche close_time du site pour le JOUR du IN (pas aujourd hui)
+    // Karim 2026-07-03 (audit) : PRIORITÉ à la FIN DE SHIFT, pas à la fermeture du
+    // magasin. Un vendeur du matin (fin 14h) dans un magasin ouvert jusqu'à 18h30
+    // était auto-fermé à 18h30 -> +4h30 d'heures fantômes en paie. On borne la fin
+    // de shift par la fermeture : out = min(fin_shift + 1h, fermeture + 30min).
     let deadlineMs: number | null = null;
     let outTs: string;
     let reasonLabel: string;
+
+    // close_time du site pour le JOUR du IN (heure MURALE belge -> UTC explicite).
+    let closeOutMs: number | null = null;
+    let closeLabel = "";
     if (siteId) {
       const hours = siteHoursFor(siteId, inDateISO);
       if (hours) {
-        // Karim 2026-06-14 : close_time est une heure MURALE belge. Sur Vercel
-        // (UTC), `new Date("...T18:00")` valait 18:00 UTC = 20:00 belge -> auto-OUT
-        // mal date / heures faussees. On convertit explicitement Europe/Brussels.
-        const closeUtc = brusselsWallTimeToUtc(inDateISO, hours.close);
-        // close + 30 min de tolerance
-        deadlineMs = closeUtc.getTime() + 30 * 60_000;
-        outTs = closeUtc.toISOString();
-        reasonLabel = `Auto-OUT a fermeture site (${hours.close})`;
+        closeOutMs = brusselsWallTimeToUtc(inDateISO, hours.close).getTime() + 30 * 60_000;
+        closeLabel = hours.close;
       }
     }
 
-    // 2. Fallback : shift.end_time + 1h (end_time = heure murale belge)
-    if (deadlineMs === null && shift) {
-      const endTs = brusselsWallTimeToUtc(shift.date, shift.end_time).getTime();
-      deadlineMs = endTs + 60 * 60_000;
-      outTs = new Date(deadlineMs).toISOString();
-      reasonLabel = `Auto-OUT 1h apres fin de shift (${shift.end_time})`;
+    // shift.end_time + 1h de tolérance (heure murale belge).
+    let shiftOutMs: number | null = null;
+    let shiftEndLabel = "";
+    if (shift?.end_time && shift?.date) {
+      shiftOutMs = brusselsWallTimeToUtc(shift.date, shift.end_time).getTime() + 60 * 60_000;
+      shiftEndLabel = shift.end_time;
     }
 
-    // 3. Garde-fou : pas de shift et pas d horaires site -> 9h apres IN
-    if (deadlineMs === null) {
+    if (shiftOutMs !== null) {
+      // Fin de shift bornée par la fermeture du magasin.
+      deadlineMs = closeOutMs !== null ? Math.min(shiftOutMs, closeOutMs) : shiftOutMs;
+      outTs = new Date(deadlineMs).toISOString();
+      reasonLabel = deadlineMs === closeOutMs && closeOutMs < shiftOutMs
+        ? `Auto-OUT fin de shift (${shiftEndLabel}) borné à fermeture (${closeLabel})`
+        : `Auto-OUT 1h apres fin de shift (${shiftEndLabel})`;
+    } else if (closeOutMs !== null) {
+      // Pas de shift : fermeture du site.
+      deadlineMs = closeOutMs;
+      outTs = new Date(closeOutMs).toISOString();
+      reasonLabel = `Auto-OUT a fermeture site (${closeLabel})`;
+    } else {
+      // Garde-fou : ni shift ni horaires site -> 9h apres IN.
       deadlineMs = new Date(c.occurred_at).getTime() + 9 * 3600_000;
       outTs = new Date(deadlineMs).toISOString();
       reasonLabel = `Auto-OUT 9h apres IN (pas de shift ni horaires site)`;
