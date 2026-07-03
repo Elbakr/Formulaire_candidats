@@ -186,6 +186,40 @@ export async function hireCandidateAction(
   }
   steps.push({ label: "Fiche employé prête", status: "ok" });
 
+  // 3bis) Karim 2026-07-03 : rejeu des INDISPONIBILITÉS déclarées par le candidat
+  // en pré-embauche (étape 2 du formulaire) -> employee_unavailabilities. L'auto-
+  // planning les respecte immédiatement. Idempotent : on ne rejoue pas si la fiche
+  // employé a déjà des indispos (évite les doublons si l'embauche est relancée).
+  try {
+    const { count: existingUnavail } = await admin
+      .from("employee_unavailabilities")
+      .select("id", { count: "exact", head: true })
+      .eq("employee_id", employeeId);
+    if (!existingUnavail) {
+      const { data: cUnavail } = await admin
+        .from("candidate_unavailabilities")
+        .select("day_of_week, date_specific, start_time, end_time, reason, notes")
+        .eq("candidate_id", candidate.id)
+        .eq("is_active", true);
+      const rows = ((cUnavail ?? []) as Array<Record<string, unknown>>).map((u) => ({
+        employee_id: employeeId,
+        day_of_week: u.day_of_week,
+        date_specific: u.date_specific,
+        start_time: u.start_time,
+        end_time: u.end_time,
+        reason: u.reason,
+        notes: u.notes,
+        is_active: true,
+      }));
+      if (rows.length > 0) {
+        await admin.from("employee_unavailabilities").insert(rows);
+        steps.push({ label: `${rows.length} indisponibilité(s) déclarée(s) reprises dans le planning`, status: "ok" });
+      }
+    }
+  } catch {
+    /* best-effort — ne bloque jamais l'embauche */
+  }
+
   // 4) Site assignment primaire — clôture les autres assignments primaires
   // ouverts pour ce nouvel employé (idempotent).
   try {

@@ -59,6 +59,21 @@ export default async function PrevalidatedCandidatePage(
     .maybeSingle();
   const tok = (tokRaw ?? null) as { sent_at: string | null; completed_at: string | null; created_at: string | null } | null;
 
+  // Indisponibilités déclarées par le candidat (étape 2) — base de planning RH.
+  const { data: unavailRaw } = await admin
+    .from("candidate_unavailabilities")
+    .select("id, day_of_week, date_specific, start_time, end_time, reason, notes")
+    .eq("candidate_id", id)
+    .eq("is_active", true)
+    .order("day_of_week", { ascending: true })
+    .order("date_specific", { ascending: true });
+  const unavail = (unavailRaw ?? []) as Array<{ id: string; day_of_week: number | null; date_specific: string | null; start_time: string | null; end_time: string | null; reason: string | null }>;
+  const recurringU = unavail.filter((u) => u.day_of_week !== null);
+  const specificU = unavail.filter((u) => u.date_specific !== null);
+  const DOW_LONG = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const REASON_LBL: Record<string, string> = { vacances: "Vacances/congé", hospitalisation: "Hospitalisation", examen: "Examen", cours: "Cours/école", medical: "RDV médical", perso: "Personnel", autre: "Autre" };
+  const slot = (s: string | null, e: string | null) => (s && e ? `${s.slice(0, 5)}–${e.slice(0, 5)}` : "journée entière");
+
   const fullName = (c.full_name as string) || "Candidat pré-validé";
   const isStudent = c.is_student;
 
@@ -163,6 +178,52 @@ export default async function PrevalidatedCandidatePage(
           </div>
         </Card>
       ) : null}
+
+      {/* Indisponibilités déclarées (base de planning) */}
+      <Card>
+        <div className="p-4">
+          <div className="font-bold text-sm mb-2">Indisponibilités déclarées (3 prochains mois)</div>
+          {unavail.length === 0 ? (
+            <p className="text-sm text-ink-3 italic">Aucune indisponibilité déclarée pour l&apos;instant.</p>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-ink-3 mb-1">🔁 Récurrentes</div>
+                {recurringU.length === 0 ? (
+                  <p className="text-xs text-ink-3">—</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {recurringU.map((u) => (
+                      <li key={u.id} className="text-sm">
+                        <b>{DOW_LONG[u.day_of_week ?? 0]}</b> · {slot(u.start_time, u.end_time)}
+                        <span className="text-ink-3"> · {REASON_LBL[u.reason ?? ""] ?? u.reason ?? "—"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-ink-3 mb-1">📅 Programmées</div>
+                {specificU.length === 0 ? (
+                  <p className="text-xs text-ink-3">—</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {specificU.map((u) => (
+                      <li key={u.id} className="text-sm">
+                        <b>{u.date_specific ? formatDate(u.date_specific) : "—"}</b> · {slot(u.start_time, u.end_time)}
+                        <span className="text-ink-3"> · {REASON_LBL[u.reason ?? ""] ?? u.reason ?? "—"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-ink-3 mt-3">
+            Ces contraintes seront automatiquement reprises dans le planning de l&apos;employé à l&apos;embauche.
+          </p>
+        </div>
+      </Card>
     </div>
   );
 }

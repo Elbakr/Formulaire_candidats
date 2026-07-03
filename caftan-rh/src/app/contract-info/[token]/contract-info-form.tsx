@@ -4,11 +4,21 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2, CheckCircle2, Check, Sparkles } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
+import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
 
 type Field = { key: string; label: string };
+type CandidateUnavailability = {
+  id: string;
+  day_of_week: number | null;
+  date_specific: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  reason: string | null;
+  notes: string | null;
+};
 
 // Champs à choix (rendus en <select>).
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -47,6 +57,7 @@ const NON_STUDENT_ONLY = new Set(["marital_status", "dependent_children"]);
 
 // Micro-explications (finalité) affichées sous certains champs candidat.
 const FIELD_HINTS: Record<string, string> = {
+  birth_date: "Tu dois avoir au moins 17 ans pour t'enregistrer.",
   nationality: "Pour la déclaration Dimona (secrétariat social).",
   birth_place: "Figure sur ta carte d'identité — pour la Dimona.",
   education_level: "Facultatif — utile pour évaluer ta candidature.",
@@ -107,6 +118,7 @@ export function ContractInfoForm({
   birthDate,
   isCandidate = false,
   initialIsStudent = null,
+  initialUnavailabilities = [],
 }: {
   token: string;
   fields: Field[];
@@ -114,7 +126,10 @@ export function ContractInfoForm({
   birthDate?: string | null;
   isCandidate?: boolean;
   initialIsStudent?: boolean | null;
+  initialUnavailabilities?: CandidateUnavailability[];
 }) {
+  // Étape 2 (candidat uniquement) : déclaration des indisponibilités.
+  const [step, setStep] = useState<1 | 2>(1);
   const ordered = useMemo(
     () => [...fields].sort((a, b) => FIELD_ORDER.indexOf(a.key) - FIELD_ORDER.indexOf(b.key)),
     [fields],
@@ -227,28 +242,52 @@ export function ContractInfoForm({
     ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
     : ordered;
 
-  function submit() {
-    setErr(null);
+  function validateStep1(): string | null {
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
-    if (filled.length === 0 && !(isCandidate && isStudent)) {
-      setErr("Renseigne au moins une information.");
-      return;
-    }
-    if (ibanStatus === "bad") {
-      setErr("L'IBAN saisi n'est pas valide. Vérifie-le avant d'enregistrer.");
-      return;
-    }
+    if (filled.length === 0 && !(isCandidate && isStudent)) return "Renseigne au moins une information.";
+    if (ibanStatus === "bad") return "L'IBAN saisi n'est pas valide. Vérifie-le avant d'enregistrer.";
     // Karim 2026-06-15 : âge minimum 17 ans.
-    if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) {
-      setErr("La date de naissance doit correspondre à au moins 17 ans.");
-      return;
-    }
-    // normalise l'IBAN avant envoi
+    if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) return "La date de naissance doit correspondre à au moins 17 ans.";
+    return null;
+  }
+
+  function currentPayload(): Record<string, string> {
     const payload = { ...values };
     if (payload.iban) payload.iban = normalizeIban(payload.iban);
     if (isCandidate && isStudent) payload.is_student = isStudent;
+    return payload;
+  }
+
+  // Employé : enregistre + clôture directement (pas d'étape 2).
+  function submit() {
+    setErr(null);
+    const v = validateStep1();
+    if (v) { setErr(v); return; }
     start(async () => {
-      const r = await submitContractInfoAction(token, payload);
+      const r = await submitContractInfoAction(token, currentPayload());
+      if (r.ok) setDone(true);
+      else setErr(r.error ?? "Une erreur est survenue.");
+    });
+  }
+
+  // Candidat : valide l'étape 1, persiste (sans clôturer), passe à l'étape 2.
+  function goToStep2() {
+    setErr(null);
+    if (isCandidate && !isStudent) { setErr("Indique d'abord si tu es étudiant(e) ou non."); return; }
+    const v = validateStep1();
+    if (v) { setErr(v); return; }
+    start(async () => {
+      await autosaveContractInfoAction(token, currentPayload());
+      setStep(2);
+      if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+    });
+  }
+
+  // Candidat : clôture le dossier après l'étape 2 (indisponibilités).
+  function finish() {
+    setErr(null);
+    start(async () => {
+      const r = await submitContractInfoAction(token, currentPayload());
       if (r.ok) setDone(true);
       else setErr(r.error ?? "Une erreur est survenue.");
     });
@@ -264,6 +303,28 @@ export function ContractInfoForm({
         <p className="text-sm text-ink-2 mt-1">
           Tes informations sont enregistrées. Ton dossier avance — l'équipe RH revient vers toi pour la suite.
         </p>
+      </div>
+    );
+  }
+
+  // Candidat — ÉTAPE 2 : indisponibilités (après validation de l'étape 1).
+  if (isCandidate && step === 2) {
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => { setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
+          className="text-xs font-semibold text-ink-3 hover:text-ink"
+        >
+          ← Revenir à mes informations
+        </button>
+        <UnavailabilitiesStep token={token} initialItems={initialUnavailabilities} onDone={finish} />
+        {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
+        {pending ? (
+          <div className="flex items-center justify-center gap-2 text-xs text-ink-3">
+            <Loader2 className="h-4 w-4 animate-spin" /> Enregistrement…
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -391,13 +452,16 @@ export function ContractInfoForm({
 
       <button
         type="button"
-        onClick={submit}
+        onClick={isCandidate ? goToStep2 : submit}
         disabled={pending}
         className="w-full rounded-xl bg-ink text-canvas font-bold py-3 min-h-[52px] text-sm disabled:opacity-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
       >
         {pending ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-        Enregistrer mes informations
+        {isCandidate ? "Continuer → mes indisponibilités" : "Enregistrer mes informations"}
       </button>
+      {isCandidate ? (
+        <p className="text-center text-[11px] text-ink-3">Étape 1 sur 2 · tes infos sont déjà enregistrées au fur et à mesure</p>
+      ) : null}
     </div>
   );
 }

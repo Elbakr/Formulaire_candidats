@@ -82,6 +82,18 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     const cand = candRaw as Record<string, unknown>;
     const firstName = ((cand.full_name as string) ?? "").split(/\s+/)[0] ?? "";
 
+    // Indisponibilités déjà déclarées (étape 2).
+    const { data: unavailRaw } = await admin
+      .from("candidate_unavailabilities")
+      .select("id, day_of_week, date_specific, start_time, end_time, reason, notes")
+      .eq("candidate_id", tok.candidate_id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+    const unavailabilities = (unavailRaw ?? []) as Array<{
+      id: string; day_of_week: number | null; date_specific: string | null;
+      start_time: string | null; end_time: string | null; reason: string | null; notes: string | null;
+    }>;
+
     const missing = CANDIDATE_HIRING_FIELDS.filter((f) => {
       const v = cand[f.key];
       return v === null || v === undefined || String(v).trim() === "";
@@ -102,6 +114,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
           birthDate={(cand.birth_date as string) ?? null}
           isCandidate
           initialIsStudent={isStudent}
+          initialUnavailabilities={unavailabilities}
         />
       </Shell>
     );
