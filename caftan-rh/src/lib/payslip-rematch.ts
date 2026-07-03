@@ -34,9 +34,11 @@ export async function rematchOrphanPayslips(): Promise<RematchResult> {
     scanned: 0, rematched: 0, duplicates_skipped: 0, still_orphan: 0, conflicts: 0, repaired_secondaries: 0, details: [],
   };
 
-  // TOUS les employés (actifs + archivés).
-  const { data: emps } = await admin.from("employees").select("id, full_name, nrn");
-  const employees = (emps ?? []) as EmployeeBd[];
+  // TOUS les employés (actifs + archivés), avec l'avance en cours.
+  const { data: emps } = await admin.from("employees").select("id, full_name, nrn, salary_advance_amount");
+  const employees = (emps ?? []) as Array<EmployeeBd & { salary_advance_amount: number | null }>;
+  const advanceById = new Map(employees.map((e) => [e.id, Number(e.salary_advance_amount ?? 0)]));
+  const { recomputePayslipAdvance } = await import("@/app/admin/payslips/actions");
 
   const { data: orphansRaw } = await admin
     .from("payslips")
@@ -83,6 +85,12 @@ export async function rematchOrphanPayslips(): Promise<RematchResult> {
 
     const { error } = await admin.from("payslips").update({ employee_id: matched.id, is_secondary: isSecondary }).eq("id", o.id);
     if (error) { res.still_orphan++; res.details.push(`${name} : échec (${error.message})`); continue; }
+    // Karim 2026-07-03 : après association, RECALCULE amount_to_pay (net - avance)
+    // + REGÉNÈRE le QR (comme le fait l'association manuelle). Sans ça la fiche
+    // rattachée gardait net brut et aucun QR.
+    try {
+      await recomputePayslipAdvance(admin, o.id, advanceById.get(matched.id) ?? 0);
+    } catch { /* best-effort */ }
     res.rematched++;
     res.details.push(`${name} → ${matched.full_name} (${o.period_month}/${o.period_year}, ${isSecondary ? "secondaire" : "principale"})`);
   }
