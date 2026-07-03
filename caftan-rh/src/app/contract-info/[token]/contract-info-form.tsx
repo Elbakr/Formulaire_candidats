@@ -8,7 +8,7 @@ import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
-import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
+import { nissPrefixFromIso, isoMinusYears, validateNRN, normalizeNRN } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
 
 type Field = { key: string; label: string };
@@ -459,9 +459,22 @@ export function ContractInfoForm({
             </div>
 
             {f.key === "nrn" ? (
-              <p className="text-[11px] text-ink-3 mt-1">
-                Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.
-              </p>
+              (() => {
+                const raw = normalizeNRN(values.nrn ?? "");
+                if (raw.length === 0) {
+                  return <p className="text-[11px] text-ink-3 mt-1">Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.</p>;
+                }
+                const v = validateNRN(values.nrn ?? "");
+                if (v.valid) {
+                  return <p className="text-[11px] text-success font-semibold mt-1">✓ Numéro national belge validé.</p>;
+                }
+                // Incomplet (moins de 11 chiffres) : simple info, pas d'alerte.
+                if (raw.length < 11) {
+                  return <p className="text-[11px] text-ink-3 mt-1">Complète les 11 chiffres (format YY.MM.DD-NNN.CC).</p>;
+                }
+                // 11 chiffres mais checksum belge KO : signalé "non vérifié" (jamais silencieux).
+                return <p className="text-[11px] text-warn font-semibold mt-1">⚠ Ce numéro ne correspond pas au format belge. Vérifie-le. S&apos;il s&apos;agit d&apos;un numéro étranger, c&apos;est normal — il sera contrôlé au pré-entretien.</p>;
+              })()
             ) : FIELD_HINTS[f.key] ? (
               <p className="text-[11px] text-ink-3 mt-1">{FIELD_HINTS[f.key]}</p>
             ) : null}

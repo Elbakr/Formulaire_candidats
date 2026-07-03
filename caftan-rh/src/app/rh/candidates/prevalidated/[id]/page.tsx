@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 import { createAdminClient } from "@/lib/supabase/server";
 import { getCandidateIdCard } from "@/lib/id-card";
+import { validateNRN } from "@/lib/be-validators";
 import { CommuteCard } from "@/components/commute-card";
 import type { CommuteResult } from "@/lib/commute-shared";
 import { requireRole } from "@/lib/auth";
@@ -98,7 +99,11 @@ export default async function PrevalidatedCandidatePage(
     { label: "Email", value: val(c.email as string) },
     { label: "Date de naissance", value: c.birth_date ? formatDate(c.birth_date as string) : null },
     { label: "Lieu de naissance", value: val(c.birth_place as string) },
-    { label: "Numéro national (NISS)", value: val(c.nrn as string) },
+    { label: "Numéro national (NISS)", value: (() => {
+      const raw = val(c.nrn as string);
+      if (!raw) return null;
+      return validateNRN(raw).valid ? `${raw} ✓ belge vérifié` : `${raw} ⚠ non vérifié (format non belge)`;
+    })() },
     { label: "Nationalité", value: val(c.nationality as string) },
     { label: "Adresse", value: c.address ? `${c.address}, ${c.postal_code ?? ""} ${c.city ?? ""}`.trim() : null },
     { label: "IBAN", value: val(c.iban as string) },
