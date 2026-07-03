@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 
 import { createAdminClient } from "@/lib/supabase/server";
 import { getCandidateIdCard } from "@/lib/id-card";
+import { CommuteCard } from "@/components/commute-card";
+import type { CommuteResult } from "@/lib/commute";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +45,7 @@ export default async function PrevalidatedCandidatePage(
   const { data: candRaw } = await admin
     .from("candidates")
     .select(
-      "id, full_name, email, prevalidated, is_student, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, created_at",
+      "id, full_name, email, prevalidated, is_student, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, created_at, commute, commute_computed_at",
     )
     .eq("id", id)
     .maybeSingle();
@@ -177,6 +179,13 @@ export default async function PrevalidatedCandidatePage(
           ))}
         </div>
       </Card>
+
+      <CommuteCard
+        subjectType="candidate"
+        subjectId={id}
+        commute={(c.commute as unknown as CommuteResult | null) ?? null}
+        computedAt={(c.commute_computed_at as string | null) ?? null}
+      />
 
       {missing.length > 0 ? (
         <Card>
