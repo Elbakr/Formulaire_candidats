@@ -5,6 +5,7 @@ import { Loader2, CheckCircle2, Check, Sparkles } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
+import { IdCardUpload } from "@/components/id-card-upload";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
@@ -119,6 +120,7 @@ export function ContractInfoForm({
   isCandidate = false,
   initialIsStudent = null,
   initialUnavailabilities = [],
+  idCardExisting = null,
 }: {
   token: string;
   fields: Field[];
@@ -127,6 +129,7 @@ export function ContractInfoForm({
   isCandidate?: boolean;
   initialIsStudent?: boolean | null;
   initialUnavailabilities?: CandidateUnavailability[];
+  idCardExisting?: { fileName: string; at: string } | null;
 }) {
   // Étape 2 (candidat uniquement) : déclaration des indisponibilités.
   const [step, setStep] = useState<1 | 2>(1);
@@ -301,7 +304,11 @@ export function ContractInfoForm({
         </div>
         <h2 className="text-lg font-bold text-ink">Merci {firstName} !</h2>
         <p className="text-sm text-ink-2 mt-1">
-          Tes informations sont enregistrées. Ton dossier avance — l'équipe RH revient vers toi pour la suite.
+          Ton dossier a bien été transmis au service RH.{isCandidate ? (
+            <> Ton engagement n&apos;est <b>pas encore effectif</b> : il le deviendra une fois la déclaration Dimona effectuée et ton contrat validé par le secrétariat social. Nous revenons vers toi très vite.</>
+          ) : (
+            <> L&apos;équipe RH revient vers toi pour la suite.</>
+          )}
         </p>
       </div>
     );
@@ -318,6 +325,13 @@ export function ContractInfoForm({
         >
           ← Revenir à mes informations
         </button>
+        <div>
+          <div className="text-sm font-bold text-ink mb-1">Ta carte d&apos;identité (recto + verso)</div>
+          <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
+            Photographie ta carte dans le cadre — recto puis verso. Les deux faces sont fusionnées en un seul PDF transmis au service RH.
+          </p>
+          <IdCardUpload kind="token" token={token} existing={idCardExisting} />
+        </div>
         <UnavailabilitiesStep token={token} initialItems={initialUnavailabilities} onDone={finish} />
         {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
         {pending ? (

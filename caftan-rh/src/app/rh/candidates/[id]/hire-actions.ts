@@ -198,19 +198,26 @@ export async function hireCandidateAction(
     if (!existingUnavail) {
       const { data: cUnavail } = await admin
         .from("candidate_unavailabilities")
-        .select("day_of_week, date_specific, start_time, end_time, reason, notes")
+        .select("day_of_week, date_specific, date_end, start_time, end_time, reason, notes")
         .eq("candidate_id", candidate.id)
         .eq("is_active", true);
-      const rows = ((cUnavail ?? []) as Array<Record<string, unknown>>).map((u) => ({
-        employee_id: employeeId,
-        day_of_week: u.day_of_week,
-        date_specific: u.date_specific,
-        start_time: u.start_time,
-        end_time: u.end_time,
-        reason: u.reason,
-        notes: u.notes,
-        is_active: true,
-      }));
+      const rows: Array<Record<string, unknown>> = [];
+      for (const u of (cUnavail ?? []) as Array<{ day_of_week: number | null; date_specific: string | null; date_end: string | null; start_time: string | null; end_time: string | null; reason: string | null; notes: string | null }>) {
+        const base = { employee_id: employeeId, start_time: u.start_time, end_time: u.end_time, reason: u.reason, notes: u.notes, is_active: true };
+        if (u.date_end && u.date_specific) {
+          // Période (vacances du..au) -> une ligne par jour (employee_unavailabilities = date unique).
+          const d = new Date(u.date_specific + "T00:00:00Z");
+          const end = new Date(u.date_end + "T00:00:00Z");
+          let guard = 0;
+          while (d <= end && guard < 400) {
+            rows.push({ ...base, day_of_week: null, date_specific: d.toISOString().slice(0, 10) });
+            d.setUTCDate(d.getUTCDate() + 1);
+            guard++;
+          }
+        } else {
+          rows.push({ ...base, day_of_week: u.day_of_week, date_specific: u.date_specific });
+        }
+      }
       if (rows.length > 0) {
         await admin.from("employee_unavailabilities").insert(rows);
         steps.push({ label: `${rows.length} indisponibilité(s) déclarée(s) reprises dans le planning`, status: "ok" });

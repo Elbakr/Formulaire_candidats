@@ -10,6 +10,7 @@ type AddInput = {
   mode: "recurring" | "specific";
   day_of_week?: number | null;
   date_specific?: string | null;
+  date_end?: string | null;
   start_time?: string | null;
   end_time?: string | null;
   reason?: string | null;
@@ -57,6 +58,9 @@ export async function addCandidateUnavailabilityAction(
     if (!date) return { ok: false, error: "Date requise" };
     row.date_specific = date;
     row.day_of_week = null;
+    // Période optionnelle (vacances du..au). Ignorée si <= date de début.
+    const end = clean(input.date_end);
+    row.date_end = end && end > date ? end : null;
   }
 
   const { data, error } = await admin

@@ -10,7 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
-import { saveIdCardForEmployee, getEmployeeIdCard, type IdCardImage } from "@/lib/id-card";
+import { saveIdCardForEmployee, saveIdCardForCandidate, getEmployeeIdCard, type IdCardImage } from "@/lib/id-card";
 
 export type IdCardPayload = {
   rectoB64: string;
@@ -67,13 +67,21 @@ export async function saveIdCardTokenAction(
   const admin = createAdminClient();
   const { data: tok } = await admin
     .from("contract_info_tokens")
-    .select("employee_id")
+    .select("employee_id, candidate_id")
     .eq("token", token)
     .maybeSingle();
   if (!tok) return { ok: false, error: "Lien invalide ou expiré." };
-  const employeeId = (tok as { employee_id: string }).employee_id;
-  const r = await saveIdCardForEmployee(admin, employeeId, toImages(p), null);
-  if (r.ok) revalidatePath(`/planning/employees/${employeeId}`);
+  const t = tok as { employee_id: string | null; candidate_id: string | null };
+  // Karim 2026-07-03 : le token peut viser un CANDIDAT pré-validé (pas encore
+  // d'employé) — on stocke alors la CI liée au candidat (reprise à l'embauche).
+  if (t.candidate_id) {
+    const r = await saveIdCardForCandidate(admin, t.candidate_id, toImages(p), null);
+    if (r.ok) revalidatePath(`/rh/candidates/prevalidated/${t.candidate_id}`);
+    return r;
+  }
+  if (!t.employee_id) return { ok: false, error: "Lien invalide." };
+  const r = await saveIdCardForEmployee(admin, t.employee_id, toImages(p), null);
+  if (r.ok) revalidatePath(`/planning/employees/${t.employee_id}`);
   return r;
 }
 

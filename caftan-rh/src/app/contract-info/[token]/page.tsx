@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMissingFields } from "@/lib/contract-readiness";
-import { getEmployeeIdCard } from "@/lib/id-card";
+import { getEmployeeIdCard, getCandidateIdCard } from "@/lib/id-card";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { ContractInfoForm } from "./contract-info-form";
 
@@ -85,14 +85,17 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     // Indisponibilités déjà déclarées (étape 2).
     const { data: unavailRaw } = await admin
       .from("candidate_unavailabilities")
-      .select("id, day_of_week, date_specific, start_time, end_time, reason, notes")
+      .select("id, day_of_week, date_specific, date_end, start_time, end_time, reason, notes")
       .eq("candidate_id", tok.candidate_id)
       .eq("is_active", true)
       .order("created_at", { ascending: true });
     const unavailabilities = (unavailRaw ?? []) as Array<{
-      id: string; day_of_week: number | null; date_specific: string | null;
+      id: string; day_of_week: number | null; date_specific: string | null; date_end?: string | null;
       start_time: string | null; end_time: string | null; reason: string | null; notes: string | null;
     }>;
+
+    const candIdCard = await getCandidateIdCard(admin, tok.candidate_id);
+    const candIdCardExisting = candIdCard ? { fileName: candIdCard.file_name, at: candIdCard.created_at } : null;
 
     const missing = CANDIDATE_HIRING_FIELDS.filter((f) => {
       const v = cand[f.key];
@@ -115,6 +118,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
           isCandidate
           initialIsStudent={isStudent}
           initialUnavailabilities={unavailabilities}
+          idCardExisting={candIdCardExisting}
         />
       </Shell>
     );

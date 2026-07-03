@@ -12,6 +12,7 @@ type Item = {
   id: string;
   day_of_week: number | null;
   date_specific: string | null;
+  date_end?: string | null;
   start_time: string | null;
   end_time: string | null;
   reason: string | null;
@@ -60,6 +61,7 @@ export function UnavailabilitiesStep({
 
   // Programmée (brouillon)
   const [sDate, setSDate] = useState("");
+  const [sDateEnd, setSDateEnd] = useState("");
   const [sStart, setSStart] = useState("");
   const [sEnd, setSEnd] = useState("");
   const [sReason, setSReason] = useState("vacances");
@@ -95,17 +97,20 @@ export function UnavailabilitiesStep({
   function addSpecific() {
     setErr(null);
     if (!sDate) { setErr("Choisis une date."); return; }
+    if (sDateEnd && sDateEnd < sDate) { setErr("La date de fin doit être après la date de début."); return; }
+    const endVal = sDateEnd && sDateEnd > sDate ? sDateEnd : null;
     startTransition(async () => {
       const r = await addCandidateUnavailabilityAction(token, {
         mode: "specific",
         date_specific: sDate,
+        date_end: endVal,
         start_time: sStart || null,
         end_time: sEnd || null,
         reason: sReason,
       });
       if (!r.ok || !r.id) { setErr(r.error ?? "Erreur"); return; }
-      setItems((prev) => [...prev, { id: r.id!, day_of_week: null, date_specific: sDate, start_time: sStart || null, end_time: sEnd || null, reason: sReason, notes: null }]);
-      setSDate(""); setSStart(""); setSEnd("");
+      setItems((prev) => [...prev, { id: r.id!, day_of_week: null, date_specific: sDate, date_end: endVal, start_time: sStart || null, end_time: sEnd || null, reason: sReason, notes: null }]);
+      setSDate(""); setSDateEnd(""); setSStart(""); setSEnd("");
     });
   }
 
@@ -183,12 +188,16 @@ export function UnavailabilitiesStep({
       <div className="rounded-xl border border-line overflow-hidden">
         <div className="bg-surface-2 px-3 py-2">
           <div className="text-[13px] font-bold text-ink">📅 Indisponibilités programmées</div>
-          <div className="text-[11px] text-ink-3">Dates précises déjà connues sur les 3 prochains mois (vacances, hospitalisation, examen…). Une date à la fois.</div>
+          <div className="text-[11px] text-ink-3">Dates déjà connues sur les 3 prochains mois. Pour des <b>vacances</b>, indique la <b>période complète</b> (du…au) — elle doit être déclarée à l&apos;employeur et sera prise en compte dans les plannings.</div>
         </div>
         <div className="p-3 grid grid-cols-2 gap-2 items-end">
-          <div className="col-span-2">
-            <label className={labelCls}>Date</label>
+          <div>
+            <label className={labelCls}>Du</label>
             <input type="date" className={inputCls} value={sDate} min={todayISO} max={maxISO} onChange={(e) => setSDate(e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Au (optionnel)</label>
+            <input type="date" className={inputCls} value={sDateEnd} min={sDate || todayISO} max={maxISO} onChange={(e) => setSDateEnd(e.target.value)} />
           </div>
           <div>
             <label className={labelCls}>De (optionnel)</label>
@@ -216,7 +225,7 @@ export function UnavailabilitiesStep({
             {specific.map((u) => (
               <li key={u.id} className="px-3 py-2 flex items-center gap-2 text-sm">
                 <span className="flex-1">
-                  <b>{u.date_specific ? fmtDate(u.date_specific) : "—"}</b> · {u.start_time && u.end_time ? `${u.start_time.slice(0, 5)}–${u.end_time.slice(0, 5)}` : "journée entière"}
+                  <b>{u.date_end ? `du ${u.date_specific ? fmtDate(u.date_specific) : "—"} au ${fmtDate(u.date_end)}` : (u.date_specific ? fmtDate(u.date_specific) : "—")}</b> · {u.start_time && u.end_time ? `${u.start_time.slice(0, 5)}–${u.end_time.slice(0, 5)}` : "journée entière"}
                   <span className="text-ink-3"> · {reasonLabel(u.reason)}</span>
                 </span>
                 <button type="button" onClick={() => remove(u.id)} disabled={pending} className="text-danger text-xs font-bold">Retirer</button>

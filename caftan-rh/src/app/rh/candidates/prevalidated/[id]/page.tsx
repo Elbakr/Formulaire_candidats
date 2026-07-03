@@ -5,6 +5,7 @@ import { ArrowLeft, GraduationCap, Briefcase, CheckCircle2, AlertCircle } from "
 export const dynamic = "force-dynamic";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { getCandidateIdCard } from "@/lib/id-card";
 import { requireRole } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -62,17 +63,25 @@ export default async function PrevalidatedCandidatePage(
   // Indisponibilités déclarées par le candidat (étape 2) — base de planning RH.
   const { data: unavailRaw } = await admin
     .from("candidate_unavailabilities")
-    .select("id, day_of_week, date_specific, start_time, end_time, reason, notes")
+    .select("id, day_of_week, date_specific, date_end, start_time, end_time, reason, notes")
     .eq("candidate_id", id)
     .eq("is_active", true)
     .order("day_of_week", { ascending: true })
     .order("date_specific", { ascending: true });
-  const unavail = (unavailRaw ?? []) as Array<{ id: string; day_of_week: number | null; date_specific: string | null; start_time: string | null; end_time: string | null; reason: string | null }>;
+  const unavail = (unavailRaw ?? []) as Array<{ id: string; day_of_week: number | null; date_specific: string | null; date_end: string | null; start_time: string | null; end_time: string | null; reason: string | null }>;
   const recurringU = unavail.filter((u) => u.day_of_week !== null);
   const specificU = unavail.filter((u) => u.date_specific !== null);
   const DOW_LONG = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
   const REASON_LBL: Record<string, string> = { vacances: "Vacances/congé", hospitalisation: "Hospitalisation", examen: "Examen", cours: "Cours/école", medical: "RDV médical", perso: "Personnel", autre: "Autre" };
   const slot = (s: string | null, e: string | null) => (s && e ? `${s.slice(0, 5)}–${e.slice(0, 5)}` : "journée entière");
+
+  // Carte d'identité (recto/verso fusionnés en 1 PDF) fournie par le candidat.
+  const idCard = await getCandidateIdCard(admin, id);
+  let idCardUrl: string | null = null;
+  if (idCard) {
+    const { data: signed } = await admin.storage.from("documents").createSignedUrl(idCard.storage_path, 3600);
+    idCardUrl = signed?.signedUrl ?? null;
+  }
 
   const fullName = (c.full_name as string) || "Candidat pré-validé";
   const isStudent = c.is_student;
@@ -210,7 +219,7 @@ export default async function PrevalidatedCandidatePage(
                   <ul className="space-y-1">
                     {specificU.map((u) => (
                       <li key={u.id} className="text-sm">
-                        <b>{u.date_specific ? formatDate(u.date_specific) : "—"}</b> · {slot(u.start_time, u.end_time)}
+                        <b>{u.date_end ? `du ${u.date_specific ? formatDate(u.date_specific) : "—"} au ${formatDate(u.date_end)}` : (u.date_specific ? formatDate(u.date_specific) : "—")}</b> · {slot(u.start_time, u.end_time)}
                         <span className="text-ink-3"> · {REASON_LBL[u.reason ?? ""] ?? u.reason ?? "—"}</span>
                       </li>
                     ))}
@@ -222,6 +231,29 @@ export default async function PrevalidatedCandidatePage(
           <p className="text-[11px] text-ink-3 mt-3">
             Ces contraintes seront automatiquement reprises dans le planning de l&apos;employé à l&apos;embauche.
           </p>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="p-4 flex items-center gap-3 flex-wrap">
+          <div className="font-bold text-sm">Carte d&apos;identité (recto/verso, PDF)</div>
+          {idCard ? (
+            <>
+              <span className="inline-flex items-center gap-1 text-success text-sm font-bold">
+                <CheckCircle2 className="h-4 w-4" /> Fournie
+              </span>
+              {idCardUrl ? (
+                <a href={idCardUrl} target="_blank" rel="noopener noreferrer"
+                  className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-ink text-white text-xs font-bold">
+                  Voir / Télécharger le PDF
+                </a>
+              ) : null}
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-warn text-sm font-bold">
+              <AlertCircle className="h-4 w-4" /> Pas encore fournie
+            </span>
+          )}
         </div>
       </Card>
     </div>
