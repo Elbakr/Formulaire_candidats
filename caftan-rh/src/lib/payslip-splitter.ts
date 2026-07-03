@@ -419,5 +419,42 @@ export function matchEmployee(
   if (candidates2.length === 1 || (candidates2.length > 1 && candidates2[0].common > candidates2[1].common)) {
     return candidates2[0].e;
   }
+
+  // Priorite 5 : tolerance TYPO (Karim 2026-07-03) - "forcer le mapping si 1 ou 2
+  // lettres different". Levenshtein <= 2 sur le nom normalise TRIE par tokens
+  // (ordre NOM/Prenom indifferent), avec candidat UNIQUE strictement le plus proche
+  // (jamais de faux match ambigu sur de l'argent). Ex: "EBERTITAN Lina" (fiche) ->
+  // "ElBertitan Lina" (employe), distance 1.
+  const targetSorted = target.split(/\s+/).filter((t) => t.length >= 2).sort().join(" ");
+  if (targetSorted.length >= 6) {
+    const scored = candidates
+      .map((e) => {
+        const es = normalizeName(e.full_name).split(/\s+/).filter((t) => t.length >= 2).sort().join(" ");
+        return { e, d: es.length >= 6 ? levenshtein(targetSorted, es) : 99 };
+      })
+      .filter((x) => x.d <= 2)
+      .sort((a, b) => a.d - b.d);
+    if (scored.length === 1 || (scored.length > 1 && scored[0].d < scored[1].d)) {
+      return scored[0].e;
+    }
+  }
   return null;
+}
+
+// Distance de Levenshtein (edits) — pour la tolerance typo du matching.
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  let cur = new Array<number>(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, cur] = [cur, prev];
+  }
+  return prev[n];
 }
