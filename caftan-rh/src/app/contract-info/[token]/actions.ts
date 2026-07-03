@@ -90,7 +90,9 @@ export async function submitContractInfoAction(
   try {
     const { data: row } = await admin.from(target.table).select("full_name").eq("id", target.id).maybeSingle();
     const name = (row as { full_name?: string } | null)?.full_name ?? (target.isCandidate ? "Un candidat" : "Un employé");
-    const link = target.isCandidate ? `/rh/candidates/${target.id}` : `/planning/employees/${target.id}`;
+    // Karim 2026-07-03 : un candidat pré-validé n'a PAS de candidature -> la page
+    // /rh/candidates/[id] (basée sur applications) renvoyait 404. Vue dédiée.
+    const link = target.isCandidate ? `/rh/candidates/prevalidated/${target.id}` : `/planning/employees/${target.id}`;
     const { data: rh } = await admin.from("profiles").select("id").in("role", ["admin", "rh"]);
     const inserts = ((rh ?? []) as Array<{ id: string }>).map((p) => ({
       recipient_id: p.id,
