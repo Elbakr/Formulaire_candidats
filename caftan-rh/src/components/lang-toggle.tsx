@@ -30,7 +30,15 @@ export function LangToggle() {
     setLocale(next);
     startTransition(async () => {
       await updateLanguagePreferenceAction(next);
-      router.refresh();
+      // Karim 2026-07-03 : router.refresh() ne propageait pas de façon fiable le
+      // cookie `lang` fraîchement posé (la nav/contenu restaient en NL). Un
+      // rechargement complet garantit que TOUT le serveur relit la nouvelle
+      // locale (getLocale lit le cookie). Le changement de langue est rare.
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      } else {
+        router.refresh();
+      }
     });
   }
 
