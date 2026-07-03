@@ -468,10 +468,16 @@ export async function sendContractForSignatureAction(
       else if (d.field === "hourly_rate") patch.hourly_rate = Number(eff.hourly_rate);
       else if (d.field === "start_date") patch.start_date = String(eff.start_date);
       else if (d.field === "end_date") patch.end_date = eff.end_date ? String(eff.end_date) : null;
-      else if (d.field === "work_time_kind") patch.work_time_kind = effTpl === "employee_pt" ? "partial" : "full";
+      // Karim 2026-07-03 (audit) : 'part' (pas 'partial') sinon violation du CHECK.
+      else if (d.field === "work_time_kind") patch.work_time_kind = effTpl === "employee_pt" ? "part" : "full";
     }
     if (Object.keys(patch).length > 0) {
-      await admin.from("employees").update(patch).eq("id", args.employeeId);
+      // Karim 2026-07-03 (audit) : vérifier l'erreur de l'UPDATE avant de logguer un
+      // alignement "réussi" — sinon l'audit ment (fiche non alignée mais log positif).
+      const { error: alignErr } = await admin.from("employees").update(patch).eq("id", args.employeeId);
+      if (alignErr) {
+        return { error: `Alignement fiche↔contrat échoué : ${alignErr.message}` };
+      }
       try {
         await admin.from("activity_log").insert({
           profile_id: profile.id,

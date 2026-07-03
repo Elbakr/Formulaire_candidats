@@ -339,7 +339,7 @@ export function SignContractButton({
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                 >
                   <option value="full">Temps plein</option>
-                  <option value="partial">Temps partiel</option>
+                  <option value="part">Temps partiel</option>
                 </select>
               </div>
 

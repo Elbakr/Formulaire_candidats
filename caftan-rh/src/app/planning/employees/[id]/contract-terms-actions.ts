@@ -44,9 +44,15 @@ export async function saveContractTermsAction(
   }
 
   if (patch.work_time_kind !== undefined && patch.work_time_kind.trim() !== "") {
-    const wk = patch.work_time_kind.trim();
-    if (wk !== "full" && wk !== "partial") {
-      return { error: "work_time_kind doit être 'full' ou 'partial'." };
+    // Karim 2026-07-03 (audit) : la contrainte CHECK exige 'part'/'full'. On tolère
+    // 'partial'/'partiel' en entrée mais on NORMALISE vers 'part' (sinon l'UPDATE
+    // entier était rejeté -> impossible de corriger un contrat temps partiel).
+    const raw = patch.work_time_kind.trim().toLowerCase();
+    const wk = raw === "full" || raw === "plein" ? "full"
+      : (raw === "part" || raw === "partial" || raw.includes("partiel")) ? "part"
+      : null;
+    if (!wk) {
+      return { error: "work_time_kind doit être 'full' ou 'part'." };
     }
     updatePayload.work_time_kind = wk;
     changeLog.push(`work_time_kind → ${wk}`);
@@ -61,7 +67,7 @@ export async function saveContractTermsAction(
     changeLog.push(`weekly_hours → ${h}`);
     // Si l'opérateur ne fournit pas work_time_kind explicitement, on dérive.
     if (patch.work_time_kind === undefined) {
-      updatePayload.work_time_kind = h < 38 ? "partial" : "full";
+      updatePayload.work_time_kind = h < 38 ? "part" : "full";
     }
   }
 
