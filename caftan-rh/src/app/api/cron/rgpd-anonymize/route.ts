@@ -37,10 +37,10 @@ export async function GET(req: NextRequest) {
   const twelveMonthsAgo = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString();
   const twentyFourMonthsAgo = new Date(Date.now() - 730 * 24 * 3600 * 1000).toISOString();
 
-  // 1. Récupère les candidats à anonymiser (NOT YET anonymisés)
+  // 1. Récupère les candidats potentiels (créés > 12 mois, pas déjà anonymisés)
   const { data: candidates } = await admin
     .from("candidates")
-    .select("id, created_at, email, full_name")
+    .select("id, created_at, email, full_name, prevalidated")
     .lt("created_at", twelveMonthsAgo)
     .not("email", "like", "deleted_%@anonymized.local") // skip si déjà fait
     .limit(500);
@@ -49,15 +49,31 @@ export async function GET(req: NextRequest) {
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const c of (candidates ?? []) as Array<{ id: string; created_at: string; email: string | null; full_name: string }>) {
+  for (const c of (candidates ?? []) as Array<{ id: string; created_at: string; email: string | null; full_name: string; prevalidated: boolean | null }>) {
     try {
-      // Vérif : si ce candidat est lié à un employee actif, on skip
-      const { data: linked } = await admin
+      // Karim 2026-07-03 (audit) : NE JAMAIS anonymiser un candidat encore ACTIF.
+      // Les candidates n'ont pas de colonne status -> on regarde leurs candidatures :
+      // éligible UNIQUEMENT si toutes ses candidatures sont 'refused' (rétention 12 mois),
+      // OU aucune candidature ET dossier abandonné > 24 mois. Jamais un pré-validé
+      // (embauche en cours), jamais un lié à un employé (vérif robuste multi-lignes).
+      if (c.prevalidated === true) { skipped++; continue; }
+
+      const { data: emps } = await admin
         .from("employees")
         .select("id")
         .eq("candidate_id", c.id)
-        .maybeSingle();
-      if (linked) { skipped++; continue; }
+        .limit(1);
+      if (emps && emps.length > 0) { skipped++; continue; }
+
+      const { data: apps } = await admin
+        .from("applications")
+        .select("status")
+        .eq("candidate_id", c.id);
+      const appList = (apps ?? []) as Array<{ status: string | null }>;
+      const eligible = appList.length > 0
+        ? appList.every((a) => a.status === "refused")
+        : c.created_at < twentyFourMonthsAgo;
+      if (!eligible) { skipped++; continue; }
 
       const suf = hashSuffix(c.id);
       const { error } = await admin

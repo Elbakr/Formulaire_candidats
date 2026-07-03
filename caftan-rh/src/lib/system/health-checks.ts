@@ -87,9 +87,13 @@ export async function runHealthChecks(): Promise<Issue[]> {
   }
 
   // 4) Mails sortants en échec (7j).
+  // Karim 2026-07-03 (audit) : EXCLURE les envois volontairement coupés par le
+  // kill-switch (source='auto-outbound-blocked', delivery_provider='none') — ce
+  // n'est PAS une panne, c'est le comportement voulu. Sinon faux incidents récurrents.
   const { count: failedMails } = await admin
     .from("outbound_mails").select("id", { count: "exact", head: true })
-    .eq("status", "failed").gte("sent_at", sevenDaysAgo);
+    .eq("status", "failed").gte("sent_at", sevenDaysAgo)
+    .or("source.is.null,source.neq.auto-outbound-blocked");
   if ((failedMails ?? 0) > 0) {
     issues.push({
       key: "failed_mails",
