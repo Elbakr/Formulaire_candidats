@@ -235,8 +235,8 @@ export function SignContractButton({
           variant="default"
           size="sm"
           onClick={() => setOpen(true)}
-          title="Tous les champs requis sont remplis - prêt à envoyer"
-          className="bg-green-600 hover:bg-green-700 text-white"
+          title="Tous les champs requis sont remplis - prêt à envoyer. C'est la prochaine action à effectuer."
+          className="bg-green-600 hover:bg-green-700 text-white pulse-attention"
         >
           <CheckCircle2 className="h-3.5 w-3.5" /> Envoyer à signer
         </Button>

@@ -120,3 +120,20 @@ input, textarea, select {
     margin: 12mm;
   }
 }
+
+/* Karim 2026-07-04 : "fil rouge" — clignotement permanent sur le bouton de la
+   PROCHAINE action à effectuer, pour guider l'opérateur (candidat/RH/admin) vers
+   l'endroit qui mérite son attention. Halo doré pulsé + léger battement.
+   Respecte prefers-reduced-motion (accessibilité). */
+@keyframes pulseAttention {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0); }
+}
+.pulse-attention {
+  animation: pulseAttention 1.5s ease-out infinite;
+  position: relative;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-attention { animation: none; outline: 2px solid rgba(212, 175, 55, 0.8); outline-offset: 2px; }
+}

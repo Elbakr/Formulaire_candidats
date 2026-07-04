@@ -51,6 +51,7 @@ export function HireCandidateButton({
   prevalidatedCandidateId,
   defaultContractKind = "CDD",
   candidateInitialStudent,
+  highlight = false,
 }: {
   applicationId: string;
   candidateName: string;
@@ -65,6 +66,8 @@ export function HireCandidateButton({
   // Karim 2026-07-04 : statut ÉTUDIANT déclaré par le candidat lui-même (choix
   // initial). Sert à alerter le RH s'il choisit un contrat qui s'en écarte.
   candidateInitialStudent?: boolean | null;
+  // Fil rouge : fait clignoter le bouton quand c'est la prochaine action à faire.
+  highlight?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -177,10 +180,13 @@ export function HireCandidateButton({
           reset();
           setOpen(true);
         }}
+        className={highlight && !alreadyHired ? "pulse-attention" : undefined}
         title={
           alreadyHired
             ? "Déjà embauché — ré-ouvre pour compléter les manquements"
-            : "Embauche ce candidat en 1 clic"
+            : highlight
+              ? "Dossier candidat complet — prochaine action : lancer l'embauche"
+              : "Embauche ce candidat en 1 clic"
         }
       >
         <CheckCheck className="h-3.5 w-3.5" />

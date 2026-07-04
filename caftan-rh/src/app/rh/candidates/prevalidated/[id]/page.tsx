@@ -155,6 +155,7 @@ export default async function PrevalidatedCandidatePage(
             alreadyHired={alreadyHired}
             defaultContractKind={isStudent === true ? "Étudiant" : "CDD"}
             candidateInitialStudent={typeof isStudent === "boolean" ? isStudent : null}
+            highlight={!!tok?.completed_at && missing.length === 0 && !alreadyHired}
           />
         </div>
       </div>
