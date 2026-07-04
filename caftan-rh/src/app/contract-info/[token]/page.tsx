@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMissingFields } from "@/lib/contract-readiness";
 import { getEmployeeIdCard, getCandidateIdCard } from "@/lib/id-card";
+import { logCandidateAccess } from "@/lib/candidate-access-log";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { ContractInfoForm } from "./contract-info-form";
 
@@ -81,6 +82,9 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     if (!candRaw) return <InvalidShell />;
     const cand = candRaw as Record<string, unknown>;
     const firstName = ((cand.full_name as string) ?? "").split(/\s+/)[0] ?? "";
+
+    // Anti-fraude : journalise l'accès (IP/appareil/géoloc approx.) — fire-and-forget.
+    await logCandidateAccess({ candidateId: tok.candidate_id, context: "contract_info", token });
 
     // Indisponibilités déjà déclarées (étape 2).
     const { data: unavailRaw } = await admin
