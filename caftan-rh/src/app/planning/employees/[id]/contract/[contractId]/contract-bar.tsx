@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Printer,
   ArrowLeft,
   CheckCircle2,
   PenLine,
@@ -146,14 +145,9 @@ export function ContractBar({
             </Button>
           ) : null}
 
-          <Button
-            variant="gold"
-            size="sm"
-            onClick={() => window.print()}
-            title="Imprimer ou enregistrer en PDF"
-          >
-            <Printer className="h-3.5 w-3.5" /> Imprimer / PDF
-          </Button>
+          {/* Karim 2026-07-04 : impression retirée d'ici (imprimait le layout app
+              divergent). Le bouton « Imprimer / PDF » du document (iframe super
+              layout) ci-dessous est le seul correct. */}
         </div>
       </div>
 

@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card";
 import { ContractBar } from "./contract-bar";
 import { ContractForm, type ContractEditable } from "./contract-form";
 import { resolveWageBareme } from "@/lib/wage-bareme";
-import { ContractDocument, type ContractFullData } from "./contract-document";
+import { ContractIframe } from "./contract-iframe";
+import { previewContractHtmlAction } from "../../contract-preview/action";
 
 type Status = "draft" | "ready_to_sign" | "signed" | "archived";
 
@@ -51,22 +52,19 @@ export default async function ContractDetailPage(
   };
   // Barème plancher (défaut + minimum) résolu selon type de contrat + âge.
   const bareme = await resolveWageBareme(supabase, contract.contract_kind, contract.birth_date);
-  const org = (orgRaw ?? {}) as {
-    org_name?: string | null;
-    org_address?: string | null;
-    org_phone?: string | null;
-    org_email?: string | null;
-  };
 
-  const docData: ContractFullData = {
-    contract,
-    org: {
-      name: org.org_name ?? "Caftan Factory SRL",
-      address: org.org_address ?? "Rue de Brabant 230, 1030 Schaerbeek (Bruxelles)",
-      phone: org.org_phone ?? null,
-      email: org.org_email ?? null,
-    },
-  };
+  // Karim 2026-07-04 : le document affiché/imprimé = LE SUPER LAYOUT (aligné avec
+  // l'aperçu d'envoi + le PDF signé), plus jamais le composant ContractDocument
+  // divergent. Signé/prêt -> rendered_body figé ; brouillon -> construit à l'identique.
+  let contractHtml = (contract as unknown as { rendered_body: string | null }).rendered_body ?? null;
+  if (!contractHtml) {
+    const tplCode = contract.contract_kind === "Étudiant" ? "student" : Number(contract.weekly_hours) < 38 ? "employee_pt" : "employee";
+    try {
+      const res = await previewContractHtmlAction(id, tplCode, { manualSign: true });
+      if (res.ok) contractHtml = res.html;
+    } catch { /* aperçu best-effort */ }
+  }
+  void orgRaw; // (org détaillé désormais intégré au super layout via l'entité résolue)
 
   return (
     <div className="space-y-4">
@@ -107,23 +105,9 @@ export default async function ContractDetailPage(
         </div>
       </Card>
 
-      <Card className="print:hidden">
-        <div className="p-4 border-b border-line">
-          <h2 className="font-bold text-sm">Aperçu contrat</h2>
-          <p className="text-xs text-ink-3 mt-0.5">
-            Aperçu du document tel qu&apos;il sera imprimé. Utilise le bouton « Imprimer / PDF »
-            pour obtenir le document final.
-          </p>
-        </div>
-        <div className="p-4 sm:p-6 bg-white text-black overflow-x-auto">
-          <ContractDocument data={docData} />
-        </div>
+      <Card>
+        <ContractIframe html={contractHtml} />
       </Card>
-
-      {/* Document seul, en mode impression : occupe toute la page */}
-      <div className="hidden print:block bg-white text-black">
-        <ContractDocument data={docData} />
-      </div>
     </div>
   );
 }
