@@ -352,7 +352,14 @@ export async function hireCandidateAction(
 
   // 7) Compte auth si email.
   let credentials: { email: string; password: string } | undefined;
-  if (candidate.email) {
+  // Karim 2026-07-04 (debug) : IDEMPOTENCE — si l'employé a DÉJÀ un compte lié
+  // (ré-embauche / « compléter l'embauche »), NE PAS régénérer/réinitialiser son
+  // mot de passe (sinon chaque re-clic casse l'accès du travailleur).
+  const { data: empAcc } = await admin.from("employees").select("profile_id").eq("id", employeeId).maybeSingle();
+  const alreadyLinked = !!(empAcc as { profile_id?: string | null } | null)?.profile_id;
+  if (alreadyLinked) {
+    steps.push({ label: "Compte employé déjà existant (mot de passe inchangé)", status: "ok" });
+  } else if (candidate.email) {
     try {
       const password = generateReadablePassword(12);
       let userId: string | null = null;

@@ -250,6 +250,12 @@ export async function submitPublicApplication(formData: FormData) {
   }
   const applicationId = (app as { id: string }).id;
 
+  // Anti-fraude : journalise l'accès (IP/appareil/géoloc approx.) — fire-and-forget.
+  try {
+    const { logCandidateAccess } = await import("@/lib/candidate-access-log");
+    await logCandidateAccess({ candidateId: cand.id, context: "postuler" });
+  } catch { /* ne casse jamais la candidature */ }
+
   // ─── 6. CV upload (optionnel) ───────────────────────────────────────────
   const cvFile = formData.get("cv");
   if (cvFile instanceof File && cvFile.size > 0) {

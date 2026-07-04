@@ -268,6 +268,7 @@ export function getNavSections(role: Role): NavGroup[] {
   }
   if (isAdmin(role)) {
     reportingItems.push(
+      { href: "/admin/candidate-access", label: "Sécurité candidats (anti-fraude)", icon: "ShieldCheck" },
       { href: "/admin/ai-audit", label: "AI audit", icon: "Sparkles" },
       { href: "/admin/digest", label: "Digest IA", icon: "Sparkles" },
     );

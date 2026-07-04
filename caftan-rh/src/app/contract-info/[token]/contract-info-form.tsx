@@ -591,7 +591,13 @@ export function ContractInfoForm({
         {isCandidate ? "Continuer → mes indisponibilités" : "Enregistrer mes informations"}
       </button>
       {isCandidate ? (
-        <p className="text-center text-[11px] text-ink-3">Étape 1 sur 2 · tes infos sont déjà enregistrées au fur et à mesure</p>
+        <>
+          <p className="text-center text-[11px] text-ink-3">Étape 1 sur 2 · tes infos sont déjà enregistrées au fur et à mesure</p>
+          <p className="text-center text-[10px] text-ink-3 leading-snug mt-1">
+            Tes données sont traitées pour préparer ton embauche et prévenir la fraude (RGPD — intérêt légitime),
+            et conservées selon les délais légaux. La géolocalisation ne sert qu&apos;à te proposer ton adresse.
+          </p>
+        </>
       ) : null}
     </div>
   );
