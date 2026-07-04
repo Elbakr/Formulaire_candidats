@@ -212,7 +212,7 @@ export function SignContractButton({
     <>
       {isFullySigned ? (
         <a
-          href={latestContract?.signedPdfUrl ?? `/planning/employees/${employeeId}/contract`}
+          href={latestContract?.signedPdfUrl ?? `/planning/employees/${employeeId}/contract/${latestContract?.id ?? ""}`}
           target={latestContract?.signedPdfUrl ? "_blank" : undefined}
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold"
