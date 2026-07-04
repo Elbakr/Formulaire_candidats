@@ -92,14 +92,16 @@ export async function closeEmployment(
     // 3. Dimona OUT préparée (validation humaine), idempotent. À l'échéance
     // (obligation légale), même si l'archivage est différé pour le pack.
     const workerType = emp.contract_type === "Étudiant" ? "STU" : "OTH";
-    await admin.from("dimona_declarations").upsert({
+    const { upsertDimonaDeclaration } = await import("@/lib/dimona");
+    await upsertDimonaDeclaration(admin, {
       employee_id: employeeId,
-      kind: "out",
-      declared_end_date: eff,
+      declaration_kind: "OUT",
+      start_date: eff, // OUT : start_date NOT NULL = date d'effet de la sortie
+      end_date: eff,
       employer_org_key: "amd_megastore",
       worker_type: workerType,
       status: "pending",
-    }, { onConflict: "employee_id,kind" });
+    });
 
     // 4. Notif RH : Dimona OUT à déclarer — dédup (1 par employé, sinon le cron
     // quotidien re-notifierait chaque jour un employé "en sortie").

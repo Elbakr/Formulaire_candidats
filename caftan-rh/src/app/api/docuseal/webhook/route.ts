@@ -301,14 +301,16 @@ L'équipe Caftan Factory (By AMD Megastore)`;
           .eq("id", terminationId)
           .maybeSingle();
         if (t) {
-          await admin.from("dimona_declarations").upsert({
+          const { upsertDimonaDeclaration } = await import("@/lib/dimona");
+          await upsertDimonaDeclaration(admin, {
             employee_id: t.employee_id,
-            kind: "out",
-            declared_end_date: t.effective_date,
+            declaration_kind: "OUT",
+            start_date: t.effective_date, // OUT : start_date NOT NULL = date d'effet
+            end_date: t.effective_date,
             employer_org_key: t.employer_org_key ?? "amd_megastore",
             worker_type: "OTH",
             status: "pending",
-          }, { onConflict: "employee_id,kind" });
+          });
           console.log("[webhook] Dimona OUT auto-created for termination", terminationId);
         }
       } catch (e) {
@@ -373,15 +375,17 @@ L'équipe Caftan Factory (By AMD Megastore)`;
           .maybeSingle();
         if (empFull) {
           const workerType = (empFull as { contract_type?: string }).contract_type === "Étudiant" ? "STU" : "OTH";
-          await admin.from("dimona_declarations").upsert({
+          const startD = (empFull as { start_date?: string }).start_date ?? new Date().toISOString().slice(0, 10);
+          const { upsertDimonaDeclaration } = await import("@/lib/dimona");
+          await upsertDimonaDeclaration(admin, {
             employee_id: employeeId,
-            kind: "in",
-            declared_start_date: (empFull as { start_date?: string }).start_date ?? null,
-            declared_end_date: (empFull as { end_date?: string }).end_date ?? null,
+            declaration_kind: "IN",
+            start_date: startD,
+            end_date: (empFull as { end_date?: string }).end_date ?? null,
             employer_org_key: "amd_megastore",
             worker_type: workerType,
             status: "pending",
-          }, { onConflict: "employee_id,kind" });
+          });
           console.log("[webhook] Dimona IN auto-created for contract", contractId);
         }
       } catch (e) {

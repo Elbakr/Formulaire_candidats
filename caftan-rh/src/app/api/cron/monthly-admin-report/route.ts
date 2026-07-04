@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
   const { count: pendingDimona } = await admin.from("dimona_declarations")
     .select("id", { count: "exact", head: true })
-    .eq("status", "pending").eq("kind", "in");
+    .eq("status", "pending").eq("declaration_kind", "IN");
 
   const { count: pendingExpenses } = await admin.from("expense_reports")
     .select("id", { count: "exact", head: true }).eq("status", "pending");

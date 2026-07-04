@@ -23,18 +23,26 @@ export async function dimonaMarkDoneAction(
   if (!employeeId) return { error: "Employee invalide." };
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("dimona_declarations")
-    .insert({
+  // Schéma A : declaration_kind 'IN', start_date NOT NULL, declared_at/by, status.
+  const { data: empRow } = await supabase
+    .from("employees").select("start_date, end_date, contract_type").eq("id", employeeId).maybeSingle();
+  const emp0 = empRow as { start_date?: string | null; end_date?: string | null; contract_type?: string | null } | null;
+  try {
+    const { upsertDimonaDeclaration } = await import("@/lib/dimona");
+    await upsertDimonaDeclaration(supabase, {
       employee_id: employeeId,
-      kind: "in",
-      submitted_at: new Date().toISOString(),
-      submitted_by: profile.full_name ?? "RH",
-      status: "completed",
-      method: "manual_portal",
-      notes: notes ?? `Declare manuellement par ${profile.full_name ?? "RH"} via portail ONSS`,
+      declaration_kind: "IN",
+      start_date: emp0?.start_date ?? new Date().toISOString().slice(0, 10),
+      end_date: emp0?.end_date ?? null,
+      worker_type: emp0?.contract_type === "Étudiant" ? "STU" : "OTH",
+      status: "declared_onss",
+      declared_at: new Date().toISOString(),
+      declared_by: profile.id,
+      notes: notes ?? `Déclaré manuellement par ${profile.full_name ?? "RH"} via portail ONSS`,
     });
-  if (error) return { error: error.message };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 
   // Marquer les notifications "dimona_to_do" comme lues pour cet employee
   await supabase
@@ -96,14 +104,17 @@ export async function dimonaAutoSubmitAction(
   const result = await submitDimonaIn(payload);
   if (!result.ok) return { error: result.error };
 
-  // Persiste en BD
-  await supabase.from("dimona_declarations").insert({
+  // Persiste en BD (schéma A).
+  const { upsertDimonaDeclaration } = await import("@/lib/dimona");
+  await upsertDimonaDeclaration(supabase, {
     employee_id: employeeId,
-    kind: "in",
-    submitted_at: new Date().toISOString(),
-    submitted_by: profile.full_name ?? "RH",
-    status: "completed",
-    method: "auto_api",
+    declaration_kind: "IN",
+    start_date: e.start_date ?? new Date().toISOString().slice(0, 10),
+    end_date: e.end_date ?? null,
+    worker_type: e.contract_type === "Étudiant" || e.contract_type === "Etudiant" ? "STU" : "OTH",
+    status: "declared_onss",
+    declared_at: new Date().toISOString(),
+    declared_by: profile.id,
     dimona_period_id: result.dimonaPeriodId,
     notes: `Auto-soumis via API ONSS le ${new Date().toISOString().slice(0, 10)}`,
   });
