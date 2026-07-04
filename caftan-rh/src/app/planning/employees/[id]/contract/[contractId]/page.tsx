@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { ContractBar } from "./contract-bar";
 import { ContractForm, type ContractEditable } from "./contract-form";
+import { resolveWageBareme } from "@/lib/wage-bareme";
 import { ContractDocument, type ContractFullData } from "./contract-document";
 
 type Status = "draft" | "ready_to_sign" | "signed" | "archived";
@@ -48,6 +49,8 @@ export default async function ContractDetailPage(
     signed_at: string | null;
     prepared_at: string | null;
   };
+  // Barème plancher (défaut + minimum) résolu selon type de contrat + âge.
+  const bareme = await resolveWageBareme(supabase, contract.contract_kind, contract.birth_date);
   const org = (orgRaw ?? {}) as {
     org_name?: string | null;
     org_address?: string | null;
@@ -97,7 +100,7 @@ export default async function ContractDetailPage(
 
         <div className="p-5">
           {contract.status === "draft" ? (
-            <ContractForm contract={contract} />
+            <ContractForm contract={contract} bareme={{ hourlyFloor: bareme.hourlyFloor, source: bareme.source }} />
           ) : (
             <ReadOnlyView contract={contract} />
           )}

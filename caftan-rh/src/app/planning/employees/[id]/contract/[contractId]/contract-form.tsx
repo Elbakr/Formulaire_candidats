@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
@@ -41,12 +41,51 @@ export type ContractEditable = {
 // Politique métier : jamais de CDI ni de contrats hors paie interne.
 const KINDS = ["CDD", "Étudiant"] as const;
 
-export function ContractForm({ contract }: { contract: ContractEditable }) {
+export function ContractForm({
+  contract,
+  bareme = { hourlyFloor: null, source: "" },
+}: {
+  contract: ContractEditable;
+  bareme?: { hourlyFloor: number | null; source: string };
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
+  // Karim 2026-07-04 : taux horaire <-> mensuel LIÉS (auto-calcul) + PLANCHER =
+  // barème (ajustement vers le haut only). Facteur mensuel = heures/sem × 4,333.
+  const factor = (Number(contract.weekly_hours) || 0) * 4.333;
+  const floor = bareme.hourlyFloor;
+  const [hourly, setHourly] = useState<string>(
+    contract.gross_hourly_rate != null ? String(contract.gross_hourly_rate) : floor != null ? String(floor) : "",
+  );
+  const [monthly, setMonthly] = useState<string>(
+    contract.gross_monthly_salary != null
+      ? String(contract.gross_monthly_salary)
+      : contract.gross_hourly_rate != null && factor > 0
+        ? (contract.gross_hourly_rate * factor).toFixed(2)
+        : floor != null && factor > 0
+          ? (floor * factor).toFixed(2)
+          : "",
+  );
+  const belowFloor = floor != null && hourly.trim() !== "" && parseFloat(hourly.replace(",", ".")) < floor - 0.001;
+
+  function onHourly(v: string) {
+    setHourly(v);
+    const n = parseFloat(v.replace(",", "."));
+    if (factor > 0 && !Number.isNaN(n)) setMonthly((n * factor).toFixed(2));
+  }
+  function onMonthly(v: string) {
+    setMonthly(v);
+    const n = parseFloat(v.replace(",", "."));
+    if (factor > 0 && !Number.isNaN(n)) setHourly((n / factor).toFixed(2));
+  }
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (belowFloor) {
+      toast.error(`Le taux horaire (${hourly} €) est sous le barème plancher (${floor} €/h). L'ajustement vers le bas n'est pas autorisé.`);
+      return;
+    }
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
       const r = await updateContractAction(contract.id, fd);
@@ -202,6 +241,16 @@ export function ContractForm({ contract }: { contract: ContractEditable }) {
       </Section>
 
       <Section title="Rémunération">
+        {floor != null ? (
+          <p className="text-[11px] text-ink-2 mb-1">
+            Barème plancher : <b>{floor.toFixed(2)} €/h</b> ({bareme.source}). Ajustable vers le haut, jamais vers le bas.
+          </p>
+        ) : (
+          <p className="text-[11px] text-ink-3 mb-1">
+            Aucun barème plancher défini —{" "}
+            <a href="/admin/baremes" className="underline">configure-le ici</a>.
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Taux horaire brut (€)" htmlFor="gross_hourly_rate">
             <Input
@@ -209,7 +258,10 @@ export function ContractForm({ contract }: { contract: ContractEditable }) {
               step="0.01"
               id="gross_hourly_rate"
               name="gross_hourly_rate"
-              defaultValue={contract.gross_hourly_rate ?? ""}
+              value={hourly}
+              onChange={(e) => onHourly(e.target.value)}
+              min={floor ?? undefined}
+              className={belowFloor ? "border-red-500 focus-visible:ring-red-500" : undefined}
             />
           </Field>
           <Field label="Salaire mensuel brut (€)" htmlFor="gross_monthly_salary">
@@ -218,10 +270,18 @@ export function ContractForm({ contract }: { contract: ContractEditable }) {
               step="0.01"
               id="gross_monthly_salary"
               name="gross_monthly_salary"
-              defaultValue={contract.gross_monthly_salary ?? ""}
+              value={monthly}
+              onChange={(e) => onMonthly(e.target.value)}
             />
           </Field>
         </div>
+        {belowFloor ? (
+          <p className="text-[11px] text-red-600 font-semibold mt-1">
+            ⛔ Sous le barème plancher ({floor?.toFixed(2)} €/h) — remonte le taux pour enregistrer.
+          </p>
+        ) : (
+          <p className="text-[11px] text-ink-3 mt-1">Taux horaire et mensuel liés (× {(factor).toFixed(2)} = heures/sem × 4,333). Les deux restent éditables.</p>
+        )}
         <Field label="Chèques-repas (€/jour)" htmlFor="meal_voucher_eur_per_day">
           <Input
             type="number"
