@@ -74,6 +74,28 @@ export async function submitSignatureAction(input: {
     .eq("id", input.contractId);
   if (updErr) return { error: updErr.message };
 
+  // Karim 2026-07-04 : STOCKE le PDF du contrat signé (upload storage + signed_pdf_url)
+  // pour que « Voir contrat signé » (fiche employé) et /rh/documents pointent sur un
+  // VRAI fichier (avant, le PDF signé n'existait qu'en pièce jointe du mail). Le PDF
+  // est réutilisé pour le mail plus bas (évite un 2e rendu Chromium).
+  let signedPdfBytes: Uint8Array | null = null;
+  if (signedBody) {
+    try {
+      const { renderHtmlToPdf } = await import("@/lib/html-to-pdf");
+      signedPdfBytes = await renderHtmlToPdf(signedBody);
+      const path = `contracts/${contract.employee_id}/contrat-signe-${input.contractId}.pdf`;
+      const up = await supabase.storage.from("documents").upload(path, signedPdfBytes, { contentType: "application/pdf", upsert: true });
+      if (!up.error) {
+        const { data: su } = await supabase.storage.from("documents").createSignedUrl(path, 60 * 60 * 24 * 365);
+        if (su?.signedUrl) {
+          await supabase.from("employee_contracts").update({ signed_pdf_url: su.signedUrl }).eq("id", input.contractId);
+        }
+      }
+    } catch (e) {
+      console.warn("[sign] stockage PDF signé KO:", (e as Error).message);
+    }
+  }
+
   // Karim 2026-06-13 (Phase 2) : activation du compte employé à la signature
   // (candidate -> employee). Best-effort, ne bloque pas la signature.
   await activateEmployeeAccount(supabase, contract.employee_id);
@@ -120,14 +142,11 @@ export async function submitSignatureAction(input: {
       const slug =
         employeeName.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
         "contrat";
-      // Génère le PDF FIDÈLE (Chromium) ; repli HTML si le rendu échoue (best-effort).
+      // Réutilise le PDF déjà généré/stocké ci-dessus ; repli HTML si le rendu a échoué.
       let attachment: { filename: string; content: Uint8Array; contentType: string };
-      try {
-        const { renderHtmlToPdf } = await import("@/lib/html-to-pdf");
-        const pdf = await renderHtmlToPdf(signedBody);
-        attachment = { filename: `Contrat_signe_${slug}.pdf`, content: pdf, contentType: "application/pdf" };
-      } catch (e) {
-        console.warn("[sign] rendu PDF KO, repli HTML:", (e as Error).message);
+      if (signedPdfBytes) {
+        attachment = { filename: `Contrat_signe_${slug}.pdf`, content: signedPdfBytes, contentType: "application/pdf" };
+      } else {
         attachment = {
           filename: `Contrat_signe_${slug}.html`,
           content: new TextEncoder().encode(signedBody),

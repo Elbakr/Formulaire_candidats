@@ -285,6 +285,14 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
             }
             sites={sitesForHire}
             alreadyHired={app.status === "hired"}
+            candidateInitialStudent={(() => {
+              // Karim 2026-07-04 : choix initial du candidat (bloque l'écart aussi ici).
+              const c = candidate as unknown as { is_student?: boolean | null };
+              if (typeof c.is_student === "boolean") return c.is_student;
+              const wc = (candidate.wanted_contract_type ?? "").toLowerCase();
+              if (wc.includes("étudiant") || wc.includes("etudiant") || wc.includes("student")) return true;
+              return null;
+            })()}
           />
           <ScheduleButton applicationId={app.id} />
           <WhatsAppButton
