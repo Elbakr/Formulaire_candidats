@@ -61,12 +61,16 @@ export async function reportBlockedOutbound(info: BlockedOutboundInfo): Promise<
       to: info.to,
       recipientName: info.toName,
       subject: info.subject,
-      source: info.source ?? "auto-outbound-blocked",
+      // Karim 2026-07-04 (debug) : source INVARIANTE 'auto-outbound-blocked' pour
+      // que le health-check puisse exclure ces blocages du compteur de pannes
+      // (avant, la vraie source ex. 'signature_reminder' etait conservee et le
+      // filtre ne les excluait pas -> faux incidents). L'origine reste dans le message.
+      source: "auto-outbound-blocked",
       candidateId: info.candidateId,
       employeeId: info.employeeId,
       deliveryProvider: "none",
       status: "failed",
-      errorMessage: "Bloqué : envoi automatique vers candidat/travailleur désactivé (kill-switch).",
+      errorMessage: `Bloqué (kill-switch)${info.source ? ` — origine: ${info.source}` : ""} : envoi automatique vers candidat/travailleur désactivé.`,
     });
   } catch {
     /* best-effort */

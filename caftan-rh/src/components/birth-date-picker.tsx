@@ -65,6 +65,11 @@ export function BirthDatePicker({
 
   const nbDays = daysInMonth(Number(y), Number(m));
   const days = Array.from({ length: nbDays }, (_, i) => i + 1);
+  // Si le jour choisi dépasse la longueur du mois (ex. 31 puis février), on
+  // réajuste l'affichage pour qu'il colle à la valeur réellement émise.
+  useEffect(() => {
+    if (d && Number(d) > nbDays) setD(String(nbDays));
+  }, [nbDays, d]);
   const complete = !!(y && m && d);
   const tooYoung = complete
     ? `${y}-${String(Number(m)).padStart(2, "0")}-${String(Math.min(Number(d), nbDays)).padStart(2, "0")}` > maxIso
