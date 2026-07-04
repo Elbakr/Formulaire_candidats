@@ -9,7 +9,7 @@ import { useState, useTransition } from "react";
 import { Loader2, Download, Send, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { IdCardUpload } from "@/components/id-card-upload";
-import { sendIdCardToSecsocAction } from "@/lib/id-card-actions";
+import { sendHiringDossierAction } from "./hiring-dossier-actions";
 
 export function IdCardAdminPanel({
   employeeId,
@@ -23,9 +23,11 @@ export function IdCardAdminPanel({
   const [pending, start] = useTransition();
 
   function sendSecsoc() {
+    // Karim 2026-07-04 : ne plus envoyer la CI SEULE — toujours le DOSSIER COMPLET
+    // (identité + adresse + toutes les données + CI + contrat signé + lien Dimona).
     start(async () => {
-      const r = await sendIdCardToSecsocAction(employeeId);
-      if (r.ok) toast.success("Carte d'identité envoyée au secrétariat social / RH.");
+      const r = await sendHiringDossierAction(employeeId);
+      if (r.ok) toast.success(`Dossier complet (données + CI + contrat) envoyé à ${r.sentTo}.`);
       else toast.error(r.error ?? "Échec de l'envoi.");
     });
   }
@@ -64,7 +66,7 @@ export function IdCardAdminPanel({
             className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold hover:bg-surface-2 disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            Envoyer au secrétariat social / RH
+            Envoyer le dossier complet au secrétariat social
           </button>
         </div>
       ) : null}

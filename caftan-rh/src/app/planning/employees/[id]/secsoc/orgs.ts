@@ -51,6 +51,19 @@ export type SecsocEmployeeSnapshot = {
   transport_type: string | null;
   transport_frequency: string | null;
   transport_price: string | null;
+  // Karim 2026-07-04 : dossier COMPLET envoyé au secrétariat (plus de fiche partielle).
+  address: string | null;
+  postal_code: string | null;
+  city: string | null;
+  bic: string | null;
+  bank_holder: string | null;
+  nationality: string | null;
+  marital_status: string | null;
+  dependent_children: number | null;
+  education_level: string | null;
+  job_title: string | null;
+  phone: string | null;
+  email: string | null;
 };
 
 export type RequiredField = {

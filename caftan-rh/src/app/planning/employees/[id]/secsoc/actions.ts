@@ -37,7 +37,7 @@ export async function loadSecsocEmployee(
   const { data } = await supabase
     .from("employees")
     .select(
-      "id, full_name, birth_date, birth_place, nrn, iban, weekly_hours, work_time_kind, contract_type, start_date, end_date, signature_place, transport_type, transport_frequency, transport_price",
+      "id, full_name, birth_date, birth_place, nrn, iban, weekly_hours, work_time_kind, contract_type, start_date, end_date, signature_place, transport_type, transport_frequency, transport_price, address, postal_code, city, bic, bank_holder, nationality, marital_status, dependent_children, education_level, job_title, phone, email",
     )
     .eq("id", employeeId)
     .maybeSingle();
@@ -72,10 +72,24 @@ function buildBody(emp: SecsocEmployeeSnapshot, org: OrgInfo): string {
     line("Nom complet", emp.full_name),
     line("Date de naissance", emp.birth_date),
     line("Lieu de naissance", emp.birth_place),
+    line("Nationalite", emp.nationality),
     line("NRN", emp.nrn),
+    line("Telephone", emp.phone),
+    line("Email", emp.email),
+    line("Etat civil", emp.marital_status),
+    line("Personnes a charge", emp.dependent_children),
+    line("Niveau scolaire", emp.education_level),
+    "",
+    "═════════ ADRESSE ═════════",
+    line("Adresse", [emp.address, [emp.postal_code, emp.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null),
+    "",
+    "═════════ BANCAIRE ═════════",
     line("IBAN", emp.iban),
+    line("BIC", emp.bic),
+    line("Titulaire", emp.bank_holder),
     "",
     "═════════ CONTRAT ═════════",
+    line("Poste", emp.job_title),
     line("Type contrat", emp.contract_type),
     line("Regime", emp.work_time_kind),
     line("Heures/semaine", emp.weekly_hours),
