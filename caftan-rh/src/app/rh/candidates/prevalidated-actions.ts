@@ -85,9 +85,14 @@ export async function hirePrevalidatedCandidateAction(
     const v = cand[k];
     if (v !== null && v !== undefined && String(v).trim() !== "") patch[k] = v;
   }
+  // employees.transport_frequency n'accepte que 'mensuel'/'annuel' (CHECK) — le
+  // candidat peut avoir choisi 'sans_objet' (à pied/vélo) -> on le mappe à null.
+  if (patch.transport_frequency === "sans_objet") delete patch.transport_frequency;
   if (Object.keys(patch).length > 0) {
-    await admin.from("employees").update(patch).eq("id", result.employeeId);
-    result.steps.push({ label: "Infos secrétariat social reprises du dossier candidat", status: "ok" });
+    const { error: patchErr } = await admin.from("employees").update(patch).eq("id", result.employeeId);
+    result.steps.push(patchErr
+      ? { label: "Reprise infos secrétariat social", status: "warn", detail: patchErr.message }
+      : { label: "Infos secrétariat social reprises du dossier candidat", status: "ok" });
   }
 
   // Consomme le token de pré-embauche.

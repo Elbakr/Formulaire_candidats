@@ -14,6 +14,8 @@
 //   - frequence des erreurs de doigt passees (events reclassifies par RH)
 //   - coherence avec le shift planifie du jour
 
+import { brusselsWallTimeToUtc } from "@/lib/datetime";
+
 export type EmployeeProfile = {
   // Heure typique IN (mediane sur 15j, en heures decimales locales)
   typicalInHour: number;
@@ -287,7 +289,11 @@ export function inferMissingOut(
     };
   }
 
-  const outIso = new Date(`${day}T${String(Math.floor(proposedOutHour)).padStart(2, "0")}:${String(Math.round((proposedOutHour % 1) * 60)).padStart(2, "0")}:00+02:00`).toISOString();
+  // Karim 2026-07-04 (debug) : offset +02:00 code en dur -> faux en hiver. On
+  // convertit l'heure MURALE belge -> UTC via brusselsWallTimeToUtc (DST-correct).
+  const hh = String(Math.floor(proposedOutHour)).padStart(2, "0");
+  const mm = String(Math.round((proposedOutHour % 1) * 60)).padStart(2, "0");
+  const outIso = brusselsWallTimeToUtc(day, `${hh}:${mm}`).toISOString();
   return { outAt: outIso, confidence, reason };
 }
 

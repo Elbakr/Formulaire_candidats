@@ -290,6 +290,10 @@ export function ContractInfoForm({
   function currentPayload(): Record<string, string> {
     const payload = { ...values };
     if (payload.iban) payload.iban = normalizeIban(payload.iban);
+    // Karim 2026-07-04 (debug) : ne PAS persister un NISS incomplet (le champ est
+    // pré-rempli avec 6 chiffres AAMMJJ) — sinon un stub serait enregistré comme
+    // complet et fausserait "Dossier COMPLET".
+    if (payload.nrn && normalizeNRN(payload.nrn).length < 11) delete payload.nrn;
     if (isCandidate && isStudent) payload.is_student = isStudent;
     return payload;
   }
@@ -333,10 +337,17 @@ export function ContractInfoForm({
     // Karim 2026-07-03 : écran de fin HONNÊTE — on ne fait pas croire que tout est
     // complet si des champs demandés manquent encore. On remercie, on liste ce qui
     // reste, on rappelle que le MÊME lien permet de compléter jusqu'à finalisation.
+    // Karim 2026-07-04 (debug) : facultatifs exclus des "manquants" ; NISS compté
+    // manquant tant qu'il n'a pas 11 chiffres (le préfixe auto ne compte pas).
+    const OPTIONAL_FIELDS = new Set(["education_level", "transport_price"]);
     const stillMissing = (isCandidate
       ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
       : ordered
-    ).filter((f) => (values[f.key] ?? "").trim() === "");
+    ).filter((f) => {
+      if (OPTIONAL_FIELDS.has(f.key)) return false;
+      if (f.key === "nrn") return normalizeNRN(values.nrn ?? "").length < 11;
+      return (values[f.key] ?? "").trim() === "";
+    });
     const complete = stillMissing.length === 0;
     const link = typeof window !== "undefined" ? window.location.href : "";
     return (
