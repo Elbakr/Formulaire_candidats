@@ -73,6 +73,8 @@ export function HireCandidateButton({
   const [contractKind, setContractKind] = useState<string>(defaultContractKind);
   const [siteId, setSiteId] = useState<string>(sites[0]?.id ?? "");
   const [copied, setCopied] = useState(false);
+  // Karim 2026-07-04 : confirmation explicite requise en cas d'écart avec le choix du candidat.
+  const [discrepancyAck, setDiscrepancyAck] = useState(false);
 
   const today = new Date();
   const defaultStart = new Date(today.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
@@ -222,12 +224,23 @@ export function HireCandidateButton({
                   </p>
                 ) : null}
                 {discrepancy ? (
-                  <div className="mt-2 flex items-start gap-2 rounded-md border border-warn/50 bg-warn-light/40 p-2 text-[11px] text-warn">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      <b>Écart avec le choix du candidat.</b> {discrepancy} Vérifie : un mauvais régime fausse le
-                      contrat, la Dimona (STU/OTH) et les cotisations. Ne modifie que si c'est volontaire et justifié.
-                    </span>
+                  <div className="mt-2 rounded-md border border-warn/50 bg-warn-light/40 p-2 text-[11px] text-warn space-y-1.5">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        <b>Écart avec le choix du candidat.</b> {discrepancy} Un mauvais régime fausse le
+                        contrat, la Dimona (STU/OTH) et les cotisations.
+                      </span>
+                    </div>
+                    <label className="flex items-start gap-2 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={discrepancyAck}
+                        onChange={(e) => setDiscrepancyAck(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>Je confirme cet écart en connaissance de cause (volontaire et justifié).</span>
+                    </label>
                   </div>
                 ) : null}
               </div>
@@ -336,8 +349,8 @@ export function HireCandidateButton({
                 >
                   Annuler
                 </Button>
-                <Button type="submit" variant="gold" disabled={pending || !siteId}>
-                  {pending ? "Traitement…" : "Lancer l'embauche"}
+                <Button type="submit" variant="gold" disabled={pending || !siteId || (!!discrepancy && !discrepancyAck)}>
+                  {pending ? "Traitement…" : (!!discrepancy && !discrepancyAck) ? "Confirme l'écart pour continuer" : "Lancer l'embauche"}
                   <Sparkles className="h-3.5 w-3.5" />
                 </Button>
               </DialogFooter>
