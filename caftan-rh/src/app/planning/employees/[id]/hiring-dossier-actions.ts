@@ -61,11 +61,16 @@ Type Dimona          : ${workerType}
 Personnes à charge   : ${v(e.dependent_children)}
 Niveau scolaire      : ${v(e.education_level)}
 
-La carte d'identité (recto/verso, PDF) est jointe à ce message${(await getEmployeeIdCard(admin, employeeId)) ? "." : " — NON DISPONIBLE (à récupérer)."}
+── DÉCLARATION DIMONA (ONSS) ────────────
+À déclarer sur le portail ONSS :
+https://www.socialsecurity.be/site_fr/employer/applics/dimona/index.htm
+
+Pièces jointes : carte d'identité (recto/verso) + contrat signé par les deux parties (si disponible).
 
 Envoyé par ${profile.full_name ?? profile.email} — CaftanRH.`;
 
   const attachments: Array<{ filename: string; content: Uint8Array; contentType: string }> = [];
+  // Carte d'identité.
   try {
     const doc = await getEmployeeIdCard(admin, employeeId);
     if (doc) {
@@ -73,6 +78,23 @@ Envoyé par ${profile.full_name ?? profile.email} — CaftanRH.`;
       if (blob) attachments.push({ filename: doc.file_name, content: new Uint8Array(await blob.arrayBuffer()), contentType: "application/pdf" });
     }
   } catch { /* CI best-effort */ }
+  // Contrat SIGNÉ par les 2 parties (dernier signé). PDF stocké à la signature.
+  try {
+    const { data: c } = await admin
+      .from("employee_contracts")
+      .select("id")
+      .eq("employee_id", employeeId)
+      .eq("status", "signed")
+      .order("signed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const contractId = (c as { id: string } | null)?.id;
+    if (contractId) {
+      const path = `contracts/${employeeId}/contrat-signe-${contractId}.pdf`;
+      const { data: blob } = await admin.storage.from("documents").download(path);
+      if (blob) attachments.push({ filename: `Contrat_signe_${v(e.full_name).replace(/[^A-Za-z0-9]+/g, "_")}.pdf`, content: new Uint8Array(await blob.arrayBuffer()), contentType: "application/pdf" });
+    }
+  } catch { /* contrat best-effort */ }
 
   try {
     const { sendMailWithAttachments } = await import("@/lib/mail-with-attachments");

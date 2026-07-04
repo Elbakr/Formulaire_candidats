@@ -221,14 +221,16 @@ export function SignContractButton({
           <Download className="h-3.5 w-3.5" /> Voir contrat signé
         </a>
       ) : isAwaitingSignature ? (
+        // Karim 2026-07-04 : action déjà effectuée (contrat envoyé) -> bouton GRISÉ,
+        // non-cliquable, sans clignotement (statut passif : on attend l'employé).
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setOpen(true)}
-          title={`Contrat envoyé — en attente signature employé. Clique pour renvoyer / changer.`}
-          className="border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100 animate-pulse"
+          disabled
+          title="Contrat déjà envoyé — en attente de la signature de l'employé."
+          className="border-amber-300 text-amber-700 bg-amber-50 opacity-70 cursor-not-allowed"
         >
-          <Clock className="h-3.5 w-3.5" /> Attente de signature
+          <Clock className="h-3.5 w-3.5" /> Envoyé — attente signature
         </Button>
       ) : isReady ? (
         <Button
