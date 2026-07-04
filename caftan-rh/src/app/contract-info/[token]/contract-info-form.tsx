@@ -7,6 +7,7 @@ import { submitContractInfoAction, autosaveContractInfoAction } from "./actions"
 import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
+import { reverseGeocodeAction } from "@/lib/geocode-actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears, validateNRN, normalizeNRN } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
@@ -148,6 +149,7 @@ export function ContractInfoForm({
   // Karim 2026-06-17 : auto-save instantané (sans soumettre) — indicateurs.
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  const [geoLoading, setGeoLoading] = useState(false);
   // Karim 2026-07-03 : statut étudiant/non-étudiant (candidat pré-validé).
   const [isStudent, setIsStudent] = useState<string>(
     initialIsStudent === true ? "true" : initialIsStudent === false ? "false" : "",
@@ -179,6 +181,36 @@ export function ContractInfoForm({
     } finally {
       setSavingKey(null);
     }
+  }
+
+  // Karim 2026-07-04 : pré-remplissage adresse via géoloc (consentie) — gain de
+  // temps si le candidat est chez lui. La position sert uniquement à proposer une
+  // adresse (reverse-geocode Google), que le candidat valide/corrige ensuite.
+  function useMyLocation() {
+    setErr(null);
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setErr("Géolocalisation non disponible sur cet appareil.");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const r = await reverseGeocodeAction(pos.coords.latitude, pos.coords.longitude);
+          if (!r.ok) { setErr(r.error ?? "Adresse introuvable à ta position."); return; }
+          if (r.address) { setField("address", r.address); void autosave("address", r.address); }
+          if (r.postal_code) { setField("postal_code", r.postal_code); void autosave("postal_code", r.postal_code); }
+          if (r.city) { setField("city", r.city, false); setCityAuto(true); void autosave("city", r.city); }
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (e) => {
+        setGeoLoading(false);
+        setErr(e.code === 1 ? "Autorise la localisation pour pré-remplir ton adresse." : "Localisation impossible pour le moment.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
   }
 
   const hasCity = ordered.some((f) => f.key === "city");
@@ -428,6 +460,18 @@ export function ContractInfoForm({
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {isCandidate && ordered.some((f) => f.key === "address") ? (
+        <button
+          type="button"
+          onClick={useMyLocation}
+          disabled={geoLoading}
+          className="w-full rounded-lg border-[1.5px] border-gold/50 bg-gold-light/30 text-ink font-semibold py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          {geoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>📍</span>}
+          Utiliser ma position pour pré-remplir mon adresse
+        </button>
       ) : null}
 
       {visibleFields.map((f) => {
