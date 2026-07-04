@@ -262,6 +262,7 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/admin/payslips", label: "Fiches de paie + QR EPC", icon: "Wallet" },
       { href: "/admin/legal-rules", label: "Règles légales", icon: "ShieldCheck" },
       { href: "/admin/baremes", label: "Barèmes de salaire", icon: "Wallet" },
+      { href: "/admin/contracts", label: "Contrats (en cours / échus)", icon: "FileText" },
       { href: "/admin/documents", label: "Documents centralisés", icon: "FileText" },
       { href: "/admin/overtime-audit", label: "Audit heures sup", icon: "Activity" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
