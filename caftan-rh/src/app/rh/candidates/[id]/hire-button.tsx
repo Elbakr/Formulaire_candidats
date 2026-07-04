@@ -50,6 +50,7 @@ export function HireCandidateButton({
   alreadyHired,
   prevalidatedCandidateId,
   defaultContractKind = "CDD",
+  candidateInitialStudent,
 }: {
   applicationId: string;
   candidateName: string;
@@ -61,6 +62,9 @@ export function HireCandidateButton({
   // route l'embauche vers hirePrevalidatedCandidateAction sans toucher au flux existant.
   prevalidatedCandidateId?: string;
   defaultContractKind?: string;
+  // Karim 2026-07-04 : statut ÉTUDIANT déclaré par le candidat lui-même (choix
+  // initial). Sert à alerter le RH s'il choisit un contrat qui s'en écarte.
+  candidateInitialStudent?: boolean | null;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -71,14 +75,36 @@ export function HireCandidateButton({
   const [copied, setCopied] = useState(false);
 
   const today = new Date();
-  const defaultStart = new Date(today.getTime() + 7 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  const defaultEnd = (() => {
+  const defaultStart = new Date(today.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState<string>(defaultStart);
+  const [endDate, setEndDate] = useState<string>(() => {
     const d = new Date(today.getTime() + 7 * 86_400_000);
     d.setMonth(d.getMonth() + 6);
     return d.toISOString().slice(0, 10);
-  })();
+  });
+  const addToStart = (fn: (d: Date) => void): string => {
+    const d = new Date(`${startDate || defaultStart}T00:00:00`);
+    fn(d);
+    return d.toISOString().slice(0, 10);
+  };
+
+  // Boutons de période rapide -> fixent la date de fin depuis la date de début.
+  const PERIODS: Array<{ label: string; compute: () => string }> = [
+    { label: "1 mois", compute: () => addToStart((d) => d.setMonth(d.getMonth() + 1)) },
+    { label: "3 mois", compute: () => addToStart((d) => d.setMonth(d.getMonth() + 3)) },
+    { label: "6 mois", compute: () => addToStart((d) => d.setMonth(d.getMonth() + 6)) },
+    { label: "1 an", compute: () => addToStart((d) => d.setFullYear(d.getFullYear() + 1)) },
+    { label: "Fin du mois", compute: () => addToStart((d) => { d.setMonth(d.getMonth() + 1); d.setDate(0); }) },
+  ];
+
+  // Écart avec le CHOIX INITIAL du candidat (étudiant vs non-étudiant).
+  const isStudentPick = contractKind === "Étudiant" || contractKind === "Etudiant";
+  const discrepancy =
+    candidateInitialStudent === true && !isStudentPick
+      ? "Le candidat s'est déclaré ÉTUDIANT, mais tu as choisi un contrat non-étudiant."
+      : candidateInitialStudent === false && isStudentPick
+        ? "Le candidat s'est déclaré NON-étudiant, mais tu as choisi un contrat Étudiant."
+        : null;
 
   function submit(formData: FormData) {
     formData.set("contract_kind", contractKind);
@@ -190,6 +216,20 @@ export function HireCandidateButton({
                     ))}
                   </SelectContent>
                 </Select>
+                {candidateInitialStudent !== null && candidateInitialStudent !== undefined ? (
+                  <p className="mt-1 text-[11px] text-ink-3">
+                    Choix initial du candidat : <b>{candidateInitialStudent ? "Étudiant" : "Non-étudiant"}</b>.
+                  </p>
+                ) : null}
+                {discrepancy ? (
+                  <div className="mt-2 flex items-start gap-2 rounded-md border border-warn/50 bg-warn-light/40 p-2 text-[11px] text-warn">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      <b>Écart avec le choix du candidat.</b> {discrepancy} Vérifie : un mauvais régime fausse le
+                      contrat, la Dimona (STU/OTH) et les cotisations. Ne modifie que si c'est volontaire et justifié.
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -199,7 +239,8 @@ export function HireCandidateButton({
                     id="start_date"
                     name="start_date"
                     type="date"
-                    defaultValue={defaultStart}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
                     required
                   />
                 </div>
@@ -214,11 +255,28 @@ export function HireCandidateButton({
                     id="end_date"
                     name="end_date"
                     type="date"
-                    defaultValue={defaultEnd}
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
                     disabled={contractKind === "CDI"}
                   />
                 </div>
               </div>
+
+              {contractKind !== "CDI" ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[11px] text-ink-3 self-center mr-1">Durée rapide :</span>
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setEndDate(p.compute())}
+                      className="px-2 py-1 rounded-md border border-line bg-surface text-[11px] font-semibold hover:border-gold hover:bg-gold-light/30"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               <div>
                 <Label>Site principal</Label>

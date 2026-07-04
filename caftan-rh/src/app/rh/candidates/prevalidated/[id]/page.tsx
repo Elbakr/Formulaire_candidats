@@ -154,6 +154,7 @@ export default async function PrevalidatedCandidatePage(
             sites={sitesForHire}
             alreadyHired={alreadyHired}
             defaultContractKind={isStudent === true ? "Étudiant" : "CDD"}
+            candidateInitialStudent={typeof isStudent === "boolean" ? isStudent : null}
           />
         </div>
       </div>
