@@ -31,6 +31,7 @@ import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
 import { SignContractButton } from "./sign-contract-button";
+import { SendHiringDossierButton } from "./send-hiring-dossier-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { SalaryAdvanceSection } from "./salary-advance-section";
@@ -266,6 +267,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             latestContract={latestContract ? { id: latestContract.id, docusealStatus: latestContract.docuseal_status, signedAt: latestContract.signed_at, signedPdfUrl: latestContract.signed_pdf_url } : null}
             defaultOrgKey={defaultOrgKey}
           />
+          <SendHiringDossierButton employeeId={id} />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>
               <CalendarDays className="h-3.5 w-3.5" /> Calendrier (sem/mois/année)

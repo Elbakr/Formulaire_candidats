@@ -85,9 +85,14 @@ export default async function PrevalidatedCandidatePage(
   // Carte d'identité (recto/verso fusionnés en 1 PDF) fournie par le candidat.
   const idCard = await getCandidateIdCard(admin, id);
   let idCardUrl: string | null = null;
+  let idCardDownloadUrl: string | null = null;
   if (idCard) {
     const { data: signed } = await admin.storage.from("documents").createSignedUrl(idCard.storage_path, 3600);
     idCardUrl = signed?.signedUrl ?? null;
+    // Karim 2026-07-04 : URL avec disposition "attachment" -> force le TÉLÉCHARGEMENT
+    // (le lien simple ouvrait le PDF inline sans télécharger).
+    const { data: dl } = await admin.storage.from("documents").createSignedUrl(idCard.storage_path, 3600, { download: idCard.file_name });
+    idCardDownloadUrl = dl?.signedUrl ?? null;
   }
 
   // Sites actifs pour le bouton « Embaucher ».
@@ -283,12 +288,20 @@ export default async function PrevalidatedCandidatePage(
               <span className="inline-flex items-center gap-1 text-success text-sm font-bold">
                 <CheckCircle2 className="h-4 w-4" /> Fournie
               </span>
-              {idCardUrl ? (
-                <a href={idCardUrl} target="_blank" rel="noopener noreferrer"
-                  className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-ink text-white text-xs font-bold">
-                  Voir / Télécharger le PDF
-                </a>
-              ) : null}
+              <span className="ml-auto flex items-center gap-2">
+                {idCardUrl ? (
+                  <a href={idCardUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-line text-ink text-xs font-bold">
+                    Voir
+                  </a>
+                ) : null}
+                {idCardDownloadUrl ? (
+                  <a href={idCardDownloadUrl} download
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-ink text-white text-xs font-bold">
+                    Télécharger le PDF
+                  </a>
+                ) : null}
+              </span>
             </>
           ) : (
             <span className="inline-flex items-center gap-1 text-warn text-sm font-bold">
