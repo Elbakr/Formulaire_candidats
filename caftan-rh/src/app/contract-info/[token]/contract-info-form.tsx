@@ -473,18 +473,6 @@ export function ContractInfoForm({
         </div>
       ) : null}
 
-      {isCandidate && ordered.some((f) => f.key === "address") ? (
-        <button
-          type="button"
-          onClick={useMyLocation}
-          disabled={geoLoading}
-          className="w-full rounded-lg border-[1.5px] border-gold/50 bg-gold-light/30 text-ink font-semibold py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
-        >
-          {geoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>📍</span>}
-          Utiliser ma position pour pré-remplir mon adresse
-        </button>
-      ) : null}
-
       {visibleFields.map((f) => {
         const isIban = f.key === "iban";
         const isCity = f.key === "city";
@@ -496,6 +484,18 @@ export function ContractInfoForm({
           <div key={f.key}>
             <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
               {f.label}
+              {isCandidate && f.key === "address" ? (
+                <button
+                  type="button"
+                  onClick={useMyLocation}
+                  disabled={geoLoading}
+                  title="Détecter mon adresse à partir de ma position"
+                  className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-gold-dark hover:underline disabled:opacity-50"
+                >
+                  {geoLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <span aria-hidden>📍</span>}
+                  ma position
+                </button>
+              ) : null}
               {isCity && cityAuto ? (
                 <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-success">
                   <Sparkles className="h-3 w-3" /> auto
