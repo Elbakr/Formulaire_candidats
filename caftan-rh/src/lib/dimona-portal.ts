@@ -1,19 +1,34 @@
-// Karim 2026-05-29 : configuration Dimona ONSS Belgique.
+// Karim 2026-07-04 : configuration Dimona ONSS Belgique. Recherche officielle faite.
 //
-// Portail employeur officiel : https://www.socialsecurity.be (DIMONA In/Out)
-// Documentation API e-Dimona REST/SOAP :
-//   https://www.socialsecurity.be/lambda/portail/employer/dimona
+// DÉCISION (Karim) : voie 1 = SEMI-AUTO (l'app prépare + portail + "marquer
+// déclarée", validation humaine — déjà en place). Voie 2 = Web Service REST v2,
+// ACTIVABLE MANUELLEMENT quand les accès seront disponibles (gate ci-dessous).
+// Le BATCH est écarté (legacy, pour secrétariats sociaux ; le REST v2 le remplace).
 //
-// Etape 1 (deja en place) : notification + relances pour rappeler de faire
-// la declaration manuellement sur le portail
-// Etape 2 (TODO) : script auto qui declenche la Dimona via API officielle
-//   (necessite certificat technique employeur + acces compte ONSS)
+// Web Service REST v2 (production depuis 13/06/2024 ; v1 déprécié 30/06/2025) :
+//   - Portail API           : https://apiportal.socialsecurity.be/
+//   - Doc REST              : https://www.rest-documentation.socialsecurity.be/
+//   - Doc fonctionnelle v2  : .../dimona/documents/pdf/documentation-fonctionnelle-restv2_F.pdf
+//   - OpenAPI v2 (Swagger)  : .../dimona/documents/yaml/openapi_dimona_v2.zip
+//   PRÉREQUIS (côté Karim, en direct sans secrétariat) :
+//     1) Certificat entreprise  2) Activer le canal REST dans Chaman + Gestionnaire
+//     d'accès principal  3) Token OAuth2 (client credentials)  4) intégration (ce fichier).
+//   RÈGLE : la validation Dimona reste HUMAINE -> confirmation 1 clic avant tout envoi.
 
 export const DIMONA_PORTAL_URL = "https://www.socialsecurity.be/site_fr/employer/applics/dimona/index.htm";
 export const DIMONA_PORTAL_NL = "https://www.socialsecurity.be/site_nl/employer/applics/dimona/index.htm";
 
-// API officielle e-Dimona (a utiliser etape 2 quand certificat dispo)
-export const DIMONA_API_BASE = process.env.DIMONA_API_BASE ?? "https://services.socialsecurity.be/dimona/v1";
+// Web Service REST v2 : endpoints (à confirmer contre l'OpenAPI officiel lors de
+// l'activation). Le token OAuth2 s'obtient sur le serveur OAuth de la sécu sociale.
+export const DIMONA_API_BASE = process.env.DIMONA_API_BASE ?? "https://services.socialsecurity.be/REST/dimona/v2";
+export const DIMONA_OAUTH_TOKEN_URL = process.env.DIMONA_OAUTH_TOKEN_URL ?? "";
+
+// Gate d'ACTIVATION MANUELLE de la voie 2 : tant que les credentials OAuth2 ne sont
+// pas configurés, l'app reste en semi-auto (portail). Karim active en fournissant
+// DIMONA_OAUTH_CLIENT_ID / DIMONA_OAUTH_CLIENT_SECRET (+ certificat mTLS).
+export function isDimonaRestEnabled(): boolean {
+  return Boolean(process.env.DIMONA_OAUTH_CLIENT_ID?.trim() && process.env.DIMONA_OAUTH_CLIENT_SECRET?.trim());
+}
 
 /**
  * Champs requis pour une declaration Dimona IN (embauche).
@@ -33,22 +48,26 @@ export type DimonaInPayload = {
 };
 
 /**
- * Etape 2 - stub. A implementer quand certificat technique AMD Megastore
- * sera dispo + acces API ONSS configure (necessite SSL client cert).
+ * Voie 2 (REST v2) — ACTIVABLE MANUELLEMENT. Tant que la gate isDimonaRestEnabled()
+ * est fausse (pas de credentials OAuth2), on reste en semi-auto (portail). Une fois
+ * les credentials + certificat fournis par Karim, l'intégration finale (token OAuth2
+ * client credentials + POST du payload selon l'OpenAPI v2 + mTLS) est câblée ici.
  */
 export async function submitDimonaIn(
   payload: DimonaInPayload,
 ): Promise<{ ok: true; dimonaPeriodId: string } | { ok: false; error: string }> {
   void payload;
-  // TODO Karim : implementation reelle quand certificat dispo
-  // 1. Authentifier via certificat technique (X509 mTLS)
-  // 2. Construire SOAP envelope ou JSON REST selon endpoint
-  // 3. POST sur DIMONA_API_BASE/declarations
-  // 4. Parser response -> recuperer periodId Dimona
-  // 5. Stocker periodId dans table employee_dimona_declarations
+  if (!isDimonaRestEnabled()) {
+    return {
+      ok: false,
+      error: "Voie REST non activée. Déclare via le portail (semi-auto) : bouton « Ouvrir le portail Dimona ». Pour activer l'envoi automatique : certificat entreprise + Chaman + credentials OAuth2 (DIMONA_OAUTH_CLIENT_ID/SECRET).",
+    };
+  }
+  // Credentials présents -> intégration REST v2 à finaliser contre l'OpenAPI officiel
+  // (endpoint DIMONA_API_BASE, token DIMONA_OAUTH_TOKEN_URL). À câbler avec les accès réels.
   return {
     ok: false,
-    error: "Auto-Dimona pas encore active. Necessite certificat technique employeur ONSS. Cliquer 'Ouvrir le portail Dimona' pour declarer manuellement.",
+    error: "Voie REST activée mais intégration finale à câbler (payload OpenAPI v2 + mTLS). Fournis les accès pour terminer.",
   };
 }
 
