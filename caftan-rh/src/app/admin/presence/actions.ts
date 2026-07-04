@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
 import { formatDurationMin } from "@/lib/clock";
+import { brusselsWallTimeToUtc } from "@/lib/datetime";
 
 const SELFIE_BUCKET = "clock-selfies";
 const SELFIE_SIGNED_URL_TTL_S = 60; // 1 minute, suffisant pour ouvrir la modale.
@@ -224,8 +225,9 @@ export async function bulkEncodeShiftsAction(args: {
   let inserted = 0;
 
   for (const e of args.entries) {
-    const inIso = new Date(`${e.date}T${e.inTime}:00+02:00`).toISOString();
-    const outIso = new Date(`${e.date}T${e.outTime}:00+02:00`).toISOString();
+    // Karim 2026-07-04 (debug) : heure murale belge -> UTC DST-correct (etait +02:00 code en dur).
+    const inIso = brusselsWallTimeToUtc(e.date, e.inTime).toISOString();
+    const outIso = brusselsWallTimeToUtc(e.date, e.outTime).toISOString();
     const note = `[Encodage bulk par ${profile.full_name ?? "RH"}] ${args.reason ?? "Shift non pointe, encode manuellement"}`;
     // IN
     const { error: inErr } = await supabase.from("clock_entries").insert({
