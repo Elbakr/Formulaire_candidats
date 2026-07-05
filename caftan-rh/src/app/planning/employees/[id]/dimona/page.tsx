@@ -18,6 +18,8 @@ import { DimonaPrintButton, DeleteDimonaButton } from "./dimona-actions-client";
 
 const ONSS_PORTAL_URL =
   "https://www.socialsecurity.be/site_fr/employer/applics/dimona/index.htm";
+// Karim 2026-07-05 : alternative via secrétariat social HR Consult (lien direct).
+const HRCONSULT_DIMONA_URL = "https://e-services.hrconsult.com/Dimona/DimNieuw.aspx";
 
 type DimonaRow = {
   id: string;
@@ -174,6 +176,27 @@ export default async function EmployeeDimonaPage(
 
       <Card className="print:hidden">
         <div className="p-4 border-b border-line">
+          <h2 className="font-bold text-sm">📋 Données à encoder (sélectionne pour copier)</h2>
+          <p className="text-xs text-ink-3 mt-0.5">
+            Colle-les sur le formulaire HR Consult / ONSS pour minimiser la saisie.
+          </p>
+        </div>
+        <pre className="p-4 text-xs whitespace-pre-wrap select-all font-mono text-ink-2 leading-relaxed">{`EMPLOYEUR
+Nom : ${org.org_name ?? "AMD MEGASTORE SRL"}
+Adresse : ${org.org_address ?? "Rue de Brabant 230, 1030 Schaerbeek"}
+
+TRAVAILLEUR
+Nom : ${employee.full_name}
+NISS : ${employee.nrn ?? "[à compléter]"}
+
+DÉCLARATION DIMONA IN
+Date d'entrée : ${defaultStart}
+Type travailleur : ${employee.contract_type === "Étudiant" ? "STU (étudiant)" : "OTH (travailleur ordinaire)"}
+Commission paritaire : CP 201`}</pre>
+      </Card>
+
+      <Card className="print:hidden">
+        <div className="p-4 border-b border-line">
           <h2 className="font-bold text-sm">Étapes</h2>
         </div>
         <ol className="divide-y divide-line">
@@ -197,8 +220,17 @@ export default async function EmployeeDimonaPage(
                   className="text-gold-dark underline"
                 >
                   Dimona ONSS
+                </a>
+                , à l&apos;app mobile Dimona, ou{" "}
+                <a
+                  href={HRCONSULT_DIMONA_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-gold-dark underline font-semibold"
+                >
+                  via ton secrétariat social HR Consult
                 </a>{" "}
-                ou utiliser l&apos;app mobile Dimona.
+                (lien direct « nouvelle Dimona » ; connexion demandée si besoin).
               </>
             }
           >

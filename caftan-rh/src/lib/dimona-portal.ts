@@ -18,6 +18,12 @@
 export const DIMONA_PORTAL_URL = "https://www.socialsecurity.be/site_fr/employer/applics/dimona/index.htm";
 export const DIMONA_PORTAL_NL = "https://www.socialsecurity.be/site_nl/employer/applics/dimona/index.htm";
 
+// Karim 2026-07-05 : ALTERNATIVE via le secrétariat social HR Consult (portail
+// e-services). Lien direct vers "nouvelle Dimona" ; si non connecté, HR Consult
+// redirige vers son login puis revient au formulaire. Saisie manuelle -> l'app
+// prépare les données à copier pour minimiser les étapes.
+export const HRCONSULT_DIMONA_URL = "https://e-services.hrconsult.com/Dimona/DimNieuw.aspx";
+
 // Web Service REST v2 : endpoints (à confirmer contre l'OpenAPI officiel lors de
 // l'activation). Le token OAuth2 s'obtient sur le serveur OAuth de la sécu sociale.
 export const DIMONA_API_BASE = process.env.DIMONA_API_BASE ?? "https://services.socialsecurity.be/REST/dimona/v2";
