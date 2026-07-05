@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2, CheckCircle2, Check, Sparkles, Globe } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
-import { sendCandidateRecapConfirmAction } from "./recap-actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
@@ -653,13 +652,10 @@ export function ContractInfoForm({
     setErr(null);
     start(async () => {
       const r = await submitContractInfoAction(token, currentPayload());
-      if (r.ok) {
-        setDone(true);
-        // Karim 2026-07-05 : mail récap COMPLET + confirmation au candidat (seul
-        // envoi auto autorisé, source "candidate_recap_confirm"). Best-effort et
-        // non bloquant : l'écran de fin s'affiche quoi qu'il arrive.
-        void sendCandidateRecapConfirmAction(token);
-      } else setErr(r.error ?? t.err_generic);
+      // Karim 2026-07-05 : le mail récap+confirmation est désormais déclenché CÔTÉ
+      // SERVEUR dans submitContractInfoAction (fiable + loggé) -> plus d'appel client.
+      if (r.ok) setDone(true);
+      else setErr(r.error ?? t.err_generic);
     });
   }
 

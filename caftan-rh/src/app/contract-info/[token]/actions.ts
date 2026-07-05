@@ -85,6 +85,19 @@ export async function submitContractInfoAction(
   const { error } = await applyUpdate(admin, target, update);
   if (error) return { ok: false, error };
 
+  // Karim 2026-07-05 : mail récap + confirmation au candidat -> déclenché CÔTÉ SERVEUR
+  // (fiable + loggé), plus en fire-and-forget client (qui avalait les erreurs).
+  // L'anti-doublon (5 min) dans l'action évite les envois multiples.
+  if (target.isCandidate) {
+    try {
+      const { sendCandidateRecapConfirmAction } = await import("./recap-actions");
+      const rr = await sendCandidateRecapConfirmAction(token);
+      if (!rr.ok && !("skipped" in rr && rr.skipped)) console.warn("[recap] échec:", rr.error);
+    } catch (e) {
+      console.warn("[recap] exception:", (e as Error).message);
+    }
+  }
+
   // Karim 2026-07-03 (audit) : IDEMPOTENCE — ne compléter + notifier qu'UNE fois.
   // Une re-soumission (retour arrière, double clic) ne doit pas dupliquer la notif RH.
   const { data: tokRow } = await admin.from("contract_info_tokens").select("completed_at").eq("id", tokenId).maybeSingle();
