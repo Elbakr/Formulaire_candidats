@@ -11,6 +11,8 @@ import { reverseGeocodeAction } from "@/lib/geocode-actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears, validateNRN, normalizeNRN } from "@/lib/be-validators";
 import { TRANSPORT_MODES } from "@/lib/config";
+import type { Locale } from "@/lib/i18n";
+import { updateLanguagePreferenceAction } from "@/app/me/profile/language-action";
 
 type Field = { key: string; label: string };
 type CandidateUnavailability = {
@@ -23,51 +25,44 @@ type CandidateUnavailability = {
   notes: string | null;
 };
 
-// Champs à choix (rendus en <select>).
-const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  transport_type: [
-    { value: "", label: "— choisir —" },
-    ...TRANSPORT_MODES.map((m) => ({ value: m, label: m })),
-  ],
-  transport_frequency: [
-    { value: "", label: "— choisir —" },
-    { value: "mensuel", label: "Abonnement mensuel" },
-    { value: "annuel", label: "Abonnement annuel" },
-    { value: "sans_objet", label: "Sans abonnement" },
-  ],
-  education_level: [
-    { value: "", label: "— choisir —" },
-    { value: "sans_diplome", label: "Sans diplôme" },
-    { value: "secondaire_inferieur", label: "Secondaire inférieur" },
-    { value: "secondaire_superieur", label: "Secondaire supérieur (CESS)" },
-    { value: "bachelier", label: "Bachelier" },
-    { value: "master", label: "Master ou +" },
-    { value: "autre", label: "Autre" },
-  ],
-  marital_status: [
-    { value: "", label: "— choisir —" },
-    { value: "celibataire", label: "Célibataire" },
-    { value: "marie", label: "Marié(e)" },
-    { value: "cohabitant_legal", label: "Cohabitant(e) légal(e)" },
-    { value: "divorce", label: "Divorcé(e)" },
-    { value: "veuf", label: "Veuf / Veuve" },
-  ],
-  // Karim 2026-07-05 : nationalité par MENU DÉROULANT (plus de saisie libre ->
-  // zéro faute de frappe pour la Dimona). Les rares cas -> "Autre" + remarques.
-  nationality: [
-    { value: "", label: "— choisir —" },
-    ...[
-      "Belge", "Marocaine", "Française", "Italienne", "Néerlandaise", "Espagnole",
-      "Portugaise", "Turque", "Roumaine", "Polonaise", "Bulgare", "Allemande",
-      "Congolaise (RDC)", "Algérienne", "Tunisienne", "Grecque", "Britannique",
-      "Camerounaise", "Guinéenne", "Sénégalaise", "Rwandaise", "Ivoirienne",
-      "Syrienne", "Afghane", "Pakistanaise", "Indienne", "Russe", "Ukrainienne",
-      "Albanaise", "Serbe", "Croate", "Hongroise", "Tchèque", "Slovaque",
-      "Autrichienne", "Suédoise", "Luxembourgeoise", "Suisse", "Américaine",
-      "Brésilienne", "Chinoise", "Philippine",
-    ].map((n) => ({ value: n, label: n })),
-    { value: "Autre", label: "Autre (préciser dans les remarques)" },
-  ],
+// Karim 2026-07-05 : formulaire candidat BILINGUE FR/NL. Toutes les chaînes
+// visibles passent par le dictionnaire `T` (t = T[locale]). Le choix de langue
+// est auto-détecté côté serveur (cookie `lang` ou en-tête accept-language) et
+// passé en `initialLocale` ; le candidat peut basculer à tout moment (bascule
+// instantanée en local + persistance best-effort du cookie).
+
+// Nationalités : menu déroulant (zéro faute de frappe pour la Dimona). Les noms
+// de nationalités ne se traduisent PAS (mêmes intitulés FR/NL).
+const NATIONALITIES = [
+  "Belge", "Marocaine", "Française", "Italienne", "Néerlandaise", "Espagnole",
+  "Portugaise", "Turque", "Roumaine", "Polonaise", "Bulgare", "Allemande",
+  "Congolaise (RDC)", "Algérienne", "Tunisienne", "Grecque", "Britannique",
+  "Camerounaise", "Guinéenne", "Sénégalaise", "Rwandaise", "Ivoirienne",
+  "Syrienne", "Afghane", "Pakistanaise", "Indienne", "Russe", "Ukrainienne",
+  "Albanaise", "Serbe", "Croate", "Hongroise", "Tchèque", "Slovaque",
+  "Autrichienne", "Suédoise", "Luxembourgeoise", "Suisse", "Américaine",
+  "Brésilienne", "Chinoise", "Philippine",
+];
+
+// Labels de champs — override par la locale (indépendant du serveur : le prop
+// `fields` reçoit les labels FR, on les surcharge par `f.key`).
+const FIELD_LABELS: Record<string, { fr: string; nl: string }> = {
+  full_name: { fr: "Nom complet", nl: "Volledige naam" },
+  email: { fr: "Email", nl: "E-mail" },
+  birth_date: { fr: "Date de naissance", nl: "Geboortedatum" },
+  birth_place: { fr: "Lieu de naissance", nl: "Geboorteplaats" },
+  nrn: { fr: "Numéro national (NISS)", nl: "Rijksregisternummer (INSZ)" },
+  nationality: { fr: "Nationalité", nl: "Nationaliteit" },
+  address: { fr: "Adresse", nl: "Adres" },
+  postal_code: { fr: "Code postal", nl: "Postcode" },
+  city: { fr: "Commune", nl: "Gemeente" },
+  iban: { fr: "IBAN", nl: "IBAN" },
+  education_level: { fr: "Niveau scolaire / dernier diplôme", nl: "Opleidingsniveau / laatste diploma" },
+  marital_status: { fr: "État civil", nl: "Burgerlijke staat" },
+  dependent_children: { fr: "Personnes à charge (nombre)", nl: "Personen ten laste (aantal)" },
+  transport_type: { fr: "Moyen de transport", nl: "Vervoermiddel" },
+  transport_frequency: { fr: "Abonnement transport", nl: "Vervoerabonnement" },
+  transport_price: { fr: "Prix du transport (€)", nl: "Vervoerskosten (€)" },
 };
 
 // Karim 2026-07-03 : champs candidat réservés au parcours NON-ÉTUDIANT (précompte
@@ -75,14 +70,184 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
 const NON_STUDENT_ONLY = new Set(["marital_status", "dependent_children"]);
 
 // Micro-explications (finalité) affichées sous certains champs candidat.
-const FIELD_HINTS: Record<string, string> = {
-  birth_date: "Tu dois avoir au moins 17 ans pour t'enregistrer.",
-  nationality: "Pour la déclaration Dimona (secrétariat social).",
-  birth_place: "Figure sur ta carte d'identité — pour la Dimona.",
-  education_level: "Facultatif — utile pour évaluer ta candidature.",
-  marital_status: "Pour le calcul de ton précompte professionnel.",
-  dependent_children: "Pour le calcul de ton précompte professionnel.",
+const FIELD_HINTS: Record<string, { fr: string; nl: string }> = {
+  birth_date: {
+    fr: "Tu dois avoir au moins 17 ans pour t'enregistrer.",
+    nl: "Je moet minstens 17 jaar zijn om je te registreren.",
+  },
+  nationality: {
+    fr: "Pour la déclaration Dimona (secrétariat social).",
+    nl: "Voor de Dimona-aangifte (sociaal secretariaat).",
+  },
+  birth_place: {
+    fr: "Figure sur ta carte d'identité — pour la Dimona.",
+    nl: "Staat op je identiteitskaart — voor de Dimona.",
+  },
+  education_level: {
+    fr: "Facultatif — utile pour évaluer ta candidature.",
+    nl: "Optioneel — nuttig om je sollicitatie te beoordelen.",
+  },
+  marital_status: {
+    fr: "Pour le calcul de ton précompte professionnel.",
+    nl: "Voor de berekening van je bedrijfsvoorheffing.",
+  },
+  dependent_children: {
+    fr: "Pour le calcul de ton précompte professionnel.",
+    nl: "Voor de berekening van je bedrijfsvoorheffing.",
+  },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dictionnaire de traduction du formulaire (t = T[locale]).
+// ─────────────────────────────────────────────────────────────────────────────
+const T = {
+  fr: {
+    // statut étudiant
+    status_label: "Ton statut",
+    saving: "enregistrement…",
+    saved: "enregistré",
+    non_student: "Non-étudiant",
+    student: "Étudiant",
+    status_hint: "Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).",
+    student_warn_title: "Contrat d'occupation étudiant",
+    student_warn_body:
+      " : max 600 h/an à cotisation réduite. Le RH vérifiera avec toi ton établissement et tes heures étudiant déjà utilisées cette année lors du pré-entretien. Si tu es aussi au CPAS, préviens ton assistant(e) social(e) : un job étudiant peut impacter ton revenu d'intégration.",
+    // options de select
+    choose: "— choisir —",
+    freq_monthly: "Abonnement mensuel",
+    freq_yearly: "Abonnement annuel",
+    freq_none: "Sans abonnement",
+    edu_none: "Sans diplôme",
+    edu_lower_sec: "Secondaire inférieur",
+    edu_upper_sec: "Secondaire supérieur (CESS)",
+    edu_bachelor: "Bachelier",
+    edu_master: "Master ou +",
+    edu_other: "Autre",
+    marital_single: "Célibataire",
+    marital_married: "Marié(e)",
+    marital_cohab: "Cohabitant(e) légal(e)",
+    marital_divorced: "Divorcé(e)",
+    marital_widowed: "Veuf / Veuve",
+    nationality_other: "Autre (préciser dans les remarques)",
+    // géoloc + indicateurs
+    geo_button: "ma position",
+    geo_button_title: "Détecter mon adresse à partir de ma position",
+    auto: "auto",
+    err_geo_unavailable: "Géolocalisation non disponible sur cet appareil.",
+    err_geo_no_address: "On n'a pas pu détecter ton adresse automatiquement — saisis-la simplement juste en dessous.",
+    err_geo_denied: "Autorise la localisation pour pré-remplir ton adresse.",
+    err_geo_fail: "Localisation impossible pour le moment.",
+    // validation
+    err_at_least_one: "Renseigne au moins une information.",
+    err_iban: "L'IBAN saisi n'est pas valide. Vérifie-le avant d'enregistrer.",
+    err_min_age: "La date de naissance doit correspondre à au moins 17 ans.",
+    err_generic: "Une erreur est survenue.",
+    err_student_first: "Indique d'abord si tu es étudiant(e) ou non.",
+    // NISS
+    nrn_prefill: "Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.",
+    nrn_valid: "✓ Numéro national belge validé.",
+    nrn_incomplete: "Complète les 11 chiffres (format YY.MM.DD-NNN.CC).",
+    nrn_bad: "⚠ Ce numéro ne correspond pas au format belge. Vérifie-le. S'il s'agit d'un numéro étranger, c'est normal — il sera contrôlé au pré-entretien.",
+    // boutons + pied
+    btn_continue: "Continuer → mes indisponibilités",
+    btn_save: "Enregistrer mes informations",
+    step_footer: "Étape 1 sur 2 · tes infos sont déjà enregistrées au fur et à mesure",
+    rgpd: "Tes données sont traitées pour préparer ton embauche et prévenir la fraude (RGPD — intérêt légitime), et conservées selon les délais légaux. La géolocalisation ne sert qu'à te proposer ton adresse.",
+    // étape 2
+    back_to_info: "← Revenir à mes informations",
+    id_card_title: "Ta carte d'identité (recto + verso)",
+    id_card_body: "Photographie ta carte dans le cadre — recto puis verso. Les deux faces sont fusionnées en un seul PDF transmis au service RH.",
+    add_something_title: "Souhaites-tu ajouter quelque chose ?",
+    add_something_body: "Facultatif — une précision, ta nationalité si tu as choisi « Autre », une disponibilité particulière…",
+    notes_placeholder: "Écris ici ce que tu veux ajouter (facultatif)…",
+    saving_full: "Enregistrement…",
+    // écran de fin
+    thanks: "Merci",
+    done_complete_pre: "Votre dossier est ",
+    done_complete_word: "complet",
+    done_complete_post: " et a bien été transmis à notre service RH.",
+    done_candidate_pre: " Votre engagement n'est ",
+    done_candidate_word: "pas encore effectif",
+    done_candidate_post: " : il le deviendra une fois la déclaration Dimona effectuée et votre contrat validé par le secrétariat social. Nous revenons vers vous très prochainement.",
+    done_employee_post: " Notre équipe RH poursuit le traitement de votre dossier.",
+    done_incomplete_pre: "Vos informations ont bien été enregistrées, et nous vous en remercions. Pour ",
+    done_incomplete_word: "finaliser votre dossier",
+    done_incomplete_post: ", il reste toutefois quelques éléments à compléter :",
+    done_note_pre: "Vous pouvez les renseigner à tout moment, à votre rythme, via ce ",
+    done_note_word: "même lien sécurisé",
+    done_note_post: " — il reste valable jusqu'à la finalisation complète de votre dossier :",
+    done_complete_now: "Compléter maintenant",
+  },
+  nl: {
+    status_label: "Je statuut",
+    saving: "opslaan…",
+    saved: "opgeslagen",
+    non_student: "Niet-student",
+    student: "Student",
+    status_hint: "Nodig voor het sociaal secretariaat (studentencontract vs gewone werknemer).",
+    student_warn_title: "Studentenovereenkomst",
+    student_warn_body:
+      ": max. 600 u/jaar aan verlaagde bijdrage. HR bekijkt tijdens het voorgesprek samen met jou je onderwijsinstelling en de studentenuren die je dit jaar al gebruikt hebt. Ben je ook bij het OCMW, verwittig dan je maatschappelijk werker: een studentenjob kan je leefloon beïnvloeden.",
+    choose: "— kiezen —",
+    freq_monthly: "Maandabonnement",
+    freq_yearly: "Jaarabonnement",
+    freq_none: "Geen abonnement",
+    edu_none: "Zonder diploma",
+    edu_lower_sec: "Lager secundair",
+    edu_upper_sec: "Hoger secundair (GHSO)",
+    edu_bachelor: "Bachelor",
+    edu_master: "Master of hoger",
+    edu_other: "Andere",
+    marital_single: "Ongehuwd",
+    marital_married: "Gehuwd",
+    marital_cohab: "Wettelijk samenwonend",
+    marital_divorced: "Gescheiden",
+    marital_widowed: "Weduwnaar / weduwe",
+    nationality_other: "Andere (vermeld in de opmerkingen)",
+    geo_button: "mijn locatie",
+    geo_button_title: "Mijn adres detecteren op basis van mijn locatie",
+    auto: "auto",
+    err_geo_unavailable: "Geolocatie niet beschikbaar op dit toestel.",
+    err_geo_no_address: "We konden je adres niet automatisch detecteren — vul het gewoon hieronder in.",
+    err_geo_denied: "Sta locatie toe om je adres vooraf in te vullen.",
+    err_geo_fail: "Locatie is momenteel niet mogelijk.",
+    err_at_least_one: "Vul minstens één gegeven in.",
+    err_iban: "De ingevoerde IBAN is niet geldig. Controleer hem voordat je opslaat.",
+    err_min_age: "De geboortedatum moet overeenkomen met minstens 17 jaar.",
+    err_generic: "Er is een fout opgetreden.",
+    err_student_first: "Geef eerst aan of je student bent of niet.",
+    nrn_prefill: "Vooraf ingevuld met je geboortedatum (JJMMDD) — vul de resterende cijfers aan.",
+    nrn_valid: "✓ Belgisch rijksregisternummer gevalideerd.",
+    nrn_incomplete: "Vul de 11 cijfers aan (formaat JJ.MM.DD-NNN.CC).",
+    nrn_bad: "⚠ Dit nummer komt niet overeen met het Belgische formaat. Controleer het. Gaat het om een buitenlands nummer, dan is dat normaal — het wordt gecontroleerd tijdens het voorgesprek.",
+    btn_continue: "Verder → mijn onbeschikbaarheden",
+    btn_save: "Mijn gegevens opslaan",
+    step_footer: "Stap 1 van 2 · je gegevens worden gaandeweg al opgeslagen",
+    rgpd: "Je gegevens worden verwerkt om je aanwerving voor te bereiden en fraude te voorkomen (AVG — gerechtvaardigd belang), en worden bewaard volgens de wettelijke termijnen. De geolocatie dient enkel om je je adres voor te stellen.",
+    back_to_info: "← Terug naar mijn gegevens",
+    id_card_title: "Je identiteitskaart (voor- + achterkant)",
+    id_card_body: "Fotografeer je kaart in het kader — eerst de voorkant, dan de achterkant. Beide zijden worden samengevoegd tot één pdf die naar de HR-dienst wordt gestuurd.",
+    add_something_title: "Wil je nog iets toevoegen?",
+    add_something_body: "Optioneel — een verduidelijking, je nationaliteit als je 'Andere' koos, een bijzondere beschikbaarheid…",
+    notes_placeholder: "Schrijf hier wat je wilt toevoegen (optioneel)…",
+    saving_full: "Opslaan…",
+    thanks: "Bedankt",
+    done_complete_pre: "Je dossier is ",
+    done_complete_word: "volledig",
+    done_complete_post: " en is goed doorgestuurd naar onze HR-dienst.",
+    done_candidate_pre: " Je indiensttreding is ",
+    done_candidate_word: "nog niet effectief",
+    done_candidate_post: ": dat wordt ze zodra de Dimona-aangifte is gebeurd en je contract door het sociaal secretariaat is goedgekeurd. We nemen zeer binnenkort contact met je op.",
+    done_employee_post: " Ons HR-team zet de behandeling van je dossier voort.",
+    done_incomplete_pre: "Je gegevens zijn goed opgeslagen, waarvoor onze dank. Om ",
+    done_incomplete_word: "je dossier af te ronden",
+    done_incomplete_post: ", moeten er toch nog enkele gegevens worden aangevuld:",
+    done_note_pre: "Je kunt ze op elk moment aanvullen, op je eigen tempo, via deze ",
+    done_note_word: "zelfde beveiligde link",
+    done_note_post: " — hij blijft geldig tot je dossier volledig is afgerond:",
+    done_complete_now: "Nu aanvullen",
+  },
+} as const;
 
 // Ordre logique : la date de naissance avant le NISS (qu'elle pre-remplit),
 // le code postal avant la ville (qu'il auto-detecte).
@@ -95,16 +260,16 @@ function inputType(key: string): string {
   if (key === "postal_code") return "text";
   return "text";
 }
-function placeholder(key: string): string {
+function placeholder(key: string, locale: Locale): string {
   switch (key) {
     case "iban": return "BE.. .... .... ....";
-    case "nrn": return "AA.MM.JJ-XXX.CC";
+    case "nrn": return locale === "nl" ? "JJ.MM.DD-XXX.CC" : "AA.MM.JJ-XXX.CC";
     case "postal_code": return "1000";
-    case "city": return "Bruxelles";
-    case "address": return "Rue, numéro";
+    case "city": return locale === "nl" ? "Brussel" : "Bruxelles";
+    case "address": return locale === "nl" ? "Straat, nummer" : "Rue, numéro";
     case "transport_price": return "52.00";
-    case "nationality": return "Belge, Marocaine…";
-    case "birth_place": return "Ville de naissance";
+    case "nationality": return locale === "nl" ? "Belg, Marokkaans…" : "Belge, Marocaine…";
+    case "birth_place": return locale === "nl" ? "Geboortestad" : "Ville de naissance";
     case "dependent_children": return "0";
     default: return "";
   }
@@ -130,12 +295,45 @@ function formatIbanGroups(raw: string): string {
   return normalizeIban(raw).replace(/(.{4})/g, "$1 ").trim();
 }
 
+// Sélecteur FR/NL clair (fond CLAIR — actif doré, inactif texte grisé + bordure).
+function LocaleSwitch({ locale, onPick }: { locale: Locale; onPick: (l: Locale) => void }) {
+  return (
+    <div className="flex justify-end">
+      <div
+        role="group"
+        aria-label="Langue / Taal"
+        className="inline-flex items-stretch rounded-md border border-line overflow-hidden text-[11px] font-bold tracking-wider"
+      >
+        {(["fr", "nl"] as const).map((l) => {
+          const active = locale === l;
+          return (
+            <button
+              key={l}
+              type="button"
+              onClick={() => onPick(l)}
+              aria-pressed={active}
+              title={l === "fr" ? "Français" : "Nederlands"}
+              className={[
+                "px-2.5 py-1 uppercase transition-colors min-w-[30px]",
+                active ? "bg-gold text-ink" : "text-ink-3 hover:bg-surface-2",
+              ].join(" ")}
+            >
+              {l}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ContractInfoForm({
   token,
   fields,
   firstName,
   birthDate,
   isCandidate = false,
+  initialLocale = "fr",
   initialIsStudent = null,
   initialUnavailabilities = [],
   idCardExisting = null,
@@ -145,10 +343,20 @@ export function ContractInfoForm({
   firstName: string;
   birthDate?: string | null;
   isCandidate?: boolean;
+  initialLocale?: Locale;
   initialIsStudent?: boolean | null;
   initialUnavailabilities?: CandidateUnavailability[];
   idCardExisting?: { fileName: string; at: string } | null;
 }) {
+  // Langue : bascule INSTANTANÉE en local + persistance best-effort du cookie.
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+  const t = T[locale];
+  function pickLocale(next: Locale) {
+    if (next === locale) return;
+    setLocale(next); // bascule immédiate (pas de reload)
+    void updateLanguagePreferenceAction(next); // fire-and-forget : mémorise le choix
+  }
+
   // Étape 2 (candidat uniquement) : déclaration des indisponibilités.
   const [step, setStep] = useState<1 | 2>(1);
   const ordered = useMemo(
@@ -170,6 +378,42 @@ export function ContractInfoForm({
   const [isStudent, setIsStudent] = useState<string>(
     initialIsStudent === true ? "true" : initialIsStudent === false ? "false" : "",
   );
+
+  // Options des <select> — dépendantes de la locale (valeurs stables, labels traduits).
+  const selectOptions: Record<string, { value: string; label: string }[]> = {
+    transport_type: [
+      { value: "", label: t.choose },
+      ...TRANSPORT_MODES.map((m) => ({ value: m, label: m })),
+    ],
+    transport_frequency: [
+      { value: "", label: t.choose },
+      { value: "mensuel", label: t.freq_monthly },
+      { value: "annuel", label: t.freq_yearly },
+      { value: "sans_objet", label: t.freq_none },
+    ],
+    education_level: [
+      { value: "", label: t.choose },
+      { value: "sans_diplome", label: t.edu_none },
+      { value: "secondaire_inferieur", label: t.edu_lower_sec },
+      { value: "secondaire_superieur", label: t.edu_upper_sec },
+      { value: "bachelier", label: t.edu_bachelor },
+      { value: "master", label: t.edu_master },
+      { value: "autre", label: t.edu_other },
+    ],
+    marital_status: [
+      { value: "", label: t.choose },
+      { value: "celibataire", label: t.marital_single },
+      { value: "marie", label: t.marital_married },
+      { value: "cohabitant_legal", label: t.marital_cohab },
+      { value: "divorce", label: t.marital_divorced },
+      { value: "veuf", label: t.marital_widowed },
+    ],
+    nationality: [
+      { value: "", label: t.choose },
+      ...NATIONALITIES.map((n) => ({ value: n, label: n })),
+      { value: "Autre", label: t.nationality_other },
+    ],
+  };
 
   async function saveStudent(v: string) {
     setSavingKey("is_student");
@@ -205,7 +449,7 @@ export function ContractInfoForm({
   function useMyLocation() {
     setErr(null);
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setErr("Géolocalisation non disponible sur cet appareil.");
+      setErr(t.err_geo_unavailable);
       return;
     }
     setGeoLoading(true);
@@ -217,7 +461,7 @@ export function ContractInfoForm({
             // Karim 2026-07-05 : JAMAIS de warning technique au candidat -> message
             // amical + on log le détail pour nous.
             console.warn("[geoloc]", r.error);
-            setErr("On n'a pas pu détecter ton adresse automatiquement — saisis-la simplement juste en dessous.");
+            setErr(t.err_geo_no_address);
             return;
           }
           if (r.address) { setField("address", r.address); void autosave("address", r.address); }
@@ -229,7 +473,7 @@ export function ContractInfoForm({
       },
       (e) => {
         setGeoLoading(false);
-        setErr(e.code === 1 ? "Autorise la localisation pour pré-remplir ton adresse." : "Localisation impossible pour le moment.");
+        setErr(e.code === 1 ? t.err_geo_denied : t.err_geo_fail);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
@@ -273,7 +517,7 @@ export function ContractInfoForm({
       return;
     }
     let cancelled = false;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const city = await lookupBeCity(code);
       if (cancelled || !city) return;
       if (editedRef.current.has("city")) return;
@@ -281,7 +525,7 @@ export function ContractInfoForm({
       setCityAuto(true);
       void autosave("city", city);
     }, 300);
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [values.postal_code, hasCity]);
 
   function setField(key: string, val: string, manual = true) {
@@ -302,10 +546,10 @@ export function ContractInfoForm({
 
   function validateStep1(): string | null {
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
-    if (filled.length === 0 && !(isCandidate && isStudent)) return "Renseigne au moins une information.";
-    if (ibanStatus === "bad") return "L'IBAN saisi n'est pas valide. Vérifie-le avant d'enregistrer.";
+    if (filled.length === 0 && !(isCandidate && isStudent)) return t.err_at_least_one;
+    if (ibanStatus === "bad") return t.err_iban;
     // Karim 2026-06-15 : âge minimum 17 ans.
-    if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) return "La date de naissance doit correspondre à au moins 17 ans.";
+    if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) return t.err_min_age;
     return null;
   }
 
@@ -328,14 +572,14 @@ export function ContractInfoForm({
     start(async () => {
       const r = await submitContractInfoAction(token, currentPayload());
       if (r.ok) setDone(true);
-      else setErr(r.error ?? "Une erreur est survenue.");
+      else setErr(r.error ?? t.err_generic);
     });
   }
 
   // Candidat : valide l'étape 1, persiste (sans clôturer), passe à l'étape 2.
   function goToStep2() {
     setErr(null);
-    if (isCandidate && !isStudent) { setErr("Indique d'abord si tu es étudiant(e) ou non."); return; }
+    if (isCandidate && !isStudent) { setErr(t.err_student_first); return; }
     const v = validateStep1();
     if (v) { setErr(v); return; }
     start(async () => {
@@ -351,7 +595,7 @@ export function ContractInfoForm({
     start(async () => {
       const r = await submitContractInfoAction(token, currentPayload());
       if (r.ok) setDone(true);
-      else setErr(r.error ?? "Une erreur est survenue.");
+      else setErr(r.error ?? t.err_generic);
     });
   }
 
@@ -374,37 +618,38 @@ export function ContractInfoForm({
     const link = typeof window !== "undefined" ? window.location.href : "";
     return (
       <div className="py-4">
+        <div className="mb-3">
+          <LocaleSwitch locale={locale} onPick={pickLocale} />
+        </div>
         <div className="text-center">
           <div className={`inline-flex h-14 w-14 rounded-full items-center justify-center mb-3 ${complete ? "bg-success-light text-success" : "bg-gold-light text-gold-dark"}`}>
             <CheckCircle2 className="h-7 w-7" />
           </div>
-          <h2 className="text-lg font-bold text-ink">Merci {firstName} !</h2>
+          <h2 className="text-lg font-bold text-ink">{t.thanks} {firstName} !</h2>
         </div>
 
         {complete ? (
           <p className="text-sm text-ink-2 mt-2 text-center">
-            Votre dossier est <b>complet</b> et a bien été transmis à notre service RH.{isCandidate ? (
-              <> Votre engagement n&apos;est <b>pas encore effectif</b> : il le deviendra une fois la déclaration Dimona effectuée et votre contrat validé par le secrétariat social. Nous revenons vers vous très prochainement.</>
+            {t.done_complete_pre}<b>{t.done_complete_word}</b>{t.done_complete_post}{isCandidate ? (
+              <>{t.done_candidate_pre}<b>{t.done_candidate_word}</b>{t.done_candidate_post}</>
             ) : (
-              <> Notre équipe RH poursuit le traitement de votre dossier.</>
+              <>{t.done_employee_post}</>
             )}
           </p>
         ) : (
           <div className="mt-2 space-y-3">
             <p className="text-sm text-ink-2">
-              Vos informations ont bien été enregistrées, et nous vous en remercions. Pour <b>finaliser votre dossier</b>,
-              il reste toutefois quelques éléments à compléter :
+              {t.done_incomplete_pre}<b>{t.done_incomplete_word}</b>{t.done_incomplete_post}
             </p>
             <ul className="rounded-lg border border-gold/40 bg-gold-light/30 p-3 text-sm text-ink space-y-1">
               {stillMissing.map((f) => (
                 <li key={f.key} className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-gold-dark inline-block" /> {f.label}
+                  <span className="h-1.5 w-1.5 rounded-full bg-gold-dark inline-block" /> {FIELD_LABELS[f.key]?.[locale] ?? f.label}
                 </li>
               ))}
             </ul>
             <p className="text-sm text-ink-2">
-              Vous pouvez les renseigner à tout moment, à votre rythme, via ce <b>même lien sécurisé</b> — il reste
-              valable jusqu&apos;à la finalisation complète de votre dossier :
+              {t.done_note_pre}<b>{t.done_note_word}</b>{t.done_note_post}
             </p>
             {link ? (
               <div className="rounded-lg border border-line bg-surface-2 p-2 text-[11px] text-ink-2 break-all font-mono">{link}</div>
@@ -414,7 +659,7 @@ export function ContractInfoForm({
               onClick={() => { setDone(false); setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
               className="w-full rounded-xl bg-ink text-canvas font-bold py-3 text-sm active:scale-[0.98] transition-all"
             >
-              Compléter maintenant
+              {t.done_complete_now}
             </button>
           </div>
         )}
@@ -426,17 +671,20 @@ export function ContractInfoForm({
   if (isCandidate && step === 2) {
     return (
       <div className="space-y-3">
-        <button
-          type="button"
-          onClick={() => { setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
-          className="text-xs font-semibold text-ink-3 hover:text-ink"
-        >
-          ← Revenir à mes informations
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => { setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
+            className="text-xs font-semibold text-ink-3 hover:text-ink"
+          >
+            {t.back_to_info}
+          </button>
+          <LocaleSwitch locale={locale} onPick={pickLocale} />
+        </div>
         <div>
-          <div className="text-sm font-bold text-ink mb-1">Ta carte d&apos;identité (recto + verso)</div>
+          <div className="text-sm font-bold text-ink mb-1">{t.id_card_title}</div>
           <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
-            Photographie ta carte dans le cadre — recto puis verso. Les deux faces sont fusionnées en un seul PDF transmis au service RH.
+            {t.id_card_body}
           </p>
           <IdCardUpload kind="token" token={token} existing={idCardExisting} />
         </div>
@@ -444,23 +692,23 @@ export function ContractInfoForm({
         {/* Karim 2026-07-05 : la « case pour ajouter quelque chose » vit ICI, à la
             toute fin du parcours (plus au milieu), avec un vrai champ de saisie. */}
         <div>
-          <div className="text-sm font-bold text-ink mb-1">Souhaites-tu ajouter quelque chose ?</div>
+          <div className="text-sm font-bold text-ink mb-1">{t.add_something_title}</div>
           <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
-            Facultatif — une précision, ta nationalité si tu as choisi « Autre », une disponibilité particulière…
+            {t.add_something_body}
           </p>
           <textarea
             value={values.notes ?? ""}
             onChange={(e) => setField("notes", e.target.value)}
             onBlur={() => void autosave("notes", values.notes ?? "")}
             rows={3}
-            placeholder="Écris ici ce que tu veux ajouter (facultatif)…"
+            placeholder={t.notes_placeholder}
             className="w-full rounded-lg border-[1.5px] border-line bg-surface px-3 py-2 text-sm outline-none focus:border-gold resize-y"
           />
         </div>
         {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
         {pending ? (
           <div className="flex items-center justify-center gap-2 text-xs text-ink-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Enregistrement…
+            <Loader2 className="h-4 w-4 animate-spin" /> {t.saving_full}
           </div>
         ) : null}
       </div>
@@ -469,20 +717,21 @@ export function ContractInfoForm({
 
   return (
     <div className="space-y-3">
+      <LocaleSwitch locale={locale} onPick={pickLocale} />
       {isCandidate ? (
         <div>
           <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
-            Ton statut
+            {t.status_label}
             {savingKey === "is_student" ? (
-              <span className="ml-auto text-[10px] text-ink-3">enregistrement…</span>
+              <span className="ml-auto text-[10px] text-ink-3">{t.saving}</span>
             ) : savedKeys.has("is_student") || isStudent ? (
               <Check className="h-3.5 w-3.5 text-success ml-auto" />
             ) : null}
           </label>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { v: "false", l: "Non-étudiant" },
-              { v: "true", l: "Étudiant" },
+              { v: "false", l: t.non_student },
+              { v: "true", l: t.student },
             ].map((o) => (
               <button
                 key={o.v}
@@ -498,14 +747,11 @@ export function ContractInfoForm({
             ))}
           </div>
           <p className="text-[11px] text-ink-3 mt-1">
-            Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).
+            {t.status_hint}
           </p>
           {isStudent === "true" ? (
             <div className="mt-2 rounded-lg border border-gold/40 bg-gold-light/40 p-2 text-[11px] text-ink-2">
-              <b>Contrat d&apos;occupation étudiant</b> : max 600 h/an à cotisation réduite. Le RH vérifiera avec toi
-              ton établissement et tes heures étudiant déjà utilisées cette année lors du pré-entretien.
-              {" "}Si tu es aussi au CPAS, préviens ton assistant(e) social(e) : un job étudiant peut impacter ton
-              revenu d&apos;intégration.
+              <b>{t.student_warn_title}</b>{t.student_warn_body}
             </div>
           ) : null}
         </div>
@@ -514,36 +760,37 @@ export function ContractInfoForm({
       {visibleFields.map((f) => {
         const isIban = f.key === "iban";
         const isCity = f.key === "city";
-        const opts = SELECT_OPTIONS[f.key];
+        const opts = selectOptions[f.key];
         // Karim 2026-06-17 : vert dès que le champ est rempli (hors IBAN qui a sa
         // propre validation mod-97).
         const filled = (values[f.key] ?? "").trim() !== "";
+        const fieldLabel = FIELD_LABELS[f.key]?.[locale] ?? f.label;
         return (
           <div key={f.key}>
             <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
-              {f.label}
+              {fieldLabel}
               {isCandidate && f.key === "address" ? (
                 <button
                   type="button"
                   onClick={useMyLocation}
                   disabled={geoLoading}
-                  title="Détecter mon adresse à partir de ma position"
+                  title={t.geo_button_title}
                   className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-gold-dark hover:underline disabled:opacity-50"
                 >
                   {geoLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <span aria-hidden>📍</span>}
-                  ma position
+                  {t.geo_button}
                 </button>
               ) : null}
               {isCity && cityAuto ? (
                 <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-success">
-                  <Sparkles className="h-3 w-3" /> auto
+                  <Sparkles className="h-3 w-3" /> {t.auto}
                 </span>
               ) : null}
               {savingKey === f.key ? (
-                <span className="ml-auto text-[10px] text-ink-3">enregistrement…</span>
+                <span className="ml-auto text-[10px] text-ink-3">{t.saving}</span>
               ) : savedKeys.has(f.key) ? (
                 <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] font-semibold text-success">
-                  <Check className="h-3 w-3" /> enregistré
+                  <Check className="h-3 w-3" /> {t.saved}
                 </span>
               ) : filled && !isIban ? (
                 <Check className="h-3.5 w-3.5 text-success ml-auto" />
@@ -582,7 +829,7 @@ export function ContractInfoForm({
                   inputMode={f.key === "postal_code" || f.key === "transport_price" ? "numeric" : undefined}
                   max={f.key === "birth_date" ? maxBirth : undefined}
                   value={values[f.key] ?? ""}
-                  placeholder={placeholder(f.key)}
+                  placeholder={placeholder(f.key, locale)}
                   onChange={(e) => setField(f.key, e.target.value)}
                   onBlur={() => void autosave(f.key, values[f.key] ?? "")}
                   className={[
@@ -597,21 +844,21 @@ export function ContractInfoForm({
               (() => {
                 const raw = normalizeNRN(values.nrn ?? "");
                 if (raw.length === 0) {
-                  return <p className="text-[11px] text-ink-3 mt-1">Pré-rempli avec ta date de naissance (AAMMJJ) — complète les chiffres restants.</p>;
+                  return <p className="text-[11px] text-ink-3 mt-1">{t.nrn_prefill}</p>;
                 }
                 const v = validateNRN(values.nrn ?? "");
                 if (v.valid) {
-                  return <p className="text-[11px] text-success font-semibold mt-1">✓ Numéro national belge validé.</p>;
+                  return <p className="text-[11px] text-success font-semibold mt-1">{t.nrn_valid}</p>;
                 }
                 // Incomplet (moins de 11 chiffres) : simple info, pas d'alerte.
                 if (raw.length < 11) {
-                  return <p className="text-[11px] text-ink-3 mt-1">Complète les 11 chiffres (format YY.MM.DD-NNN.CC).</p>;
+                  return <p className="text-[11px] text-ink-3 mt-1">{t.nrn_incomplete}</p>;
                 }
                 // 11 chiffres mais checksum belge KO : signalé "non vérifié" (jamais silencieux).
-                return <p className="text-[11px] text-warn font-semibold mt-1">⚠ Ce numéro ne correspond pas au format belge. Vérifie-le. S&apos;il s&apos;agit d&apos;un numéro étranger, c&apos;est normal — il sera contrôlé au pré-entretien.</p>;
+                return <p className="text-[11px] text-warn font-semibold mt-1">{t.nrn_bad}</p>;
               })()
             ) : FIELD_HINTS[f.key] ? (
-              <p className="text-[11px] text-ink-3 mt-1">{FIELD_HINTS[f.key]}</p>
+              <p className="text-[11px] text-ink-3 mt-1">{FIELD_HINTS[f.key][locale]}</p>
             ) : null}
           </div>
         );
@@ -626,14 +873,13 @@ export function ContractInfoForm({
         className="w-full rounded-xl bg-ink text-canvas font-bold py-3 min-h-[52px] text-sm disabled:opacity-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
       >
         {pending ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-        {isCandidate ? "Continuer → mes indisponibilités" : "Enregistrer mes informations"}
+        {isCandidate ? t.btn_continue : t.btn_save}
       </button>
       {isCandidate ? (
         <>
-          <p className="text-center text-[11px] text-ink-3">Étape 1 sur 2 · tes infos sont déjà enregistrées au fur et à mesure</p>
+          <p className="text-center text-[11px] text-ink-3">{t.step_footer}</p>
           <p className="text-center text-[10px] text-ink-3 leading-snug mt-1">
-            Tes données sont traitées pour préparer ton embauche et prévenir la fraude (RGPD — intérêt légitime),
-            et conservées selon les délais légaux. La géolocalisation ne sert qu&apos;à te proposer ton adresse.
+            {t.rgpd}
           </p>
         </>
       ) : null}

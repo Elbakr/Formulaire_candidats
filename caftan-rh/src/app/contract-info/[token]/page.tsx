@@ -1,11 +1,25 @@
+import { cookies, headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMissingFields } from "@/lib/contract-readiness";
 import { getEmployeeIdCard, getCandidateIdCard } from "@/lib/id-card";
 import { logCandidateAccess } from "@/lib/candidate-access-log";
 import { IdCardUpload } from "@/components/id-card-upload";
+import type { Locale } from "@/lib/i18n";
 import { ContractInfoForm } from "./contract-info-form";
 
 export const dynamic = "force-dynamic";
+
+// Karim 2026-07-05 : auto-détection de la langue du candidat.
+// 1) cookie `lang` (choix explicite, prioritaire) ; 2) sinon en-tête
+// `accept-language` du navigateur : contient "nl" -> NL, sinon FR (défaut).
+async function detectLocale(): Promise<Locale> {
+  const cookieStore = await cookies();
+  const cookieLang = cookieStore.get("lang")?.value;
+  if (cookieLang === "fr" || cookieLang === "nl") return cookieLang;
+  const h = await headers();
+  const accept = (h.get("accept-language") ?? "").toLowerCase();
+  return accept.includes("nl") ? "nl" : "fr";
+}
 
 // Karim 2026-07-03 : champs secrétariat social demandés à un CANDIDAT pré-validé
 // (lien de pré-embauche). Le candidat remplit tout lui-même, à son rythme.
@@ -61,6 +75,7 @@ function InvalidShell() {
 
 export default async function ContractInfoTokenPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const locale = await detectLocale();
   const admin = createAdminClient();
   const { data: tokRaw } = await admin
     .from("contract_info_tokens")
@@ -120,6 +135,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
           firstName={firstName}
           birthDate={(cand.birth_date as string) ?? null}
           isCandidate
+          initialLocale={locale}
           initialIsStudent={isStudent}
           initialUnavailabilities={unavailabilities}
           idCardExisting={candIdCardExisting}
@@ -177,6 +193,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
           fields={missing}
           firstName={firstName}
           birthDate={(emp.birth_date as string) ?? null}
+          initialLocale={locale}
         />
       )}
       <div className="mt-4">
