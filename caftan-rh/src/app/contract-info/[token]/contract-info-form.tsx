@@ -441,6 +441,22 @@ export function ContractInfoForm({
           <IdCardUpload kind="token" token={token} existing={idCardExisting} />
         </div>
         <UnavailabilitiesStep token={token} initialItems={initialUnavailabilities} onDone={finish} />
+        {/* Karim 2026-07-05 : la « case pour ajouter quelque chose » vit ICI, à la
+            toute fin du parcours (plus au milieu), avec un vrai champ de saisie. */}
+        <div>
+          <div className="text-sm font-bold text-ink mb-1">Souhaites-tu ajouter quelque chose ?</div>
+          <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
+            Facultatif — une précision, ta nationalité si tu as choisi « Autre », une disponibilité particulière…
+          </p>
+          <textarea
+            value={values.notes ?? ""}
+            onChange={(e) => setField("notes", e.target.value)}
+            onBlur={() => void autosave("notes", values.notes ?? "")}
+            rows={3}
+            placeholder="Écris ici ce que tu veux ajouter (facultatif)…"
+            className="w-full rounded-lg border-[1.5px] border-line bg-surface px-3 py-2 text-sm outline-none focus:border-gold resize-y"
+          />
+        </div>
         {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
         {pending ? (
           <div className="flex items-center justify-center gap-2 text-xs text-ink-3">
@@ -600,22 +616,6 @@ export function ContractInfoForm({
           </div>
         );
       })}
-
-      {/* Karim 2026-07-05 : champ libre en bas — le candidat peut ajouter toute info
-          utile (nationalité si « Autre », précision, disponibilité particulière…). */}
-      <div>
-        <label className="block text-xs font-semibold text-ink-2 mb-1">
-          Remarques <span className="text-ink-3 font-normal">(facultatif)</span>
-        </label>
-        <textarea
-          value={values.notes ?? ""}
-          onChange={(e) => setField("notes", e.target.value)}
-          onBlur={() => void autosave("notes", values.notes ?? "")}
-          rows={3}
-          placeholder="Une info à ajouter ? (ex. ta nationalité si « Autre », une disponibilité particulière, une précision…)"
-          className="w-full rounded-lg border-[1.5px] border-line bg-surface px-3 py-2 text-sm outline-none focus:border-gold resize-y"
-        />
-      </div>
 
       {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
 
