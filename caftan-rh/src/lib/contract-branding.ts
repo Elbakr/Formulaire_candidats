@@ -28,3 +28,23 @@ export function documentBrandingHtml(withBranding = true): string {
   if (!withBranding) return "";
   return `<div class="brand-watermark"><img src="${CAFTAN_LOGO_DATA_URL}" alt=""></div>`;
 }
+
+// Karim 2026-07-05 : EN-TÊTE CORPORATE (option) — remplace l'encadré du titre par
+// un petit logo centré EN FLUX (aucune superposition) + titre épuré (majuscules
+// espacées) souligné d'un fin filet. Compact -> préserve le nombre de pages.
+// headerStyle='classic' garde l'encadré validé. Bascule à tout moment.
+export function corporateHeaderCss(): string {
+  return `
+  body.header-corporate .doc-title {
+    border: none; padding: 0.02cm 0 0.14cm 0; margin: 0 0 0.28cm 0;
+    border-bottom: 0.75pt solid #111;
+  }
+  body.header-corporate .doc-title h1 { letter-spacing: 0.16em; font-weight: 600; }
+  .doc-logo { text-align: center; margin: 0 0 0.16cm 0; }
+  .doc-logo img { height: 0.85cm; width: auto; display: inline-block; }
+  `;
+}
+
+export function corporateHeaderHtml(): string {
+  return `<div class="doc-logo"><img src="${CAFTAN_LOGO_DATA_URL}" alt="Caftan Factory"></div>`;
+}

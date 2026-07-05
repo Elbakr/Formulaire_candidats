@@ -61,11 +61,15 @@ export default async function ContractDetailPage(
   // spécifiques). Ne s'applique qu'au brouillon (un contrat signé garde son corps figé).
   const sp = await props.searchParams;
   const withBranding = (Array.isArray(sp?.brand) ? sp.brand[0] : sp?.brand) !== "off";
+  // Karim 2026-07-05 : en-tête 'corporate' par défaut, basculable vers 'classic'
+  // (encadré validé) via ?header=classic.
+  const headerClassic = (Array.isArray(sp?.header) ? sp.header[0] : sp?.header) === "classic";
+  const headerStyle: "corporate" | "classic" = headerClassic ? "classic" : "corporate";
   let contractHtml = (contract as unknown as { rendered_body: string | null }).rendered_body ?? null;
   if (!contractHtml) {
     const tplCode = contract.contract_kind === "Étudiant" ? "student" : Number(contract.weekly_hours) < 38 ? "employee_pt" : "employee";
     try {
-      const res = await previewContractHtmlAction(id, tplCode, { manualSign: true, withBranding });
+      const res = await previewContractHtmlAction(id, tplCode, { manualSign: true, withBranding, headerStyle });
       if (res.ok) contractHtml = res.html;
     } catch { /* aperçu best-effort */ }
   }
@@ -122,9 +126,15 @@ export default async function ContractDetailPage(
         </div>
       </Card>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-4 flex-wrap">
         <a
-          href={`?brand=${withBranding ? "off" : "on"}`}
+          href={`?header=${headerClassic ? "corporate" : "classic"}${!withBranding ? "&brand=off" : ""}`}
+          className="text-xs font-semibold text-gold-dark hover:underline"
+        >
+          {headerClassic ? "En-tête corporate (logo + titre épuré)" : "↩ Revenir à l'encadré du titre (classique)"}
+        </a>
+        <a
+          href={`?brand=${withBranding ? "off" : "on"}${headerClassic ? "&header=classic" : ""}`}
           className="text-xs font-semibold text-gold-dark hover:underline"
         >
           {withBranding ? "Générer une version SANS logo/filigrane" : "↩ Revenir à la version AVEC logo"}

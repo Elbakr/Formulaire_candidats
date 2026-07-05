@@ -14,7 +14,7 @@
 // scripts/preview-docuseal-layout.html pour previewer le rendu sans DocuSeal.
 
 import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey, type EmployerOrg } from "@/lib/contract-renderer";
-import { documentBrandingCss, documentBrandingHtml } from "@/lib/contract-branding";
+import { documentBrandingCss, documentBrandingHtml, corporateHeaderCss, corporateHeaderHtml } from "@/lib/contract-branding";
 
 /**
  * Karim 2026-05-29 : escape HTML special pour eviter injection.
@@ -751,6 +751,9 @@ function buildContractHtmlForDocuseal(args: {
   // Karim 2026-07-05 : logo + filigrane Caftan Factory (défaut true). false =
   // version neutre sans branding (besoins spécifiques).
   withBranding?: boolean;
+  // Karim 2026-07-05 : en-tête 'corporate' (logo + titre épuré) par défaut, ou
+  // 'classic' (encadré validé). Bascule à tout moment.
+  headerStyle?: "corporate" | "classic";
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
@@ -774,10 +777,11 @@ function buildContractHtmlForDocuseal(args: {
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(args.withBranding !== false)}</style>
+<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(args.withBranding !== false)}${args.headerStyle !== "classic" ? corporateHeaderCss() : ""}</style>
 </head>
-<body class="contract-${args.templateCode ?? "employee"}">
+<body class="contract-${args.templateCode ?? "employee"}${args.headerStyle !== "classic" ? " header-corporate" : ""}">
 ${documentBrandingHtml(args.withBranding !== false)}
+${args.headerStyle !== "classic" ? corporateHeaderHtml() : ""}
 ${args.contractBodyHtml}
 
 <p class="closing-line">
@@ -826,6 +830,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
   // défaut, calculée par l'appelant (resolveContractRenderInputs). Rendue visible.
   signatureDate?: string;
   withBranding?: boolean;
+  headerStyle?: "corporate" | "classic";
 }): Promise<string> {
   const vars = buildContractVariables({
     employee: args.employeeData,
@@ -859,6 +864,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
     employerRepresentativeName: args.employerRepresentativeOverride ?? org.representative,
     signatureDate: args.signatureDate,
     withBranding: args.withBranding,
+    headerStyle: args.headerStyle,
   });
 }
 

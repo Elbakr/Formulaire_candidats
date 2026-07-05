@@ -11,7 +11,7 @@ import { resolveContractRenderInputs } from "@/lib/contract-render-inputs";
 export async function previewContractHtmlAction(
   employeeId: string,
   tplCode: "employee" | "employee_pt" | "student",
-  options?: { manualSign?: boolean; withBranding?: boolean },
+  options?: { manualSign?: boolean; withBranding?: boolean; headerStyle?: "corporate" | "classic" },
 ): Promise<{ ok: true; html: string } | { ok: false; error: string }> {
   const { profile } = await requireRole(["admin", "rh"]);
   const admin = createAdminClient();
@@ -52,6 +52,7 @@ export async function previewContractHtmlAction(
       employerRepresentativeOverride: profile.full_name ?? "Karim Elbazi",
       signatureDate,
       withBranding: options?.withBranding !== false,
+      headerStyle: options?.headerStyle ?? "corporate",
     });
     // Karim 2026-05-31 : mode manual sign - remplace <signature-field> et
     // <date-field> par des zones vides imprimables pour signature manuelle
