@@ -130,7 +130,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
   if (tok.candidate_id) {
     const { data: candRaw } = await admin
       .from("candidates")
-      .select("id, full_name, email, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, is_student")
+      .select("id, full_name, email, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, is_student, student_hours_used_2026")
       .eq("id", tok.candidate_id)
       .maybeSingle();
     if (!candRaw) return <InvalidShell locale={locale} />;
@@ -159,9 +159,11 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     // Karim 2026-07-05 : on passe TOUS les champs (plus seulement les manquants) +
     // les valeurs ACTUELLES pré-remplies -> le candidat peut MODIFIER n'importe
     // quelle donnée déjà saisie (correction demandée depuis le mail récap).
-    const initialValues = Object.fromEntries(
+    const initialValues: Record<string, string> = Object.fromEntries(
       CANDIDATE_HIRING_FIELDS.map((f) => [f.key, cand[f.key] != null ? String(cand[f.key]) : ""]),
     );
+    // Heures étudiant déjà consommées en 2026 (rendu à part, étudiant uniquement).
+    initialValues.student_hours_used_2026 = cand.student_hours_used_2026 != null ? String(cand.student_hours_used_2026) : "";
 
     return (
       <Shell locale={locale} hideSubtitle>

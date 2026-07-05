@@ -47,6 +47,12 @@ function buildUpdate(values: Record<string, string>, isCandidate: boolean): { up
       const n = parseInt(dc, 10);
       if (Number.isFinite(n) && n >= 0) update.dependent_children = n;
     }
+    // Karim 2026-07-05 : heures étudiant déjà consommées en 2026 (contingent).
+    const sh = (values.student_hours_used_2026 ?? "").trim();
+    if (sh !== "") {
+      const n = parseInt(sh, 10);
+      if (Number.isFinite(n) && n >= 0 && n <= 2000) update.student_hours_used_2026 = n;
+    }
   }
   if (typeof update.birth_date === "string" && update.birth_date > isoMinusYears(17)) {
     return { update, error: "La date de naissance doit correspondre à au moins 17 ans." };

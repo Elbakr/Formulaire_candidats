@@ -117,6 +117,8 @@ const T = {
     student: "Étudiant",
     status_hint: "Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).",
     student_warn_title: "Contrat d'occupation étudiant",
+    student_hours_label: "Heures étudiant déjà utilisées en 2026",
+    student_hours_hint: "Nombre d'heures de ton contingent étudiant (± 600 h/an) déjà prestées cette année, tous employeurs confondus. Requis pour le secrétariat social.",
     student_warn_body:
       " : max 600 h/an à cotisation réduite. Le RH vérifiera avec toi ton établissement et tes heures étudiant déjà utilisées cette année lors du pré-entretien. Si tu es aussi au CPAS, préviens ton assistant(e) social(e) : un job étudiant peut impacter ton revenu d'intégration.",
     // options de select
@@ -195,6 +197,8 @@ const T = {
     student: "Student",
     status_hint: "Nodig voor het sociaal secretariaat (studentencontract vs gewone werknemer).",
     student_warn_title: "Studentenovereenkomst",
+    student_hours_label: "Al gebruikte studentenuren in 2026",
+    student_hours_hint: "Aantal uren van je studentencontingent (± 600 u/jaar) dat je dit jaar al hebt gepresteerd, bij alle werkgevers samen. Vereist voor het sociaal secretariaat.",
     student_warn_body:
       ": max. 600 u/jaar aan verlaagde bijdrage. HR bekijkt tijdens het voorgesprek samen met jou je onderwijsinstelling en de studentenuren die je dit jaar al gebruikt hebt. Ben je ook bij het OCMW, verwittig dan je maatschappelijk werker: een studentenjob kan je leefloon beïnvloeden.",
     choose: "— kiezen —",
@@ -681,6 +685,10 @@ export function ContractInfoForm({
       if (f.key === "nrn") return normalizeNRN(values.nrn ?? "").length < 11;
       return (values[f.key] ?? "").trim() === "";
     });
+    // Karim 2026-07-05 : heures étudiant 2026 OBLIGATOIRES pour un étudiant.
+    if (isCandidate && isStudent === "true" && (values.student_hours_used_2026 ?? "").trim() === "") {
+      stillMissing.push({ key: "student_hours_used_2026", label: locale === "nl" ? "Al gebruikte studentenuren in 2026" : "Heures étudiant déjà utilisées en 2026" });
+    }
     const complete = stillMissing.length === 0;
     const link = typeof window !== "undefined" ? window.location.href : "";
     return (
@@ -847,6 +855,29 @@ export function ContractInfoForm({
           {isStudent === "true" ? (
             <div className="mt-2 rounded-lg border border-gold/40 bg-gold-light/40 p-2 text-[11px] text-ink-2">
               <b>{t.student_warn_title}</b>{t.student_warn_body}
+            </div>
+          ) : null}
+          {/* Karim 2026-07-05 : heures étudiant déjà consommées en 2026 — OBLIGATOIRE
+              pour un étudiant (contingent ~600h/an, secrétariat social). */}
+          {isStudent === "true" ? (
+            <div className="mt-3">
+              <label className="block text-xs font-semibold text-ink-2 mb-1">
+                {t.student_hours_label} <span className="text-danger">*</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={values.student_hours_used_2026 ?? ""}
+                onChange={(e) => setField("student_hours_used_2026", e.target.value)}
+                onBlur={() => void autosave("student_hours_used_2026", values.student_hours_used_2026 ?? "")}
+                placeholder="0"
+                className={[
+                  "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
+                  (values.student_hours_used_2026 ?? "").trim() ? "border-success" : "border-danger",
+                ].join(" ")}
+              />
+              <p className="text-[11px] text-ink-3 mt-1">{t.student_hours_hint}</p>
             </div>
           ) : null}
         </div>
