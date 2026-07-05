@@ -52,6 +52,22 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: "divorce", label: "Divorcé(e)" },
     { value: "veuf", label: "Veuf / Veuve" },
   ],
+  // Karim 2026-07-05 : nationalité par MENU DÉROULANT (plus de saisie libre ->
+  // zéro faute de frappe pour la Dimona). Les rares cas -> "Autre" + remarques.
+  nationality: [
+    { value: "", label: "— choisir —" },
+    ...[
+      "Belge", "Marocaine", "Française", "Italienne", "Néerlandaise", "Espagnole",
+      "Portugaise", "Turque", "Roumaine", "Polonaise", "Bulgare", "Allemande",
+      "Congolaise (RDC)", "Algérienne", "Tunisienne", "Grecque", "Britannique",
+      "Camerounaise", "Guinéenne", "Sénégalaise", "Rwandaise", "Ivoirienne",
+      "Syrienne", "Afghane", "Pakistanaise", "Indienne", "Russe", "Ukrainienne",
+      "Albanaise", "Serbe", "Croate", "Hongroise", "Tchèque", "Slovaque",
+      "Autrichienne", "Suédoise", "Luxembourgeoise", "Suisse", "Américaine",
+      "Brésilienne", "Chinoise", "Philippine",
+    ].map((n) => ({ value: n, label: n })),
+    { value: "Autre", label: "Autre (préciser dans les remarques)" },
+  ],
 };
 
 // Karim 2026-07-03 : champs candidat réservés au parcours NON-ÉTUDIANT (précompte
@@ -197,7 +213,13 @@ export function ContractInfoForm({
       async (pos) => {
         try {
           const r = await reverseGeocodeAction(pos.coords.latitude, pos.coords.longitude);
-          if (!r.ok) { setErr(r.error ?? "Adresse introuvable à ta position."); return; }
+          if (!r.ok) {
+            // Karim 2026-07-05 : JAMAIS de warning technique au candidat -> message
+            // amical + on log le détail pour nous.
+            console.warn("[geoloc]", r.error);
+            setErr("On n'a pas pu détecter ton adresse automatiquement — saisis-la simplement juste en dessous.");
+            return;
+          }
           if (r.address) { setField("address", r.address); void autosave("address", r.address); }
           if (r.postal_code) { setField("postal_code", r.postal_code); void autosave("postal_code", r.postal_code); }
           if (r.city) { setField("city", r.city, false); setCityAuto(true); void autosave("city", r.city); }
@@ -578,6 +600,22 @@ export function ContractInfoForm({
           </div>
         );
       })}
+
+      {/* Karim 2026-07-05 : champ libre en bas — le candidat peut ajouter toute info
+          utile (nationalité si « Autre », précision, disponibilité particulière…). */}
+      <div>
+        <label className="block text-xs font-semibold text-ink-2 mb-1">
+          Remarques <span className="text-ink-3 font-normal">(facultatif)</span>
+        </label>
+        <textarea
+          value={values.notes ?? ""}
+          onChange={(e) => setField("notes", e.target.value)}
+          onBlur={() => void autosave("notes", values.notes ?? "")}
+          rows={3}
+          placeholder="Une info à ajouter ? (ex. ta nationalité si « Autre », une disponibilité particulière, une précision…)"
+          className="w-full rounded-lg border-[1.5px] border-line bg-surface px-3 py-2 text-sm outline-none focus:border-gold resize-y"
+        />
+      </div>
 
       {err ? <div className="text-xs text-danger font-semibold">{err}</div> : null}
 
