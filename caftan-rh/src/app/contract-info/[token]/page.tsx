@@ -42,7 +42,42 @@ const CANDIDATE_HIRING_FIELDS: Array<{ key: string; label: string }> = [
   { key: "transport_price", label: "Prix du transport (€)" },
 ];
 
-function Shell({ children }: { children: React.ReactNode }) {
+// Karim 2026-07-05 : textes rendus côté SERVEUR de la page candidat, bilingues
+// FR/NL. La locale est déjà détectée (cookie `lang` / accept-language) — sans ce
+// dictionnaire, l'en-tête + l'intro + les écrans restaient en français quand le
+// candidat basculait en NL (le formulaire, lui, était déjà traduit).
+const PAGE_T = {
+  fr: {
+    header_subtitle: "Complète ton dossier RH",
+    invalid_title: "Lien invalide ou expiré",
+    invalid_body: "Contacte l'équipe RH si besoin.",
+    cand_hi: "Bonjour",
+    cand_intro:
+      ", bienvenue chez Caftan Factory 👋 Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme — chaque champ est enregistré au fur et à mesure.",
+    emp_hi: "Bonjour",
+    emp_intro:
+      ", pour finaliser ton dossier et préparer ton contrat, merci de compléter les éléments ci-dessous. Ça prend une minute 🙏",
+    emp_done_title: "Merci",
+    emp_done_body:
+      "Ton dossier est complet (infos + carte d'identité). Rien d'autre à faire — l'équipe RH revient vers toi.",
+  },
+  nl: {
+    header_subtitle: "Vul je HR-dossier aan",
+    invalid_title: "Ongeldige of vervallen link",
+    invalid_body: "Neem contact op met het HR-team indien nodig.",
+    cand_hi: "Hallo",
+    cand_intro:
+      ", welkom bij Caftan Factory 👋 Vul hieronder de gegevens in die nodig zijn voor je aanwerving. Je kunt dit op je eigen tempo doen — elk veld wordt gaandeweg opgeslagen.",
+    emp_hi: "Hallo",
+    emp_intro:
+      ", om je dossier af te ronden en je contract voor te bereiden, vul hieronder de gegevens aan. Het duurt maar een minuutje 🙏",
+    emp_done_title: "Bedankt",
+    emp_done_body:
+      "Je dossier is volledig (gegevens + identiteitskaart). Er is niets anders te doen — het HR-team neemt contact met je op.",
+  },
+} as const;
+
+function Shell({ children, locale = "fr" }: { children: React.ReactNode; locale?: Locale }) {
   return (
     <main
       style={{ colorScheme: "light" }}
@@ -52,7 +87,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="bg-surface border border-line rounded-2xl shadow-sm overflow-hidden">
           <div className="bg-ink text-white px-5 py-4">
             <div className="text-gold font-bold uppercase tracking-[0.12em] text-[11px]">Caftan Factory</div>
-            <div className="text-sm font-bold mt-0.5">Complète ton dossier RH</div>
+            <div className="text-sm font-bold mt-0.5">{PAGE_T[locale].header_subtitle}</div>
           </div>
           <div className="p-5">{children}</div>
         </div>
@@ -62,12 +97,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function InvalidShell() {
+function InvalidShell({ locale = "fr" }: { locale?: Locale }) {
+  const tt = PAGE_T[locale];
   return (
-    <Shell>
+    <Shell locale={locale}>
       <div className="text-center py-4">
-        <div className="text-base font-bold text-ink">Lien invalide ou expiré</div>
-        <p className="text-sm text-ink-2 mt-1">Contacte l&apos;équipe RH si besoin.</p>
+        <div className="text-base font-bold text-ink">{tt.invalid_title}</div>
+        <p className="text-sm text-ink-2 mt-1">{tt.invalid_body}</p>
       </div>
     </Shell>
   );
@@ -83,7 +119,8 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     .eq("token", token)
     .maybeSingle();
   const tok = tokRaw as { id: string; employee_id: string | null; candidate_id: string | null; completed_at: string | null } | null;
-  if (!tok) return <InvalidShell />;
+  if (!tok) return <InvalidShell locale={locale} />;
+  const tt = PAGE_T[locale];
 
   // ---------------------------------------------------------------------------
   // CANDIDAT PRÉ-VALIDÉ (lien de pré-embauche) — Karim 2026-07-03
@@ -94,7 +131,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
       .select("id, full_name, email, birth_date, birth_place, nrn, nationality, address, postal_code, city, iban, education_level, marital_status, dependent_children, transport_type, transport_frequency, transport_price, is_student")
       .eq("id", tok.candidate_id)
       .maybeSingle();
-    if (!candRaw) return <InvalidShell />;
+    if (!candRaw) return <InvalidShell locale={locale} />;
     const cand = candRaw as Record<string, unknown>;
     const firstName = ((cand.full_name as string) ?? "").split(/\s+/)[0] ?? "";
 
@@ -123,11 +160,9 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     const isStudent = typeof cand.is_student === "boolean" ? (cand.is_student as boolean) : null;
 
     return (
-      <Shell>
+      <Shell locale={locale}>
         <p className="text-sm text-ink-2 leading-relaxed mb-4">
-          Bonjour{firstName ? <> <b className="text-ink">{firstName}</b></> : null}, bienvenue chez Caftan Factory 👋
-          Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme —
-          chaque champ est enregistré au fur et à mesure.
+          {tt.cand_hi}{firstName ? <> <b className="text-ink">{firstName}</b></> : null}{tt.cand_intro}
         </p>
         <ContractInfoForm
           token={token}
@@ -147,7 +182,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
   // ---------------------------------------------------------------------------
   // EMPLOYÉ (dossier RH classique) — inchangé
   // ---------------------------------------------------------------------------
-  if (!tok.employee_id) return <InvalidShell />;
+  if (!tok.employee_id) return <InvalidShell locale={locale} />;
   const employeeId = tok.employee_id;
 
   const { data: empRaw } = await admin
@@ -169,23 +204,19 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
 
   if (fieldsDone && idCard) {
     return (
-      <Shell>
+      <Shell locale={locale}>
         <div className="text-center py-4">
-          <div className="text-base font-bold text-ink">Merci {firstName} !</div>
-          <p className="text-sm text-ink-2 mt-1">
-            Ton dossier est complet (infos + carte d&apos;identité). Rien d&apos;autre à faire —
-            l&apos;équipe RH revient vers toi.
-          </p>
+          <div className="text-base font-bold text-ink">{tt.emp_done_title} {firstName} !</div>
+          <p className="text-sm text-ink-2 mt-1">{tt.emp_done_body}</p>
         </div>
       </Shell>
     );
   }
 
   return (
-    <Shell>
+    <Shell locale={locale}>
       <p className="text-sm text-ink-2 leading-relaxed mb-4">
-        Bonjour <b className="text-ink">{firstName}</b>, pour finaliser ton dossier et préparer ton contrat,
-        merci de compléter les éléments ci-dessous. Ça prend une minute 🙏
+        {tt.emp_hi} <b className="text-ink">{firstName}</b>{tt.emp_intro}
       </p>
       {!fieldsDone && (
         <ContractInfoForm

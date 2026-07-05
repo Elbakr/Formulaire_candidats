@@ -20,6 +20,9 @@ export function PrevalidatedLinkButton() {
   const [link, setLink] = useState<string | null>(null);
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Karim 2026-07-05 : mémorise l'adresse à laquelle le lien a déjà été envoyé,
+  // pour que le bouton « Envoyer » bascule en « Lien envoyé ✓ — renvoyer ».
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   function reset() {
     setFullName("");
@@ -27,6 +30,7 @@ export function PrevalidatedLinkButton() {
     setLink(null);
     setCandidateId(null);
     setCopied(false);
+    setSentTo(null);
   }
 
   function generate() {
@@ -59,8 +63,10 @@ export function PrevalidatedLinkButton() {
     }
     start(async () => {
       const r = await sendPrevalidatedLinkAction({ candidateId, email: email.trim() });
-      if (r.ok) toast.success(`Lien envoyé à ${r.sentTo}`);
-      else toast.error(r.error ?? "Échec de l'envoi");
+      if (r.ok) {
+        setSentTo(r.sentTo ?? email.trim());
+        toast.success(`Lien envoyé à ${r.sentTo}`);
+      } else toast.error(r.error ?? "Échec de l'envoi");
     });
   }
 
@@ -86,7 +92,7 @@ export function PrevalidatedLinkButton() {
             </div>
             <div>
               <Label>Email (optionnel — pour l&apos;envoyer)</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="candidat@email.com" />
+              <Input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setSentTo(null); }} placeholder="candidat@email.com" />
             </div>
 
             {!link ? (
@@ -101,10 +107,28 @@ export function PrevalidatedLinkButton() {
                   <Button variant="outline" size="sm" onClick={copy} className="flex-1">
                     {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />} Copier
                   </Button>
-                  <Button variant="gold" size="sm" onClick={sendMail} disabled={pending || !email.trim()} className="flex-1">
-                    {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer
+                  <Button
+                    variant={sentTo ? "outline" : "gold"}
+                    size="sm"
+                    onClick={sendMail}
+                    disabled={pending || !email.trim()}
+                    className={`flex-1 ${sentTo ? "border-success text-success hover:bg-success-light" : ""}`}
+                  >
+                    {pending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : sentTo ? (
+                      <Check className="h-4 w-4 text-success" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    {sentTo ? "Lien envoyé — renvoyer" : "Envoyer"}
                   </Button>
                 </div>
+                {sentTo ? (
+                  <p className="text-[11px] text-success font-semibold flex items-center gap-1">
+                    <Check className="h-3 w-3" /> Lien envoyé à {sentTo}. Tu peux le renvoyer si besoin.
+                  </p>
+                ) : null}
               </div>
             )}
           </div>

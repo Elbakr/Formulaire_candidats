@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Loader2, CheckCircle2, Check, Sparkles } from "lucide-react";
+import { Loader2, CheckCircle2, Check, Sparkles, Globe } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
@@ -69,6 +69,11 @@ const FIELD_LABELS: Record<string, { fr: string; nl: string }> = {
 // professionnel). Masqués pour un étudiant (régime/cotisations différents).
 const NON_STUDENT_ONLY = new Set(["marital_status", "dependent_children"]);
 
+// Karim 2026-07-05 : champs FACULTATIFS (ne bloquent pas la complétude du dossier).
+// Utilisé pour l'écran de fin (stillMissing) ET pour la couleur d'alerte des champs
+// vides : facultatif vide = alerte DOUCE (ambre) ; obligatoire vide = alerte FORTE (rouge).
+const OPTIONAL_FIELDS = new Set(["education_level", "transport_price"]);
+
 // Micro-explications (finalité) affichées sous certains champs candidat.
 const FIELD_HINTS: Record<string, { fr: string; nl: string }> = {
   birth_date: {
@@ -106,6 +111,8 @@ const T = {
     status_label: "Ton statut",
     saving: "enregistrement…",
     saved: "enregistré",
+    optional: "facultatif",
+    required_hint: "À compléter",
     non_student: "Non-étudiant",
     student: "Étudiant",
     status_hint: "Nécessaire pour le secrétariat social (contrat étudiant vs travailleur ordinaire).",
@@ -182,6 +189,8 @@ const T = {
     status_label: "Je statuut",
     saving: "opslaan…",
     saved: "opgeslagen",
+    optional: "optioneel",
+    required_hint: "In te vullen",
     non_student: "Niet-student",
     student: "Student",
     status_hint: "Nodig voor het sociaal secretariaat (studentencontract vs gewone werknemer).",
@@ -298,31 +307,53 @@ function formatIbanGroups(raw: string): string {
 // Sélecteur FR/NL clair (fond CLAIR — actif doré, inactif texte grisé + bordure).
 function LocaleSwitch({ locale, onPick }: { locale: Locale; onPick: (l: Locale) => void }) {
   return (
-    <div className="flex justify-end">
-      <div
-        role="group"
-        aria-label="Langue / Taal"
-        className="inline-flex items-stretch rounded-md border border-line overflow-hidden text-[11px] font-bold tracking-wider"
-      >
-        {(["fr", "nl"] as const).map((l) => {
-          const active = locale === l;
-          return (
-            <button
-              key={l}
-              type="button"
-              onClick={() => onPick(l)}
-              aria-pressed={active}
-              title={l === "fr" ? "Français" : "Nederlands"}
-              className={[
-                "px-2.5 py-1 uppercase transition-colors min-w-[30px]",
-                active ? "bg-gold text-ink" : "text-ink-3 hover:bg-surface-2",
-              ].join(" ")}
-            >
-              {l}
-            </button>
-          );
-        })}
-      </div>
+    <div
+      role="group"
+      aria-label="Langue / Taal"
+      className="inline-flex items-stretch rounded-md border border-line overflow-hidden text-[11px] font-bold tracking-wider"
+    >
+      {(["fr", "nl"] as const).map((l) => {
+        const active = locale === l;
+        return (
+          <button
+            key={l}
+            type="button"
+            onClick={() => onPick(l)}
+            aria-pressed={active}
+            title={l === "fr" ? "Français" : "Nederlands"}
+            className={[
+              "px-2.5 py-1 uppercase transition-colors min-w-[30px]",
+              active ? "bg-gold text-ink" : "text-ink-3 hover:bg-surface-2",
+            ].join(" ")}
+          >
+            {l}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Karim 2026-07-05 : barre de langue COHÉRENTE en haut de chaque écran du parcours
+// (étapes 1, 2 et fin). Le sélecteur est bien visible et aligné à droite ; à gauche,
+// soit un libellé « Langue / Taal », soit une action contextuelle (ex. retour étape).
+function LangBar({
+  locale,
+  onPick,
+  left,
+}: {
+  locale: Locale;
+  onPick: (l: Locale) => void;
+  left?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-line">
+      {left ?? (
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-3">
+          <Globe className="h-3.5 w-3.5" /> Langue / Taal
+        </span>
+      )}
+      <LocaleSwitch locale={locale} onPick={onPick} />
     </div>
   );
 }
@@ -348,13 +379,18 @@ export function ContractInfoForm({
   initialUnavailabilities?: CandidateUnavailability[];
   idCardExisting?: { fileName: string; at: string } | null;
 }) {
-  // Langue : bascule INSTANTANÉE en local + persistance best-effort du cookie.
+  // Langue : le choix persiste le cookie `lang` PUIS recharge la page. Karim
+  // 2026-07-05 : le confort « instantané » laissait les parties rendues côté
+  // SERVEUR (intro, en-tête) dans l'autre langue -> incohérence visible. Un
+  // rechargement complet garantit que TOUT le parcours suit la même langue
+  // (comme <LangToggle> du header). Le changement de langue est rare.
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const t = T[locale];
-  function pickLocale(next: Locale) {
+  async function pickLocale(next: Locale) {
     if (next === locale) return;
-    setLocale(next); // bascule immédiate (pas de reload)
-    void updateLanguagePreferenceAction(next); // fire-and-forget : mémorise le choix
+    setLocale(next); // retour visuel immédiat sur le sélecteur avant le reload
+    await updateLanguagePreferenceAction(next); // mémorise le choix (cookie `lang`)
+    if (typeof window !== "undefined") window.location.reload();
   }
 
   // Étape 2 (candidat uniquement) : déclaration des indisponibilités.
@@ -605,7 +641,8 @@ export function ContractInfoForm({
     // reste, on rappelle que le MÊME lien permet de compléter jusqu'à finalisation.
     // Karim 2026-07-04 (debug) : facultatifs exclus des "manquants" ; NISS compté
     // manquant tant qu'il n'a pas 11 chiffres (le préfixe auto ne compte pas).
-    const OPTIONAL_FIELDS = new Set(["education_level", "transport_price"]);
+    // (OPTIONAL_FIELDS est désormais défini au niveau module — partagé avec la
+    // couleur d'alerte des champs vides.)
     const stillMissing = (isCandidate
       ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
       : ordered
@@ -618,9 +655,7 @@ export function ContractInfoForm({
     const link = typeof window !== "undefined" ? window.location.href : "";
     return (
       <div className="py-4">
-        <div className="mb-3">
-          <LocaleSwitch locale={locale} onPick={pickLocale} />
-        </div>
+        <LangBar locale={locale} onPick={pickLocale} />
         <div className="text-center">
           <div className={`inline-flex h-14 w-14 rounded-full items-center justify-center mb-3 ${complete ? "bg-success-light text-success" : "bg-gold-light text-gold-dark"}`}>
             <CheckCircle2 className="h-7 w-7" />
@@ -671,16 +706,19 @@ export function ContractInfoForm({
   if (isCandidate && step === 2) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => { setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
-            className="text-xs font-semibold text-ink-3 hover:text-ink"
-          >
-            {t.back_to_info}
-          </button>
-          <LocaleSwitch locale={locale} onPick={pickLocale} />
-        </div>
+        <LangBar
+          locale={locale}
+          onPick={pickLocale}
+          left={
+            <button
+              type="button"
+              onClick={() => { setStep(1); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }}
+              className="text-xs font-semibold text-ink-3 hover:text-ink"
+            >
+              {t.back_to_info}
+            </button>
+          }
+        />
         <div>
           <div className="text-sm font-bold text-ink mb-1">{t.id_card_title}</div>
           <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
@@ -717,7 +755,7 @@ export function ContractInfoForm({
 
   return (
     <div className="space-y-3">
-      <LocaleSwitch locale={locale} onPick={pickLocale} />
+      <LangBar locale={locale} onPick={pickLocale} />
       {isCandidate ? (
         <div>
           <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
@@ -765,10 +803,30 @@ export function ContractInfoForm({
         // propre validation mod-97).
         const filled = (values[f.key] ?? "").trim() !== "";
         const fieldLabel = FIELD_LABELS[f.key]?.[locale] ?? f.label;
+        // Karim 2026-07-05 : champ VIDE = couleur qui interpelle. Facultatif vide =
+        // alerte DOUCE (ambre) ; obligatoire vide = alerte FORTE (rouge). Rempli =
+        // vert (inchangé). (IBAN + date de naissance ont leurs propres composants.)
+        const isOptional = OPTIONAL_FIELDS.has(f.key);
+        const fieldBorder = filled
+          ? "border-success"
+          : isOptional
+            ? "border-warn focus:border-warn"
+            : "border-danger focus:border-danger";
         return (
           <div key={f.key}>
             <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
               {fieldLabel}
+              {isOptional ? (
+                <span className="text-[10px] font-normal text-ink-3">({t.optional})</span>
+              ) : (
+                <span
+                  className={filled ? "text-ink-3" : "text-danger"}
+                  title={t.required_hint}
+                  aria-hidden
+                >
+                  *
+                </span>
+              )}
               {isCandidate && f.key === "address" ? (
                 <button
                   type="button"
@@ -816,7 +874,7 @@ export function ContractInfoForm({
                   onChange={(e) => { setField(f.key, e.target.value); void autosave(f.key, e.target.value); }}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
-                    filled ? "border-success" : "border-line focus:border-gold",
+                    fieldBorder,
                   ].join(" ")}
                 >
                   {opts.map((o) => (
@@ -834,7 +892,7 @@ export function ContractInfoForm({
                   onBlur={() => void autosave(f.key, values[f.key] ?? "")}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
-                    filled ? "border-success" : "border-line focus:border-gold",
+                    fieldBorder,
                   ].join(" ")}
                 />
               )}
