@@ -56,6 +56,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Karim 2026-07-05 : PLUS AUCUNE RELANCE AUTOMATIQUE des candidats (renouvellement
+  // de token + notif inclus). Cron désactivé par défaut ; réactivable via
+  // ENABLE_AUTO_RELANCE=1. Les relances restent possibles MANUELLEMENT (1 clic RH).
+  if (process.env.ENABLE_AUTO_RELANCE !== "1") {
+    return NextResponse.json({ ok: true, disabled: true, reason: "Relance automatique désactivée (Karim)." });
+  }
+
   const admin = createAdminClient();
   const now = new Date();
   const remindThreshold = new Date(
