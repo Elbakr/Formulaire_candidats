@@ -14,6 +14,7 @@
 // scripts/preview-docuseal-layout.html pour previewer le rendu sans DocuSeal.
 
 import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey, type EmployerOrg } from "@/lib/contract-renderer";
+import { documentBrandingCss, documentBrandingHtml } from "@/lib/contract-branding";
 
 /**
  * Karim 2026-05-29 : escape HTML special pour eviter injection.
@@ -747,6 +748,9 @@ function buildContractHtmlForDocuseal(args: {
   // défaut = jour de génération du contrat (calculé par l'appelant), modifiable
   // par l'opérateur. Fallback : date du jour si non fournie.
   signatureDate?: string;
+  // Karim 2026-07-05 : logo + filigrane Caftan Factory (défaut true). false =
+  // version neutre sans branding (besoins spécifiques).
+  withBranding?: boolean;
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
@@ -770,9 +774,10 @@ function buildContractHtmlForDocuseal(args: {
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}</style>
+<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(args.withBranding !== false)}</style>
 </head>
 <body class="contract-${args.templateCode ?? "employee"}">
+${documentBrandingHtml(args.withBranding !== false)}
 ${args.contractBodyHtml}
 
 <p class="closing-line">
@@ -820,6 +825,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
   // Karim 2026-07-05 : date de signature (YYYY-MM-DD) = jour de génération par
   // défaut, calculée par l'appelant (resolveContractRenderInputs). Rendue visible.
   signatureDate?: string;
+  withBranding?: boolean;
 }): Promise<string> {
   const vars = buildContractVariables({
     employee: args.employeeData,
@@ -852,6 +858,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
     employerSignatureDataUrl: args.employerSignatureDataUrl,
     employerRepresentativeName: args.employerRepresentativeOverride ?? org.representative,
     signatureDate: args.signatureDate,
+    withBranding: args.withBranding,
   });
 }
 

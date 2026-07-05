@@ -6,6 +6,7 @@
 
 import "server-only";
 import { CONTRACT_CSS, EMPLOYEE_COMPACT_OVERRIDE } from "@/lib/docuseal-flow";
+import { documentBrandingCss, documentBrandingHtml } from "@/lib/contract-branding";
 
 export interface TerminationLetterData {
   // Employeur
@@ -110,9 +111,10 @@ function renderTerminationSuperLayout(
 <head>
 <meta charset="utf-8">
 <title>Cessation du contrat de travail - Commun accord</title>
-<style>${CONTRACT_CSS}${EMPLOYEE_COMPACT_OVERRIDE}</style>
+<style>${CONTRACT_CSS}${EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(true)}</style>
 </head>
 <body class="contract-employee">
+${documentBrandingHtml(true)}
 ${toolbar}
 <div class="doc-title"><h1>CESSATION DU CONTRAT DE TRAVAIL DE COMMUN ACCORD</h1></div>
 

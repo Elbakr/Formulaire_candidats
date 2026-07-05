@@ -56,11 +56,15 @@ export default async function ContractDetailPage(
   // Karim 2026-07-04 : le document affiché/imprimé = LE SUPER LAYOUT (aligné avec
   // l'aperçu d'envoi + le PDF signé), plus jamais le composant ContractDocument
   // divergent. Signé/prêt -> rendered_body figé ; brouillon -> construit à l'identique.
+  // Karim 2026-07-05 : option "sans logo/filigrane" via ?brand=off (ex. besoins
+  // spécifiques). Ne s'applique qu'au brouillon (un contrat signé garde son corps figé).
+  const sp = await props.searchParams;
+  const withBranding = (Array.isArray(sp?.brand) ? sp.brand[0] : sp?.brand) !== "off";
   let contractHtml = (contract as unknown as { rendered_body: string | null }).rendered_body ?? null;
   if (!contractHtml) {
     const tplCode = contract.contract_kind === "Étudiant" ? "student" : Number(contract.weekly_hours) < 38 ? "employee_pt" : "employee";
     try {
-      const res = await previewContractHtmlAction(id, tplCode, { manualSign: true });
+      const res = await previewContractHtmlAction(id, tplCode, { manualSign: true, withBranding });
       if (res.ok) contractHtml = res.html;
     } catch { /* aperçu best-effort */ }
   }
@@ -104,6 +108,15 @@ export default async function ContractDetailPage(
           )}
         </div>
       </Card>
+
+      <div className="flex justify-end">
+        <a
+          href={`?brand=${withBranding ? "off" : "on"}`}
+          className="text-xs font-semibold text-gold-dark hover:underline"
+        >
+          {withBranding ? "Générer une version SANS logo/filigrane" : "↩ Revenir à la version AVEC logo"}
+        </a>
+      </div>
 
       <Card>
         <ContractIframe html={contractHtml} />
