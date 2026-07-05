@@ -213,10 +213,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
   }
 
   return (
-    <Shell locale={locale}>
-      <p className="text-sm text-ink-2 leading-relaxed mb-4">
-        {tt.emp_hi} <b className="text-ink">{firstName}</b>{tt.emp_intro}
-      </p>
+    <Shell locale={locale} hideSubtitle>
       {!fieldsDone && (
         <ContractInfoForm
           token={token}

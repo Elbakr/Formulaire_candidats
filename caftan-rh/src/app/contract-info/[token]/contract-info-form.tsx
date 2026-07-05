@@ -11,7 +11,7 @@ import { BirthDatePicker } from "@/components/birth-date-picker";
 import { reverseGeocodeAction } from "@/lib/geocode-actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
 import { nissPrefixFromIso, isoMinusYears, validateNRN, normalizeNRN } from "@/lib/be-validators";
-import { TRANSPORT_MODES } from "@/lib/config";
+import { TRANSPORT_MODES, transportHasSubscription } from "@/lib/config";
 import type { Locale } from "@/lib/i18n";
 import { updateLanguagePreferenceAction } from "@/app/me/profile/language-action";
 
@@ -342,12 +342,14 @@ const INTRO_T = {
   fr: {
     subtitle: "Complète ton dossier RH",
     hi: "Bonjour",
-    body: ", bienvenue chez Caftan Factory 👋 Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme — chaque champ est enregistré au fur et à mesure.",
+    body_cand: ", bienvenue chez Caftan Factory 👋 Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme — chaque champ est enregistré au fur et à mesure.",
+    body_emp: ", pour finaliser ton dossier et préparer ton contrat, merci de compléter les éléments ci-dessous. Ça prend une minute 🙏",
   },
   nl: {
     subtitle: "Vul je HR-dossier aan",
     hi: "Hallo",
-    body: ", welkom bij Caftan Factory 👋 Vul hieronder de gegevens in die nodig zijn voor je aanwerving. Je kunt dit op je eigen tempo doen — elk veld wordt gaandeweg opgeslagen.",
+    body_cand: ", welkom bij Caftan Factory 👋 Vul hieronder de gegevens in die nodig zijn voor je aanwerving. Je kunt dit op je eigen tempo doen — elk veld wordt gaandeweg opgeslagen.",
+    body_emp: ", om je dossier af te ronden en je contract voor te bereiden, vul hieronder de gegevens aan. Het duurt maar een minuutje 🙏",
   },
 } as const;
 
@@ -592,9 +594,14 @@ export function ContractInfoForm({
 
   // Bifurcation : pour un candidat, on masque les champs "non-étudiant" (état
   // civil / enfants = précompte) tant qu'il n'a pas choisi « Non-étudiant ».
-  const visibleFields = isCandidate
+  // Karim 2026-07-05 : périodicité + prix d'abonnement N'ONT DE SENS que pour un
+  // transport PUBLIC. Pour vélo/marche/voiture/scooter (sans abonnement), on masque
+  // ces 2 champs -> plus de « périodicité de l'abonnement » incohérente.
+  const showTransportSub = transportHasSubscription(values.transport_type);
+  const visibleFields = (isCandidate
     ? ordered.filter((f) => !(NON_STUDENT_ONLY.has(f.key) && isStudent !== "false"))
-    : ordered;
+    : ordered
+  ).filter((f) => !((f.key === "transport_frequency" || f.key === "transport_price") && !showTransportSub));
 
   function validateStep1(): string | null {
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
@@ -669,6 +676,8 @@ export function ContractInfoForm({
       : ordered
     ).filter((f) => {
       if (OPTIONAL_FIELDS.has(f.key)) return false;
+      // Sans abonnement (vélo, marche…) : périodicité + prix non requis.
+      if ((f.key === "transport_frequency" || f.key === "transport_price") && !transportHasSubscription(values.transport_type)) return false;
       if (f.key === "nrn") return normalizeNRN(values.nrn ?? "").length < 11;
       return (values[f.key] ?? "").trim() === "";
     });
@@ -777,16 +786,14 @@ export function ContractInfoForm({
   return (
     <div className="space-y-3">
       <LangBar locale={locale} onPick={pickLocale} />
-      {isCandidate ? (
-        <div className="mb-1">
-          <div className="text-sm font-bold text-ink">{INTRO_T[locale].subtitle}</div>
-          <p className="text-sm text-ink-2 leading-relaxed mt-1">
-            {INTRO_T[locale].hi}
-            {firstName ? <> <b className="text-ink">{firstName}</b></> : null}
-            {INTRO_T[locale].body}
-          </p>
-        </div>
-      ) : null}
+      <div className="mb-1">
+        <div className="text-sm font-bold text-ink">{INTRO_T[locale].subtitle}</div>
+        <p className="text-sm text-ink-2 leading-relaxed mt-1">
+          {INTRO_T[locale].hi}
+          {firstName ? <> <b className="text-ink">{firstName}</b></> : null}
+          {isCandidate ? INTRO_T[locale].body_cand : INTRO_T[locale].body_emp}
+        </p>
+      </div>
       {isCandidate ? (
         <div>
           <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">
@@ -902,7 +909,16 @@ export function ContractInfoForm({
               ) : opts ? (
                 <select
                   value={values[f.key] ?? ""}
-                  onChange={(e) => { setField(f.key, e.target.value); void autosave(f.key, e.target.value); }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setField(f.key, val);
+                    void autosave(f.key, val);
+                    // Transport sans abonnement -> périodicité "sans_objet" (affichage cohérent).
+                    if (f.key === "transport_type" && !transportHasSubscription(val)) {
+                      setField("transport_frequency", "sans_objet");
+                      void autosave("transport_frequency", "sans_objet");
+                    }
+                  }}
                   className={[
                     "w-full rounded-lg border-[1.5px] bg-surface px-3 py-2 text-sm outline-none transition-colors",
                     fieldBorder,

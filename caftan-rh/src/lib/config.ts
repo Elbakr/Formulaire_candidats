@@ -44,3 +44,11 @@ export const TRANSPORT_MODES = [
   "covoiturage",
 ] as const;
 export type TransportMode = typeof TRANSPORT_MODES[number];
+
+// Karim 2026-07-05 : seuls les transports PUBLICS ont un abonnement (périodicité +
+// prix). Pour vélo, marche, voiture, scooter, covoiturage : pas d'abonnement -> on
+// ne demande NI périodicité NI prix (sinon champs incohérents pour le candidat).
+export const TRANSPORT_WITH_SUBSCRIPTION: readonly string[] = ["STIB-MIVB", "De Lijn", "SNCB", "TEC"];
+export function transportHasSubscription(mode: string | null | undefined): boolean {
+  return !!mode && TRANSPORT_WITH_SUBSCRIPTION.includes(mode);
+}

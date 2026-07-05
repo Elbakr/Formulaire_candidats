@@ -5,6 +5,8 @@
 //   - mail "Demander infos manquantes" au candidat
 //   - check serveur avant DocuSeal
 
+import { TRANSPORT_WITH_SUBSCRIPTION } from "@/lib/config";
+
 export interface RequiredFieldDef {
   key: string;
   label: string;
@@ -67,8 +69,12 @@ export function getMissingFields(
   contractType: string | null,
 ): MissingField[] {
   const required = getRequiredFields(contractType);
+  // Karim 2026-07-05 : sans abonnement (vélo, marche, voiture…), périodicité + prix
+  // de transport ne sont PAS requis (champs incohérents sinon).
+  const hasTransportSub = TRANSPORT_WITH_SUBSCRIPTION.includes(String(employee["transport_type"] ?? ""));
   const missing: MissingField[] = [];
   for (const f of required) {
+    if ((f.key === "transport_frequency" || f.key === "transport_price") && !hasTransportSub) continue;
     const v = employee[f.key];
     let isEmpty = false;
     if (v == null) isEmpty = true;
