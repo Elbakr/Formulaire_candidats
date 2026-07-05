@@ -78,9 +78,16 @@ Envoyé par ${profile.full_name ?? profile.email} — CaftanRH.`;
       if (blob) attachments.push({ filename: doc.file_name, content: new Uint8Array(await blob.arrayBuffer()), contentType: "application/pdf" });
     }
   } catch { /* CI best-effort */ }
-  // Contrat SIGNÉ par les 2 parties (dernier signé). PDF stocké à la signature.
+  // Contrat en PDF. Karim 2026-07-05 : TOUJOURS joindre le contrat — signé (PDF
+  // stocké) si dispo, SINON généré à la volée depuis le contrat actuel (brouillon).
+  // Avant : joint seulement si déjà signé -> absent quand on envoie le dossier avant
+  // signature (flux normal) => contrat manquant dans le mail.
+  const slug = v(e.full_name).replace(/[^A-Za-z0-9]+/g, "_") || "contrat";
   try {
-    const { data: c } = await admin
+    let contractPdf: Uint8Array | null = null;
+    let filename = `Contrat_${slug}.pdf`;
+    // 1) Signé stocké ?
+    const { data: cSigned } = await admin
       .from("employee_contracts")
       .select("id")
       .eq("employee_id", employeeId)
@@ -88,12 +95,23 @@ Envoyé par ${profile.full_name ?? profile.email} — CaftanRH.`;
       .order("signed_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const contractId = (c as { id: string } | null)?.id;
-    if (contractId) {
-      const path = `contracts/${employeeId}/contrat-signe-${contractId}.pdf`;
-      const { data: blob } = await admin.storage.from("documents").download(path);
-      if (blob) attachments.push({ filename: `Contrat_signe_${v(e.full_name).replace(/[^A-Za-z0-9]+/g, "_")}.pdf`, content: new Uint8Array(await blob.arrayBuffer()), contentType: "application/pdf" });
+    const signedId = (cSigned as { id: string } | null)?.id;
+    if (signedId) {
+      const { data: blob } = await admin.storage.from("documents").download(`contracts/${employeeId}/contrat-signe-${signedId}.pdf`);
+      if (blob) { contractPdf = new Uint8Array(await blob.arrayBuffer()); filename = `Contrat_signe_${slug}.pdf`; }
     }
+    // 2) Sinon, générer le PDF du contrat actuel (brouillon) à la volée.
+    if (!contractPdf) {
+      const tplCode = e.contract_type === "Étudiant" ? "student" : Number(e.weekly_hours) < 38 ? "employee_pt" : "employee";
+      const { previewContractHtmlAction } = await import("./contract-preview/action");
+      const res = await previewContractHtmlAction(employeeId, tplCode, { manualSign: true });
+      if (res.ok) {
+        const { renderHtmlToPdf } = await import("@/lib/html-to-pdf");
+        contractPdf = await renderHtmlToPdf(res.html);
+        filename = `Contrat_${slug}.pdf`;
+      }
+    }
+    if (contractPdf) attachments.push({ filename, content: contractPdf, contentType: "application/pdf" });
   } catch { /* contrat best-effort */ }
 
   try {
