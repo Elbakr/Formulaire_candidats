@@ -298,11 +298,10 @@ const STUDENT_COMPACT_OVERRIDE = `
   body.contract-student .signatures { margin-top: 0.35cm; }
   body.contract-student .sig-box { min-height: 2.4cm; padding: 0.12cm 0.25cm; }
   body.contract-student .sig-zone { min-height: 1.1cm; }
-  /* Karim 2026-05-31 task #70 : force Article 9 en haut de page 2 */
-  body.contract-student section.article-block[data-article="9"] {
-    page-break-before: always;
-    break-before: page;
-  }
+  /* Karim 2026-07-05 : saut de page forcé sur l'Article 9 RETIRÉ — il gaspillait de
+     la place (Article 9 forcé en haut de page 2) et, avec les articles + notes
+     ajoutés, poussait les signatures en page 3. Flux naturel = plus compact ;
+     page-break-inside:avoid garde chaque article entier. */
 `;
 
 // Karim 2026-07-05 : même compaction ÉPROUVÉE (celle de l'étudiant) appliquée au
