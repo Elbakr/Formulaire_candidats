@@ -17,21 +17,14 @@ export function documentBrandingCss(withBranding = true): string {
     width: 12cm; max-width: 68%; opacity: 0.13; z-index: 0; pointer-events: none;
   }
   .brand-watermark img { width: 100%; height: auto; display: block; }
-  /* Karim 2026-07-05 : logo EN-TÊTE, centré en haut de chaque page. */
-  .brand-header {
-    position: fixed; top: 0.25cm; left: 50%; transform: translateX(-50%);
-    z-index: 3; pointer-events: none; text-align: center;
-  }
-  .brand-header img { height: 1.15cm; width: auto; opacity: 0.95; display: block; margin: 0 auto; }
+  /* Karim 2026-07-05 : logo d'en-tête FIXE retiré (se superposait au titre + au
+     texte). Le filigrane suffit ; un en-tête corporate en flux est à l'étude. */
   /* Le contenu du document passe AU-DESSUS du filigrane (lisibilité). */
-  body > *:not(.brand-watermark):not(.brand-header) { position: relative; z-index: 1; }
+  body > *:not(.brand-watermark) { position: relative; z-index: 1; }
   `;
 }
 
 export function documentBrandingHtml(withBranding = true): string {
   if (!withBranding) return "";
-  return (
-    `<div class="brand-watermark"><img src="${CAFTAN_LOGO_DATA_URL}" alt=""></div>` +
-    `<div class="brand-header"><img src="${CAFTAN_LOGO_DATA_URL}" alt="Caftan Factory"></div>`
-  );
+  return `<div class="brand-watermark"><img src="${CAFTAN_LOGO_DATA_URL}" alt=""></div>`;
 }
