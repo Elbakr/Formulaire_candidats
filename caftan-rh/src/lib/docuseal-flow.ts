@@ -304,6 +304,32 @@ const STUDENT_COMPACT_OVERRIDE = `
   }
 `;
 
+// Karim 2026-07-05 : même compaction ÉPROUVÉE (celle de l'étudiant) appliquée au
+// contrat EMPLOYÉ temps plein ET temps partiel — avant, ils n'avaient AUCUN
+// resserrement -> 4 pages avec les 2 cadres de signature seuls sur la page 4.
+// Le sélecteur [class^="contract-employee"] couvre 'contract-employee' (plein) et
+// 'contract-employee_pt' (partiel). Pas de saut Article 9 (propre à l'étudiant).
+const EMPLOYEE_COMPACT_OVERRIDE = `
+  @page {
+    margin: 1.5cm 1.8cm 1.3cm 1.8cm;
+  }
+  body[class^="contract-employee"] {
+    font-size: 10pt;
+    line-height: 1.2;
+  }
+  body[class^="contract-employee"] .doc-title h1 { font-size: 17pt; }
+  body[class^="contract-employee"] .doc-title { margin-bottom: 0.35cm; padding: 0.2cm 0.4cm; }
+  body[class^="contract-employee"] .parties-block { margin-bottom: 0.3cm; }
+  body[class^="contract-employee"] .parties-block td { line-height: 1.2; }
+  body[class^="contract-employee"] h2.article-head { margin: 0.25cm 0 0.06cm 0; }
+  body[class^="contract-employee"] p { margin: 0 0 0.06cm 0; }
+  body[class^="contract-employee"] .convenu-line { margin: 0 0 0.3cm 0; }
+  body[class^="contract-employee"] .closing-line { margin-top: 0.35cm; }
+  body[class^="contract-employee"] .signatures { margin-top: 0.35cm; }
+  body[class^="contract-employee"] .sig-box { min-height: 2cm; padding: 0.12cm 0.25cm; }
+  body[class^="contract-employee"] .sig-zone { min-height: 1.1cm; }
+`;
+
 // Karim 2026-06-17 : exporté pour réutilisation par la convention de rupture
 // (même « Super Layout » : Calibri/A4, titre encadré, bloc parties, cases signature).
 export const CONTRACT_CSS = `
@@ -728,7 +754,7 @@ function buildContractHtmlForDocuseal(args: {
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : ""}</style>
+<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}</style>
 </head>
 <body class="contract-${args.templateCode ?? "employee"}">
 ${args.contractBodyHtml}
