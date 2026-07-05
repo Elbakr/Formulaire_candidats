@@ -40,7 +40,7 @@ export async function sendEmail({
   automated,
 }: SendArgs) {
   // Karim 2026-07-02 : kill-switch outreach auto vers candidat/travailleur.
-  if (await isAutoOutboundBlocked(automated)) {
+  if (await isAutoOutboundBlocked(automated, source)) {
     await reportBlockedOutbound({ to, toName: recipientName, subject, source, candidateId, employeeId });
     return { skipped: true, blocked: true };
   }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Loader2, CheckCircle2, Check, Sparkles, Globe } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
+import { sendCandidateRecapConfirmAction } from "./recap-actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload } from "@/components/id-card-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
@@ -334,6 +335,22 @@ function LocaleSwitch({ locale, onPick }: { locale: Locale; onPick: (l: Locale) 
   );
 }
 
+// Karim 2026-07-05 : intro/sous-titre candidat rendus CÔTÉ CLIENT (basculent avec la
+// langue, sans reload). Retirés du rendu serveur (page.tsx) pour éviter le "reste en
+// français".
+const INTRO_T = {
+  fr: {
+    subtitle: "Complète ton dossier RH",
+    hi: "Bonjour",
+    body: ", bienvenue chez Caftan Factory 👋 Merci de renseigner ci-dessous les informations nécessaires à ton embauche. Tu peux le faire à ton rythme — chaque champ est enregistré au fur et à mesure.",
+  },
+  nl: {
+    subtitle: "Vul je HR-dossier aan",
+    hi: "Hallo",
+    body: ", welkom bij Caftan Factory 👋 Vul hieronder de gegevens in die nodig zijn voor je aanwerving. Je kunt dit op je eigen tempo doen — elk veld wordt gaandeweg opgeslagen.",
+  },
+} as const;
+
 // Karim 2026-07-05 : barre de langue COHÉRENTE en haut de chaque écran du parcours
 // (étapes 1, 2 et fin). Le sélecteur est bien visible et aligné à droite ; à gauche,
 // soit un libellé « Langue / Taal », soit une action contextuelle (ex. retour étape).
@@ -379,18 +396,17 @@ export function ContractInfoForm({
   initialUnavailabilities?: CandidateUnavailability[];
   idCardExisting?: { fileName: string; at: string } | null;
 }) {
-  // Langue : le choix persiste le cookie `lang` PUIS recharge la page. Karim
-  // 2026-07-05 : le confort « instantané » laissait les parties rendues côté
-  // SERVEUR (intro, en-tête) dans l'autre langue -> incohérence visible. Un
-  // rechargement complet garantit que TOUT le parcours suit la même langue
-  // (comme <LangToggle> du header). Le changement de langue est rare.
+  // Langue : bascule INSTANTANÉE côté client (aucun rechargement). Karim 2026-07-05 :
+  // le reload perdait la progression (étape en cours / écran "dossier complet" qui
+  // se ré-ouvrait). Tout le texte candidat est désormais rendu par CE composant
+  // (intro/sous-titre inclus) -> il suit la locale sans reload. Le cookie est juste
+  // mémorisé pour la prochaine visite.
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const t = T[locale];
-  async function pickLocale(next: Locale) {
+  function pickLocale(next: Locale) {
     if (next === locale) return;
-    setLocale(next); // retour visuel immédiat sur le sélecteur avant le reload
-    await updateLanguagePreferenceAction(next); // mémorise le choix (cookie `lang`)
-    if (typeof window !== "undefined") window.location.reload();
+    setLocale(next); // bascule immédiate, aucune perte d'état
+    void updateLanguagePreferenceAction(next); // mémorise le choix (cookie `lang`), fire-and-forget
   }
 
   // Étape 2 (candidat uniquement) : déclaration des indisponibilités.
@@ -630,8 +646,13 @@ export function ContractInfoForm({
     setErr(null);
     start(async () => {
       const r = await submitContractInfoAction(token, currentPayload());
-      if (r.ok) setDone(true);
-      else setErr(r.error ?? t.err_generic);
+      if (r.ok) {
+        setDone(true);
+        // Karim 2026-07-05 : mail récap COMPLET + confirmation au candidat (seul
+        // envoi auto autorisé, source "candidate_recap_confirm"). Best-effort et
+        // non bloquant : l'écran de fin s'affiche quoi qu'il arrive.
+        void sendCandidateRecapConfirmAction(token);
+      } else setErr(r.error ?? t.err_generic);
     });
   }
 
@@ -756,6 +777,16 @@ export function ContractInfoForm({
   return (
     <div className="space-y-3">
       <LangBar locale={locale} onPick={pickLocale} />
+      {isCandidate ? (
+        <div className="mb-1">
+          <div className="text-sm font-bold text-ink">{INTRO_T[locale].subtitle}</div>
+          <p className="text-sm text-ink-2 leading-relaxed mt-1">
+            {INTRO_T[locale].hi}
+            {firstName ? <> <b className="text-ink">{firstName}</b></> : null}
+            {INTRO_T[locale].body}
+          </p>
+        </div>
+      ) : null}
       {isCandidate ? (
         <div>
           <label className="block text-xs font-semibold text-ink-2 mb-1 flex items-center gap-1">

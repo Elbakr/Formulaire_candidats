@@ -25,11 +25,26 @@ export interface BlockedOutboundInfo {
   employeeId?: string;
 }
 
+// Karim 2026-07-05 : EXCEPTION explicite au kill-switch. Un envoi AUTOMATIQUE
+// vers un candidat/travailleur reste bloqué par défaut, SAUF si sa `source`
+// figure dans cette liste blanche. Seule exception autorisée par Karim : le mail
+// RÉCAPITULATIF + CONFIRMATION envoyé au candidat à la fin de son formulaire
+// d'embauche (relecture de toutes ses données + bouton « Je confirme »). Toute
+// autre source d'outreach automatique reste bloquée comme avant.
+const AUTO_ALLOWED_SOURCES = new Set<string>(["candidate_recap_confirm"]);
+
 /**
  * Retourne true si un envoi taggé `automated` doit être BLOQUÉ.
- * Non taggé → jamais bloqué. Taggé + flag org non explicitement `true` → bloqué.
+ * Non taggé → jamais bloqué. Source en liste blanche → jamais bloqué (exception
+ * Karim 2026-07-05). Taggé + flag org non explicitement `true` → bloqué.
  */
-export async function isAutoOutboundBlocked(automated: boolean | undefined): Promise<boolean> {
+export async function isAutoOutboundBlocked(
+  automated: boolean | undefined,
+  source?: string,
+): Promise<boolean> {
+  // Exception décidée par Karim (2026-07-05) : le récap+confirmation candidat
+  // passe toujours, même tagué automated:true.
+  if (source && AUTO_ALLOWED_SOURCES.has(source)) return false;
   if (!automated) return false;
   try {
     const admin = createAdminClient();

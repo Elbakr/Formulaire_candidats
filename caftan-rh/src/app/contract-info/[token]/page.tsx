@@ -77,7 +77,7 @@ const PAGE_T = {
   },
 } as const;
 
-function Shell({ children, locale = "fr" }: { children: React.ReactNode; locale?: Locale }) {
+function Shell({ children, locale = "fr", hideSubtitle = false }: { children: React.ReactNode; locale?: Locale; hideSubtitle?: boolean }) {
   return (
     <main
       style={{ colorScheme: "light" }}
@@ -87,7 +87,9 @@ function Shell({ children, locale = "fr" }: { children: React.ReactNode; locale?
         <div className="bg-surface border border-line rounded-2xl shadow-sm overflow-hidden">
           <div className="bg-ink text-white px-5 py-4">
             <div className="text-gold font-bold uppercase tracking-[0.12em] text-[11px]">Caftan Factory</div>
-            <div className="text-sm font-bold mt-0.5">{PAGE_T[locale].header_subtitle}</div>
+            {/* Karim 2026-07-05 : sous-titre masquable — le formulaire candidat le rend
+                lui-même (côté client) pour qu'il bascule avec la langue sans reload. */}
+            {hideSubtitle ? null : <div className="text-sm font-bold mt-0.5">{PAGE_T[locale].header_subtitle}</div>}
           </div>
           <div className="p-5">{children}</div>
         </div>
@@ -160,10 +162,7 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     const isStudent = typeof cand.is_student === "boolean" ? (cand.is_student as boolean) : null;
 
     return (
-      <Shell locale={locale}>
-        <p className="text-sm text-ink-2 leading-relaxed mb-4">
-          {tt.cand_hi}{firstName ? <> <b className="text-ink">{firstName}</b></> : null}{tt.cand_intro}
-        </p>
+      <Shell locale={locale} hideSubtitle>
         <ContractInfoForm
           token={token}
           fields={missing}

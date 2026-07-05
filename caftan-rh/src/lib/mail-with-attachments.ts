@@ -98,7 +98,7 @@ async function logSend(
 export async function sendMailWithAttachments(opts: SendMailOptions): Promise<SendMailResult> {
   // Karim 2026-07-02 : kill-switch — bloque l'outreach automatique vers les
   // candidats/travailleurs (envois taggés automated:true). Journalise + notifie RH.
-  if (await isAutoOutboundBlocked(opts.automated)) {
+  if (await isAutoOutboundBlocked(opts.automated, opts.source)) {
     await reportBlockedOutbound({
       to: opts.to,
       toName: opts.toName,
