@@ -10,10 +10,16 @@ const nextConfig: NextConfig = {
   // Karim 2026-06-15 : chromium headless (génération PDF des contrats) ne doit PAS
   // être bundlé par Turbopack/webpack (binaire natif) -> externalisé côté serveur.
   serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
-  // Le binaire chromium (dossier bin/) n'est pas tracé automatiquement dans la
-  // fonction Vercel -> on l'inclut explicitement pour la route PDF du contrat.
+  // Karim 2026-07-05 : le binaire chromium (dossier bin/) n'est PAS tracé
+  // automatiquement dans les fonctions Vercel. Il ne l'était que pour UNE route API
+  // -> les server actions qui génèrent le PDF (signature du contrat dans /sign, et
+  // envoi du dossier d'embauche dans /planning) retombaient sur le repli HTML.
+  // On inclut le binaire pour TOUS les flux qui génèrent un PDF.
   outputFileTracingIncludes: {
     "/api/contracts/sign/[token]/pdf": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/sign/**": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/planning/**": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/**": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
   // Autoriser les Server Actions et le HMR depuis nos tunnels Cloudflare et
   // depuis le LAN local pendant les tests sur appareils externes.

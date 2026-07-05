@@ -8,6 +8,9 @@ import { SignContractClient } from "./sign-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// Karim 2026-07-05 : la signature génère le PDF via Chromium (quelques secondes) ->
+// marge de temps suffisante pour éviter un timeout (repli HTML sinon).
+export const maxDuration = 60;
 
 export default async function SignContractPage(props: {
   params: Promise<{ token: string }>;
