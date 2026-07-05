@@ -35,12 +35,14 @@ export function PreInterviewForm({
   initialResponses,
   expiresAt,
   locale = "fr",
+  context = "screening",
 }: {
   token: string;
   questions: PreInterviewQuestion[];
   initialResponses: PreInterviewResponse[];
   expiresAt: string | null;
   locale?: Locale;
+  context?: "screening" | "onboarding";
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -226,12 +228,21 @@ export function PreInterviewForm({
     });
   }
 
+  const titleKey =
+    context === "onboarding"
+      ? "pre_interview.welcome.onboarding.title"
+      : "pre_interview.welcome.title";
+  const introKey =
+    context === "onboarding"
+      ? "pre_interview.welcome.onboarding.intro"
+      : "pre_interview.welcome.intro";
+
   return (
     <div className="space-y-4">
       <Card className="p-4">
-        <h1 className="text-lg sm:text-xl font-bold">{t("pre_interview.welcome.title", locale)}</h1>
+        <h1 className="text-lg sm:text-xl font-bold">{t(titleKey, locale)}</h1>
         <p className="text-sm text-ink-2 mt-1 leading-relaxed">
-          {t("pre_interview.welcome.intro", locale)}
+          {t(introKey, locale)}
         </p>
         {expiresAt ? (
           <p className="text-[11px] text-ink-3 mt-2">

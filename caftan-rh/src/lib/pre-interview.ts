@@ -22,12 +22,16 @@ export function generateToken(): string {
 }
 
 /**
- * Load active questions for a given role + language.
+ * Load active questions for a given role + language + context.
  * Always includes role='all' as a fallback baseline, then any role-specific.
+ *
+ * `context` ('screening' par défaut) sépare le questionnaire de sélection
+ * (candidats) du questionnaire d'accueil (travailleurs déjà embauchés).
  */
 export async function loadQuestionsFor(
   positionRole: string,
   language: string = "fr",
+  context: string = "screening",
 ): Promise<PreInterviewQuestion[]> {
   const admin = createAdminClient();
   const roles = positionRole === "all" ? ["all"] : ["all", positionRole];
@@ -38,6 +42,7 @@ export async function loadQuestionsFor(
     )
     .eq("is_active", true)
     .eq("language_code", language)
+    .eq("context", context)
     .in("position_role", roles)
     .order("sort_order", { ascending: true });
 
@@ -59,7 +64,7 @@ export async function loadPreInterviewByToken(
   const { data, error } = await admin
     .from("pre_interviews")
     .select(
-      "id, application_id, position_role, token, language_code, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
+      "id, application_id, position_role, token, language_code, context, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
     )
     .eq("token", token)
     .maybeSingle();
@@ -82,7 +87,7 @@ export async function loadPreInterviewWithResponses(
   const { data: pi, error: e1 } = await supabase
     .from("pre_interviews")
     .select(
-      "id, application_id, position_role, token, language_code, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
+      "id, application_id, position_role, token, language_code, context, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
     )
     .eq("id", preInterviewId)
     .maybeSingle();
@@ -90,7 +95,7 @@ export async function loadPreInterviewWithResponses(
 
   const preInterview = pi as PreInterview;
   const [questions, { data: rData }] = await Promise.all([
-    loadQuestionsFor(preInterview.position_role, preInterview.language_code),
+    loadQuestionsFor(preInterview.position_role, preInterview.language_code, preInterview.context),
     supabase
       .from("pre_interview_responses")
       .select(
@@ -107,16 +112,25 @@ export async function loadPreInterviewWithResponses(
 
 /**
  * Same as above, but admin client (token/public flow).
+ *
+ * `localeOverride` : uniquement pour le contexte 'onboarding', la langue des
+ * questions suit la locale affichée au travailleur (cookie) plutôt que le
+ * `language_code` figé de l'instance. Le screening reste sur `language_code`
+ * (comportement historique strictement inchangé).
  */
 export async function loadPreInterviewBundleByToken(
   token: string,
+  localeOverride?: string,
 ): Promise<PreInterviewWithResponses | null> {
   const pi = await loadPreInterviewByToken(token);
   if (!pi) return null;
 
+  const language =
+    pi.context === "onboarding" && localeOverride ? localeOverride : pi.language_code;
+
   const admin = createAdminClient();
   const [questions, { data: rData }] = await Promise.all([
-    loadQuestionsFor(pi.position_role, pi.language_code),
+    loadQuestionsFor(pi.position_role, language, pi.context),
     admin
       .from("pre_interview_responses")
       .select(

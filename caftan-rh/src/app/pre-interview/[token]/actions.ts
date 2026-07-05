@@ -6,6 +6,7 @@ import {
   loadPreInterviewByToken,
   loadQuestionsFor,
 } from "@/lib/pre-interview";
+import { getLocale } from "@/lib/locale-server";
 import type { PreInterviewQuestionKind } from "@/lib/pre-interview-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -135,7 +136,12 @@ export async function submitPreInterviewAction(input: {
     return { ok: false, error: "Le délai de réponse est expiré." };
   }
 
-  const questions = await loadQuestionsFor(pi.position_role, pi.language_code);
+  // Contexte 'onboarding' : la langue des questions suit la locale affichée au
+  // travailleur (cookie), exactement comme la page publique — sinon le jeu de
+  // required ne correspondrait pas aux questions réellement présentées.
+  const questionLang =
+    pi.context === "onboarding" ? await getLocale() : pi.language_code;
+  const questions = await loadQuestionsFor(pi.position_role, questionLang, pi.context);
   const required = questions.filter((q) => q.is_required);
 
   const admin = createAdminClient();
@@ -177,7 +183,11 @@ export async function submitPreInterviewAction(input: {
   // Karim 18/05 : calcule + persiste le pre_interview_score sur le candidate
   // immediatement apres la soumission. Permet au RH de filtrer/trier sans
   // attendre un cron de rescore.
-  try {
+  //
+  // ONBOARDING : on NE score PAS. Le questionnaire d'accueil n'est pas un
+  // questionnaire de sélection ; le scorer écraserait le pre_interview_score de
+  // screening du candidat avec des réponses hors sujet.
+  if (pi.context !== "onboarding") try {
     const { computePreInterviewScore } = await import("@/lib/scoring/pre-interview-score");
     const { data: respWithQ } = await admin
       .from("pre_interview_responses")
@@ -219,14 +229,19 @@ export async function submitPreInterviewAction(input: {
     .in("role", ["admin", "rh"]);
   const recipients = ((rhUsers ?? []) as { id: string }[]).map((u) => u.id);
   if (recipients.length > 0) {
+    const isOnboarding = pi.context === "onboarding";
     await admin.from("notifications").insert(
       recipients.map((rid) => ({
         recipient_id: rid,
         kind: "pre_interview_done",
-        title: "Pré-entretien complété",
-        body: "Un candidat a soumis ses réponses au pré-entretien.",
+        title: isOnboarding
+          ? "Questionnaire d'accueil complété"
+          : "Pré-entretien complété",
+        body: isOnboarding
+          ? "Un nouveau travailleur a complété son questionnaire d'accueil (onboarding)."
+          : "Un candidat a soumis ses réponses au pré-entretien.",
         link: `/rh/candidates/${pi.application_id}`,
-        data: { application_id: pi.application_id, pre_interview_id: pi.id },
+        data: { application_id: pi.application_id, pre_interview_id: pi.id, context: pi.context },
       })),
     );
   }

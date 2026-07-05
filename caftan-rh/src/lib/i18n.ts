@@ -504,10 +504,14 @@ const FR = {
 
   // Pré-entretien public (/pre-interview/[token])
   "pre_interview.brand_label": "Pré-entretien",
+  "pre_interview.onboarding.brand_label": "Bienvenue",
   "pre_interview.footer": "Vos réponses sont confidentielles · RGPD · Caftan Factory",
   "pre_interview.welcome.title": "Votre pré-entretien",
   "pre_interview.welcome.intro":
     "Quelques questions courtes (5–10 min). Vos réponses sont sauvegardées automatiquement à chaque modification — vous pouvez quitter et revenir plus tard via le même lien.",
+  "pre_interview.welcome.onboarding.title": "Bienvenue ! Aide-nous à bien t'accueillir",
+  "pre_interview.welcome.onboarding.intro":
+    "Maintenant que tu fais partie de l'équipe, on aimerait mieux te connaître pour bien démarrer ensemble. Quelques questions courtes (2–3 min) — tes réponses sont enregistrées automatiquement, tu peux revenir plus tard via le même lien.",
   "pre_interview.deadline_label": "Lien valable jusqu'au {date}",
   "pre_interview.progress_required": "{n}/{total} obligatoires",
   "pre_interview.submit": "Soumettre",
@@ -1210,11 +1214,15 @@ const NL: Record<TranslationKey, string> = {
   "profile.saved_msg": "Profiel bijgewerkt.",
 
   "pre_interview.brand_label": "Pre-interview",
+  "pre_interview.onboarding.brand_label": "Welkom",
   "pre_interview.footer":
     "Uw antwoorden zijn vertrouwelijk · GDPR · Caftan Factory",
   "pre_interview.welcome.title": "Uw pre-interview",
   "pre_interview.welcome.intro":
     "Een paar korte vragen (5–10 min). Uw antwoorden worden bij elke wijziging automatisch opgeslagen — u kunt later terugkeren via dezelfde link.",
+  "pre_interview.welcome.onboarding.title": "Welkom! Help ons je goed te onthalen",
+  "pre_interview.welcome.onboarding.intro":
+    "Nu je deel uitmaakt van het team, willen we je graag beter leren kennen om samen goed van start te gaan. Een paar korte vragen (2–3 min) — je antwoorden worden automatisch opgeslagen, je kunt later terugkeren via dezelfde link.",
   "pre_interview.deadline_label": "Link geldig tot {date}",
   "pre_interview.progress_required": "{n}/{total} verplicht",
   "pre_interview.submit": "Versturen",

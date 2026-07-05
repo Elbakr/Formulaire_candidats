@@ -14,11 +14,12 @@ export default async function PublicPreInterviewPage(
   props: PageProps<"/pre-interview/[token]">,
 ) {
   const { token } = await props.params;
-  const bundle = await loadPreInterviewBundleByToken(token);
   // La locale candidate est dérivée du cookie. Le `language_code` du
   // pre_interview reste informatif pour les emails RH ; côté UI candidat on
   // suit le cookie (que le candidat peut basculer via <LangToggle>).
+  // En contexte 'onboarding', la locale pilote aussi la langue des questions.
   const locale = await getLocale();
+  const bundle = await loadPreInterviewBundleByToken(token, locale);
 
   if (!bundle) {
     return (
@@ -76,19 +77,32 @@ export default async function PublicPreInterviewPage(
   );
 
   return (
-    <PublicShell locale={locale}>
+    <PublicShell locale={locale} context={preInterview.context}>
       <PreInterviewForm
         token={token}
         questions={visibleQuestions}
         initialResponses={responses}
         expiresAt={preInterview.expires_at}
         locale={locale}
+        context={preInterview.context}
       />
     </PublicShell>
   );
 }
 
-function PublicShell({ children, locale }: { children: React.ReactNode; locale: Locale }) {
+function PublicShell({
+  children,
+  locale,
+  context = "screening",
+}: {
+  children: React.ReactNode;
+  locale: Locale;
+  context?: "screening" | "onboarding";
+}) {
+  const brandKey =
+    context === "onboarding"
+      ? "pre_interview.onboarding.brand_label"
+      : "pre_interview.brand_label";
   return (
     <div className="min-h-screen bg-canvas pb-safe">
       <header className="bg-ink text-white px-4 py-4 sm:py-5 sticky top-0 z-10">
@@ -98,7 +112,7 @@ function PublicShell({ children, locale }: { children: React.ReactNode; locale: 
             Caftan Factory
           </span>
           <span className="text-[11px] text-white/60 ml-auto">
-            {t("pre_interview.brand_label", locale)}
+            {t(brandKey, locale)}
           </span>
         </div>
       </header>

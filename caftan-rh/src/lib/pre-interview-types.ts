@@ -45,12 +45,20 @@ export type PreInterviewStatus =
 
 export type PreInterviewDecision = "shortlist" | "reject" | "reserve";
 
+/**
+ * Contexte du questionnaire :
+ * - 'screening'  = sélection d'un candidat non encore validé (défaut, historique).
+ * - 'onboarding' = accueil d'un travailleur DÉJÀ embauché (post-signature).
+ */
+export type PreInterviewContext = "screening" | "onboarding";
+
 export type PreInterview = {
   id: string;
   application_id: string;
   position_role: string;
   token: string;
   language_code: string;
+  context: PreInterviewContext;
   sent_at: string | null;
   expires_at: string | null;
   started_at: string | null;

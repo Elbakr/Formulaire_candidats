@@ -73,7 +73,7 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
     supabase
       .from("pre_interviews")
       .select(
-        "id, application_id, position_role, token, language_code, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
+        "id, application_id, position_role, token, language_code, context, sent_at, expires_at, started_at, completed_at, status, reviewer_id, reviewed_at, decision, decision_note, created_at",
       )
       .eq("application_id", id)
       .order("created_at", { ascending: false })
@@ -96,7 +96,7 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
   let preInterviewPublicLink: string | null = null;
   if (currentPreInterview) {
     const [qs, respRes] = await Promise.all([
-      loadQuestionsFor(currentPreInterview.position_role, currentPreInterview.language_code),
+      loadQuestionsFor(currentPreInterview.position_role, currentPreInterview.language_code, currentPreInterview.context),
       supabase
         .from("pre_interview_responses")
         .select(
@@ -117,6 +117,7 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
       )
       .eq("is_active", true)
       .eq("language_code", "fr")
+      .eq("context", "screening")
       .order("sort_order", { ascending: true });
     preInterviewQuestions = (allQ ?? []) as PreInterviewQuestion[];
   }

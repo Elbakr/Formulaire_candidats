@@ -115,12 +115,16 @@ export async function sendWorkerWelcomeQuestionnaire(
       return { sent: false, reason: "aucune candidature reliable (pas de lien candidat)" };
     }
 
-    // 4) Réutilise un pré-entretien en cours (sent/started) sinon en crée un.
+    // 4) Réutilise un pré-entretien d'ONBOARDING en cours (sent/started) sinon en
+    //    crée un. On filtre sur context='onboarding' pour NE JAMAIS réutiliser un
+    //    éventuel pré-entretien de screening (sélection) de ce candidat : le
+    //    travailleur embauché ne doit voir QUE le questionnaire d'accueil.
     let token: string | null = null;
     const { data: existing } = await admin
       .from("pre_interviews")
       .select("token, status")
       .eq("application_id", applicationId)
+      .eq("context", "onboarding")
       .in("status", ["sent", "started"])
       .order("created_at", { ascending: false })
       .limit(1)
@@ -140,6 +144,7 @@ export async function sendWorkerWelcomeQuestionnaire(
           position_role: "all",
           token: newToken,
           language_code: "fr",
+          context: "onboarding",
           sent_at: now.toISOString(),
           expires_at: expiresAt.toISOString(),
           status: "sent",
