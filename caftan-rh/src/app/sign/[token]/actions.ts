@@ -172,5 +172,22 @@ export async function submitSignatureAction(input: {
     }
   }
 
+  // Karim 2026-07-05 : APRÈS signature, on invite le nouveau travailleur à
+  // remplir un « mini-questionnaire » (= le questionnaire de connaissance, table
+  // pre_interviews) via un mail de BIENVENUE automatique. Inversion de l'ordre du
+  // screening (désormais post-signature). Best-effort : ne bloque JAMAIS la
+  // signature ; anti-doublon interne (outbound_mails source+employee_id).
+  try {
+    const { sendWorkerWelcomeQuestionnaire } = await import(
+      "@/lib/worker-welcome-questionnaire"
+    );
+    const r = await sendWorkerWelcomeQuestionnaire(supabase, contract.employee_id);
+    if (!r.sent && r.reason) {
+      console.warn("[welcome-questionnaire] non envoyé:", r.reason);
+    }
+  } catch (e) {
+    console.warn("[welcome-questionnaire] échec:", (e as Error).message);
+  }
+
   return { ok: true };
 }

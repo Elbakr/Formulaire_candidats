@@ -31,7 +31,15 @@ export interface BlockedOutboundInfo {
 // RÉCAPITULATIF + CONFIRMATION envoyé au candidat à la fin de son formulaire
 // d'embauche (relecture de toutes ses données + bouton « Je confirme »). Toute
 // autre source d'outreach automatique reste bloquée comme avant.
-const AUTO_ALLOWED_SOURCES = new Set<string>(["candidate_recap_confirm"]);
+//
+// Karim 2026-07-05 : 2e exception — le mail de BIENVENUE + mini-questionnaire
+// envoyé au nouveau travailleur JUSTE APRÈS la signature de son contrat
+// (source `worker_welcome_questionnaire`). Envoi automatique assumé par Karim,
+// au même titre que le récap candidat.
+const AUTO_ALLOWED_SOURCES = new Set<string>([
+  "candidate_recap_confirm",
+  "worker_welcome_questionnaire",
+]);
 
 /**
  * Retourne true si un envoi taggé `automated` doit être BLOQUÉ.
