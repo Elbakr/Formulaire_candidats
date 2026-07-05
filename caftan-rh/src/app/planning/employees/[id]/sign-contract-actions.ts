@@ -445,7 +445,6 @@ export async function sendContractForSignatureAction(
   const employerSignatureDataUrl =
     (sigRaw as { signature_data_url: string | null } | null)?.signature_data_url ?? null;
   const orgInfo = EMPLOYER_ORGS[args.orgKey];
-  const representative = pickAuthorizedRepresentative(profile.full_name, orgInfo);
 
   // 3. SOURCE DE VÉRITÉ UNIQUE — mêmes inputs que la preview (WYSIWYG).
   const inputs = await resolveContractRenderInputs(admin, args.employeeId, args.templateCode);
@@ -506,7 +505,9 @@ export async function sendContractForSignatureAction(
       employerData: orgRow ? toContractEmployerOrg(orgRow) : undefined,
       primarySite,
       employerSignatureDataUrl,
-      employerRepresentativeOverride: representative,
+      // Karim 2026-07-05 : représentant = celui de l'ENTITÉ (employer_orgs.representative,
+      // ex. « Kamal Elbazi »), plus l'utilisateur connecté. Pas d'override → le builder
+      // retombe sur org.representative (éditable en base).
       signatureDate,
     });
   } catch (e) {

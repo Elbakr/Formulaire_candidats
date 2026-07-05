@@ -636,6 +636,9 @@ function buildPartiesBlockHtml(args: {
   employerName: string;
   employerAddress: string;
   employerLocality: string;
+  // Karim 2026-07-05 : n° d'entreprise (BCE) affiché sous la localité employeur,
+  // lu depuis l'entité résolue (employer_orgs.bce). Jamais codé en dur.
+  employerBce?: string;
   employerRepresentative: string;
   employerCoRepresentative?: string;
   employeeRoleLabel: string; // toujours "L'employé" (Karim 2026-05-30)
@@ -672,6 +675,12 @@ function buildPartiesBlockHtml(args: {
       <td class="col-label">Localité</td>
       <td class="col-sep">:</td>
       <td class="col-value">${v(args.employerLocality)}</td>
+    </tr>
+    <tr>
+      <td class="col-prefix"></td>
+      <td class="col-label">N° d'entreprise (BCE)</td>
+      <td class="col-sep">:</td>
+      <td class="col-value">${v(args.employerBce ?? "")}</td>
     </tr>
     <tr>
       <td class="col-prefix"></td>
@@ -1019,6 +1028,7 @@ function extractPartiesAndConvenu(
     employerName: org.name,
     employerAddress: org.address,
     employerLocality: org.locality,
+    employerBce: org.bce,
     employerRepresentative: args.employerRepresentativeOverride ?? org.representative,
     // Karim 2026-05-30 : harmonise "L'employé" pour tous les contrats (y compris student)
     employeeRoleLabel: "L'employé",

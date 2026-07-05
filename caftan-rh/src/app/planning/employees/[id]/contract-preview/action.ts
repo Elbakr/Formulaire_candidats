@@ -49,7 +49,9 @@ export async function previewContractHtmlAction(
       employerData: orgRow ? toContractEmployerOrg(orgRow) : undefined,
       primarySite,
       employerSignatureDataUrl,
-      employerRepresentativeOverride: profile.full_name ?? "Karim Elbazi",
+      // Karim 2026-07-05 : le représentant vient de l'ENTITÉ (employer_orgs.representative,
+      // ex. « Kamal Elbazi »), plus de l'utilisateur connecté. On ne force donc plus
+      // d'override : le builder retombe sur org.representative (éditable en base).
       signatureDate,
       withBranding: options?.withBranding !== false,
       headerStyle: options?.headerStyle ?? "corporate",
