@@ -250,10 +250,16 @@ Commission paritaire : CP 201`}</pre>
             Pour conserver la trace dans CaftanRH (voir formulaire ci-dessous).
           </Step>
         </ol>
-        <div className="p-4 border-t border-line">
+        <div className="p-4 border-t border-line flex flex-col sm:flex-row gap-2">
           <Button asChild variant="gold" size="lg">
             <a href={ONSS_PORTAL_URL} target="_blank" rel="noreferrer">
               <ExternalLink className="h-4 w-4" /> Ouvrir le portail Dimona ONSS
+            </a>
+          </Button>
+          {/* Karim 2026-07-05 : alternative via secrétariat social HR Consult. */}
+          <Button asChild variant="outline" size="lg">
+            <a href={HRCONSULT_DIMONA_URL} target="_blank" rel="noreferrer">
+              <ExternalLink className="h-4 w-4" /> Nouvelle Dimona via HR Consult
             </a>
           </Button>
         </div>
