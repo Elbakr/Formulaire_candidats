@@ -22,6 +22,11 @@ export type ContractEditable = {
   contract_kind: string;
   start_date: string;
   end_date: string | null;
+  // Karim 2026-07-05 : date de signature affichée sur le contrat. Défaut = jour de
+  // génération (prepared_at ?? created_at) ; modifiable explicitement.
+  signature_date: string | null;
+  prepared_at: string | null;
+  created_at: string | null;
   weekly_hours: number;
   monthly_hours: number | null;
   position_title: string;
@@ -68,6 +73,13 @@ export function ContractForm({
           : "",
   );
   const belowFloor = floor != null && hourly.trim() !== "" && parseFloat(hourly.replace(",", ".")) < floor - 0.001;
+
+  // Karim 2026-07-05 : date de signature affichée sur le contrat. Défaut = jour de
+  // GÉNÉRATION du contrat (prepared_at ?? created_at, tronqué en date), PAS la
+  // date d'affichage. Modifiable explicitement par l'opérateur ci-dessous.
+  const isoDay = (v: string | null): string => (v ? v.slice(0, 10) : "");
+  const signatureDateDefault =
+    isoDay(contract.signature_date) || isoDay(contract.prepared_at) || isoDay(contract.created_at);
 
   function onHourly(v: string) {
     setHourly(v);
@@ -197,6 +209,17 @@ export function ContractForm({
             />
           </Field>
         </div>
+        <Field label="Date de signature" htmlFor="signature_date">
+          <Input
+            type="date"
+            id="signature_date"
+            name="signature_date"
+            defaultValue={signatureDateDefault}
+          />
+          <p className="text-[11px] text-ink-3 mt-1">
+            Par défaut, le jour de génération du contrat. Modifiable : c&apos;est la date affichée sur le contrat (« Fait à …, le … »).
+          </p>
+        </Field>
         <Field label="Fonction" htmlFor="position_title">
           <Input
             id="position_title"

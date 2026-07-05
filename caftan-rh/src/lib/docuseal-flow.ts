@@ -717,6 +717,16 @@ function buildPartiesBlockHtml(args: {
  * PDF final (sinon la signature reste dans le certif separe au lieu d
  * apparaitre sur le contrat). Ref : https://www.docuseal.com/docs/embedded/html-builder
  */
+/**
+ * Karim 2026-07-05 : formate une date ISO (YYYY-MM-DD) en DD-MM-YYYY (format FR
+ * belge lisible), tel que stipulé dans la closing-line « Fait à X, le … ».
+ * Robuste : renvoie l'entrée telle quelle si le format n'est pas reconnu.
+ */
+function formatFrDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+}
+
 function buildContractHtmlForDocuseal(args: {
   contractBodyHtml: string;
   // Karim 2026-05-30 : permet override CSS par type de contrat (ex: student
@@ -732,6 +742,11 @@ function buildContractHtmlForDocuseal(args: {
   employerSignatureDataUrl?: string | null;
   employerRepresentativeName?: string;
   employerCoRepresentativeName?: string;
+  // Karim 2026-07-05 : DATE DE SIGNATURE (YYYY-MM-DD). Rendue VISIBLE dans le
+  // contrat (fini le <date-field> DocuSeal invisible côté aperçu/page/PDF). Par
+  // défaut = jour de génération du contrat (calculé par l'appelant), modifiable
+  // par l'opérateur. Fallback : date du jour si non fournie.
+  signatureDate?: string;
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
@@ -744,10 +759,11 @@ function buildContractHtmlForDocuseal(args: {
     ? `<div class="sig-zone"><img src="${args.employerSignatureDataUrl}" alt="Signature ${escapeHtml(args.employerName)}" style="display: block; max-width: 100%; max-height: 50px; margin: 0 auto;"></div>`
     : `<div class="sig-zone"><signature-field name="Signature employeur" role="Employer" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>`;
 
-  // Date contrat : si pre-signe, on inscrit la date du jour directement
-  const dateContrat = preSigned
-    ? `<strong>${today}</strong>`
-    : `<date-field name="Date contrat" role="Employer" required="true" default-value="${today}" style="display: inline-block; width: 130px; height: 20px;"></date-field>`;
+  // Karim 2026-07-05 : la date de signature est TOUJOURS rendue en texte visible
+  // (<strong>DD-MM-YYYY</strong>), aussi bien pré-signé que non pré-signé, pour
+  // qu'elle apparaisse dans l'aperçu, la page contrat et le PDF. Même source de
+  // vérité (signatureDate) que l'aperçu ET le document signé => WYSIWYG.
+  const dateContrat = `<strong>${formatFrDate(args.signatureDate ?? today)}</strong>`;
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -801,6 +817,9 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
   primarySite?: Parameters<typeof buildContractVariables>[0]["primarySite"];
   employerSignatureDataUrl?: string | null;
   employerRepresentativeOverride?: string;
+  // Karim 2026-07-05 : date de signature (YYYY-MM-DD) = jour de génération par
+  // défaut, calculée par l'appelant (resolveContractRenderInputs). Rendue visible.
+  signatureDate?: string;
 }): Promise<string> {
   const vars = buildContractVariables({
     employee: args.employeeData,
@@ -832,6 +851,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
     contractLocation: String(vars.contract_location ?? "Bruxelles"),
     employerSignatureDataUrl: args.employerSignatureDataUrl,
     employerRepresentativeName: args.employerRepresentativeOverride ?? org.representative,
+    signatureDate: args.signatureDate,
   });
 }
 

@@ -450,7 +450,7 @@ export async function sendContractForSignatureAction(
   // 3. SOURCE DE VÉRITÉ UNIQUE — mêmes inputs que la preview (WYSIWYG).
   const inputs = await resolveContractRenderInputs(admin, args.employeeId, args.templateCode);
   if (!inputs.ok) return { error: inputs.error };
-  const { eff, effTpl, primarySite, templateBodyMarkdown } = inputs;
+  const { eff, effTpl, primarySite, templateBodyMarkdown, signatureDate } = inputs;
 
   // 3b. RÈGLE : signaler les discordances fiche<->contrat à l'opérateur AVANT
   // d'adapter. Tant qu'il n'a pas validé, on bloque l'envoi et on renvoie la liste.
@@ -507,6 +507,7 @@ export async function sendContractForSignatureAction(
       primarySite,
       employerSignatureDataUrl,
       employerRepresentativeOverride: representative,
+      signatureDate,
     });
   } catch (e) {
     return { error: `Échec du rendu du contrat : ${(e as Error).message}` };
@@ -551,6 +552,9 @@ export async function sendContractForSignatureAction(
       position_title: String(eff.job_title ?? "Employé"),
       workplace: primarySite?.name ?? "Schaerbeek",
       status: "ready_to_sign",
+      // Karim 2026-07-05 : fige la date de signature affichée (celle du super
+      // layout stocké dans rendered_body) sur la ligne envoyée => WYSIWYG.
+      signature_date: signatureDate ?? null,
       prepared_at: new Date().toISOString(),
       template_id: (tplId as { id: string } | null)?.id ?? null,
       signing_token: signingToken,

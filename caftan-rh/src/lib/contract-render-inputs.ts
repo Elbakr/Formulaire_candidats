@@ -40,6 +40,13 @@ export type ContractRenderInputs =
       templateBodyMarkdown: string;
       /** Champs où fiche et contrat divergent — à SIGNALER à l'opérateur avant d'adapter. */
       discrepancies: ContractDiscrepancy[];
+      /**
+       * Date de signature (YYYY-MM-DD) à afficher sur le contrat. Priorité :
+       * signature_date fixée par l'opérateur, sinon jour de GÉNÉRATION du contrat
+       * (prepared_at ?? created_at). undefined si aucun contrat préparé (le
+       * renderer retombe alors sur la date du jour).
+       */
+      signatureDate: string | undefined;
     }
   | { ok: false; error: string };
 
@@ -64,7 +71,7 @@ export async function resolveContractRenderInputs(
   const { data: ctrRaw } = await admin
     .from("employee_contracts")
     .select(
-      "contract_kind, weekly_hours, start_date, end_date, position_title, gross_hourly_rate, nrn, address, postal_code, city, workplace, workplace_address",
+      "contract_kind, weekly_hours, start_date, end_date, position_title, gross_hourly_rate, nrn, address, postal_code, city, workplace, workplace_address, signature_date, prepared_at, created_at",
     )
     .eq("employee_id", employeeId)
     .order("created_at", { ascending: false })
@@ -165,6 +172,20 @@ export async function resolveContractRenderInputs(
     .maybeSingle();
   if (!tpl) return { ok: false, error: `Template ${effTpl} introuvable` };
 
+  // Karim 2026-07-05 : date de signature affichée. Priorité à la valeur fixée par
+  // l'opérateur (signature_date), sinon jour de GÉNÉRATION du contrat préparé
+  // (prepared_at ?? created_at), tronqué en date. undefined => date du jour côté
+  // renderer. MÊME source pour l'aperçu ET le document signé (WYSIWYG).
+  const toDate = (v: unknown): string | undefined => {
+    if (v == null || v === "") return undefined;
+    const s = String(v);
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+    return m ? m[1] : undefined;
+  };
+  const signatureDate = ctr
+    ? toDate(ctr.signature_date) ?? toDate(ctr.prepared_at) ?? toDate(ctr.created_at)
+    : undefined;
+
   return {
     ok: true,
     employee: emp as Record<string, unknown>,
@@ -173,5 +194,6 @@ export async function resolveContractRenderInputs(
     primarySite,
     templateBodyMarkdown: (tpl as { body_markdown: string }).body_markdown,
     discrepancies,
+    signatureDate,
   };
 }

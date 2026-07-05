@@ -22,7 +22,7 @@ export async function previewContractHtmlAction(
   // que le contrat réel est 24h temps partiel).
   const inputs = await resolveContractRenderInputs(admin, employeeId, tplCode);
   if (!inputs.ok) return { ok: false, error: inputs.error };
-  const { eff, effTpl, primarySite, templateBodyMarkdown } = inputs;
+  const { eff, effTpl, primarySite, templateBodyMarkdown, signatureDate } = inputs;
 
   // Karim 2026-05-31 : si manualSign, on FORCE pas de pre-signature stockee
   // (le contrat sera imprime pour signature manuelle)
@@ -50,6 +50,7 @@ export async function previewContractHtmlAction(
       primarySite,
       employerSignatureDataUrl,
       employerRepresentativeOverride: profile.full_name ?? "Karim Elbazi",
+      signatureDate,
     });
     // Karim 2026-05-31 : mode manual sign - remplace <signature-field> et
     // <date-field> par des zones vides imprimables pour signature manuelle

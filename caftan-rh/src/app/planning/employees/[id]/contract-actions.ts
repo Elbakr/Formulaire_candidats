@@ -288,6 +288,9 @@ export async function updateContractAction(
     contract_kind: STR(formData.get("contract_kind")) ?? "CDI",
     start_date: STR(formData.get("start_date")),
     end_date: STR(formData.get("end_date")),
+    // Karim 2026-07-05 : date de signature affichée sur le contrat (défaut = jour
+    // de génération, modifiable explicitement). Vide => NULL (retombe sur le défaut).
+    signature_date: STR(formData.get("signature_date")),
     weekly_hours: NUM(formData.get("weekly_hours")) ?? 38,
     monthly_hours: NUM(formData.get("monthly_hours")),
     position_title: STR(formData.get("position_title")) ?? "Vendeur·euse",
