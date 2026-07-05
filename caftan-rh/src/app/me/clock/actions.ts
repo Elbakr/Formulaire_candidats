@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 import { pickDefaultSiteId, formatDurationMin } from "@/lib/clock";
 import { haversineKm } from "@/lib/distance";
+import { fmtTime } from "@/lib/datetime";
 
 type Geo = { lat: number; lng: number; accuracy?: number } | null;
 
@@ -50,10 +51,8 @@ async function broadcastPresence(
     .eq("site_id", args.siteId)
     .maybeSingle();
   if (!room) return;
-  const time = new Date(args.occurredAt).toLocaleTimeString("fr-BE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  // Karim 2026-07-05 : heure TOUJOURS Europe/Brussels (serveur Vercel = UTC -> -2h sinon).
+  const time = fmtTime(args.occurredAt);
   let body: string;
   if (args.action === "in") {
     body = `\u{1F4CD} Arrivée — ${args.employeeName} a clocké-in à ${time}`;
