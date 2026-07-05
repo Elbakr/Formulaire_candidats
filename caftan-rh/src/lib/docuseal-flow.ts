@@ -296,7 +296,7 @@ const STUDENT_COMPACT_OVERRIDE = `
   body.contract-student .convenu-line { margin: 0 0 0.3cm 0; }
   body.contract-student .closing-line { margin-top: 0.35cm; }
   body.contract-student .signatures { margin-top: 0.35cm; }
-  body.contract-student .sig-box { min-height: 2cm; padding: 0.12cm 0.25cm; }
+  body.contract-student .sig-box { min-height: 2.7cm; padding: 0.12cm 0.25cm; }
   body.contract-student .sig-zone { min-height: 1.1cm; }
   /* Karim 2026-05-31 task #70 : force Article 9 en haut de page 2 */
   body.contract-student section.article-block[data-article="9"] {
@@ -327,7 +327,7 @@ export const EMPLOYEE_COMPACT_OVERRIDE = `
   body[class^="contract-employee"] .convenu-line { margin: 0 0 0.3cm 0; }
   body[class^="contract-employee"] .closing-line { margin-top: 0.35cm; }
   body[class^="contract-employee"] .signatures { margin-top: 0.35cm; }
-  body[class^="contract-employee"] .sig-box { min-height: 2cm; padding: 0.12cm 0.25cm; }
+  body[class^="contract-employee"] .sig-box { min-height: 2.7cm; padding: 0.12cm 0.25cm; }
   body[class^="contract-employee"] .sig-zone { min-height: 1.1cm; }
 `;
 
