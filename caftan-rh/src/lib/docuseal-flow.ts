@@ -14,7 +14,7 @@
 // scripts/preview-docuseal-layout.html pour previewer le rendu sans DocuSeal.
 
 import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey, type EmployerOrg } from "@/lib/contract-renderer";
-import { documentBrandingCss, documentBrandingHtml, corporateHeaderCss, corporateHeaderHtml } from "@/lib/contract-branding";
+import { documentBrandingCss, documentBrandingHtml, corporateHeaderCss } from "@/lib/contract-branding";
 
 /**
  * Karim 2026-05-29 : escape HTML special pour eviter injection.
@@ -296,7 +296,7 @@ const STUDENT_COMPACT_OVERRIDE = `
   body.contract-student .convenu-line { margin: 0 0 0.3cm 0; }
   body.contract-student .closing-line { margin-top: 0.35cm; }
   body.contract-student .signatures { margin-top: 0.35cm; }
-  body.contract-student .sig-box { min-height: 2.7cm; padding: 0.12cm 0.25cm; }
+  body.contract-student .sig-box { min-height: 2.4cm; padding: 0.12cm 0.25cm; }
   body.contract-student .sig-zone { min-height: 1.1cm; }
   /* Karim 2026-05-31 task #70 : force Article 9 en haut de page 2 */
   body.contract-student section.article-block[data-article="9"] {
@@ -327,7 +327,7 @@ export const EMPLOYEE_COMPACT_OVERRIDE = `
   body[class^="contract-employee"] .convenu-line { margin: 0 0 0.3cm 0; }
   body[class^="contract-employee"] .closing-line { margin-top: 0.35cm; }
   body[class^="contract-employee"] .signatures { margin-top: 0.35cm; }
-  body[class^="contract-employee"] .sig-box { min-height: 2.7cm; padding: 0.12cm 0.25cm; }
+  body[class^="contract-employee"] .sig-box { min-height: 2.4cm; padding: 0.12cm 0.25cm; }
   body[class^="contract-employee"] .sig-zone { min-height: 1.1cm; }
 `;
 
@@ -538,30 +538,27 @@ export const CONTRACT_CSS = `
   /* Karim 2026-05-30 REVERT v8.1 : margin-top 0.7cm */
   .signatures {
     margin-top: 0.7cm;
-    display: table;
-    width: 100%;
-    table-layout: fixed;
     page-break-inside: avoid;
-    border-spacing: 0.5cm 0;
-    margin-left: -0.25cm;
-    margin-right: -0.25cm;
   }
-  /* Karim 2026-05-30 : hack table pour forcer hauteur identique des 2 cellules
-     (sinon le sig-box employeur pre-signe deborde par rapport a employee) */
-  .signatures .sig-row { display: table-row; height: 1px; }
+  /* Karim 2026-07-05 : FLEXBOX -> les 2 cadres ont EXACTEMENT le meme gabarit et
+     sont symetriques (align-items: stretch egalise la hauteur de facon fiable,
+     contrairement au hack table precedent). */
+  .signatures .sig-row {
+    display: flex;
+    gap: 0.5cm;
+    align-items: stretch;
+    width: 100%;
+  }
   .signatures .sig-cell {
-    display: table-cell;
-    width: 50%;
-    vertical-align: top;
-    padding: 0;
-    height: 100%;
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
   }
-  /* Karim 2026-05-30 : encadré signature reduit (3.5cm -> 2.5cm) + height 100% symetrie */
   .signatures .sig-box {
+    flex: 1;
     border: 0.5pt solid #000;
     padding: 0.15cm 0.25cm;
-    min-height: 2.5cm;
-    height: 100%;
+    min-height: 2.4cm;
     box-sizing: border-box;
   }
   .signatures .sig-title {
@@ -811,7 +808,6 @@ function buildContractHtmlForDocuseal(args: {
 </head>
 <body class="contract-${args.templateCode ?? "employee"}${corporate ? " header-corporate" : ""}">
 ${documentBrandingHtml(brandOn)}
-${corporate && brandOn ? corporateHeaderHtml() : ""}
 ${args.contractBodyHtml}
 
 <p class="closing-line">
