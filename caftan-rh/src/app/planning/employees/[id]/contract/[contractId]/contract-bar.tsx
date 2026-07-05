@@ -34,10 +34,14 @@ export function ContractBar({
   contractId,
   employeeId,
   status,
+  sendReady = false,
 }: {
   contractId: string;
   employeeId: string;
   status: Status;
+  // Karim 2026-07-05 : toutes les conditions réunies pour envoyer à signer ?
+  // -> "Envoyer à signer" clignote VERT ; sinon ORANGE (élément manquant).
+  sendReady?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -135,14 +139,31 @@ export function ContractBar({
           ) : null}
 
           {status === "ready_to_sign" ? (
-            <Button
-              variant="success"
-              size="sm"
-              onClick={() => setConfirmSign(true)}
-              disabled={pending}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Marquer signé
-            </Button>
+            <>
+              {/* Karim 2026-07-05 : après "prêt à signer", l'action devient
+                  "Envoyer à signer" — clignote VERT si tout est réuni, ORANGE si
+                  un élément manque (mène à la fiche pour compléter/envoyer). */}
+              <Button
+                asChild
+                variant={sendReady ? "success" : "outline"}
+                size="sm"
+                className={sendReady ? "pulse-green" : "pulse-orange"}
+              >
+                <Link href={`/planning/employees/${employeeId}`}>
+                  <Mail className="h-3.5 w-3.5" />
+                  {sendReady ? "Envoyer à signer" : "Compléter puis envoyer"}
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmSign(true)}
+                disabled={pending}
+                title="Signature manuelle (papier) : marquer directement comme signé"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Marquer signé (manuel)
+              </Button>
+            </>
           ) : null}
 
           {/* Karim 2026-07-04 : impression retirée d'ici (imprimait le layout app

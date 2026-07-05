@@ -14,13 +14,15 @@ export function documentBrandingCss(withBranding = true): string {
   return `
   .brand-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: 12cm; max-width: 68%; opacity: 0.05; z-index: 0; pointer-events: none;
+    width: 12cm; max-width: 68%; opacity: 0.13; z-index: 0; pointer-events: none;
   }
   .brand-watermark img { width: 100%; height: auto; display: block; }
+  /* Karim 2026-07-05 : logo EN-TÊTE, centré en haut de chaque page. */
   .brand-header {
-    position: fixed; top: 0.28cm; right: 2cm; z-index: 3; pointer-events: none;
+    position: fixed; top: 0.25cm; left: 50%; transform: translateX(-50%);
+    z-index: 3; pointer-events: none; text-align: center;
   }
-  .brand-header img { height: 1cm; width: auto; opacity: 0.85; display: block; }
+  .brand-header img { height: 1.15cm; width: auto; opacity: 0.95; display: block; margin: 0 auto; }
   /* Le contenu du document passe AU-DESSUS du filigrane (lisibilité). */
   body > *:not(.brand-watermark):not(.brand-header) { position: relative; z-index: 1; }
   `;

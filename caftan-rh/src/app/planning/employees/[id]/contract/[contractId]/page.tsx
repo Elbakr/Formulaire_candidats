@@ -7,6 +7,7 @@ import { ContractForm, type ContractEditable } from "./contract-form";
 import { resolveWageBareme } from "@/lib/wage-bareme";
 import { ContractIframe } from "./contract-iframe";
 import { previewContractHtmlAction } from "../../contract-preview/action";
+import { isReadyForContract } from "@/lib/contract-readiness";
 
 type Status = "draft" | "ready_to_sign" | "signed" | "archived";
 
@@ -70,12 +71,24 @@ export default async function ContractDetailPage(
   }
   void orgRaw; // (org détaillé désormais intégré au super layout via l'entité résolue)
 
+  // Karim 2026-07-05 : "Envoyer à signer" clignote VERT si le dossier employé est
+  // complet, ORANGE si un élément manque (données requises pour générer/envoyer).
+  const { data: empForReady } = await supabase
+    .from("employees")
+    .select("full_name, email, birth_date, nrn, address, postal_code, city, iban, transport_type, transport_frequency, transport_price, weekly_hours, start_date, end_date, contract_type")
+    .eq("id", id)
+    .maybeSingle();
+  const sendReady = empForReady
+    ? isReadyForContract(empForReady as Record<string, unknown>, contract.contract_kind)
+    : false;
+
   return (
     <div className="space-y-4">
       <ContractBar
         contractId={contractId}
         employeeId={id}
         status={contract.status}
+        sendReady={sendReady}
       />
 
       <Card className="print:hidden">
