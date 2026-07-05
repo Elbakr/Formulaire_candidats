@@ -423,6 +423,9 @@ export const CONTRACT_CSS = `
   .parties-block .col-label {
     width: 2.6cm;
     font-weight: bold;
+    /* Karim 2026-07-05 : les libellés (dont "N° d'entreprise (BCE)") tiennent sur
+       UNE seule ligne -> label et valeur restent alignés sur la même ligne. */
+    white-space: nowrap;
   }
   .parties-block .col-sep {
     width: 0.25cm;
@@ -576,6 +579,17 @@ export const CONTRACT_CSS = `
     color: #000;
     margin: 0 0 0.15cm 0;
     line-height: 1.3;
+  }
+  /* Karim 2026-07-05 : nom sous chaque signature (travailleur + employeur). */
+  .signatures .sig-name {
+    font-size: 9pt;
+    font-weight: bold;
+    text-align: center;
+    color: #000;
+    margin-top: 2pt;
+    border-top: 0.4pt solid #000;
+    padding-top: 2pt;
+    line-height: 1.2;
   }
   /* Karim 2026-05-30 : zone signature reduite (1.8cm -> 1.4cm) */
   .signatures .sig-zone {
@@ -811,6 +825,7 @@ Chacune des parties reconnaît avoir reçu un exemplaire original.
       <div class="sig-box">
         <div class="sig-title">Signature du travailleur</div>
         <div class="sig-zone"><signature-field name="Signature employee" role="Employee" required="true" style="display: block; width: 100%; height: 50px; margin: 0 auto;"></signature-field></div>
+        <div class="sig-name">${escapeHtml(args.employeeName)}</div>
       </div>
     </div>
     <div class="sig-cell">
@@ -818,6 +833,7 @@ Chacune des parties reconnaît avoir reçu un exemplaire original.
         <div class="sig-title">Signature de l'employeur ou de son délégué</div>
         ${preSigned ? `<div class="sig-sub">(pré-signée numériquement)</div>` : ""}
         ${employerSignatureBlock}
+        <div class="sig-name">${escapeHtml(args.employerRepresentativeName ?? "")}</div>
       </div>
       ${coRepNote}
     </div>
