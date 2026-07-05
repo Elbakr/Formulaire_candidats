@@ -82,6 +82,11 @@ type Args = {
   templateCode: "employee" | "employee_pt" | "student";
   orgKey: EmployerOrgKey;
   employerEmail: string;
+  // Karim 2026-07-05 : signataire employeur CHOISI par l'admin (representative ou
+  // co_representative de l'entité). Alimente employerRepresentativeOverride → le
+  // contrat porte ce nom sous la signature + dans « Représenté par ». Si absent,
+  // comportement inchangé (le builder retombe sur employer_orgs.representative).
+  signatoryName?: string;
   // Karim 2026-05-30 : body mail personnalise (sinon defaut MAIL_MESSAGES)
   // Variables remplacees : {first_name}, {employer_name}, {signing_url}
   customMailBody?: string;
@@ -505,9 +510,11 @@ export async function sendContractForSignatureAction(
       employerData: orgRow ? toContractEmployerOrg(orgRow) : undefined,
       primarySite,
       employerSignatureDataUrl,
-      // Karim 2026-07-05 : représentant = celui de l'ENTITÉ (employer_orgs.representative,
-      // ex. « Kamal Elbazi »), plus l'utilisateur connecté. Pas d'override → le builder
-      // retombe sur org.representative (éditable en base).
+      // Karim 2026-07-05 : représentant = celui CHOISI par l'admin dans le dialog
+      // (representative « Kamal Elbazi » OU co_representative « Karim Elbazi » de
+      // l'entité). Alimente « Représenté par » + le nom sous la signature employeur.
+      // Si absent → le builder retombe sur org.representative (éditable en base).
+      employerRepresentativeOverride: args.signatoryName || undefined,
       signatureDate,
     });
   } catch (e) {

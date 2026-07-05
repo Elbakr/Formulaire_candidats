@@ -41,6 +41,10 @@ type Props = {
   } | null;
   // Karim 2026-06-18 : entité par défaut = celle du SITE du travailleur (éditable).
   defaultOrgKey?: OrgKey;
+  // Karim 2026-07-05 : signataires légaux possibles de l'entité (representative +
+  // co_representative, ex. ["Kamal Elbazi", "Karim Elbazi"]). L'admin CHOISIT lequel
+  // signe le contrat côté employeur. Défaut = premier (representative).
+  signatories?: string[];
 };
 
 type TemplateCode = "employee" | "employee_pt" | "student";
@@ -102,12 +106,16 @@ export function SignContractButton({
   employeeRecord,
   latestContract,
   defaultOrgKey,
+  signatories,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [infoRequestOpen, setInfoRequestOpen] = useState(false);
   const tplCode = deriveTemplateCode(contractType, workTimeKind, weeklyHours);
   const [orgKey, setOrgKey] = useState<OrgKey>(defaultOrgKey ?? "amd_megastore");
+  // Karim 2026-07-05 : signataire employeur choisi (défaut = 1er = representative/Kamal).
+  const signatoryOptions = signatories && signatories.length > 0 ? signatories : [];
+  const [signatory, setSignatory] = useState<string>(signatoryOptions[0] ?? "");
   const [employerEmail, setEmployerEmail] = useState<string>("hr@caftanfactory.com");
   const [mailBody, setMailBody] = useState<string>(DEFAULT_MAIL_BODY);
   const [pending, startTransition] = useTransition();
@@ -172,6 +180,7 @@ export function SignContractButton({
         templateCode: tplCode,
         orgKey,
         employerEmail,
+        signatoryName: signatory || undefined,
         customMailBody: mailBody !== DEFAULT_MAIL_BODY ? mailBody : undefined,
         bypassScreening: bypassReason.trim() ? { reason: bypassReason.trim() } : undefined,
         acceptDiscrepancies: accept || undefined,
@@ -461,6 +470,26 @@ export function SignContractButton({
                 ))}
               </div>
             </div>
+            {/* Karim 2026-07-05 : CHOIX du signataire employeur (representative /
+                co_representative de l'entité). Alimente employerRepresentativeOverride
+                → « Représenté par » + le nom sous la signature employeur. */}
+            {signatoryOptions.length > 0 && (
+              <div>
+                <label className="text-xs font-bold text-ink-2 block mb-1">Signataire employeur</label>
+                <select
+                  value={signatory}
+                  onChange={(e) => setSignatory(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded border border-line bg-surface text-sm"
+                >
+                  {signatoryOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-ink-3 mt-1">
+                  Signe le contrat côté employeur (apparaît sous la signature et dans « Représenté par »).
+                </p>
+              </div>
+            )}
             <div>
               <label className="text-xs font-bold text-ink-2 block mb-1">Email signataire employeur</label>
               <input
@@ -499,6 +528,7 @@ export function SignContractButton({
             <div className="border-t border-line pt-3 mt-3 text-[11px] text-ink-2 space-y-1">
               <div><span className="font-bold">Employé :</span> {employeeName}</div>
               <div><span className="font-bold">Email :</span> {employeeEmail || <span className="text-rose-600">manquant</span>}</div>
+              {signatory && <div><span className="font-bold">Signataire employeur :</span> {signatory}</div>}
               <div className="text-blue-700 italic">📧 2 envois : 1 mail signature au candidat + 1 copie archive à {employerEmail}.</div>
             </div>
             {/* Karim 2026-06-03 : bypass admin warnings screening */}

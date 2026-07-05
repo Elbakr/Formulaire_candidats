@@ -120,12 +120,18 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   }
 
   // Karim 2026-06-18 : entité par défaut = celle du site du travailleur (signature).
+  // Karim 2026-07-05 : on récupère aussi les 2 signataires légaux de l'entité
+  // (representative = Kamal + co_representative = Karim) pour laisser l'admin
+  // CHOISIR le signataire employeur au moment de l'envoi.
   let defaultOrgKey: "amd_megastore" | "caftan_factory" | "homix" | undefined;
+  let signatories: string[] = [];
   try {
     const adminOrg = createAdminClient();
     const { resolveEmployerOrgForEmployee } = await import("@/lib/employer-orgs");
     const o = await resolveEmployerOrgForEmployee(adminOrg, id);
     defaultOrgKey = (o?.key as "amd_megastore" | "caftan_factory" | "homix") ?? undefined;
+    signatories = [o?.representative, o?.co_representative]
+      .filter((s): s is string => !!s && s.trim().length > 0);
   } catch {
     /* non bloquant */
   }
@@ -266,6 +272,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             employeeRecord={emp as Record<string, unknown>}
             latestContract={latestContract ? { id: latestContract.id, docusealStatus: latestContract.docuseal_status, signedAt: latestContract.signed_at, signedPdfUrl: latestContract.signed_pdf_url } : null}
             defaultOrgKey={defaultOrgKey}
+            signatories={signatories}
           />
           <SendHiringDossierButton employeeId={id} />
           <Button asChild variant="outline" size="sm">
