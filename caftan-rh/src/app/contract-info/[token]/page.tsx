@@ -155,17 +155,20 @@ export default async function ContractInfoTokenPage({ params }: { params: Promis
     const candIdCard = await getCandidateIdCard(admin, tok.candidate_id);
     const candIdCardExisting = candIdCard ? { fileName: candIdCard.file_name, at: candIdCard.created_at } : null;
 
-    const missing = CANDIDATE_HIRING_FIELDS.filter((f) => {
-      const v = cand[f.key];
-      return v === null || v === undefined || String(v).trim() === "";
-    });
     const isStudent = typeof cand.is_student === "boolean" ? (cand.is_student as boolean) : null;
+    // Karim 2026-07-05 : on passe TOUS les champs (plus seulement les manquants) +
+    // les valeurs ACTUELLES pré-remplies -> le candidat peut MODIFIER n'importe
+    // quelle donnée déjà saisie (correction demandée depuis le mail récap).
+    const initialValues = Object.fromEntries(
+      CANDIDATE_HIRING_FIELDS.map((f) => [f.key, cand[f.key] != null ? String(cand[f.key]) : ""]),
+    );
 
     return (
       <Shell locale={locale} hideSubtitle>
         <ContractInfoForm
           token={token}
-          fields={missing}
+          fields={CANDIDATE_HIRING_FIELDS}
+          initialValues={initialValues}
           firstName={firstName}
           birthDate={(cand.birth_date as string) ?? null}
           isCandidate

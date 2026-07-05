@@ -386,6 +386,7 @@ export function ContractInfoForm({
   initialIsStudent = null,
   initialUnavailabilities = [],
   idCardExisting = null,
+  initialValues = {},
 }: {
   token: string;
   fields: Field[];
@@ -393,6 +394,9 @@ export function ContractInfoForm({
   birthDate?: string | null;
   isCandidate?: boolean;
   initialLocale?: Locale;
+  // Karim 2026-07-05 : valeurs déjà saisies -> pré-remplissage pour permettre la
+  // CORRECTION de n'importe quel champ (pas seulement les manquants).
+  initialValues?: Record<string, string>;
   initialIsStudent?: boolean | null;
   initialUnavailabilities?: CandidateUnavailability[];
   idCardExisting?: { fileName: string; at: string } | null;
@@ -417,7 +421,7 @@ export function ContractInfoForm({
     [fields],
   );
 
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
