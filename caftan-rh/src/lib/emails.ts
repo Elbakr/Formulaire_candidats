@@ -9,7 +9,7 @@ function getClient() {
   return new Resend(key);
 }
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "CaftanRH <onboarding@resend.dev>";
+const FROM = process.env.RESEND_FROM_EMAIL ?? "Caftan Factory Group - Ressources Humaines <onboarding@resend.dev>";
 
 // Karim 2026-06-07 : source/refs optionnels pour le journal outbound_mails.
 // Default source = "resend-direct" si le caller ne precise pas.

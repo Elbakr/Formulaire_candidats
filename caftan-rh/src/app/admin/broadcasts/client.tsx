@@ -30,7 +30,7 @@ import { formatDate } from "@/lib/utils";
 const SERVICE_ID = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
 const TEMPLATE_ID = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
-const FROM_NAME = process.env.NEXT_PUBLIC_EMAILJS_FROM_NAME || "CaftanRH";
+const FROM_NAME = process.env.NEXT_PUBLIC_EMAILJS_FROM_NAME || "Caftan Factory Group - Ressources Humaines";
 const REPLY_TO = process.env.NEXT_PUBLIC_EMAILJS_REPLY_TO || "hr@caftanfactory.com";
 
 let emailjsInitialized = false;

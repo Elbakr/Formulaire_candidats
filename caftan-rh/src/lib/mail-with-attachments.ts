@@ -111,7 +111,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
   }
 
   const RESEND_KEY = process.env.RESEND_API_KEY;
-  const RESEND_FROM = process.env.RESEND_FROM_EMAIL ?? "CaftanRH <onboarding@resend.dev>";
+  const RESEND_FROM = process.env.RESEND_FROM_EMAIL ?? "Caftan Factory Group - Ressources Humaines <onboarding@resend.dev>";
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
   const htmlBody = opts.htmlBody ?? opts.body.replace(/\n/g, "<br>");
 
@@ -130,7 +130,7 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
         auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
       });
       const info = await transporter.sendMail({
-        from: `Caftan Factory (By AMD Megastore) <${GMAIL_USER}>`,
+        from: `Caftan Factory Group - Ressources Humaines <${GMAIL_USER}>`,
         to: recipients.join(", "),
         bcc: opts.bccHr ? "hr@caftanfactory.com" : undefined,
         replyTo: opts.replyTo ?? "hr@caftanfactory.com",

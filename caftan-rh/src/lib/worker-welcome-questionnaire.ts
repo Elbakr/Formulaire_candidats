@@ -165,7 +165,7 @@ export async function sendWorkerWelcomeQuestionnaire(
       `Pour bien démarrer ensemble, on aimerait apprendre à mieux te connaître. Prends 2 minutes pour compléter ce petit questionnaire : il nous aide à comprendre ton parcours, tes préférences et tes attentes — et il compte beaucoup pour nous, c'est ce qui nous permet de t'accompagner au mieux dès tes débuts.\n\n` +
       `👉 Remplir mon mini-questionnaire : ${link}\n\n` +
       `Merci d'avance, et encore bienvenue !\n` +
-      `L'équipe RH — Caftan Factory`;
+      `L'équipe Ressources Humaines — Caftan Factory Group`;
 
     const safePrenom = escapeHtml(prenom);
     const safeBienvenu = escapeHtml(bienvenu);
@@ -188,7 +188,7 @@ export async function sendWorkerWelcomeQuestionnaire(
         </td></tr>
         <tr><td style="padding:0 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
           <p style="margin:0 0 6px;">Merci d'avance, et encore bienvenue !</p>
-          <p style="margin:0;color:#6b6b6b;">L'équipe RH — Caftan Factory</p>
+          <p style="margin:0;color:#6b6b6b;">L'équipe Ressources Humaines — Caftan Factory Group</p>
         </td></tr>
       </table>
       <p style="max-width:560px;margin:14px auto 0;font-size:12px;color:#9a9a9a;text-align:center;">Si le bouton ne fonctionne pas, copie ce lien dans ton navigateur : ${link}</p>
