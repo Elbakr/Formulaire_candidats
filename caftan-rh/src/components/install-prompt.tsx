@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Download, Share, X } from "lucide-react";
+
+// Karim 2026-07-05 : routes PUBLIQUES / candidat (liens token, embauche primaire) où
+// l'on NE montre PAS l'invite d'installation PWA ni les notifs push (pas leur rôle).
+const PUBLIC_ROUTE_RE = /^\/(contract-info|sign|sign-termination|pre-interview|postuler|renewal)(\/|$)/;
+export function isPublicCandidateRoute(pathname: string | null): boolean {
+  return !!pathname && PUBLIC_ROUTE_RE.test(pathname);
+}
 
 const DISMISS_KEY = "cf_install_dismissed_at";
 const DISMISS_DAYS = 14;
@@ -44,6 +52,7 @@ function isIOS(): boolean {
 }
 
 export function InstallPrompt() {
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIos, setShowIos] = useState(false);
@@ -93,7 +102,7 @@ export function InstallPrompt() {
     setDeferredPrompt(null);
   }
 
-  if (!mounted || hidden) return null;
+  if (!mounted || hidden || isPublicCandidateRoute(pathname)) return null;
 
   // Chrome / Android — interactive install prompt.
   if (deferredPrompt) {

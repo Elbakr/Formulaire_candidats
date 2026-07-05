@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Bell, X, Share, Smartphone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { isPublicCandidateRoute } from "@/components/install-prompt";
 
 /**
  * Banniere d'activation des notifications affichee proactivement quand :
@@ -47,6 +49,7 @@ function isStandalone(): boolean {
 }
 
 export function PushActivationBanner({ publicKey }: { publicKey: string | null }) {
+  const pathname = usePathname();
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState<"activate" | "ios-pwa" | null>(null);
   const [working, setWorking] = useState(false);
@@ -167,7 +170,7 @@ export function PushActivationBanner({ publicKey }: { publicKey: string | null }
     }
   }
 
-  if (!visible) return null;
+  if (!visible || isPublicCandidateRoute(pathname)) return null;
 
   if (mode === "ios-pwa") {
     return (
