@@ -10,7 +10,9 @@ import {
   FileText,
 } from "lucide-react";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { resolveEmployerOrgForEmployee } from "@/lib/employer-orgs";
+import { DimonaCopyBlock } from "./dimona-copy-block";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DimonaForm } from "./dimona-form";
@@ -58,7 +60,7 @@ export default async function EmployeeDimonaPage(
     await Promise.all([
       supabase
         .from("employees")
-        .select("id, full_name, nrn, start_date, end_date, contract_type")
+        .select("id, full_name, nrn, birth_date, start_date, end_date, contract_type")
         .eq("id", id)
         .maybeSingle(),
       supabase
@@ -87,6 +89,7 @@ export default async function EmployeeDimonaPage(
     id: string;
     full_name: string;
     nrn: string | null;
+    birth_date: string | null;
     start_date: string | null;
     end_date: string | null;
     contract_type: string | null;
@@ -101,7 +104,17 @@ export default async function EmployeeDimonaPage(
     position_title: string;
   }>;
   const dimonas = (dimonasRaw ?? []) as DimonaRow[];
-  const org = (orgRaw ?? {}) as { org_name?: string; org_address?: string };
+  const orgSettings = (orgRaw ?? {}) as { org_name?: string; org_address?: string };
+  // Karim 2026-07-05 : l'employeur Dimona = la VRAIE entité légale du site du
+  // travailleur (AMD Megastore SRL + BCE + ONSS), pas org_settings ("CaftanRH").
+  const employerOrg = await resolveEmployerOrgForEmployee(createAdminClient(), id);
+  const org = {
+    org_name: employerOrg?.name ?? orgSettings.org_name ?? "AMD MEGASTORE SRL",
+    org_address: [employerOrg?.address, employerOrg?.locality].filter(Boolean).join(", ") || orgSettings.org_address || "Rue de Brabant 230, 1030 Schaerbeek",
+    bce: employerOrg?.bce ?? "0660.936.422",
+    onss: employerOrg?.onss ?? "",
+    cp: employerOrg?.paritary_commission ?? "CP 201",
+  };
 
   const latestContract =
     contracts.find((c) => c.status === "signed") ??
@@ -181,18 +194,21 @@ export default async function EmployeeDimonaPage(
             Colle-les sur le formulaire HR Consult / ONSS pour minimiser la saisie.
           </p>
         </div>
-        <pre className="p-4 text-xs whitespace-pre-wrap select-all font-mono text-ink-2 leading-relaxed">{`EMPLOYEUR
-Nom : ${org.org_name ?? "AMD MEGASTORE SRL"}
-Adresse : ${org.org_address ?? "Rue de Brabant 230, 1030 Schaerbeek"}
+        <DimonaCopyBlock
+          data={`EMPLOYEUR
+Nom : ${org.org_name}
+N° BCE : ${org.bce}${org.onss ? `\nN° ONSS : ${org.onss}` : ""}
+Adresse : ${org.org_address}
 
 TRAVAILLEUR
 Nom : ${employee.full_name}
-NISS : ${employee.nrn ?? "[à compléter]"}
+NISS : ${employee.nrn ?? "[à compléter]"}${employee.birth_date ? `\nDate de naissance : ${employee.birth_date}` : ""}
 
 DÉCLARATION DIMONA IN
 Date d'entrée : ${defaultStart}
 Type travailleur : ${employee.contract_type === "Étudiant" ? "STU (étudiant)" : "OTH (travailleur ordinaire)"}
-Commission paritaire : CP 201`}</pre>
+Commission paritaire : ${org.cp}`}
+        />
       </Card>
 
       <Card className="print:hidden">
