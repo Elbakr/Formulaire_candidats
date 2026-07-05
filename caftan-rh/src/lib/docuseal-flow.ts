@@ -309,7 +309,7 @@ const STUDENT_COMPACT_OVERRIDE = `
 // resserrement -> 4 pages avec les 2 cadres de signature seuls sur la page 4.
 // Le sélecteur [class^="contract-employee"] couvre 'contract-employee' (plein) et
 // 'contract-employee_pt' (partiel). Pas de saut Article 9 (propre à l'étudiant).
-const EMPLOYEE_COMPACT_OVERRIDE = `
+export const EMPLOYEE_COMPACT_OVERRIDE = `
   @page {
     margin: 1.5cm 1.8cm 1.3cm 1.8cm;
   }

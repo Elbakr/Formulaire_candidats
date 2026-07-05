@@ -5,7 +5,7 @@
 // documents générés + règle de pagination « titre + corps sur la même page ».
 
 import "server-only";
-import { CONTRACT_CSS } from "@/lib/docuseal-flow";
+import { CONTRACT_CSS, EMPLOYEE_COMPACT_OVERRIDE } from "@/lib/docuseal-flow";
 
 export interface TerminationLetterData {
   // Employeur
@@ -110,7 +110,7 @@ function renderTerminationSuperLayout(
 <head>
 <meta charset="utf-8">
 <title>Cessation du contrat de travail - Commun accord</title>
-<style>${CONTRACT_CSS}</style>
+<style>${CONTRACT_CSS}${EMPLOYEE_COMPACT_OVERRIDE}</style>
 </head>
 <body class="contract-employee">
 ${toolbar}
