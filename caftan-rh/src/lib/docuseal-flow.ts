@@ -754,6 +754,9 @@ function buildContractHtmlForDocuseal(args: {
   // Karim 2026-07-05 : en-tête 'corporate' (logo + titre épuré) par défaut, ou
   // 'classic' (encadré validé). Bascule à tout moment.
   headerStyle?: "corporate" | "classic";
+  // Karim 2026-07-05 : le branding (filigrane + logo) = Caftan Factory. JAMAIS sur
+  // les documents Homix (entité distincte).
+  employerOrg?: EmployerOrgKey;
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   const preSigned = !!args.employerSignatureDataUrl;
@@ -771,17 +774,21 @@ function buildContractHtmlForDocuseal(args: {
   // qu'elle apparaisse dans l'aperçu, la page contrat et le PDF. Même source de
   // vérité (signatureDate) que l'aperçu ET le document signé => WYSIWYG.
   const dateContrat = `<strong>${formatFrDate(args.signatureDate ?? today)}</strong>`;
+  // Branding = Caftan Factory. JAMAIS pour Homix (entité distincte). Le titre
+  // épuré (sans encadré) reste ; seuls le filigrane + le logo disparaissent.
+  const brandOn = args.withBranding !== false && args.employerOrg !== "homix";
+  const corporate = args.headerStyle !== "classic";
 
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(args.withBranding !== false)}${args.headerStyle !== "classic" ? corporateHeaderCss() : ""}</style>
+<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(brandOn)}${corporate ? corporateHeaderCss() : ""}</style>
 </head>
-<body class="contract-${args.templateCode ?? "employee"}${args.headerStyle !== "classic" ? " header-corporate" : ""}">
-${documentBrandingHtml(args.withBranding !== false)}
-${args.headerStyle !== "classic" ? corporateHeaderHtml() : ""}
+<body class="contract-${args.templateCode ?? "employee"}${corporate ? " header-corporate" : ""}">
+${documentBrandingHtml(brandOn)}
+${corporate && brandOn ? corporateHeaderHtml() : ""}
 ${args.contractBodyHtml}
 
 <p class="closing-line">
@@ -865,6 +872,7 @@ export async function buildContractHtmlForDocuseal_publicForPreview(args: {
     signatureDate: args.signatureDate,
     withBranding: args.withBranding,
     headerStyle: args.headerStyle,
+    employerOrg: args.employerOrg,
   });
 }
 

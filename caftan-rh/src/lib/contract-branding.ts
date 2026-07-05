@@ -36,12 +36,14 @@ export function documentBrandingHtml(withBranding = true): string {
 export function corporateHeaderCss(): string {
   return `
   body.header-corporate .doc-title {
-    border: none; padding: 0.02cm 0 0.14cm 0; margin: 0 0 0.28cm 0;
+    border: none; padding: 0 0 0.1cm 0; margin: 0 0 0.2cm 0;
     border-bottom: 0.75pt solid #111;
   }
   body.header-corporate .doc-title h1 { letter-spacing: 0.16em; font-weight: 600; }
-  .doc-logo { text-align: center; margin: 0 0 0.16cm 0; }
-  .doc-logo img { height: 0.85cm; width: auto; display: inline-block; }
+  /* Karim 2026-07-05 : logo AGRANDI (1,25cm) ; marges resserrées pour compenser
+     et préserver le nombre de pages. */
+  .doc-logo { text-align: center; margin: 0 0 0.05cm 0; line-height: 0; }
+  .doc-logo img { height: 1.25cm; width: auto; display: inline-block; }
   `;
 }
 

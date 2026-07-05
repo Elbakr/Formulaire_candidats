@@ -106,15 +106,18 @@ function renderTerminationSuperLayout(
       <style>@media print{.no-print{display:none!important}}</style>`
     : "";
 
+  // Karim 2026-07-05 : branding Caftan Factory JAMAIS pour Homix (entité distincte).
+  const brandOn = !/homix/i.test(d.employer_org_name ?? "");
+
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <title>Cessation du contrat de travail - Commun accord</title>
-<style>${CONTRACT_CSS}${EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(true)}</style>
+<style>${CONTRACT_CSS}${EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(brandOn)}</style>
 </head>
 <body class="contract-employee">
-${documentBrandingHtml(true)}
+${documentBrandingHtml(brandOn)}
 ${toolbar}
 <div class="doc-title"><h1>CESSATION DU CONTRAT DE TRAVAIL DE COMMUN ACCORD</h1></div>
 
