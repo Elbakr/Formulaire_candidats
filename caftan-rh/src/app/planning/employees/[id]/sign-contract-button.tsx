@@ -89,11 +89,16 @@ function deriveTemplateCode(
   weeklyHours: number | null,
 ): TemplateCode {
   if (contractType === "Étudiant" || contractType === "Etudiant") return "student";
-  // CDD : si work_time_kind explicite, l utiliser ; sinon deriver des heures
+  // Karim 2026-07-05 : SOURCE DE VÉRITÉ = les HEURES saisies. Seuil temps plein
+  // belge = 38h (cf convention projet). Les heures PRIMENT sur un work_time_kind
+  // éventuellement périmé -> plus de "temps plein" affiché à 25h/sem.
+  if (typeof weeklyHours === "number" && Number.isFinite(weeklyHours)) {
+    return weeklyHours >= 38 ? "employee" : "employee_pt";
+  }
+  // Heures inconnues : on se rabat sur work_time_kind, défaut = temps plein.
   if (workTimeKind === "full") return "employee";
   if (workTimeKind === "partial" || workTimeKind === "part") return "employee_pt";
-  // Derive : >= 30h -> plein, sinon partiel
-  return (weeklyHours ?? 38) >= 30 ? "employee" : "employee_pt";
+  return "employee";
 }
 
 export function SignContractButton({
@@ -111,7 +116,6 @@ export function SignContractButton({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [infoRequestOpen, setInfoRequestOpen] = useState(false);
-  const tplCode = deriveTemplateCode(contractType, workTimeKind, weeklyHours);
   const [orgKey, setOrgKey] = useState<OrgKey>(defaultOrgKey ?? "amd_megastore");
   // Karim 2026-07-05 : signataire employeur choisi (défaut = 1er = representative/Kamal).
   const signatoryOptions = signatories && signatories.length > 0 ? signatories : [];
@@ -147,6 +151,39 @@ export function SignContractButton({
   });
   const [termsSaved, setTermsSaved] = useState(false);
   const [termsPending, startTermsTransition] = useTransition();
+
+  // Karim 2026-07-05 : template dérivé RÉACTIF aux valeurs éditées dans le récap
+  // (les heures priment). Changer les heures met à jour le libellé EN DIRECT.
+  const tplCode = deriveTemplateCode(
+    terms.contract_type || contractType,
+    terms.work_time_kind || workTimeKind,
+    terms.weekly_hours !== "" ? Number(terms.weekly_hours) : weeklyHours,
+  );
+
+  // Karim 2026-07-05 : boutons rapides de date de début (dates locales = Bruxelles).
+  const fmtLocalDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const quickTomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return fmtLocalDate(d);
+  })();
+  const quickNextMonday = (() => {
+    const d = new Date();
+    // delta strictement > 0 : le prochain lundi APRÈS aujourd'hui (jamais aujourd'hui).
+    const delta = ((8 - d.getDay()) % 7) || 7;
+    d.setDate(d.getDate() + delta);
+    return fmtLocalDate(d);
+  })();
+  const quickFirstNextMonth = (() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  })();
+  const quickFirstNextMonthISO = fmtLocalDate(quickFirstNextMonth);
+  const nextMonthLabel = quickFirstNextMonth.toLocaleDateString("fr-BE", {
+    month: "long",
+    timeZone: "Europe/Brussels",
+  });
 
   function handleSaveTerms() {
     startTermsTransition(async () => {
@@ -379,6 +416,30 @@ export function SignContractButton({
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                 />
               </div>
+              {/* Karim 2026-07-05 : boutons rapides de date de début */}
+              <div className="flex flex-wrap gap-1.5 pl-[136px]">
+                <button
+                  type="button"
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickTomorrow })); setTermsSaved(false); }}
+                  className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
+                >
+                  Demain
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickNextMonday })); setTermsSaved(false); }}
+                  className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
+                >
+                  Lundi prochain
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickFirstNextMonthISO })); setTermsSaved(false); }}
+                  className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
+                >
+                  Le 1er {nextMonthLabel}
+                </button>
+              </div>
 
               {/* Date de fin (optionnelle) */}
               <div className="flex items-center gap-2">
@@ -444,14 +505,14 @@ export function SignContractButton({
               <details className="mt-0.5">
                 <summary className="text-[9px] text-ink-3 cursor-pointer">Détails du calcul (debug)</summary>
                 <div className="text-[10px] bg-white/80 border border-blue-100 p-2 rounded mt-1 font-mono leading-relaxed">
-                  contract_type = <strong>{contractType ?? "null"}</strong><br />
-                  work_time_kind = <strong>{workTimeKind ?? "null"}</strong><br />
-                  weekly_hours = <strong>{weeklyHours ?? "null"}</strong><br />
+                  contract_type = <strong>{terms.contract_type || (contractType ?? "null")}</strong><br />
+                  work_time_kind = <strong>{terms.work_time_kind || (workTimeKind ?? "null")}</strong><br />
+                  weekly_hours = <strong>{terms.weekly_hours || (weeklyHours ?? "null")}</strong><br />
                   → template dérivé = <strong>{tplCode}</strong> ({TEMPLATE_LABELS[tplCode]})
                 </div>
                 <p className="text-[10px] text-amber-700 mt-1">
-                  Ces valeurs viennent de la BD (rechargées après « Enregistrer »).
-                  Si tu as modifié sans enregistrer, le template affiché peut être décalé.
+                  Le template suit EN DIRECT les valeurs du récap (les heures priment,
+                  seuil temps plein = 38h). « Enregistrer » persiste ces valeurs sur la fiche.
                 </p>
               </details>
             </div>

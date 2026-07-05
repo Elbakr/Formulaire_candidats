@@ -75,6 +75,15 @@ export async function sendContractSignatureMail(args: {
         .replaceAll("{signing_url}", args.signingUrl)
     : msg.body(firstName, args.employerName, args.signingUrl);
 
+  // Karim 2026-07-05 : version HTML pro — l'URL brute du corps texte (fallback)
+  // devient un lien cliquable court « clique ici » (bleu). On remplace la 1re
+  // occurrence de l'URL par l'ancre, puis on convertit les retours ligne en <br>.
+  const linkHtml = args.signingUrl
+    ? `<a href="${args.signingUrl}" style="color:#0b5fff;font-weight:600">clique ici</a>`
+    : "";
+  const htmlBody = (args.signingUrl ? body.split(args.signingUrl).join(linkHtml) : body)
+    .replace(/\n/g, "<br>");
+
   // Karim 2026-06-15 : route via sendMailWithAttachments -> Gmail SMTP PRIMAIRE,
   // Resend/EmailJS en secours. Le lien de signature est dans le corps + exposé
   // comme « pièce jointe lien ». Le logging outbound est géré par le helper.
@@ -84,6 +93,7 @@ export async function sendContractSignatureMail(args: {
     toName: args.employeeName,
     subject,
     body,
+    htmlBody,
     replyTo: "hr@caftanfactory.com",
     attachmentUrls: args.signingUrl ? [{ name: "Signer mon contrat", url: args.signingUrl }] : [],
     source: "contract_signature",
