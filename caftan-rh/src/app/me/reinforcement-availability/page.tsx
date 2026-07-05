@@ -126,6 +126,7 @@ export default async function ReinforcementAvailabilityPage() {
               <li key={s.id} className="p-3 flex items-center gap-3 text-sm">
                 <div className="w-24 shrink-0 font-mono text-xs font-bold text-ink">
                   {new Date(s.specific_date! + "T12:00:00Z").toLocaleDateString("fr-BE", {
+                    timeZone: "Europe/Brussels",
                     day: "2-digit",
                     month: "2-digit",
                     year: "numeric",

@@ -27,7 +27,7 @@ export async function prepareWeekScheduleEmailsAction(weekISO: string): Promise<
   const supabase = await createClient();
   const monday = startOfWeek(parseISODate(weekISO));
   const { start, end } = weekRange(monday);
-  const weekLabel = `du ${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au ${addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}`;
+  const weekLabel = `du ${monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au ${addDays(monday, 6).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}`;
 
   const [{ data: emps }, { data: shifts }, { data: timeOff }, { data: org }] = await Promise.all([
     supabase

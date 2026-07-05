@@ -105,7 +105,7 @@ export default async function CandidateAccessPage() {
               <tbody>
                 {rows.slice(0, 200).map((r) => (
                   <tr key={r.id} className="border-t border-line">
-                    <td className="py-1 pr-3 whitespace-nowrap">{new Date(r.created_at).toLocaleString("fr-BE")}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap">{new Date(r.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}</td>
                     <td className="pr-3">{nameOf(r)}</td>
                     <td className="pr-3 font-mono">{r.ip ?? "—"}</td>
                     <td className="pr-3"><MapPin className="h-3 w-3 inline mr-0.5 text-ink-3" />{[r.ip_city, r.ip_country].filter(Boolean).join(" ") || "—"}</td>

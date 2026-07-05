@@ -54,7 +54,7 @@ export function PushDebugClient({ publicKey }: { publicKey: string | null }) {
     }
   }
   function logTrace(line: string) {
-    const ts = new Date().toLocaleTimeString("fr-BE", { hour12: false });
+    const ts = new Date().toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour12: false });
     setTrace((t) => {
       const next = [...t, `${ts} ${line}`];
       persistTrace(next);

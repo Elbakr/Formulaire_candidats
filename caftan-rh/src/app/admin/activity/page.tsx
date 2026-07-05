@@ -32,7 +32,7 @@ function relativeTime(iso: string) {
   if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
   if (diff < 7 * 86400) return `il y a ${Math.floor(diff / 86400)} j`;
-  return d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" });
 }
 
 function targetLink(row: ActivityRow): string | null {
@@ -162,7 +162,7 @@ export default async function AdminActivityPage(props: { searchParams: Promise<S
                     </summary>
                     <div className="mt-3 pl-11 space-y-2">
                       <div className="text-[11px] text-ink-3">
-                        {new Date(row.created_at).toLocaleString("fr-BE")} ·{" "}
+                        {new Date(row.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })} ·{" "}
                         <code className="font-mono">{row.kind}</code>
                         {row.target_id ? (
                           <>

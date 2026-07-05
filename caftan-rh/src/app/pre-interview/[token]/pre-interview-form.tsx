@@ -236,7 +236,7 @@ export function PreInterviewForm({
         {expiresAt ? (
           <p className="text-[11px] text-ink-3 mt-2">
             {t("pre_interview.deadline_label", locale, {
-              date: new Date(expiresAt).toLocaleDateString(dateLocaleStr(locale), { dateStyle: "long" }),
+              date: new Date(expiresAt).toLocaleDateString(dateLocaleStr(locale), { timeZone: "Europe/Brussels", dateStyle: "long" }),
             })}
           </p>
         ) : null}

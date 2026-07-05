@@ -90,7 +90,7 @@ export default async function ContractsFolderPage({ searchParams }: { searchPara
                   <td className="px-3 whitespace-nowrap">{r.start_date ?? "—"}</td>
                   <td className="px-3 whitespace-nowrap">{r.end_date ?? "CDI"}</td>
                   <td className="px-3"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${STATUT_BADGE[r.status] ?? "bg-gray-100"}`}>{r.status}</span></td>
-                  <td className="px-3 whitespace-nowrap">{r.signed_at ? new Date(r.signed_at).toLocaleDateString("fr-BE") : "—"}</td>
+                  <td className="px-3 whitespace-nowrap">{r.signed_at ? new Date(r.signed_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" }) : "—"}</td>
                   <td className="px-3 text-right">
                     <Link href={`/planning/employees/${r.employee_id}/contract/${r.id}`} className="inline-flex items-center gap-1 text-gold-dark font-semibold hover:underline">
                       <Eye className="h-3.5 w-3.5" /> Voir

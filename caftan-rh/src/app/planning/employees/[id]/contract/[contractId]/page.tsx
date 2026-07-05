@@ -112,7 +112,7 @@ export default async function ContractDetailPage(
               : contract.status === "ready_to_sign"
                 ? "Le contrat est prêt. Imprime-le, signe-le avec l'employé, puis clique sur « Marquer signé »."
                 : contract.status === "signed"
-                  ? `Contrat signé${contract.signed_at ? ` le ${new Date(contract.signed_at).toLocaleDateString("fr-BE")}` : ""}. Vue lecture seule.`
+                  ? `Contrat signé${contract.signed_at ? ` le ${new Date(contract.signed_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}` : ""}. Vue lecture seule.`
                   : "Contrat archivé."}
           </p>
         </div>

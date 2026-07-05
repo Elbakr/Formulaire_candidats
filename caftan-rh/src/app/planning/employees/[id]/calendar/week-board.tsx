@@ -188,13 +188,13 @@ export function WeekBoard({
               >
                 <div className="px-3 py-2 border-b border-line">
                   <div className="text-[10px] uppercase tracking-wider text-ink-3 font-bold flex items-center gap-1">
-                    {d.toLocaleDateString("fr-BE", { weekday: "short" })}
+                    {d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", weekday: "short" })}
                     {isOffDay ? (
                       <span className="text-[9px] bg-ink-3 text-white px-1 rounded font-bold">OFF</span>
                     ) : null}
                   </div>
                   <div className="font-bold">
-                    {d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                    {d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                   </div>
                   {dh > 0 ? (
                     <div className="text-[10px] text-ink-3 font-mono">{dh.toFixed(1)}h</div>

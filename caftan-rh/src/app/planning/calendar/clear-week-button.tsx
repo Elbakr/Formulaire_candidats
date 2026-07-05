@@ -69,7 +69,7 @@ export function ClearWeekButton({
   const monday = parseISODate(weekISO);
   const sunday = addDays(monday, 6);
   const fmt = (d: Date) =>
-    d.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" });
+    d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" });
   const range = `du ${fmt(monday)} au ${fmt(sunday)}`;
   const isEmpty = count === 0;
 

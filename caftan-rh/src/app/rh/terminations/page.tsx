@@ -138,12 +138,12 @@ export default async function TerminationsDashboardPage({ searchParams }: { sear
                   <div className="text-xs text-ink-3 mt-1 space-y-0.5">
                     <div>
                       <span className="font-medium text-ink-2">Demandé :</span>{" "}
-                      {new Date(t.requested_at).toLocaleString("fr-BE", { dateStyle: "long", timeStyle: "short" })}
+                      {new Date(t.requested_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long", timeStyle: "short" })}
                     </div>
                     {t.effective_date && (
                       <div>
                         <span className="font-medium text-ink-2">Date de fin :</span>{" "}
-                        <strong>{new Date(t.effective_date).toLocaleDateString("fr-BE", { dateStyle: "long" })}</strong>
+                        <strong>{new Date(t.effective_date).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long" })}</strong>
                       </div>
                     )}
                     {t.initiated_by === "employee" && t.status === "pending_admin" && (

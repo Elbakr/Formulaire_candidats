@@ -95,7 +95,7 @@ function thisYearBounds(now: Date): { start: Date; end: Date } {
 }
 
 function fmtDate(d: Date): string {
-  return d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" });
 }
 
 // ---------------------------------------------------------------------------

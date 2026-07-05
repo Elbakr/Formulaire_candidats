@@ -342,10 +342,10 @@ export default async function EmployeeCalendarPage(props: {
           {view === "week" ? (
             <>
               Semaine du{" "}
-              {rangeStart.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+              {rangeStart.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}
             </>
           ) : view === "month" ? (
-            <>{today.toLocaleDateString("fr-BE", { month: "long", year: "numeric" })}</>
+            <>{today.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", month: "long", year: "numeric" })}</>
           ) : (
             <>Année {today.getFullYear()}</>
           )}{" "}
@@ -661,7 +661,7 @@ function YearView({ year, shifts }: { year: number; shifts: Shift[] }) {
           <Card key={m} className="overflow-hidden">
             <div className="px-3 py-2 border-b border-line bg-surface-2 flex items-center justify-between">
               <span className="font-bold capitalize">
-                {mStart.toLocaleDateString("fr-BE", { month: "long" })}
+                {mStart.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", month: "long" })}
               </span>
               <span className="text-[10px] font-mono text-ink-3">
                 {monthHours.toFixed(0)}h

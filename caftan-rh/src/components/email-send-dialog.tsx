@@ -113,6 +113,7 @@ export function EmailSendDialog({
         `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
       const fmtDate = (iso: string) =>
         new Date(`${iso}T12:00`).toLocaleDateString("fr-BE", {
+          timeZone: "Europe/Brussels",
           weekday: "long", day: "numeric", month: "long", year: "numeric",
         });
       perRecipient = {};

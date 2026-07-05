@@ -94,6 +94,7 @@ async function readCascadeSettings(
 
 function fmtDateFr(dateISO: string): string {
   return new Date(dateISO + "T00:00:00").toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",

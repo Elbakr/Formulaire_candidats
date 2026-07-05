@@ -114,7 +114,7 @@ export function MyPlanningClient({
         <>
           <div className="text-sm text-ink-2">
             {t("planning.week_of", locale, {
-              date: monday.toLocaleDateString(localeStr, { day: "2-digit", month: "long" }),
+              date: monday.toLocaleDateString(localeStr, { timeZone: "Europe/Brussels", day: "2-digit", month: "long" }),
             })}
             {" · "}
             <span className="font-bold">{totalH.toFixed(1)}{t("common.hours", locale)}</span>
@@ -136,7 +136,7 @@ export function MyPlanningClient({
                         {t(SHORT_DAY_KEYS[i], locale)}
                       </div>
                       <div className="font-bold">
-                        {d.toLocaleDateString(localeStr, { day: "2-digit", month: "short" })}
+                        {d.toLocaleDateString(localeStr, { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                       </div>
                       {dh > 0 ? (
                         <div className="text-[10px] text-ink-3 font-mono">{dh.toFixed(1)}{t("common.hours", locale)}</div>
@@ -195,7 +195,7 @@ export function MyPlanningClient({
                 <div className="p-4 flex items-center gap-3 flex-wrap">
                   <div className="w-12 h-12 rounded-md bg-gold-light text-gold-dark flex flex-col items-center justify-center shrink-0">
                     <div className="text-[10px] uppercase font-bold leading-none">
-                      {new Date(s.date).toLocaleDateString(localeStr, { weekday: "short" })}
+                      {new Date(s.date).toLocaleDateString(localeStr, { timeZone: "Europe/Brussels", weekday: "short" })}
                     </div>
                     <div className="font-bold text-base leading-none mt-1">
                       {new Date(s.date).getDate()}

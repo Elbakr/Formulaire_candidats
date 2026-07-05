@@ -85,7 +85,7 @@ function localDate(iso: string) {
 }
 
 function fmtTime(d: Date) {
-  return d.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" });
 }
 
 export function AgendaGrid({
@@ -138,8 +138,9 @@ export function AgendaGrid({
         <div>
           <h1 className="text-2xl font-bold">Agenda RDV</h1>
           <p className="text-sm text-ink-2">
-            Semaine du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
+            Semaine du {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au{" "}
             {addDays(monday, 6).toLocaleDateString("fr-BE", {
+              timeZone: "Europe/Brussels",
               day: "2-digit",
               month: "long",
               year: "numeric",
@@ -334,6 +335,7 @@ function InterviewDialog({
           </DialogTitle>
           <DialogDescription>
             {start.toLocaleDateString("fr-BE", {
+              timeZone: "Europe/Brussels",
               weekday: "long",
               day: "2-digit",
               month: "long",

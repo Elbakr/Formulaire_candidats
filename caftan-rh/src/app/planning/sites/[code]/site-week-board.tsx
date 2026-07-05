@@ -131,6 +131,7 @@ export function SiteWeekBoard({
     const nShifts = shiftsToDelete.length;
     if (nShifts === 0) return;
     const dayLabel = new Date(dateISO + "T12:00:00").toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       weekday: "long",
       day: "2-digit",
       month: "long",
@@ -222,7 +223,7 @@ export function SiteWeekBoard({
                 </div>
                 <div className="font-bold flex items-center justify-between gap-2">
                   <span>
-                    {d.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+                    {d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}
                   </span>
                   {closed ? (
                     <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-gold-dark bg-gold-light rounded-full px-2 py-0.5">

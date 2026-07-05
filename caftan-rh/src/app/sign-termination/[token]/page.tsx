@@ -67,7 +67,7 @@ export default async function SignTerminationPage(props: {
             <div className="font-bold text-success">✓ Convention déjà signée</div>
             <p className="text-sm text-ink-2 mt-1">
               Tu as déjà signé cette convention
-              {term.employee_signed_at ? ` le ${new Date(term.employee_signed_at).toLocaleString("fr-BE")}` : ""}.
+              {term.employee_signed_at ? ` le ${new Date(term.employee_signed_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}` : ""}.
               Une copie t&apos;a été envoyée par mail.
             </p>
           </div>

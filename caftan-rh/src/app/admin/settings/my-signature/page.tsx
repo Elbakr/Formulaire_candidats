@@ -46,7 +46,7 @@ export default async function MySignaturePage() {
             <div className="flex-1">
               <div className="text-sm font-bold text-emerald-800">Signature enregistrée</div>
               <div className="text-[11px] text-ink-3">
-                Dernière mise à jour : {row?.signature_updated_at ? new Date(row.signature_updated_at).toLocaleString("fr-BE") : "—"}
+                Dernière mise à jour : {row?.signature_updated_at ? new Date(row.signature_updated_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" }) : "—"}
               </div>
             </div>
           </div>

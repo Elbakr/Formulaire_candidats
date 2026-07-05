@@ -70,7 +70,7 @@ export default async function SignContractPage(props: {
             <div className="font-bold text-success">✓ Contrat déjà signé</div>
             <p className="text-sm text-ink-2 mt-1">
               Tu as signé ce contrat le {contract.signed_at
-                ? new Date(contract.signed_at).toLocaleString("fr-BE")
+                ? new Date(contract.signed_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })
                 : "—"}. Une copie t&apos;a été envoyée par mail.
             </p>
           </div>

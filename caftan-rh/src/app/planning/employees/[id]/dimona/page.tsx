@@ -275,7 +275,7 @@ export default async function EmployeeDimonaPage(
                   {d.start_date}
                   {d.end_date ? ` → ${d.end_date}` : ""} · type {d.worker_type ?? "—"}
                   {d.declared_at
-                    ? ` · déclarée le ${new Date(d.declared_at).toLocaleString("fr-BE")}`
+                    ? ` · déclarée le ${new Date(d.declared_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}`
                     : ""}
                 </div>
                 {d.notes ? (
@@ -307,6 +307,7 @@ export default async function EmployeeDimonaPage(
             <div className="font-bold text-xs uppercase mb-1">Date impression</div>
             <div className="text-[10px]">
               {new Date().toLocaleDateString("fr-BE", {
+                timeZone: "Europe/Brussels",
                 day: "2-digit",
                 month: "long",
                 year: "numeric",

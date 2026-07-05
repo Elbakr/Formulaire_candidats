@@ -154,6 +154,7 @@ export async function GET(request: NextRequest) {
     if (sentKeys.has(`${m.emp.profile_id}|${key}`)) continue;
     const d = new Date(m.date + "T00:00:00");
     const dayFr = d.toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       weekday: "long",
       day: "2-digit",
       month: "long",

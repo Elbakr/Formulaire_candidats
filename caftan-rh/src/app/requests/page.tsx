@@ -148,6 +148,7 @@ export default async function RequestsPage() {
                             </span>
                             <span className="text-[10px] text-ink-3 ml-auto">
                               {new Date(r.created_at).toLocaleString("fr-BE", {
+                                timeZone: "Europe/Brussels",
                                 day: "2-digit",
                                 month: "short",
                                 hour: "2-digit",

@@ -28,6 +28,7 @@ function fmtDate(s: string | null | undefined): string {
     const d = new Date(s);
     if (Number.isNaN(d.getTime())) return PLACEHOLDER;
     return d.toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -275,7 +276,7 @@ export function ContractDocument({ data }: { data: ContractFullData }) {
       <footer className="mt-8 text-[9px] text-gray-500 text-center">
         Document généré automatiquement par CaftanRH
         {c.prepared_at
-          ? ` le ${new Date(c.prepared_at).toLocaleDateString("fr-BE")}`
+          ? ` le ${new Date(c.prepared_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}`
           : ""}
         . V1 — vérifie les mentions légales propres à ta situation avant signature.
       </footer>

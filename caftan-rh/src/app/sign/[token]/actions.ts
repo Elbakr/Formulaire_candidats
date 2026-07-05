@@ -113,7 +113,7 @@ export async function submitSignatureAction(input: {
   {
     const docTitle = contract.template?.title ?? "Contrat de travail";
     const subjectRH = `CaftanRH — ${employeeName} a signé son ${docTitle}`;
-    const bodyRH = `Salut Karim,\n\n${employeeName} a signé son ${docTitle} le ${new Date(nowISO).toLocaleString("fr-BE")}.\nIP : ${ip}\n\nLe contrat complet est consultable sur la fiche employé :\n/planning/employees/${contract.employee_id}/contract\n\nLa signature électronique est valable légalement (eIDAS, Belgique).\n\nCaftanRH`;
+    const bodyRH = `Salut Karim,\n\n${employeeName} a signé son ${docTitle} le ${new Date(nowISO).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}.\nIP : ${ip}\n\nLe contrat complet est consultable sur la fiche employé :\n/planning/employees/${contract.employee_id}/contract\n\nLa signature électronique est valable légalement (eIDAS, Belgique).\n\nCaftanRH`;
     try {
       const { sendAppMail } = await import("@/lib/app-mail");
       await sendAppMail({

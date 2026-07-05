@@ -76,7 +76,7 @@ export function DimonaReminderBanner({
             </h2>
             <p className="text-xs text-rose-800 mt-1">
               <strong>{employeeName}</strong> a signé son contrat le{" "}
-              <span className="font-mono">{new Date(contractSignedAt).toLocaleDateString("fr-BE")}</span>.
+              <span className="font-mono">{new Date(contractSignedAt).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}</span>.
               La déclaration Dimona IN doit être faite <strong>avant le 1er jour de travail</strong>{" "}
               (obligation légale, sanctions ONSS si retard).
             </p>

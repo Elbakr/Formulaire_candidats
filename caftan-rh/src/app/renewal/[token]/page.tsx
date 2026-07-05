@@ -55,6 +55,7 @@ export default async function RenewalPage({ params }: { params: Promise<{ token:
   const fullName = row.employee?.full_name ?? "";
   const firstName = fullName.split(/\s+/)[0] ?? "";
   const dateFr = new Date(`${row.contract_end_date}T12:00:00`).toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     day: "numeric", month: "long", year: "numeric",
   });
 

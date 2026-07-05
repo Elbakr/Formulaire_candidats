@@ -37,7 +37,7 @@ export function SalaryAdvanceSection({ employeeId, initialAmount, initialNote, u
           Le montant sera deduit du net de la prochaine fiche de paie payee, puis reset a 0.
           {updatedAt && (
             <span className="ml-2">
-              Derniere maj : {new Date(updatedAt).toLocaleDateString("fr-BE")}
+              Derniere maj : {new Date(updatedAt).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}
             </span>
           )}
         </p>

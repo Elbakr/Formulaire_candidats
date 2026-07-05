@@ -117,7 +117,7 @@ export function IdCardUpload({
           <Check className="h-4 w-4" /> Carte d&apos;identité enregistrée
         </div>
         <p className="text-[11px] text-emerald-700">
-          Déposée le {new Date(existing!.at).toLocaleString("fr-BE")}.
+          Déposée le {new Date(existing!.at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}.
         </p>
         <button
           type="button"

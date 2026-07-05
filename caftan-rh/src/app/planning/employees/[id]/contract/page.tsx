@@ -156,7 +156,7 @@ export default async function EmployeeContractListPage(
                     {" · "}
                     {c.workplace}
                     {c.signed_at
-                      ? ` · signé le ${new Date(c.signed_at).toLocaleDateString("fr-BE")}`
+                      ? ` · signé le ${new Date(c.signed_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}`
                       : ""}
                   </div>
                 </div>

@@ -41,11 +41,13 @@ export async function applyDynamicWatermark(
 
     const sentAt = opts.sentAt ?? new Date();
     const dateStr = sentAt.toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
     });
     const timeStr = sentAt.toLocaleTimeString("fr-BE", {
+      timeZone: "Europe/Brussels",
       hour: "2-digit",
       minute: "2-digit",
     });

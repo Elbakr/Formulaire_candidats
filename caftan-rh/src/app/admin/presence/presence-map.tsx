@@ -144,7 +144,7 @@ export function PresenceMap({
                   )}
                 </div>
                 <div className="text-ink-3">
-                  Pointé à {new Date(e.in_at).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })}
+                  Pointé à {new Date(e.in_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" })}
                   {e.accuracy_m ? ` · ±${Math.round(e.accuracy_m)}m` : ""}
                 </div>
                 {e.out_of_zone ? (

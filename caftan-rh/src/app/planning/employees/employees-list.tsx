@@ -54,7 +54,7 @@ function formatElapsed(inAt: string, now: number): string {
 
 function formatTimeHHMM(inAt: string): string {
   const d = new Date(inAt);
-  return d.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" });
 }
 
 /**

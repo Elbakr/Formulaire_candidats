@@ -444,6 +444,7 @@ function Row({
 
   const fmt = (d: string) =>
     new Date(d).toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       day: "2-digit",
       month: "short",
       year: "numeric",

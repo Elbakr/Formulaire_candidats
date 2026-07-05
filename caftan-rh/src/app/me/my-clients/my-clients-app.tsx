@@ -92,12 +92,12 @@ const KIND_ICON: Record<VipKind, React.ComponentType<{ className?: string }>> = 
 
 function fmt(d: string | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("fr-BE", { day: "2-digit", month: "short" });
+  return new Date(d).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" });
 }
 function fmtBirth(d: string | null): string | null {
   if (!d) return null;
   const dt = new Date(d + "T00:00:00");
-  return dt.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" });
+  return dt.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" });
 }
 function isBirthdayThisWeek(d: string | null): boolean {
   if (!d) return false;

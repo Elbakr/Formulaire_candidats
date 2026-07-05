@@ -163,8 +163,8 @@ export default async function SiteDisplayPage(props: {
               </p>
             ) : null}
             <div className="mt-2 text-sm sm:text-base font-bold text-ink-2">
-              Semaine du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
-              {" "}au {addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}
+              Semaine du {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}
+              {" "}au {addDays(monday, 6).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}
             </div>
             <div className="mt-2 flex gap-4 text-xs sm:text-sm">
               <span className="font-bold">
@@ -201,7 +201,7 @@ export default async function SiteDisplayPage(props: {
                 <div className="text-lg sm:text-2xl font-bold leading-tight">
                   {dayDate.getDate()}{" "}
                   <span className="text-[10px] sm:text-xs font-normal text-ink-3">
-                    {dayDate.toLocaleDateString("fr-BE", { month: "short" })}
+                    {dayDate.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", month: "short" })}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-1 text-[10px] sm:text-[11px]">
@@ -281,7 +281,7 @@ export default async function SiteDisplayPage(props: {
 
       {/* Footer */}
       <div className="px-4 py-3 sm:px-8 text-[10px] sm:text-xs text-ink-3 border-t border-line">
-        Caftan Factory · {site.name} · Généré le {new Date().toLocaleDateString("fr-BE", { dateStyle: "long" })} à {new Date().toLocaleTimeString("fr-BE", { timeStyle: "short" })}
+        Caftan Factory · {site.name} · Généré le {new Date().toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long" })} à {new Date().toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", timeStyle: "short" })}
       </div>
 
       <style>{`

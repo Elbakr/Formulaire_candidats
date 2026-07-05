@@ -27,7 +27,7 @@ export function BatchRow({ batch }: { batch: Batch }) {
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         <span className="text-xs text-muted-foreground">
-          {batch.payslips_count ?? 0} fiches · {new Date(batch.created_at).toLocaleString("fr-BE")}
+          {batch.payslips_count ?? 0} fiches · {new Date(batch.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}
         </span>
         <Button
           variant="ghost"

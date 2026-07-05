@@ -34,7 +34,7 @@ function reasonLabel(code: string | null): string {
 }
 function fmtDate(d: string): string {
   try {
-    return new Date(d + "T00:00:00").toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" });
+    return new Date(d + "T00:00:00").toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" });
   } catch {
     return d;
   }

@@ -339,6 +339,7 @@ export function AllSitesBoard({
                       </div>
                       <div className="font-bold text-sm">
                         {d.toLocaleDateString("fr-BE", {
+                          timeZone: "Europe/Brussels",
                           day: "2-digit",
                           month: "short",
                         })}

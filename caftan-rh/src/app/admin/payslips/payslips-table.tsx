@@ -589,7 +589,7 @@ function PayButton({ row, isLocked }: { row: PayslipRow; isLocked: boolean }) {
   const [pending, startTransition] = useTransition();
   if (row.payment_status === "paid") {
     return (
-      <Button variant="ghost" size="sm" disabled title={`Payé le ${row.paid_at ? new Date(row.paid_at).toLocaleDateString("fr-BE") : ""}`}>
+      <Button variant="ghost" size="sm" disabled title={`Payé le ${row.paid_at ? new Date(row.paid_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" }) : ""}`}>
         <CheckCircle2 className="w-4 h-4 text-green-600" />
       </Button>
     );

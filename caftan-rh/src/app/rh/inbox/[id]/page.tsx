@@ -132,7 +132,7 @@ export default async function InboxDetailPage(props: {
         <div>
           <h1 className="text-2xl font-bold">{KIND_LABELS[row.kind] ?? row.kind}</h1>
           <p className="text-sm text-ink-2">
-            Proposée le {new Date(row.proposed_at).toLocaleString("fr-BE")}
+            Proposée le {new Date(row.proposed_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}
             {row.proposed_by_agent ? ` · agent : ${row.proposed_by_agent}` : ""}
           </p>
         </div>
@@ -339,7 +339,7 @@ export default async function InboxDetailPage(props: {
         <Card className="p-4">
           <div className="text-xs text-ink-3">
             Action {row.status}
-            {row.decided_at ? ` le ${new Date(row.decided_at).toLocaleString("fr-BE")}` : ""}
+            {row.decided_at ? ` le ${new Date(row.decided_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}` : ""}
             {row.decision_reason ? ` — « ${row.decision_reason} »` : ""}
           </div>
         </Card>

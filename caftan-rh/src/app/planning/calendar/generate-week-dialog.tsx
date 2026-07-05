@@ -217,7 +217,7 @@ export function GenerateWeekDialog({
             Générer le planning
           </DialogTitle>
           <DialogDescription>
-            À partir du {new Date(mondayISO + "T00:00:00").toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+            À partir du {new Date(mondayISO + "T00:00:00").toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}
             {weeksCount > 1 ? ` (sur ${weeksCount} semaines)` : ""}
             {phase === "select"
               ? " · choisis les sites et la période"
@@ -380,7 +380,7 @@ export function GenerateWeekDialog({
               const weekKeys = [...byWeek.keys()].sort();
               return weekKeys.map((wm) => {
                 const rows = byWeek.get(wm)!;
-                const wmLabel = new Date(wm + "T00:00:00").toLocaleDateString("fr-BE", { day: "2-digit", month: "long" });
+                const wmLabel = new Date(wm + "T00:00:00").toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" });
                 return (
                   <div key={wm}>
                     <div className="text-[11px] uppercase tracking-wider font-bold text-ink-3 mb-1.5">

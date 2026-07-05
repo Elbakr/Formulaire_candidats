@@ -248,7 +248,7 @@ export default async function TodayPage() {
                       {" "}
                       ({new Date(e.start_date + "T00:00:00").toLocaleDateString(
                         "fr-BE",
-                        { weekday: "short", day: "2-digit", month: "short" },
+                        { timeZone: "Europe/Brussels", weekday: "short", day: "2-digit", month: "short" },
                       )})
                     </span>
                   </span>
@@ -350,6 +350,7 @@ export default async function TodayPage() {
                     <li key={h.id} className={`flex items-center gap-1.5 ${tone}`}>
                       <span className="font-mono text-[11px] text-ink-3">
                         {new Date(h.date).toLocaleDateString("fr-BE", {
+                          timeZone: "Europe/Brussels",
                           weekday: "short",
                           day: "2-digit",
                           month: "short",
@@ -440,7 +441,7 @@ export default async function TodayPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-12 text-center">
                           <div className="font-mono font-bold text-base">
-                            {new Date(iv.scheduled_at).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })}
+                            {new Date(iv.scheduled_at).toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" })}
                           </div>
                           <div className="text-[10px] text-ink-3 uppercase">{iv.type}</div>
                         </div>

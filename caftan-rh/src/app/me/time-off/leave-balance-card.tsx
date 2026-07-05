@@ -75,7 +75,7 @@ export async function LeaveBalanceCard() {
           <span className="font-semibold text-sm">Solde congés payés {year}</span>
         </div>
         <span className="text-[10px] text-ink-3">
-          MAJ {new Date(b.computed_at).toLocaleDateString("fr-BE")}
+          MAJ {new Date(b.computed_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}
         </span>
       </div>
 

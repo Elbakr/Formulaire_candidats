@@ -389,6 +389,7 @@ export async function proposeReinforcementAction(args: {
   // DM message via admin client (RLS bypass) — author = manager.
   const roomId = await ensureDmRoom(profile.id, employeeProfileId);
   const dateFr = new Date(r.date + "T00:00:00").toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",

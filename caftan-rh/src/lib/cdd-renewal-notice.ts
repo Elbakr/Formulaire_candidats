@@ -24,6 +24,7 @@ export function newRenewalToken(): string {
 export function buildRenewalEmail(fullName: string | null, endDateISO: string, token: string) {
   const first = (fullName ?? "").split(/\s+/)[0] ?? "";
   const dateFr = new Date(`${endDateISO}T12:00:00`).toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     day: "numeric", month: "long", year: "numeric",
   });
   const link = `${BASE_URL}/renewal/${token}`;

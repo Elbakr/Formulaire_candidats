@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
   for (const e of missing) {
     const startFr = new Date(e.start_date + "T00:00:00").toLocaleDateString(
       "fr-BE",
-      { weekday: "long", day: "2-digit", month: "long" },
+      { timeZone: "Europe/Brussels", weekday: "long", day: "2-digit", month: "long" },
     );
     const site = siteByEmp.get(e.id);
     const siteSuffix = site ? ` au site ${site.code}` : "";
@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
     for (const e of missing) {
       const startFr = new Date(e.start_date + "T00:00:00").toLocaleDateString(
         "fr-BE",
-        { weekday: "long", day: "2-digit", month: "long" },
+        { timeZone: "Europe/Brussels", weekday: "long", day: "2-digit", month: "long" },
       );
       const site = siteByEmp.get(e.id);
       const link = `/planning/employees/${e.id}/dimona`;

@@ -74,7 +74,7 @@ export function SiteStatsPanel({
 
   const fmtAbbr = (d: string) => {
     const dt = new Date(d + "T12:00:00");
-    return dt.toLocaleDateString("fr-BE", { day: "2-digit", month: "2-digit" });
+    return dt.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "2-digit" });
   };
   const empNameById = new Map(employees.map((e) => [e.id, e.full_name] as const));
   const onLeaveDetails = leaves

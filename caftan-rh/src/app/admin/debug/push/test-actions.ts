@@ -31,7 +31,7 @@ export async function sendTestPushToSelfAction(): Promise<{
   }
   const r = await sendPushToProfiles([profile.id], {
     title: "🔔 Test push CaftanRH",
-    body: `Si tu vois ce message, les push fonctionnent ! Envoyé à ${new Date().toLocaleTimeString("fr-BE")}.`,
+    body: `Si tu vois ce message, les push fonctionnent ! Envoyé à ${new Date().toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels" })}.`,
     link: "/admin/debug/push",
   });
   return { ok: true, sent: r.sent, failed: r.failed, active_subs: activeSubs };

@@ -216,7 +216,7 @@ export function SignContractButton({
           target={latestContract?.signedPdfUrl ? "_blank" : undefined}
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold"
-          title={latestContract?.signedAt ? `Signé le ${new Date(latestContract.signedAt).toLocaleDateString("fr-BE")}` : "Contrat signé"}
+          title={latestContract?.signedAt ? `Signé le ${new Date(latestContract.signedAt).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}` : "Contrat signé"}
         >
           <Download className="h-3.5 w-3.5" /> Voir contrat signé
         </a>

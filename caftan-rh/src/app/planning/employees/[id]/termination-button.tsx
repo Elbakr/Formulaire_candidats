@@ -158,7 +158,7 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
     // Anti-doublon : prévenir si une rupture similaire (sent_for_signature) existe deja dans les 7 derniers jours
     const recentSent = history.find((h) => h.id !== createdId && h.sent_for_signature_at && (Date.now() - new Date(h.sent_for_signature_at).getTime()) < 7 * 24 * 3600 * 1000 && !["refused", "cancelled"].includes(h.status));
     if (recentSent) {
-      const ok = confirm(`⚠ Une rupture a déjà été envoyée à cet employé le ${new Date(recentSent.sent_for_signature_at!).toLocaleDateString("fr-BE")} par ${recentSent.initiator_name ?? "?"}. Envoyer quand même ?`);
+      const ok = confirm(`⚠ Une rupture a déjà été envoyée à cet employé le ${new Date(recentSent.sent_for_signature_at!).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })} par ${recentSent.initiator_name ?? "?"}. Envoyer quand même ?`);
       if (!ok) return;
     }
     startTransition(async () => {
@@ -230,8 +230,8 @@ export function TerminationButton({ employeeId, employeeFullName, defaultReprese
               </summary>
               <div className="mt-2 space-y-1.5">
                 {history.map((h) => {
-                  const sentDate = h.sent_for_signature_at ? new Date(h.sent_for_signature_at).toLocaleDateString("fr-BE", { dateStyle: "long" }) : null;
-                  const reqDate = new Date(h.requested_at).toLocaleDateString("fr-BE", { dateStyle: "long" });
+                  const sentDate = h.sent_for_signature_at ? new Date(h.sent_for_signature_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long" }) : null;
+                  const reqDate = new Date(h.requested_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long" });
                   return (
                     <div key={h.id} className="border-l-2 border-line pl-2">
                       <div className="flex flex-wrap items-center gap-1.5">

@@ -117,8 +117,9 @@ export default async function EmployeePrintPage(props: {
         </p>
         <p className="text-xs">
           du{" "}
-          {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
+          {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au{" "}
           {addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", {
+            timeZone: "Europe/Brussels",
             day: "2-digit",
             month: "long",
             year: "numeric",
@@ -176,9 +177,10 @@ export default async function EmployeePrintPage(props: {
             <h2 className="text-xs font-bold uppercase tracking-wider mb-1 border-b border-gray-300 pb-0.5 flex items-center justify-between">
               <span>
                 Semaine {wi + 1} —{" "}
-                {wMonday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}{" "}
+                {wMonday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}{" "}
                 au{" "}
                 {addDays(wMonday, 6).toLocaleDateString("fr-BE", {
+                  timeZone: "Europe/Brussels",
                   day: "2-digit",
                   month: "long",
                 })}
@@ -264,6 +266,7 @@ export default async function EmployeePrintPage(props: {
         <div>
           Édité le{" "}
           {new Date().toLocaleDateString("fr-BE", {
+            timeZone: "Europe/Brussels",
             day: "2-digit",
             month: "long",
             year: "numeric",

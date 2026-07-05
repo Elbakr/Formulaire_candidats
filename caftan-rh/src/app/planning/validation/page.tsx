@@ -120,9 +120,9 @@ export default async function ValidationPage() {
               <li key={w.mondayISO} className="px-4 py-2 flex items-center gap-3 text-sm flex-wrap">
                 <div className="font-mono font-bold w-24 shrink-0">{w.mondayISO}</div>
                 <div className="text-ink-2 w-44 shrink-0 text-[12px]">
-                  {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                  {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                   {" → "}
-                  {sunday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                  {sunday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                 </div>
                 {w.rush.isRush ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-warn-light text-warn px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-warn/30">

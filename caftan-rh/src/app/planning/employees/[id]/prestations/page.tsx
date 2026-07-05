@@ -112,7 +112,7 @@ function rangeForView(
     return {
       start: s,
       end: e,
-      label: `Du ${s.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au ${e.toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}`,
+      label: `Du ${s.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au ${e.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}`,
     };
   }
   if (view === "day") {
@@ -120,6 +120,7 @@ function rangeForView(
       start: today,
       end: today,
       label: today.toLocaleDateString("fr-BE", {
+        timeZone: "Europe/Brussels",
         weekday: "long",
         day: "2-digit",
         month: "long",
@@ -134,9 +135,11 @@ function rangeForView(
       start: monday,
       end: sunday,
       label: `Semaine du ${monday.toLocaleDateString("fr-BE", {
+        timeZone: "Europe/Brussels",
         day: "2-digit",
         month: "long",
       })} au ${sunday.toLocaleDateString("fr-BE", {
+        timeZone: "Europe/Brussels",
         day: "2-digit",
         month: "long",
         year: "numeric",
@@ -149,7 +152,7 @@ function rangeForView(
   return {
     start: monthStart,
     end: monthEnd,
-    label: today.toLocaleDateString("fr-BE", { month: "long", year: "numeric" }),
+    label: today.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", month: "long", year: "numeric" }),
   };
 }
 
@@ -539,7 +542,7 @@ export default async function EmployeePrestationsPage(props: {
       const existing = weekByMonday.get(mondayISO) ?? {
         weekStart: mondayISO,
         weekEnd: sundayISO,
-        weekLabel: `${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}`,
+        weekLabel: `${monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}`,
         workedMin: 0,
         plannedMin: 0,
         days: 0,
@@ -750,6 +753,7 @@ export default async function EmployeePrestationsPage(props: {
                       }`}
                     >
                       {d.toLocaleDateString("fr-BE", {
+                        timeZone: "Europe/Brussels",
                         weekday: "long",
                         day: "2-digit",
                         month: "long",

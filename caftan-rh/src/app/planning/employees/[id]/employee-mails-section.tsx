@@ -74,8 +74,8 @@ export async function EmployeeMailsSection({ employeeId }: { employeeId: string 
                 </div>
                 <div className="text-[10px] text-ink-3 mt-0.5">
                   → {m.recipient_email} ·{" "}
-                  {date.toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" })}{" "}
-                  {date.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })}
+                  {date.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" })}{" "}
+                  {date.toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" })}
                 </div>
               </div>
             );

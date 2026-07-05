@@ -97,8 +97,8 @@ export default async function PushDebugPage() {
                       {s.user_agent ?? "—"}
                     </div>
                     <div className="text-[10px] text-ink-3">
-                      Crée {new Date(s.created_at).toLocaleString("fr-BE")}
-                      {s.last_used_at ? ` · Dernier push ${new Date(s.last_used_at).toLocaleString("fr-BE")}` : ""}
+                      Crée {new Date(s.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}
+                      {s.last_used_at ? ` · Dernier push ${new Date(s.last_used_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}` : ""}
                     </div>
                   </div>
                 </li>

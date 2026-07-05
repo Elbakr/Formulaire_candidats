@@ -128,6 +128,7 @@ function RoomCard({
           {room.last_message ? (
             <span className="text-[10px] text-ink-3 hidden md:inline shrink-0">
               {new Date(room.last_message.created_at).toLocaleString("fr-BE", {
+                timeZone: "Europe/Brussels",
                 day: "2-digit",
                 month: "short",
                 hour: "2-digit",

@@ -228,8 +228,9 @@ export default async function PrintPlanningPage(props: {
         <h1 className="text-2xl font-bold uppercase tracking-wider">{orgName}</h1>
         <p className="text-base">
           Planning {periodLabel} — du{" "}
-          {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
+          {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au{" "}
           {addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", {
+            timeZone: "Europe/Brussels",
             day: "2-digit",
             month: "long",
             year: "numeric",
@@ -256,6 +257,7 @@ export default async function PrintPlanningPage(props: {
                   />
                   <span className="font-mono text-[10px] text-gray-600">
                     {parseISODate(h.date).toLocaleDateString("fr-BE", {
+                      timeZone: "Europe/Brussels",
                       weekday: "short",
                       day: "2-digit",
                       month: "short",
@@ -288,9 +290,10 @@ export default async function PrintPlanningPage(props: {
                 {nbWeeks > 1 ? (
                   <h2 className="text-sm font-bold uppercase tracking-wider mb-1 mt-2 border-b border-gray-300 pb-0.5">
                     Semaine {wi + 1} — du{" "}
-                    {wMonday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}{" "}
+                    {wMonday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}{" "}
                     au{" "}
                     {addDays(wMonday, 6).toLocaleDateString("fr-BE", {
+                      timeZone: "Europe/Brussels",
                       day: "2-digit",
                       month: "long",
                     })}
@@ -470,6 +473,7 @@ export default async function PrintPlanningPage(props: {
       <footer className="mt-6 text-[9px] text-center text-gray-500 print:fixed print:bottom-2 print:left-0 print:right-0">
         Édité depuis CaftanRH ·{" "}
         {new Date().toLocaleDateString("fr-BE", {
+          timeZone: "Europe/Brussels",
           day: "2-digit",
           month: "long",
           year: "numeric",

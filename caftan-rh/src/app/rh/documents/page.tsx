@@ -341,7 +341,7 @@ function DocumentRow({ doc }: { doc: DocRow }) {
           <span className="truncate">{doc.title}</span>
         </div>
         <div className="text-[10px] text-ink-3 flex items-center gap-2 flex-wrap mt-0.5">
-          <span>{new Date(doc.date).toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" })}</span>
+          <span>{new Date(doc.date).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" })}</span>
           {sigBadge && (
             <span className={`px-1.5 py-0.5 rounded-full text-[9px] border ${sigBadge.cls}`}>
               {sigBadge.label}

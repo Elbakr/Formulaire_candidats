@@ -237,6 +237,7 @@ export default async function AiAuditPage() {
                   <td className="p-2 text-right text-xs text-ink-3 whitespace-nowrap">
                     {row.executed_at
                       ? new Date(row.executed_at).toLocaleString("fr-BE", {
+                          timeZone: "Europe/Brussels",
                           dateStyle: "short",
                           timeStyle: "short",
                         })

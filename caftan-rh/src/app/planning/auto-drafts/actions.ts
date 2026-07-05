@@ -264,7 +264,7 @@ export async function previewMultiSitePlanAction(
     // leur creneau original pour ce site, afin que Karim voit la realite.
     const additionalUncovered: SitePlanPreview["uncovered"] = blocked.map((d) => ({
       date: d.date,
-      day_label: new Date(d.date + "T00:00:00").toLocaleDateString("fr-BE", { weekday: "short" }),
+      day_label: new Date(d.date + "T00:00:00").toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", weekday: "short" }),
       start_time: d.start_time,
       end_time: d.end_time,
       role: d.position ?? null,

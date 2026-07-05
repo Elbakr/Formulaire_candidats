@@ -50,6 +50,7 @@ export async function correctClockOutAction(
   }
 
   const correctedAt = new Date().toLocaleString("fr-BE", {
+    timeZone: "Europe/Brussels",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -107,7 +108,7 @@ export async function editClockEntryAction(
   const row = existing as { id: string; employee_id: string };
 
   const correctedAt = new Date().toLocaleString("fr-BE", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Brussels", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
   const author = profile.full_name ?? profile.role ?? "RH";
   const note = `Edition manuelle (kind=${newKind}) le ${correctedAt} par ${author}`;
@@ -175,7 +176,7 @@ export async function addClockEntryAction(args: {
 
   const supabase = await createClient();
   const correctedAt = new Date().toLocaleString("fr-BE", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Brussels", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
   const author = profile.full_name ?? profile.role ?? "RH";
   const note = `Ajout manuel le ${correctedAt} par ${author}`;
@@ -223,7 +224,7 @@ export async function addManualShiftAction(args: {
   const supabase = await createClient();
   const author = profile.full_name ?? profile.role ?? "RH";
   const correctedAt = new Date().toLocaleString("fr-BE", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Brussels", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
   const note = `Shift ajouté manuellement le ${correctedAt} par ${author}${args.reason ? ` — ${args.reason}` : ""}`;
 

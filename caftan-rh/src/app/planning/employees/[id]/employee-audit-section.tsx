@@ -126,7 +126,7 @@ export async function EmployeeAuditSection({ employeeId }: { employeeId: string 
                       </div>
                     </div>
                     <div className="text-[10px] text-ink-3 text-right flex-shrink-0">
-                      {new Date(row.occurred_at).toLocaleString("fr-BE", { dateStyle: "short", timeStyle: "short" })}
+                      {new Date(row.occurred_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "short", timeStyle: "short" })}
                     </div>
                   </div>
                 </div>
@@ -153,7 +153,7 @@ export async function EmployeeAuditSection({ employeeId }: { employeeId: string 
                       )}
                     </div>
                     <div className="text-[10px] text-ink-3 text-right flex-shrink-0">
-                      {new Date(row.occurred_at).toLocaleString("fr-BE", { dateStyle: "short", timeStyle: "short" })}
+                      {new Date(row.occurred_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "short", timeStyle: "short" })}
                     </div>
                   </div>
                 </div>

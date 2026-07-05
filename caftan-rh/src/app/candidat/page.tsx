@@ -86,7 +86,7 @@ export default async function CandidatHomePage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-sm truncate">{job?.title ?? "Candidature spontanée"}</div>
                     <div className="text-[11px] text-ink-3 mt-0.5">
-                      Envoyée le {new Date(a.created_at).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}
+                      Envoyée le {new Date(a.created_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}
                     </div>
                   </div>
                   <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${chip.cls}`}>

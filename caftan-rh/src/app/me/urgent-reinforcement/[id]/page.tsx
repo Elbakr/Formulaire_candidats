@@ -59,6 +59,7 @@ export default async function UrgentReinforcementPage(
   }
 
   const dateFr = new Date(r.date + "T00:00:00").toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",

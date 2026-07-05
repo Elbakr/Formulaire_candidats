@@ -75,6 +75,7 @@ export default async function AutoDraftsPage() {
                     <div className="text-xs text-ink-3 mt-1">
                       Semaine du {d.week_monday} · généré le{" "}
                       {new Date(d.generated_at).toLocaleString("fr-BE", {
+                        timeZone: "Europe/Brussels",
                         day: "2-digit",
                         month: "short",
                         hour: "2-digit",

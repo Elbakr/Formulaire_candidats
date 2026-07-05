@@ -93,8 +93,8 @@ export default async function AllSitesPage(props: {
 
   const dateLabel =
     nbWeeks === 1
-      ? `Du ${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au ${addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}`
-      : `${nbWeeks} semaines : du ${monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })} au ${addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" })}`;
+      ? `Du ${monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au ${addDays(monday, 6).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}`
+      : `${nbWeeks} semaines : du ${monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })} au ${addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" })}`;
 
   return (
     <div className="space-y-4">
@@ -162,9 +162,9 @@ export default async function AllSitesPage(props: {
                   Semaine {idx + 1} / {nbWeeks}
                 </span>
                 <span className="text-xs text-ink-2">
-                  {wMonday.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                  {wMonday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                   {" → "}
-                  {addDays(wMonday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                  {addDays(wMonday, 6).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                 </span>
                 {isCurrentWeek ? (
                   <span className="ml-auto text-[10px] font-bold uppercase text-gold-dark">

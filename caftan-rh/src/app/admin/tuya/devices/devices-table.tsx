@@ -115,7 +115,7 @@ function DeviceRow({ device, sites, mode }: { device: Device; sites: Site[]; mod
   useEffect(() => {
     setLastSeen(
       device.last_seen_at
-        ? new Date(device.last_seen_at).toLocaleString("fr-BE", { dateStyle: "short", timeStyle: "short" })
+        ? new Date(device.last_seen_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "short", timeStyle: "short" })
         : "—",
     );
   }, [device.last_seen_at]);

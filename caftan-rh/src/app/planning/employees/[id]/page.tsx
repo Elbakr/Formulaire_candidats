@@ -343,6 +343,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
                       · prochain anniv. {anniv.years} an{anniv.years > 1 ? "s" : ""} le{" "}
                       <strong>
                         {anniv.date.toLocaleDateString("fr-BE", {
+                          timeZone: "Europe/Brussels",
                           day: "2-digit",
                           month: "short",
                           year: "numeric",

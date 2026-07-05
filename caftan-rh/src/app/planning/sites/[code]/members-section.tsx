@@ -187,6 +187,7 @@ export function MembersSection({
                     <>
                       {m.job_title ?? "—"} · depuis le{" "}
                       {new Date(m.start_date).toLocaleDateString("fr-BE", {
+                        timeZone: "Europe/Brussels",
                         day: "2-digit",
                         month: "short",
                         year: "numeric",

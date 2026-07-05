@@ -71,7 +71,7 @@ function relativeTime(iso: string) {
   if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
   if (diff < 7 * 86400) return `il y a ${Math.floor(diff / 86400)} j`;
-  return d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short", year: "numeric" });
 }
 
 function confidenceBadge(c: number | null): { label: string; cls: string } {

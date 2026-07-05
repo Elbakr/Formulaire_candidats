@@ -134,7 +134,7 @@ export default async function ExpensesAdminPage({ searchParams }: { searchParams
                     <div className="text-[10px] text-red-800 italic mt-1 bg-red-50 p-1.5 rounded">Refus : {e.refusal_reason}</div>
                   )}
                   {e.reviewer && (
-                    <div className="text-[10px] text-ink-3 mt-1">Par {e.reviewer.full_name} le {e.reviewed_at && new Date(e.reviewed_at).toLocaleDateString("fr-BE")}</div>
+                    <div className="text-[10px] text-ink-3 mt-1">Par {e.reviewer.full_name} le {e.reviewed_at && new Date(e.reviewed_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}</div>
                   )}
                   {!e.employee?.iban && e.status === "approved" && (
                     <div className="text-[10px] text-red-700 mt-1 italic flex items-center gap-1">

@@ -109,6 +109,7 @@ export async function managerOverrideClockAction(args: {
       .maybeSingle();
     if (room) {
       const time = ts.toLocaleTimeString("fr-BE", {
+        timeZone: "Europe/Brussels",
         hour: "2-digit",
         minute: "2-digit",
       });

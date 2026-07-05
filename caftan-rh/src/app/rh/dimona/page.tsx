@@ -150,7 +150,7 @@ export default async function DimonaDashboardPage({ searchParams }: { searchPara
                     {d.employee?.birth_date && <div>Né(e) le : {d.employee.birth_date}</div>}
                     {d.declared_at && d.declarer && (
                       <div className="text-green-700">
-                        ✓ Déclarée le {new Date(d.declared_at).toLocaleString("fr-BE")} par <strong>{d.declarer.full_name}</strong>
+                        ✓ Déclarée le {new Date(d.declared_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })} par <strong>{d.declarer.full_name}</strong>
                       </div>
                     )}
                     {d.dimona_period_id && (

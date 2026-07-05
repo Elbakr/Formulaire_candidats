@@ -129,7 +129,7 @@ export default async function MyExpensesPage() {
                       <div className="text-[10px] text-red-800 italic mt-1 bg-red-50 p-1.5 rounded">Refus : {e.refusal_reason}</div>
                     )}
                     {e.paid_at && (
-                      <div className="text-[10px] text-green-700 mt-1">✓ Payé le {new Date(e.paid_at).toLocaleDateString("fr-BE")}</div>
+                      <div className="text-[10px] text-green-700 mt-1">✓ Payé le {new Date(e.paid_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}</div>
                     )}
                   </div>
                   <div className="text-lg font-bold tabular-nums">{Number(e.amount).toFixed(2)} €</div>

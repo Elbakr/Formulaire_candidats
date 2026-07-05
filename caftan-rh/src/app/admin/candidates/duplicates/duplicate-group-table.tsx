@@ -128,7 +128,7 @@ export function DuplicateGroupTable({
                   </span>
                 </td>
                 <td className="px-2 py-1.5 text-[10px] text-ink-3">
-                  {c.applied_at ? new Date(c.applied_at).toLocaleDateString("fr-BE") : "—"}
+                  {c.applied_at ? new Date(c.applied_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" }) : "—"}
                 </td>
                 <td className="px-2 py-1.5">{c.cv_url ? "✓" : "—"}</td>
                 <td className="px-2 py-1.5">{c.profile_id ? "✓" : "—"}</td>

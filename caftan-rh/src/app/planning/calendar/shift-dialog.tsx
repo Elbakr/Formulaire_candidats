@@ -499,7 +499,7 @@ export function ShiftDialog({
         <DialogHeader>
           <DialogTitle>{shift ? "Modifier le shift" : "Nouveau shift"}</DialogTitle>
           <DialogDescription>
-            {employeeName} · {new Date(date).toLocaleDateString("fr-BE", { weekday: "long", day: "2-digit", month: "long" })}
+            {employeeName} · {new Date(date).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", weekday: "long", day: "2-digit", month: "long" })}
           </DialogDescription>
         </DialogHeader>
         {offDayLabel ? (

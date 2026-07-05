@@ -81,7 +81,7 @@ export default async function MyTerminationPage() {
             </Badge>
           </div>
           <div className="text-xs space-y-1">
-            <div><span className="text-ink-3">Demandée le :</span> {new Date(active.requested_at).toLocaleString("fr-BE")}</div>
+            <div><span className="text-ink-3">Demandée le :</span> {new Date(active.requested_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}</div>
             {active.earliest_effective_date && (
               <div><span className="text-ink-3">Date min. autorisée :</span> {active.earliest_effective_date}</div>
             )}
@@ -117,7 +117,7 @@ export default async function MyTerminationPage() {
           {(terminations ?? []).filter((t) => ["refused", "cancelled", "executed"].includes(t.status)).map((t) => (
             <div key={t.id} className="text-xs border-l-2 border-line pl-2">
               <Badge className={STATUS_LABEL[t.status]?.cls ?? ""}>{STATUS_LABEL[t.status]?.label}</Badge>
-              <span className="ml-2 text-ink-3">{new Date(t.requested_at).toLocaleDateString("fr-BE")}</span>
+              <span className="ml-2 text-ink-3">{new Date(t.requested_at).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}</span>
               {t.refusal_reason && (
                 <div className="flex items-center gap-1 mt-1 text-red-700">
                   <AlertTriangle className="w-3 h-3" /> {t.refusal_reason}

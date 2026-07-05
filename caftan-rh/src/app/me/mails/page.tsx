@@ -127,9 +127,9 @@ export default async function MyMailsPage() {
                     )}
                   </div>
                   <div className="text-[10px] text-ink-3 flex-shrink-0 text-right">
-                    {date.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" })}
+                    {date.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" })}
                     <br />
-                    {date.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })}
+                    {date.toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" })}
                   </div>
                 </div>
               </div>

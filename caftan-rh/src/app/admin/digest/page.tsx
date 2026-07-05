@@ -104,6 +104,7 @@ export default async function DigestPage() {
               <div key={date} className="space-y-2">
                 <div className="text-[10px] uppercase tracking-wider font-bold text-ink-3">
                   {new Date(date).toLocaleDateString("fr-BE", {
+                    timeZone: "Europe/Brussels",
                     weekday: "long",
                     day: "2-digit",
                     month: "long",
@@ -123,7 +124,7 @@ export default async function DigestPage() {
                         <div className="flex-1">
                           <div className="font-bold text-sm">{slotLabel(r.slot)}</div>
                           <div className="text-[11px] text-ink-3">
-                            Généré le {new Date(r.created_at).toLocaleString("fr-BE")} ·
+                            Généré le {new Date(r.created_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })} ·
                             {r.recipients_count ? ` ${r.recipients_count} destinataires · ` : " "}
                             {r.cost_usd ? `coût ${Number(r.cost_usd).toFixed(4)}$` : "coût 0$"}
                           </div>

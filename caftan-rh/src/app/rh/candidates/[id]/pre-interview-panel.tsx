@@ -673,7 +673,7 @@ function VideoResponseView({
         {durationSec ? <span>· {durationSec} sec</span> : null}
         {purgeAfter ? (
           <span className="ml-auto">
-            Purge programmée le {new Date(purgeAfter).toLocaleDateString("fr-BE")}
+            Purge programmée le {new Date(purgeAfter).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}
           </span>
         ) : null}
       </div>

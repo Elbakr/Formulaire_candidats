@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
           recipient_id: hrId,
           kind: "broken_mail_link",
           title: `⚠️ Lien mail cassé : ${b.recipient}`,
-          body: `Le lien vers "${b.attachmentName}" envoyé à ${b.recipient} le ${new Date(b.sentAt).toLocaleDateString("fr-BE")} ne fonctionne plus (HTTP ${b.status}). Sujet : "${b.subject}"`,
+          body: `Le lien vers "${b.attachmentName}" envoyé à ${b.recipient} le ${new Date(b.sentAt).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })} ne fonctionne plus (HTTP ${b.status}). Sujet : "${b.subject}"`,
           link: b.employeeId ? `/planning/employees/${b.employeeId}` : "/rh/mails",
           data: { mailId: b.mailId, url: b.url, status: b.status },
         })),

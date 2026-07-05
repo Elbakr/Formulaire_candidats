@@ -58,7 +58,7 @@ export function LogsViewer({ devices, sites }: { devices: Device[]; sites: Site[
       }
       setLogs(r.logs);
       setUnmapped(r.unmappedUserIds);
-      setLastFetch(new Date().toLocaleTimeString("fr-BE"));
+      setLastFetch(new Date().toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels" }));
     });
   }
 
@@ -251,8 +251,8 @@ function LogRow({ log, onEnrollClick }: { log: ResolvedLog; onEnrollClick: () =>
   const [time, setTime] = useState("…");
   const [day, setDay] = useState("…");
   useEffect(() => {
-    setTime(date.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-    setDay(date.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" }));
+    setTime(date.toLocaleTimeString("fr-BE", { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    setDay(date.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "short" }));
   }, [log.event_time]);
 
   if (log.status === "error") {

@@ -315,7 +315,7 @@ export function WeeklyPlanningBoard({
         <div>
           <h1 className="text-xl sm:text-2xl font-bold">Planning semaine</h1>
           <p className="text-sm text-ink-2">
-            Du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au {addDays(monday, 6).toLocaleDateString("fr-BE", { day: "2-digit", month: "long", year: "numeric" })}
+            Du {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au {addDays(monday, 6).toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long", year: "numeric" })}
           </p>
         </div>
         <div className="ml-auto flex gap-1 items-center flex-wrap">

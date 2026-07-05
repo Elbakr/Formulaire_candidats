@@ -40,7 +40,7 @@ function buildFallbackMarkdown(
 ): { markdown: string; top3: string[] } {
   const s = bundle.stats;
   const lines: string[] = [];
-  lines.push(`# Digest ${slot === "morning" ? "matin" : "soir"} — ${new Date().toLocaleDateString("fr-BE")}`);
+  lines.push(`# Digest ${slot === "morning" ? "matin" : "soir"} — ${new Date().toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels" })}`);
   lines.push("");
   lines.push(`- **Nouvelles candidatures** : ${s.new_applications}`);
   lines.push(`- **Statuts changés** : ${s.status_changed_applications}`);

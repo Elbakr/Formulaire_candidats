@@ -296,7 +296,7 @@ export function VipAdmin({
                             <Cake className="h-3 w-3" />{" "}
                             {new Date(c.birth_date + "T00:00:00").toLocaleDateString(
                               "fr-BE",
-                              { day: "2-digit", month: "short" },
+                              { timeZone: "Europe/Brussels", day: "2-digit", month: "short" },
                             )}
                           </span>
                         ) : null}

@@ -35,6 +35,7 @@ function fmtMin(m: number): string {
 function fmtDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("fr-BE", {
+    timeZone: "Europe/Brussels",
     day: "2-digit",
     month: "short",
     year: "numeric",

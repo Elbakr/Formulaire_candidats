@@ -86,8 +86,9 @@ export default async function SitePrintPage(props: {
         ) : null}
         <p className="text-xs">
           Du{" "}
-          {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
+          {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au{" "}
           {addDays(monday, nbWeeks * 7 - 1).toLocaleDateString("fr-BE", {
+            timeZone: "Europe/Brussels",
             day: "2-digit",
             month: "long",
             year: "numeric",
@@ -116,7 +117,7 @@ export default async function SitePrintPage(props: {
             {nbWeeks > 1 ? (
               <h2 className="text-xs font-bold uppercase tracking-wider mb-1 border-b border-gray-300 pb-0.5">
                 Semaine {wi + 1} —{" "}
-                {wMonday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })}
+                {wMonday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })}
               </h2>
             ) : null}
             <table className="w-full border-collapse text-[11px]">
@@ -232,6 +233,7 @@ export default async function SitePrintPage(props: {
       <footer className="mt-4 text-[9px] text-gray-500 text-center">
         Édité le{" "}
         {new Date().toLocaleDateString("fr-BE", {
+          timeZone: "Europe/Brussels",
           day: "2-digit",
           month: "long",
           year: "numeric",

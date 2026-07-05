@@ -268,8 +268,9 @@ export default async function SiteDetailPage(props: {
       </div>
 
       <p className="text-sm text-ink-2">
-        Du {monday.toLocaleDateString("fr-BE", { day: "2-digit", month: "long" })} au{" "}
+        Du {monday.toLocaleDateString("fr-BE", { timeZone: "Europe/Brussels", day: "2-digit", month: "long" })} au{" "}
         {addDays(monday, 6).toLocaleDateString("fr-BE", {
+          timeZone: "Europe/Brussels",
           day: "2-digit",
           month: "long",
           year: "numeric",

@@ -261,7 +261,7 @@ function HistoryDialog({ employeeId, onClose }: { employeeId: string; onClose: (
                 <div key={c.id} className="border border-line rounded-lg p-3 text-xs space-y-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className={`inline-block text-[10px] px-2 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>
-                    <span className="text-[10px] text-ink-3">{new Date(c.occurred_at).toLocaleString("fr-BE")}</span>
+                    <span className="text-[10px] text-ink-3">{new Date(c.occurred_at).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
                     <span className="text-ink-3">Par :</span>

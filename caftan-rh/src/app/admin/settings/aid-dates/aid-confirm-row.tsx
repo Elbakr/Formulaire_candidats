@@ -55,6 +55,7 @@ export function AidConfirmRow({
 
   const fmt = (d: string) =>
     new Date(d + "T12:00:00").toLocaleDateString("fr-BE", {
+      timeZone: "Europe/Brussels",
       weekday: "long",
       day: "2-digit",
       month: "long",

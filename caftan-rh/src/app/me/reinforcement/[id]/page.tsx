@@ -83,6 +83,7 @@ export default async function ReinforcementDetailPage(
     cls: "bg-surface-2 text-ink-3",
   };
   const dateFr = new Date(r.date + "T00:00:00").toLocaleDateString(dateLocaleStr(locale), {
+    timeZone: "Europe/Brussels",
     weekday: "long",
     day: "2-digit",
     month: "long",

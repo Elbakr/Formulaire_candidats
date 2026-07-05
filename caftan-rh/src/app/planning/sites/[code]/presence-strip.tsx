@@ -88,7 +88,7 @@ export function SitePresenceStrip({
               className="inline-flex items-center gap-2 rounded-full bg-success-light text-success px-2 py-1 text-xs"
               title={`Arrivé·e à ${new Date(p.clock_in_at).toLocaleTimeString(
                 "fr-BE",
-                { hour: "2-digit", minute: "2-digit" },
+                { timeZone: "Europe/Brussels", hour: "2-digit", minute: "2-digit" },
               )}`}
             >
               <NameAvatar name={p.full_name} className="h-5 w-5 text-[9px]" />
