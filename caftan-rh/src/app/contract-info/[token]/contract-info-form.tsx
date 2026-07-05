@@ -951,9 +951,22 @@ export function ContractInfoForm({
                 if (v.valid) {
                   return <p className="text-[11px] text-success font-semibold mt-1">{t.nrn_valid}</p>;
                 }
-                // Incomplet (moins de 11 chiffres) : simple info, pas d'alerte.
+                // Incomplet (moins de 11 chiffres) : Karim 2026-07-05 — masque VISUEL
+                // (chiffres saisis + positions restantes en •) pour montrer clairement
+                // qu'il reste des chiffres à compléter après les 6 pré-remplis.
                 if (raw.length < 11) {
-                  return <p className="text-[11px] text-ink-3 mt-1">{t.nrn_incomplete}</p>;
+                  let di = 0;
+                  const mask = Array.from("XX.XX.XX-XXX.XX")
+                    .map((c) => { if (c !== "X") return c; const ch = di < raw.length ? raw[di] : "•"; di++; return ch; })
+                    .join("");
+                  return (
+                    <p className="text-[11px] text-ink-3 mt-1">
+                      {t.nrn_incomplete}
+                      <br />
+                      <span className="font-mono tracking-[0.18em] text-sm text-ink">{mask}</span>
+                      <span className="ml-1 text-warn font-semibold">· {11 - raw.length} restant{11 - raw.length > 1 ? "s" : ""}</span>
+                    </p>
+                  );
                 }
                 // 11 chiffres mais checksum belge KO : signalé "non vérifié" (jamais silencieux).
                 return <p className="text-[11px] text-warn font-semibold mt-1">{t.nrn_bad}</p>;
