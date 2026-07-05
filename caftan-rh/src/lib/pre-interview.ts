@@ -148,7 +148,7 @@ export function preInterviewPublicUrl(token: string, baseUrlOverride?: string): 
 export function formatDeadlineFR(iso: string | null): string {
   if (!iso) return "";
   try {
-    return new Intl.DateTimeFormat("fr-BE", { dateStyle: "long" }).format(new Date(iso));
+    return new Intl.DateTimeFormat("fr-BE", { timeZone: "Europe/Brussels", dateStyle: "long" }).format(new Date(iso));
   } catch {
     return iso.slice(0, 10);
   }

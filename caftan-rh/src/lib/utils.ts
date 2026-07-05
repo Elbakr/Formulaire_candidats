@@ -17,7 +17,10 @@ export function initials(name: string) {
 
 export function formatDate(d: string | Date, opts?: Intl.DateTimeFormatOptions) {
   const date = typeof d === "string" ? new Date(d) : d;
+  // Karim 2026-07-05 : timeZone Europe/Brussels FORCÉ (serveur Vercel = UTC -> -2h
+  // sinon). Ce helper partagé est utilisé partout -> corrige tous les affichages.
   return new Intl.DateTimeFormat("fr-BE", {
+    timeZone: "Europe/Brussels",
     day: "2-digit",
     month: "short",
     year: "numeric",
