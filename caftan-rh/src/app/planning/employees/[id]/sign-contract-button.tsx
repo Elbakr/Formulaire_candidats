@@ -4,7 +4,7 @@
 // employee. Choix du type de contrat (CDD plein / CDD partiel / Etudiant)
 // + entite (AMD Megastore / Caftan Factory) + confirmation avant envoi.
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileSignature, AlertTriangle, Mail, CheckCircle2, Eye, Clock, Download } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,7 +20,6 @@ import {
 import { sendContractForSignatureAction } from "./sign-contract-actions";
 import { sendInfoRequestMailAction } from "./info-request-actions";
 import { getMissingFields, type MissingField } from "@/lib/contract-readiness";
-import { saveContractTermsAction } from "./contract-terms-actions";
 
 type Props = {
   employeeId: string;
@@ -140,17 +139,23 @@ export function SignContractButton({
 
   // Karim 2026-06-15 : récapitulatif éditable des paramètres du contrat.
   // Pré-rempli depuis employeeRecord (= valeurs actuelles de la fiche).
-  const [terms, setTerms] = useState({
-    contract_type: String(employeeRecord.contract_type ?? contractType ?? ""),
-    work_time_kind: String(employeeRecord.work_time_kind ?? workTimeKind ?? "full"),
-    weekly_hours: String(employeeRecord.weekly_hours ?? weeklyHours ?? ""),
-    start_date: String(employeeRecord.start_date ?? ""),
-    end_date: String(employeeRecord.end_date ?? ""),
-    job_title: String(employeeRecord.job_title ?? ""),
-    hourly_rate: String(employeeRecord.hourly_rate ?? ""),
-  });
-  const [termsSaved, setTermsSaved] = useState(false);
-  const [termsPending, startTermsTransition] = useTransition();
+  // Karim 2026-07-05 : valeurs initiales (= fiche actuelle). Sert de référence pour
+  // détecter si l'opérateur a réellement modifié un paramètre (dirty) → on ne
+  // persiste (et ne logge) que dans ce cas, sinon envoi = simple lecture de la fiche.
+  const initialTerms = useMemo(
+    () => ({
+      contract_type: String(employeeRecord.contract_type ?? contractType ?? ""),
+      work_time_kind: String(employeeRecord.work_time_kind ?? workTimeKind ?? "full"),
+      weekly_hours: String(employeeRecord.weekly_hours ?? weeklyHours ?? ""),
+      start_date: String(employeeRecord.start_date ?? ""),
+      end_date: String(employeeRecord.end_date ?? ""),
+      job_title: String(employeeRecord.job_title ?? ""),
+      hourly_rate: String(employeeRecord.hourly_rate ?? ""),
+    }),
+    [employeeRecord, contractType, workTimeKind, weeklyHours],
+  );
+  const [terms, setTerms] = useState(initialTerms);
+  const termsDirty = JSON.stringify(terms) !== JSON.stringify(initialTerms);
 
   // Karim 2026-07-05 : template dérivé RÉACTIF aux valeurs éditées dans le récap
   // (les heures priment). Changer les heures met à jour le libellé EN DIRECT.
@@ -185,27 +190,6 @@ export function SignContractButton({
     timeZone: "Europe/Brussels",
   });
 
-  function handleSaveTerms() {
-    startTermsTransition(async () => {
-      const res = await saveContractTermsAction(employeeId, {
-        contract_type: terms.contract_type || undefined,
-        work_time_kind: terms.work_time_kind || undefined,
-        weekly_hours: terms.weekly_hours !== "" ? Number(terms.weekly_hours) : undefined,
-        start_date: terms.start_date || undefined,
-        end_date: "end_date" in terms ? (terms.end_date || null) : undefined,
-        job_title: terms.job_title || undefined,
-        hourly_rate: terms.hourly_rate !== "" ? Number(terms.hourly_rate) : undefined,
-      });
-      if ("error" in res) {
-        toast.error(res.error);
-        return;
-      }
-      setTermsSaved(true);
-      toast.success("Paramètres enregistrés — la fiche est à jour.");
-      router.refresh();
-    });
-  }
-
   function handleSubmit(accept = false) {
     if (!employeeEmail) {
       toast.error("Email de l'employé manquant - complète la fiche d'abord.");
@@ -221,6 +205,20 @@ export function SignContractButton({
         customMailBody: mailBody !== DEFAULT_MAIL_BODY ? mailBody : undefined,
         bypassScreening: bypassReason.trim() ? { reason: bypassReason.trim() } : undefined,
         acceptDiscrepancies: accept || undefined,
+        // Karim 2026-07-05 : paramètres édités dans le dialog, persistés AVANT le
+        // rendu par l'action (fusion de l'ancien bouton « Enregistrer les
+        // corrections »). Envoyés uniquement si réellement modifiés.
+        terms: termsDirty
+          ? {
+              contract_type: terms.contract_type || undefined,
+              work_time_kind: terms.work_time_kind || undefined,
+              weekly_hours: terms.weekly_hours !== "" ? Number(terms.weekly_hours) : undefined,
+              start_date: terms.start_date || undefined,
+              end_date: terms.end_date || null,
+              job_title: terms.job_title || undefined,
+              hourly_rate: terms.hourly_rate !== "" ? Number(terms.hourly_rate) : undefined,
+            }
+          : undefined,
       });
       // Discordances fiche<->contrat : on les SIGNALE, l'opérateur valide l'alignement.
       if (res.discrepancies && res.discrepancies.length > 0) {
@@ -347,14 +345,15 @@ export function SignContractButton({
               </a>
             </div>
             {/* Karim 2026-06-15 : récapitulatif éditable des paramètres du contrat.
-                L'opérateur peut corriger avant d'envoyer. saveContractTermsAction
-                écrit dans employees AVANT l'envoi (resolveContractRenderInputs relit
-                la fiche → cohérence WYSIWYG garantie). */}
+                L'opérateur peut corriger avant d'envoyer. Karim 2026-07-05 : les
+                corrections sont persistées par l'action d'envoi elle-même (champ
+                `terms`), AVANT que resolveContractRenderInputs relise la fiche →
+                cohérence WYSIWYG garantie, sans clic « Enregistrer » séparé. */}
             <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-blue-900">📋 Récapitulatif du contrat</span>
-                {termsSaved && (
-                  <span className="text-[10px] text-emerald-700 font-semibold">✓ enregistré</span>
+                {termsDirty && (
+                  <span className="text-[10px] text-amber-700 font-semibold">✎ modifié — enregistré à l&apos;envoi</span>
                 )}
               </div>
 
@@ -369,7 +368,7 @@ export function SignContractButton({
                 <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Type de contrat</label>
                 <select
                   value={terms.contract_type}
-                  onChange={(e) => { setTerms((t) => ({ ...t, contract_type: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, contract_type: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                 >
                   <option value="CDD">CDD</option>
@@ -383,7 +382,7 @@ export function SignContractButton({
                 <label className="text-[11px] font-semibold text-ink-2 w-32 flex-shrink-0">Régime</label>
                 <select
                   value={terms.work_time_kind}
-                  onChange={(e) => { setTerms((t) => ({ ...t, work_time_kind: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, work_time_kind: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                 >
                   <option value="full">Temps plein</option>
@@ -400,7 +399,7 @@ export function SignContractButton({
                   max={50}
                   step={0.5}
                   value={terms.weekly_hours}
-                  onChange={(e) => { setTerms((t) => ({ ...t, weekly_hours: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, weekly_hours: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                   placeholder="ex: 38"
                 />
@@ -412,7 +411,7 @@ export function SignContractButton({
                 <input
                   type="date"
                   value={terms.start_date}
-                  onChange={(e) => { setTerms((t) => ({ ...t, start_date: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, start_date: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                 />
               </div>
@@ -420,21 +419,21 @@ export function SignContractButton({
               <div className="flex flex-wrap gap-1.5 pl-[136px]">
                 <button
                   type="button"
-                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickTomorrow })); setTermsSaved(false); }}
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickTomorrow })); }}
                   className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
                 >
                   Demain
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickNextMonday })); setTermsSaved(false); }}
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickNextMonday })); }}
                   className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
                 >
                   Lundi prochain
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickFirstNextMonthISO })); setTermsSaved(false); }}
+                  onClick={() => { setTerms((t) => ({ ...t, start_date: quickFirstNextMonthISO })); }}
                   className="px-2 py-1 rounded-md border border-line text-[11px] bg-white hover:bg-blue-50"
                 >
                   Le 1er {nextMonthLabel}
@@ -447,14 +446,14 @@ export function SignContractButton({
                 <input
                   type="date"
                   value={terms.end_date}
-                  onChange={(e) => { setTerms((t) => ({ ...t, end_date: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, end_date: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                   placeholder="(laisser vide si sans terme)"
                 />
                 {terms.end_date && (
                   <button
                     type="button"
-                    onClick={() => { setTerms((t) => ({ ...t, end_date: "" })); setTermsSaved(false); }}
+                    onClick={() => { setTerms((t) => ({ ...t, end_date: "" })); }}
                     className="text-[10px] text-rose-600 hover:underline flex-shrink-0"
                   >
                     ✕
@@ -468,7 +467,7 @@ export function SignContractButton({
                 <input
                   type="text"
                   value={terms.job_title}
-                  onChange={(e) => { setTerms((t) => ({ ...t, job_title: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, job_title: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                   placeholder="ex: Vendeur(se)"
                 />
@@ -482,24 +481,16 @@ export function SignContractButton({
                   min={0}
                   step={0.01}
                   value={terms.hourly_rate}
-                  onChange={(e) => { setTerms((t) => ({ ...t, hourly_rate: e.target.value })); setTermsSaved(false); }}
+                  onChange={(e) => { setTerms((t) => ({ ...t, hourly_rate: e.target.value })); }}
                   className="flex-1 border border-line rounded px-2 py-1 text-xs bg-white"
                   placeholder="ex: 14.50"
                 />
                 <span className="text-[10px] text-ink-3 flex-shrink-0">€/h</span>
               </div>
 
-              {/* Bouton enregistrer */}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={termsPending}
-                onClick={handleSaveTerms}
-                className="w-full text-xs border-blue-300 text-blue-800 hover:bg-blue-100"
-              >
-                {termsPending ? "Enregistrement…" : "💾 Enregistrer les corrections"}
-              </Button>
+              {/* Karim 2026-07-05 : plus de bouton « Enregistrer » séparé. Toute
+                  correction ci-dessus est persistée AUTOMATIQUEMENT au moment de
+                  l'envoi (1 clic de moins, plus de risque d'oubli/perte). */}
 
               {/* Dérivation du template (debug) */}
               <details className="mt-0.5">
@@ -512,7 +503,8 @@ export function SignContractButton({
                 </div>
                 <p className="text-[10px] text-amber-700 mt-1">
                   Le template suit EN DIRECT les valeurs du récap (les heures priment,
-                  seuil temps plein = 38h). « Enregistrer » persiste ces valeurs sur la fiche.
+                  seuil temps plein = 38h). Ces valeurs sont persistées sur la fiche
+                  automatiquement à l&apos;envoi.
                 </p>
               </details>
             </div>

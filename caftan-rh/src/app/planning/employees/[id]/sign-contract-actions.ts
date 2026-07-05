@@ -76,12 +76,18 @@ function pickAuthorizedRepresentative(
   return org.representative;
 }
 import { sendContractSignatureMail } from "@/lib/hr-mail";
+import { saveContractTermsAction, type ContractTermsPatch } from "./contract-terms-actions";
 
 type Args = {
   employeeId: string;
   templateCode: "employee" | "employee_pt" | "student";
   orgKey: EmployerOrgKey;
   employerEmail: string;
+  // Karim 2026-07-05 : paramètres du contrat édités DANS le dialog d'envoi.
+  // Persistés automatiquement AVANT le rendu (fusion de l'ancien bouton
+  // « Enregistrer les corrections » dans l'envoi → 1 clic de moins, plus de
+  // risque de perte silencieuse des éditions). Fournis uniquement si modifiés.
+  terms?: ContractTermsPatch;
   // Karim 2026-07-05 : signataire employeur CHOISI par l'admin (representative ou
   // co_representative de l'entité). Alimente employerRepresentativeOverride → le
   // contrat porte ce nom sous la signature + dans « Représenté par ». Si absent,
@@ -358,6 +364,15 @@ export async function sendContractForSignatureAction(
   }
 
   const admin = createAdminClient();
+
+  // 0. Karim 2026-07-05 : persiste d'abord les paramètres édités dans le dialog
+  // (ex-bouton « Enregistrer les corrections », désormais fusionné dans l'envoi).
+  // resolveContractRenderInputs relit ensuite la fiche → WYSIWYG garanti, et les
+  // garde-fous ci-dessous (date de début, etc.) voient les valeurs à jour.
+  if (args.terms) {
+    const saveRes = await saveContractTermsAction(args.employeeId, args.terms);
+    if ("error" in saveRes) return { error: saveRes.error };
+  }
 
   // 1. Employé + langue + garde-fous
   const { data: empRaw } = await admin
