@@ -690,13 +690,32 @@ export function ContractInfoForm({
         </div>
 
         {complete ? (
-          <p className="text-sm text-ink-2 mt-2 text-center">
-            {t.done_complete_pre}<b>{t.done_complete_word}</b>{t.done_complete_post}{isCandidate ? (
-              <>{t.done_candidate_pre}<b>{t.done_candidate_word}</b>{t.done_candidate_post}</>
-            ) : (
-              <>{t.done_employee_post}</>
-            )}
-          </p>
+          <>
+            <p className="text-sm text-ink-2 mt-2 text-center">
+              {t.done_complete_pre}<b>{t.done_complete_word}</b>{t.done_complete_post}{isCandidate ? (
+                <>{t.done_candidate_pre}<b>{t.done_candidate_word}</b>{t.done_candidate_post}</>
+              ) : (
+                <>{t.done_employee_post}</>
+              )}
+            </p>
+            {/* Karim 2026-07-05 : prochaine étape MISE EN ÉVIDENCE — mail envoyé +
+                confirmation OBLIGATOIRE pour finaliser. */}
+            {isCandidate ? (
+              <div className="mt-3 rounded-xl border-2 border-gold bg-gold-light/40 p-3.5 text-sm text-ink">
+                <div className="font-bold flex items-start gap-1.5">
+                  <span aria-hidden>📧</span>
+                  <span>{locale === "nl" ? "Een samenvattende e-mail is naar je verstuurd" : "Un e-mail récapitulatif vient de t'être envoyé"}</span>
+                </div>
+                <p className="mt-1.5 text-ink-2 leading-relaxed">
+                  {locale === "nl" ? (
+                    <>Belangrijk : controleer je gegevens en klik op <b className="text-ink">« Ik bevestig »</b> in de e-mail om je kandidatuur <b className="text-ink">DEFINITIEF</b> te bevestigen. Een fout? Corrigeer via dezelfde link.</>
+                  ) : (
+                    <>Important : vérifie tes informations et clique sur <b className="text-ink">« Je confirme »</b> dans l&apos;e-mail pour valider <b className="text-ink">DÉFINITIVEMENT</b> ta candidature. Une erreur ? Corrige via le même lien.</>
+                  )}
+                </p>
+              </div>
+            ) : null}
+          </>
         ) : (
           <div className="mt-2 space-y-3">
             <p className="text-sm text-ink-2">
