@@ -36,9 +36,16 @@ export interface BlockedOutboundInfo {
 // envoyé au nouveau travailleur JUSTE APRÈS la signature de son contrat
 // (source `worker_welcome_questionnaire`). Envoi automatique assumé par Karim,
 // au même titre que le récap candidat.
+//
+// Karim 2026-07-06 : 3e exception — la FICHE EXPLICATIVE d'onboarding (remerciement
+// + les essentiels pour bien démarrer) envoyée automatiquement ~15 min après que le
+// nouveau travailleur a rempli son questionnaire d'accueil (source
+// `worker_onboarding_sheet`). Envoi automatique assumé par Karim, comme le mail de
+// bienvenue.
 const AUTO_ALLOWED_SOURCES = new Set<string>([
   "candidate_recap_confirm",
   "worker_welcome_questionnaire",
+  "worker_onboarding_sheet",
 ]);
 
 /**
