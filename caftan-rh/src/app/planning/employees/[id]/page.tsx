@@ -39,6 +39,8 @@ import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
 import { QuickNav } from "./quick-nav";
 import { EmployeeMailsSection } from "./employee-mails-section";
+import { OnboardingAnswersSection } from "./onboarding-answers-section";
+import { WorkerReportsSection } from "./worker-reports-section";
 import { TerminationButton } from "./termination-button";
 import { EmployeeAuditSection } from "./employee-audit-section";
 import { RehireButton } from "./rehire-button";
@@ -412,6 +414,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           updatedAt={(emp as { salary_advance_updated_at: string | null }).salary_advance_updated_at ?? null}
         />
       </div>
+
+      {/* Karim 2026-07-06 : réponses au questionnaire d'accueil (onboarding) */}
+      <OnboardingAnswersSection employeeId={id} />
+
+      {/* Karim 2026-07-06 : signalements du travailleur (lien permanent /signaler) */}
+      <WorkerReportsSection employeeId={id} />
 
       {/* Karim 2026-05-31 task #78/79 : section Mails envoyés a cet employee */}
       <EmployeeMailsSection employeeId={id} />

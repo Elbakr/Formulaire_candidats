@@ -14,6 +14,7 @@
 
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ensureReportToken, signalerPublicUrl } from "@/lib/worker-reports";
 
 const SOURCE = "worker_onboarding_sheet";
 
@@ -42,8 +43,42 @@ interface SheetCopy {
   html: string;
 }
 
-function buildCopy(lang: "fr" | "nl", prenom: string): SheetCopy {
+function buildCopy(lang: "fr" | "nl", prenom: string, reportUrl: string | null): SheetCopy {
   const safePrenom = escapeHtml(prenom);
+  const safeReportUrl = reportUrl ? escapeHtml(reportUrl) : null;
+
+  // Bouton PERMANENT « Signaler à la direction » (lien durable tout le contrat).
+  const reportButtonHtml =
+    safeReportUrl == null
+      ? ""
+      : lang === "nl"
+        ? `
+        <tr><td style="padding:4px 32px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbfaf6;border:1px dashed #d9c98f;border-radius:10px;margin:6px 0 14px;">
+            <tr><td style="padding:16px 18px;font-size:14px;line-height:1.6;color:#3a3a3a;text-align:center;">
+              <p style="margin:0 0 12px;">Een opmerking, info of een probleem? Meld het rechtstreeks aan de directie.</p>
+              <a href="${safeReportUrl}" style="display:inline-block;background:#c8a24a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 22px;border-radius:8px;">Melden aan de directie</a>
+              <p style="margin:12px 0 0;font-size:12px;color:#8a8a8a;">Deze link vergezelt je gedurende je hele contract — bewaar hem goed.</p>
+            </td></tr>
+          </table>
+        </td></tr>`
+        : `
+        <tr><td style="padding:4px 32px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbfaf6;border:1px dashed #d9c98f;border-radius:10px;margin:6px 0 14px;">
+            <tr><td style="padding:16px 18px;font-size:14px;line-height:1.6;color:#3a3a3a;text-align:center;">
+              <p style="margin:0 0 12px;">Une remarque, une info, une anomalie ? Signale-la directement à la direction.</p>
+              <a href="${safeReportUrl}" style="display:inline-block;background:#c8a24a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 22px;border-radius:8px;">Signaler à la direction</a>
+              <p style="margin:12px 0 0;font-size:12px;color:#8a8a8a;">Ce lien t'accompagne pendant tout ton contrat — garde-le précieusement.</p>
+            </td></tr>
+          </table>
+        </td></tr>`;
+
+  const reportTextFr = safeReportUrl
+    ? `\n\nUNE REMARQUE, UNE INFO, UNE ANOMALIE ?\nSignale-la directement à la direction : ${reportUrl}\nCe lien t'accompagne pendant tout ton contrat — garde-le précieusement.\n`
+    : "";
+  const reportTextNl = safeReportUrl
+    ? `\n\nEEN OPMERKING, INFO OF EEN PROBLEEM ?\nMeld het rechtstreeks aan de directie : ${reportUrl}\nDeze link vergezelt je gedurende je hele contract — bewaar hem goed.\n`
+    : "";
 
   // Encadré doré réutilisable (cohérent avec le mail de bienvenue existant).
   const section = (title: string, body: string) => `
@@ -70,7 +105,8 @@ function buildCopy(lang: "fr" | "nl", prenom: string): SheetCopy {
       `HOUDING\n` +
       `Blijf kalm, ook in moeilijke situaties. Regel een meningsverschil apart, buiten de piek- en drukke momenten.\n\n` +
       `Welkom in het team — stel al je vragen aan je verantwoordelijke.\n` +
-      `Het team Human Resources — Caftan Factory Group`;
+      `Het team Human Resources — Caftan Factory Group` +
+      reportTextNl;
 
     const html = `<!DOCTYPE html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
@@ -88,6 +124,7 @@ function buildCopy(lang: "fr" | "nl", prenom: string): SheetCopy {
         ${section("Prioriteit nr. 1 — DE VERKOOP", `<p style="margin:0;">Dit is de kern van ons vak. Op elk moment: alle modellen en varianten uitgestald in de rekken en netjes geordend; alles proper en opgeruimd (rekken, paskamers, kassa). <strong>Een onberispelijke winkel = meer verkoop.</strong></p>`)}
         ${section("Onze diensten", `<p style="margin:0 0 8px;"><strong>Retouches EXPRESS</strong> — dezelfde dag in Brabant (behalve op vrijdag), de dag nadien in Molenbeek.</p><p style="margin:0;">Omruilen &amp; terugbetaling zijn <strong>STRIKT gereglementeerd</strong> → vraag altijd eerst uitleg aan je verantwoordelijke vóór je handelt.</p>`)}
         ${section("Houding", `<p style="margin:0;">Blijf kalm, ook in moeilijke situaties. Regel een meningsverschil apart, buiten de piek- en drukke momenten.</p>`)}
+        ${reportButtonHtml}
         <tr><td style="padding:6px 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
           <p style="margin:0 0 6px;">Welkom in het team — stel al je vragen aan je verantwoordelijke.</p>
           <p style="margin:0;color:#6b6b6b;">Het team Human Resources — Caftan Factory Group</p>
@@ -114,7 +151,8 @@ function buildCopy(lang: "fr" | "nl", prenom: string): SheetCopy {
     `ATTITUDE\n` +
     `Garde ton calme même dans les situations compliquées. Règle un désaccord à l'écart, hors des heures de pointe et d'affluence.\n\n` +
     `Bienvenue dans l'équipe — pose toutes tes questions à ton responsable.\n` +
-    `L'équipe Ressources Humaines — Caftan Factory Group`;
+    `L'équipe Ressources Humaines — Caftan Factory Group` +
+    reportTextFr;
 
   const html = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
@@ -132,6 +170,7 @@ function buildCopy(lang: "fr" | "nl", prenom: string): SheetCopy {
         ${section("Priorité n°1 — LA VENTE", `<p style="margin:0;">C'est le cœur de notre métier. À tout moment : tous les modèles et variantes présentés en rayon et bien rangés ; les lieux propres et ordonnés (rayons, cabines, caisse). <strong>Un magasin impeccable = plus de ventes.</strong></p>`)}
         ${section("Nos services", `<p style="margin:0 0 8px;"><strong>Retouche EXPRESS</strong> — le jour même à Brabant (sauf le vendredi), le lendemain à Molenbeek.</p><p style="margin:0;">Échange &amp; remboursement sont <strong>STRICTEMENT réglementés</strong> → demande toujours au responsable de t'expliquer avant d'agir.</p>`)}
         ${section("Attitude", `<p style="margin:0;">Garde ton calme même dans les situations compliquées. Règle un désaccord à l'écart, hors des heures de pointe et d'affluence.</p>`)}
+        ${reportButtonHtml}
         <tr><td style="padding:6px 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
           <p style="margin:0 0 6px;">Bienvenue dans l'équipe — pose toutes tes questions à ton responsable.</p>
           <p style="margin:0;color:#6b6b6b;">L'équipe Ressources Humaines — Caftan Factory Group</p>
@@ -183,11 +222,20 @@ export async function sendWorkerOnboardingSheet(
       .maybeSingle();
     if (already) return { sent: false, reason: "déjà envoyé (anti-doublon)" };
 
-    // 3) Contenu FR/NL.
-    const prenom = firstNameOf(emp.full_name) || "à toi";
-    const copy = buildCopy(pickLang(languageCode), prenom);
+    // 3) Token DURABLE « Signaler à la direction » (généré si absent, n'expire pas).
+    let reportUrl: string | null = null;
+    try {
+      const reportToken = await ensureReportToken(admin, employeeId);
+      if (reportToken) reportUrl = signalerPublicUrl(reportToken);
+    } catch {
+      /* best-effort : le mail part même sans le bouton signalement */
+    }
 
-    // 4) Envoi (best-effort) — automated + source en liste blanche du kill-switch.
+    // 4) Contenu FR/NL.
+    const prenom = firstNameOf(emp.full_name) || "à toi";
+    const copy = buildCopy(pickLang(languageCode), prenom, reportUrl);
+
+    // 5) Envoi (best-effort) — automated + source en liste blanche du kill-switch.
     const { sendAppMail } = await import("@/lib/app-mail");
     const res = await sendAppMail({
       to: emp.email,
