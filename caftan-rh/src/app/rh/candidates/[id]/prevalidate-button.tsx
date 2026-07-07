@@ -29,12 +29,15 @@ export function PrevalidateButton({
   candidateName,
   currentEmail,
   alreadyPrevalidated,
+  compact = false,
 }: {
   candidateId: string;
   applicationId: string;
   candidateName: string;
   currentEmail: string | null;
   alreadyPrevalidated: boolean;
+  /** Karim 2026-07-07 : mode compact (icône seule) pour la liste des candidats. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState(currentEmail ?? "");
@@ -58,24 +61,45 @@ export function PrevalidateButton({
     });
   }
 
+  const triggerTitle = alreadyPrevalidated
+    ? "Déjà pré-validé — renvoyer l'invitation à compléter le dossier"
+    : "Pré-valide ce candidat et lui envoie le lien pour compléter son dossier d'embauche";
+
   return (
     <>
-      <Button
-        variant={alreadyPrevalidated ? "outline" : "gold"}
-        size="sm"
-        onClick={() => {
-          setEmail(currentEmail ?? "");
-          setOpen(true);
-        }}
-        title={
-          alreadyPrevalidated
-            ? "Déjà pré-validé — renvoyer l'invitation à compléter le dossier"
-            : "Pré-valide ce candidat et lui envoie le lien pour compléter son dossier d'embauche"
-        }
-      >
-        <BadgeCheck className="h-3.5 w-3.5" />
-        {alreadyPrevalidated ? "Renvoyer l'invitation" : "Candidat pré-validé"}
-      </Button>
+      {compact ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            setEmail(currentEmail ?? "");
+            setOpen(true);
+          }}
+          title={triggerTitle}
+          aria-label={alreadyPrevalidated ? "Renvoyer l'invitation de pré-validation" : "Candidat pré-validé"}
+          className={`inline-flex h-7 w-7 items-center justify-center rounded-md border shrink-0 transition-colors ${
+            alreadyPrevalidated
+              ? "border-gold/60 text-gold-dark bg-gold-light/40"
+              : "border-line text-ink-2 hover:border-gold hover:text-gold-dark"
+          }`}
+        >
+          <BadgeCheck className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <Button
+          variant={alreadyPrevalidated ? "outline" : "gold"}
+          size="sm"
+          onClick={() => {
+            setEmail(currentEmail ?? "");
+            setOpen(true);
+          }}
+          title={triggerTitle}
+        >
+          <BadgeCheck className="h-3.5 w-3.5" />
+          {alreadyPrevalidated ? "Renvoyer l'invitation" : "Candidat pré-validé"}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

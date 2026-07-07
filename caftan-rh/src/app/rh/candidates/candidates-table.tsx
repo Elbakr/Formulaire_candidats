@@ -14,6 +14,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { PIPELINE_STAGES } from "@/lib/config";
 import type { ApplicationListItem } from "@/lib/queries";
 import type { ApplicationStatus } from "@/types/database.types";
+import { PrevalidateButton } from "./[id]/prevalidate-button";
 import { EmailSendDialog } from "@/components/email-send-dialog";
 import { detectGender } from "@/lib/heuristics/gender";
 import { inferLangs, levelMeets } from "@/lib/heuristics/languages";
@@ -692,6 +693,15 @@ export function CandidatesTable({
                   >
                     <Eye className="h-3.5 w-3.5" />
                   </Link>
+                  {/* Karim 2026-07-07 : pré-validation en 1 clic depuis la liste (mode compact). */}
+                  <PrevalidateButton
+                    compact
+                    candidateId={app.candidate.id}
+                    applicationId={app.id}
+                    candidateName={app.candidate.full_name}
+                    currentEmail={app.candidate.email}
+                    alreadyPrevalidated={!!app.candidate.prevalidated}
+                  />
                 </div>
               );
             })}
