@@ -6,6 +6,7 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { PushActivationBanner } from "@/components/push-activation-banner";
 import { HashRecoveryRedirect } from "@/components/hash-recovery-redirect";
 import { SwNavigationListener } from "@/components/sw-navigation-listener";
+import { NavigationProgress } from "@/components/navigation-progress";
 import { getPublicVapidKey } from "@/lib/push-notify";
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={`${dmSans.variable} ${dmMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-canvas text-ink">
+        <NavigationProgress />
         {children}
         <Toaster position="top-right" richColors closeButton />
         <HashRecoveryRedirect />

@@ -19,6 +19,7 @@ import {
   preInterviewPublicUrl,
   PRE_INTERVIEW_DURATION_DAYS,
 } from "@/lib/pre-interview";
+import { ensureReportToken, signalerPublicUrl } from "@/lib/worker-reports";
 
 const SOURCE = "worker_welcome_questionnaire";
 
@@ -159,10 +160,32 @@ export async function sendWorkerWelcomeQuestionnaire(
 
     const link = preInterviewPublicUrl(token);
 
+    // 4b) Token DURABLE « Signaler à la direction » (best-effort : le mail part même
+    //     sans le bouton). Le lien n'expire pas, il accompagne tout le contrat.
+    let reportUrl: string | null = null;
+    try {
+      const reportToken = await ensureReportToken(admin, employeeId);
+      if (reportToken) reportUrl = signalerPublicUrl(reportToken);
+    } catch {
+      /* best-effort : on continue sans le bouton signalement */
+    }
+
     // 5) Contenu du mail (jamais le mot « screening »).
     const prenom = firstNameOf(emp.full_name) || "à toi";
     const bienvenu = welcomeWordFromNrn(emp.nrn);
     const subject = "Bienvenue chez Caftan Factory 🎉";
+
+    // Bloc PERMANENT « Signaler à la direction » (FR + NL), même esprit que la fiche
+    // d'onboarding : lien durable pour toute la durée du contrat.
+    const reportText = reportUrl
+      ? `\n\n— — —\n` +
+        `UNE REMARQUE, UNE INFO, UNE ANOMALIE ?\n` +
+        `Signale-la directement à la direction : ${reportUrl}\n` +
+        `Ce lien t'accompagne pendant tout ton contrat — garde-le précieusement.\n\n` +
+        `EEN OPMERKING, INFO OF EEN PROBLEEM ?\n` +
+        `Meld het rechtstreeks aan de directie : ${reportUrl}\n` +
+        `Deze link vergezelt je gedurende je hele contract — bewaar hem goed.`
+      : "";
 
     const textBody =
       `Bonjour ${prenom},\n\n` +
@@ -170,10 +193,27 @@ export async function sendWorkerWelcomeQuestionnaire(
       `Pour bien démarrer ensemble, on aimerait apprendre à mieux te connaître. Prends 2 minutes pour compléter ce petit questionnaire : il nous aide à comprendre ton parcours, tes préférences et tes attentes — et il compte beaucoup pour nous, c'est ce qui nous permet de t'accompagner au mieux dès tes débuts.\n\n` +
       `👉 Remplir mon mini-questionnaire : ${link}\n\n` +
       `Merci d'avance, et encore bienvenue !\n` +
-      `L'équipe Ressources Humaines — Caftan Factory Group`;
+      `L'équipe Ressources Humaines — Caftan Factory Group` +
+      reportText;
 
     const safePrenom = escapeHtml(prenom);
     const safeBienvenu = escapeHtml(bienvenu);
+    const safeReportUrl = reportUrl ? escapeHtml(reportUrl) : null;
+
+    // Bloc HTML PERMANENT « Signaler à la direction » (FR + NL), style cohérent avec
+    // la fiche d'onboarding (encadré doré pointillé, bouton #c8a24a).
+    const reportButtonHtml = safeReportUrl
+      ? `
+        <tr><td style="padding:4px 32px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbfaf6;border:1px dashed #d9c98f;border-radius:10px;margin:6px 0 14px;">
+            <tr><td style="padding:16px 18px;font-size:14px;line-height:1.6;color:#3a3a3a;text-align:center;">
+              <p style="margin:0 0 12px;">Une remarque, une info, une anomalie ? Signale-la directement à la direction.<br><span style="color:#8a8a8a;">Een opmerking, info of een probleem? Meld het rechtstreeks aan de directie.</span></p>
+              <a href="${safeReportUrl}" style="display:inline-block;background:#c8a24a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 22px;border-radius:8px;">Signaler à la direction / Melden aan de directie</a>
+              <p style="margin:12px 0 0;font-size:12px;color:#8a8a8a;">Ce lien t'accompagne pendant tout ton contrat — garde-le précieusement.<br>Deze link vergezelt je gedurende je hele contract — bewaar hem goed.</p>
+            </td></tr>
+          </table>
+        </td></tr>`
+      : "";
     const htmlBody = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f6f5f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2b2b2b;">
@@ -191,6 +231,7 @@ export async function sendWorkerWelcomeQuestionnaire(
         <tr><td align="center" style="padding:8px 32px 24px;">
           <a href="${link}" style="display:inline-block;background:#c9a227;color:#1a1a1a;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:10px;">Remplir mon mini-questionnaire</a>
         </td></tr>
+        ${reportButtonHtml}
         <tr><td style="padding:0 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
           <p style="margin:0 0 6px;">Merci d'avance, et encore bienvenue !</p>
           <p style="margin:0;color:#6b6b6b;">L'équipe Ressources Humaines — Caftan Factory Group</p>

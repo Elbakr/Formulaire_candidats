@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -32,12 +33,40 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * État de chargement (server action / async). Quand `true` : affiche un spinner,
+   * désactive le bouton et empêche les clics multiples. Optionnel — comportement
+   * inchangé si non fourni (rétro-compatibilité totale).
+   */
+  loading?: boolean;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props} />;
+  ({ className, variant, size, asChild = false, loading = false, ...props }, ref) => {
+    // asChild = Slot : un seul enfant autorisé -> on ne peut PAS injecter le spinner.
+    // On préserve STRICTEMENT le comportement d'origine (spread inchangé, incl.
+    // disabled/children). La barre de navigation globale couvre déjà les <Link>.
+    if (asChild) {
+      return (
+        <Slot className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props} />
+      );
+    }
+
+    const { children, disabled, ...rest } = props;
+    const isDisabled = disabled || loading;
+
+    return (
+      <button
+        className={cn(buttonVariants({ variant, size }), className)}
+        ref={ref}
+        aria-busy={loading || undefined}
+        {...rest}
+        disabled={isDisabled}
+      >
+        {loading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" /> : null}
+        {children}
+      </button>
+    );
   },
 );
 Button.displayName = "Button";
