@@ -196,6 +196,7 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/rh/sequences", label: "Séquences auto", icon: "FileText" },
       { href: "/rh/reports", label: "Rapports", icon: "FileBarChart" },
       { href: "/onboarding/templates", label: "Templates onboarding", icon: "FileText" },
+      { href: "/admin/recruit-conduct", label: "Conduite recrues (guide)", icon: "ShieldCheck" },
     );
   }
   if (isAdmin(role)) {
