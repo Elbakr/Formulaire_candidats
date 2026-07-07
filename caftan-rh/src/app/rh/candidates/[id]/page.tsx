@@ -30,6 +30,7 @@ import { distanceCandidateToSites } from "@/lib/distance";
 import { detectGender, genderEmoji, genderLabel } from "@/lib/heuristics/gender";
 import { PreInterviewPanel } from "./pre-interview-panel";
 import { HireCandidateButton } from "./hire-button";
+import { PrevalidateButton } from "./prevalidate-button";
 import { loadQuestionsFor, preInterviewPublicUrl } from "@/lib/pre-interview";
 import type {
   PreInterview,
@@ -294,6 +295,15 @@ export default async function CandidateDetailPage(props: PageProps<"/rh/candidat
               if (wc.includes("étudiant") || wc.includes("etudiant") || wc.includes("student")) return true;
               return null;
             })()}
+          />
+          <PrevalidateButton
+            candidateId={candidate.id}
+            applicationId={app.id}
+            candidateName={candidate.full_name}
+            currentEmail={candidate.email ?? null}
+            alreadyPrevalidated={
+              (candidate as unknown as { prevalidated?: boolean | null }).prevalidated === true
+            }
           />
           <ScheduleButton applicationId={app.id} />
           <WhatsAppButton

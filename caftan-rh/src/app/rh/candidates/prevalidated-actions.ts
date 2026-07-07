@@ -104,6 +104,61 @@ export async function hirePrevalidatedCandidateAction(
   return result;
 }
 
+/**
+ * Karim 2026-07-07 : PROMEUT un candidat DÉJÀ EXISTANT (issu d'une candidature)
+ * au statut pré-validé, puis lui envoie le lien de pré-embauche /contract-info/{token}.
+ * Envoi MANUEL 1-clic déclenché par le RH depuis la fiche candidat → jamais bloqué
+ * par le kill-switch. Réutilise la génération de token + l'envoi de sendPrevalidatedLinkAction.
+ */
+export async function prevalidateExistingCandidateAction(
+  input: { candidateId: string; email: string; applicationId?: string },
+): Promise<{ ok: boolean; error?: string; link?: string }> {
+  await requireRole(["admin", "rh"]);
+  const admin = createAdminClient();
+
+  const candidateId = (input.candidateId ?? "").trim();
+  if (!candidateId) return { ok: false, error: "Candidat manquant" };
+
+  const email = (input.email ?? "").trim();
+  // Validation simple du format d'email (suffisante côté RH).
+  if (!email) return { ok: false, error: "Email manquant" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Email invalide" };
+
+  // 1) Marque le candidat pré-validé + enregistre l'email sur sa fiche.
+  const { error: uErr } = await admin
+    .from("candidates")
+    .update({ prevalidated: true, email })
+    .eq("id", candidateId);
+  if (uErr) return { ok: false, error: uErr.message };
+
+  // 2) Assure un contract_info_tokens (réutilise l'existant, sinon en crée un neuf).
+  const { data: tokRow } = await admin
+    .from("contract_info_tokens")
+    .select("token")
+    .eq("candidate_id", candidateId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let token = (tokRow as { token?: string } | null)?.token ?? null;
+  if (!token) {
+    token = crypto.randomBytes(18).toString("base64url");
+    const { error: tErr } = await admin
+      .from("contract_info_tokens")
+      .insert({ candidate_id: candidateId, token, sent_at: null });
+    if (tErr) return { ok: false, error: `Token: ${tErr.message}` };
+  }
+
+  // 3) Envoi du lien (réutilise sendPrevalidatedLinkAction : maj email + sent_at + mail).
+  const sent = await sendPrevalidatedLinkAction({ candidateId, email });
+  if (!sent.ok) return { ok: false, error: sent.error ?? "Envoi mail échoué" };
+
+  const link = `${getOutboundBaseUrl()}/contract-info/${token}`;
+  // La fiche candidat est routée par l'ID de la candidature (pas du candidat).
+  if (input.applicationId) revalidatePath(`/rh/candidates/${input.applicationId}`);
+  revalidatePath(`/rh/candidates/prevalidated/${candidateId}`);
+  return { ok: true, link };
+}
+
 export async function sendPrevalidatedLinkAction(
   input: { candidateId: string; email: string },
 ): Promise<{ ok: boolean; error?: string; sentTo?: string }> {
