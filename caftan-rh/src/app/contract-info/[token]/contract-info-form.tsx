@@ -612,7 +612,12 @@ export function ContractInfoForm({
 
   function validateStep1(): string | null {
     const filled = ordered.filter((f) => (values[f.key] ?? "").trim());
-    if (filled.length === 0 && !(isCandidate && isStudent)) return t.err_at_least_one;
+    // Karim 2026-07-07 (BUG bloquant) : ne PLUS bloquer quand il n'y a AUCUN champ à
+    // remplir (dossier déjà complet -> ordered vide) ni quand tout est déjà saisi.
+    // Avant : un dossier complet renvoyait "Renseigne au moins une information" et
+    // refusait de passer à l'écran de soumission. On ne bloque plus que si le
+    // formulaire présente des champs ET qu'aucun n'est rempli (vraie page vide).
+    if (ordered.length > 0 && filled.length === 0 && !(isCandidate && isStudent)) return t.err_at_least_one;
     if (ibanStatus === "bad") return t.err_iban;
     // Karim 2026-06-15 : âge minimum 17 ans.
     if ((values.birth_date ?? "").trim() && values.birth_date > maxBirth) return t.err_min_age;

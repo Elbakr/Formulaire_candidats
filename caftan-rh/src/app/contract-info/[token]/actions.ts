@@ -86,10 +86,14 @@ export async function submitContractInfoAction(
 
   const { update, error: vErr } = buildUpdate(values, target.isCandidate);
   if (vErr) return { ok: false, error: vErr };
-  if (Object.keys(update).length === 0) return { ok: false, error: "Aucune information saisie." };
-
-  const { error } = await applyUpdate(admin, target, update);
-  if (error) return { ok: false, error };
+  // Karim 2026-07-07 (BUG bloquant) : un dossier DÉJÀ COMPLET peut être soumis sans
+  // nouvelle saisie (rien à mettre à jour). On ne bloque plus avec « Aucune information
+  // saisie » (qui empêchait de passer à l'écran de confirmation) ; on n'écrit que s'il
+  // y a quelque chose à écrire, puis on marque le dossier transmis normalement.
+  if (Object.keys(update).length > 0) {
+    const { error } = await applyUpdate(admin, target, update);
+    if (error) return { ok: false, error };
+  }
 
   // Karim 2026-07-05 : mail récap + confirmation au candidat -> déclenché CÔTÉ SERVEUR
   // (fiable + loggé), plus en fire-and-forget client (qui avalait les erreurs).
