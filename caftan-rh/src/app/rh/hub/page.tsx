@@ -22,6 +22,8 @@ const PRIMARY: Tile[] = [
   { href: "/planning/calendar", label: "Planning semaine", icon: "CalendarDays", desc: "Horaires de la semaine" },
   { href: "/rh/candidates", label: "Candidats", icon: "Users", desc: "Recrutement & suivi", badgeKey: "newCand" },
   { href: "/rh/pipeline", label: "Pipeline", icon: "KanbanSquare", desc: "Étapes de recrutement" },
+  { href: "/planning/employees", label: "Travailleurs", icon: "UserCheck", desc: "Fiches, contrats, conformité" },
+  { href: "/scoring", label: "Évaluations & notes", icon: "Star", desc: "Noter & commenter l'équipe" },
   { href: "/rh/inbox", label: "Inbox IA", icon: "Sparkles", desc: "Actions suggérées" },
   { href: "/planning/time-off", label: "Congés", icon: "CalendarOff", desc: "Demandes & validation" },
   { href: "/admin/cdd-renewals", label: "Renouvellements CDD", icon: "RefreshCw", desc: "Décisions à venir" },

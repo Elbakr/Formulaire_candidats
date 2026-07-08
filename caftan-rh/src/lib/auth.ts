@@ -54,7 +54,10 @@ export async function resolveHome(
   userId: string,
   role: AppRole | string,
 ): Promise<string> {
-  if (role === "admin" || role === "rh" || role === "manager") return "/planning/calendar";
+  // Karim 2026-07-08 : le RESPONSABLE RH atterrit sur le HUB RH (accueil clair,
+  // mobile, sans confusion : recrutement, planning, évaluations, congés…).
+  if (role === "rh") return "/rh/hub";
+  if (role === "admin" || role === "manager") return "/planning/calendar";
   if (role === "employee") return "/me";
   // role 'candidate' : employe (legacy) si une fiche employee existe, sinon candidat.
   const { data: emp } = await supabase
