@@ -59,6 +59,27 @@ export default async function ConfirmDossierPage({ params }: { params: Promise<{
   const firstName = (cand?.full_name ?? "").split(/\s+/)[0] ?? "";
   const name = cand?.full_name ?? "Un candidat";
 
+  // Karim 2026-07-08 : si ce candidat est DÉJÀ embauché ET a signé son contrat,
+  // on n'affiche PAS le message pré-embauche (« nous revenons vers toi ») mais un
+  // message d'ACCUEIL (il est déjà des nôtres).
+  let alreadySigned = false;
+  const { data: empRaw } = await admin
+    .from("employees")
+    .select("id")
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
+  const empId = (empRaw as { id: string } | null)?.id ?? null;
+  if (empId) {
+    const { data: signedContract } = await admin
+      .from("employee_contracts")
+      .select("id")
+      .eq("employee_id", empId)
+      .eq("status", "signed")
+      .limit(1)
+      .maybeSingle();
+    alreadySigned = !!signedContract;
+  }
+
   // Marque la confirmation UNE SEULE fois (idempotent) + notifie les RH.
   const alreadyConfirmed = !!cand?.dossier_confirmed_at;
   if (!alreadyConfirmed) {
@@ -87,12 +108,21 @@ export default async function ConfirmDossierPage({ params }: { params: Promise<{
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </div>
-        <h2 className="text-lg font-bold text-ink">Merci {firstName} !</h2>
-        <p className="text-sm text-ink-2 mt-2">
-          Ton dossier est <b>confirmé</b>. Notre équipe RH a bien reçu ta validation et poursuit le traitement.
-          Nous revenons vers toi très prochainement.
-        </p>
-        {alreadyConfirmed ? (
+        <h2 className="text-lg font-bold text-ink">
+          {alreadySigned ? <>Bienvenue {firstName} ! 🌟</> : <>Merci {firstName} !</>}
+        </h2>
+        {alreadySigned ? (
+          <p className="text-sm text-ink-2 mt-2">
+            Ton dossier est <b>à jour</b> et ton <b>contrat est déjà signé</b> — tu fais officiellement
+            partie de l&apos;équipe. Merci d&apos;avoir vérifié tes informations. À très vite en magasin !
+          </p>
+        ) : (
+          <p className="text-sm text-ink-2 mt-2">
+            Ton dossier est <b>confirmé</b>. Notre équipe RH a bien reçu ta validation et poursuit le traitement.
+            Nous revenons vers toi très prochainement.
+          </p>
+        )}
+        {alreadyConfirmed && !alreadySigned ? (
           <p className="text-[12px] text-ink-3 mt-3">Ce dossier était déjà confirmé — rien d&apos;autre à faire.</p>
         ) : null}
       </div>
