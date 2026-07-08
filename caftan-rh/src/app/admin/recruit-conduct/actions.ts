@@ -14,9 +14,13 @@ type Severity = (typeof SEVERITIES)[number];
 export type ConductInput = {
   id?: string;
   category: string;
+  category_nl: string | null;
   title: string;
+  title_nl: string | null;
   description: string | null;
+  description_nl: string | null;
   phase: string | null;
+  phase_nl: string | null;
   severity: string;
   sort_order: number;
   is_active: boolean;
@@ -38,9 +42,13 @@ export async function upsertConductItemAction(
 
   const row = {
     category,
+    category_nl: input.category_nl?.trim() || null,
     title,
+    title_nl: input.title_nl?.trim() || null,
     description: input.description?.trim() || null,
+    description_nl: input.description_nl?.trim() || null,
     phase: input.phase?.trim() || null,
+    phase_nl: input.phase_nl?.trim() || null,
     severity,
     sort_order: Number.isFinite(input.sort_order) ? Math.trunc(input.sort_order) : 0,
     is_active: !!input.is_active,

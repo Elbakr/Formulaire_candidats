@@ -19,11 +19,23 @@ export const dynamic = "force-dynamic";
 type ConductItem = {
   id: string;
   category: string;
+  category_nl: string | null;
   title: string;
+  title_nl: string | null;
   description: string | null;
+  description_nl: string | null;
   severity: string;
   sort_order: number;
 };
+
+// Choisit la valeur NL si locale=nl ET non vide, sinon fallback FR (jamais vide).
+function pick(locale: "fr" | "nl", fr: string, nl: string | null): string {
+  if (locale === "nl") {
+    const v = nl?.trim();
+    if (v) return v;
+  }
+  return fr;
+}
 
 export default async function ConfirmerPage(props: {
   params: Promise<{ token: string }>;
@@ -61,13 +73,14 @@ export default async function ConfirmerPage(props: {
   }[locale];
 
   // Guide + accusé existant (best-effort, la page reste affichable si vide).
-  let groups: Array<{ category: string; items: ConductItem[] }> = [];
+  type DisplayItem = { id: string; title: string; description: string | null; severity: string };
+  let groups: Array<{ category: string; items: DisplayItem[] }> = [];
   let confirmedAt: string | null = null;
   if (emp) {
     const [{ data: itemsRaw }, { data: ackRaw }] = await Promise.all([
       admin
         .from("recruit_conduct_items")
-        .select("id, category, title, description, severity, sort_order")
+        .select("id, category, category_nl, title, title_nl, description, description_nl, severity, sort_order")
         .eq("is_active", true)
         .order("category")
         .order("sort_order")
@@ -80,11 +93,19 @@ export default async function ConfirmerPage(props: {
         .maybeSingle(),
     ]);
     const items = (itemsRaw ?? []) as ConductItem[];
-    const byCat = new Map<string, ConductItem[]>();
+    // Groupe par la catégorie AFFICHÉE (NL en NL, sinon FR) — mapping FR↔NL
+    // cohérent, donc l'ordre des catégories reste préservé.
+    const byCat = new Map<string, DisplayItem[]>();
     for (const it of items) {
-      const arr = byCat.get(it.category) ?? [];
-      arr.push(it);
-      byCat.set(it.category, arr);
+      const catLabel = pick(locale, it.category, it.category_nl);
+      const arr = byCat.get(catLabel) ?? [];
+      arr.push({
+        id: it.id,
+        title: pick(locale, it.title, it.title_nl),
+        description: it.description ? pick(locale, it.description, it.description_nl) : null,
+        severity: it.severity,
+      });
+      byCat.set(catLabel, arr);
     }
     groups = Array.from(byCat.entries()).map(([category, list]) => ({ category, items: list }));
     confirmedAt = (ackRaw as { confirmed_at: string | null } | null)?.confirmed_at ?? null;

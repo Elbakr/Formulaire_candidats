@@ -26,14 +26,28 @@ import {
 export type ConductItem = {
   id: string;
   category: string;
+  category_nl: string | null;
   title: string;
+  title_nl: string | null;
   description: string | null;
+  description_nl: string | null;
   phase: string | null;
+  phase_nl: string | null;
   severity: string;
   sort_order: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+// Mapping FR→NL des phases pour pré-remplir le champ NL du dialog (éditable).
+const PHASE_NL: Record<string, string> = {
+  "Jour 1": "Dag 1",
+  "Jour 2": "Dag 2",
+  "Jour 3": "Dag 3",
+  "Jour 4": "Dag 4",
+  "Général": "Algemeen",
+  "Après la prise de service": "Na indiensttreding",
 };
 
 const SEVERITY_META: Record<string, { label: string; className: string }> = {
@@ -45,21 +59,29 @@ const SEVERITY_META: Record<string, { label: string; className: string }> = {
 type Draft = {
   id?: string;
   category: string;
+  category_nl: string;
   title: string;
+  title_nl: string;
   description: string;
+  description_nl: string;
   phase: string;
+  phase_nl: string;
   severity: string;
   sort_order: string;
   is_active: boolean;
 };
 
-function toDraft(item?: ConductItem, defaultCategory = ""): Draft {
+function toDraft(item?: ConductItem, defaultCategory = "", defaultCategoryNl = ""): Draft {
   return {
     id: item?.id,
     category: item?.category ?? defaultCategory,
+    category_nl: item?.category_nl ?? defaultCategoryNl,
     title: item?.title ?? "",
+    title_nl: item?.title_nl ?? "",
     description: item?.description ?? "",
+    description_nl: item?.description_nl ?? "",
     phase: item?.phase ?? "",
+    phase_nl: item?.phase_nl ?? "",
     severity: item?.severity ?? "important",
     sort_order: String(item?.sort_order ?? 0),
     is_active: item?.is_active ?? true,
@@ -87,14 +109,25 @@ export function ConductManager({ items }: { items: ConductItem[] }) {
     [items],
   );
 
+  const categoriesNl = useMemo(
+    () =>
+      [...new Set(items.map((i) => i.category_nl?.trim()).filter(Boolean) as string[])].sort(
+        (a, b) => a.localeCompare(b, "nl"),
+      ),
+    [items],
+  );
+
   function openAdd(category = "") {
-    // Pré-remplit sort_order = max de la catégorie + 1 si connue.
+    // Pré-remplit sort_order = max de la catégorie + 1 si connue, et reprend
+    // la traduction NL déjà utilisée pour cette catégorie (regroupement cohérent).
     let nextOrder = 0;
+    let catNl = "";
     if (category) {
       const inCat = items.filter((i) => i.category === category);
       nextOrder = inCat.reduce((m, i) => Math.max(m, i.sort_order), 0) + 1;
+      catNl = inCat.find((i) => i.category_nl?.trim())?.category_nl?.trim() ?? "";
     }
-    setDraft({ ...toDraft(undefined, category), sort_order: String(nextOrder) });
+    setDraft({ ...toDraft(undefined, category, catNl), sort_order: String(nextOrder) });
     setOpen(true);
   }
 
@@ -109,9 +142,13 @@ export function ConductManager({ items }: { items: ConductItem[] }) {
     const input: ConductInput = {
       id: draft.id,
       category: draft.category,
+      category_nl: draft.category_nl || null,
       title: draft.title,
+      title_nl: draft.title_nl || null,
       description: draft.description || null,
+      description_nl: draft.description_nl || null,
       phase: draft.phase || null,
+      phase_nl: draft.phase_nl || null,
       severity: draft.severity,
       sort_order: parseInt(draft.sort_order, 10) || 0,
       is_active: draft.is_active,
@@ -190,6 +227,15 @@ export function ConductManager({ items }: { items: ConductItem[] }) {
                           {sev.label}
                         </span>
                         {item.phase ? <Badge variant="muted">{item.phase}</Badge> : null}
+                        {item.title_nl?.trim() ? (
+                          <span className="inline-flex items-center rounded-full px-2 py-[2px] text-[10px] font-bold tracking-wide bg-success-light text-success">
+                            NL ✓
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full px-2 py-[2px] text-[10px] font-bold tracking-wide bg-surface-2 text-ink-3">
+                            NL ✗
+                          </span>
+                        )}
                         {!item.is_active ? <Badge variant="draft">Inactif</Badge> : null}
                       </div>
                       {item.description ? (
@@ -257,11 +303,37 @@ export function ConductManager({ items }: { items: ConductItem[] }) {
             </label>
 
             <label className="block text-xs font-medium text-ink-2">
+              Catégorie (NL)
+              <Input
+                list="rci-categories-nl"
+                value={draft.category_nl}
+                onChange={(e) => setDraft({ ...draft, category_nl: e.target.value })}
+                placeholder="Nederlandse categorie (ex. Pauzes, Verkoop…)"
+                className="mt-1"
+              />
+              <datalist id="rci-categories-nl">
+                {categoriesNl.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </label>
+
+            <label className="block text-xs font-medium text-ink-2">
               Intitulé *
               <Input
                 value={draft.title}
                 onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                 placeholder="Intitulé court de la règle / erreur"
+                className="mt-1"
+              />
+            </label>
+
+            <label className="block text-xs font-medium text-ink-2">
+              Intitulé (NL)
+              <Input
+                value={draft.title_nl}
+                onChange={(e) => setDraft({ ...draft, title_nl: e.target.value })}
+                placeholder="Nederlandse titel"
                 className="mt-1"
               />
             </label>
@@ -277,12 +349,30 @@ export function ConductManager({ items }: { items: ConductItem[] }) {
               />
             </label>
 
+            <label className="block text-xs font-medium text-ink-2">
+              Description (NL)
+              <Textarea
+                value={draft.description_nl}
+                onChange={(e) => setDraft({ ...draft, description_nl: e.target.value })}
+                placeholder="Nederlandse uitleg (leeg = terugval op het Frans)"
+                className="mt-1"
+                rows={3}
+              />
+            </label>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block text-xs font-medium text-ink-2">
                 Phase
                 <select
                   value={draft.phase}
-                  onChange={(e) => setDraft({ ...draft, phase: e.target.value })}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      phase: e.target.value,
+                      // Traduction NL de la phase auto-alignée (éditable en base).
+                      phase_nl: e.target.value ? PHASE_NL[e.target.value] ?? "" : "",
+                    })
+                  }
                   className="mt-1 h-9 w-full rounded-[var(--radius-sm)] border-[1.5px] border-line bg-surface px-2 text-sm focus:border-gold outline-none"
                 >
                   <option value="">— (aucune)</option>
