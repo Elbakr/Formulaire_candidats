@@ -17,7 +17,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Mail, CalendarClock, ChevronDown, Clock, AlertTriangle } from "lucide-react";
-import { fmtDateTime, fmtDateY } from "@/lib/datetime";
+import { fmtDateTime, fmtDateY, daysBetweenISO, addDaysISO, todayISOInBrussels } from "@/lib/datetime";
 import {
   nextFollowupSchedule,
   followupMilestoneLabel,
@@ -87,7 +87,7 @@ export async function CommunicationsPanel({
     .maybeSingle();
   const candidateId = (empRow as { candidate_id: string | null } | null)?.candidate_id ?? null;
 
-  const [{ data: mailsRaw }, { data: followupsRaw }, { data: ackRaw }] = await Promise.all([
+  const [{ data: mailsRaw }, { data: followupsRaw }, { data: ackRaw }, { data: contractsRaw }] = await Promise.all([
     admin
       .from("outbound_mails")
       .select("id, sent_at, subject, source, status, body, body_html, recipient_email")
@@ -104,11 +104,30 @@ export async function CommunicationsPanel({
       .eq("employee_id", employeeId)
       .eq("document_key", GUIDE_DOCUMENT_KEY)
       .maybeSingle(),
+    admin
+      .from("employee_contracts")
+      .select("id, start_date, end_date, signed_at")
+      .eq("employee_id", employeeId)
+      .eq("status", "signed"),
   ]);
 
   const mails = (mailsRaw ?? []) as MailRow[];
   const sentMilestones = ((followupsRaw ?? []) as Array<{ milestone: string }>).map((r) => r.milestone);
   const ack = (ackRaw ?? null) as { sent_at: string | null; confirmed_at: string | null } | null;
+
+  // Contrats signés : détection renouvellement (≥ 2) + ancre (dernier signé) et
+  // rappels de fin de contrat (end_date à venir).
+  const signedContracts = ((contractsRaw ?? []) as Array<{
+    id: string;
+    start_date: string | null;
+    end_date: string | null;
+    signed_at: string | null;
+  }>).slice();
+  const renewed = signedContracts.length >= 2;
+  const renewalAnchor = signedContracts
+    .slice()
+    .sort((a, b) => (b.signed_at ?? "").localeCompare(a.signed_at ?? "") || (b.start_date ?? "").localeCompare(a.start_date ?? ""))[0]?.start_date ?? null;
+  const sentSet = new Set(sentMilestones);
 
   // Questionnaire d'accueil (pre_interviews context='onboarding') via candidate -> applications.
   type OnboardingPi = { sent_at: string | null; reminded_at: string | null; status: string | null };
@@ -136,8 +155,8 @@ export async function CommunicationsPanel({
   type Scheduled = { key: string; label: string; dateLabel: string; overdue: boolean; note?: string };
   const scheduled: Scheduled[] = [];
 
-  // 1) Prochain message d'accompagnement.
-  const nextFu = nextFollowupSchedule(contractStart, sentMilestones);
+  // 1) Prochain message d'accompagnement (série renouvellement prioritaire si renouvelé).
+  const nextFu = nextFollowupSchedule(contractStart, sentMilestones, { renewed, renewalAnchorISO: renewalAnchor });
   if (nextFu) {
     scheduled.push({
       key: "followup",
@@ -146,6 +165,27 @@ export async function CommunicationsPanel({
       overdue: nextFu.overdue,
       note: nextFu.overdue ? "échéance passée — au prochain envoi automatique" : undefined,
     });
+  }
+
+  // 1bis) Rappel FIN DE CONTRAT (J-15) : contrat CDD à terme le plus proche, non rappelé.
+  {
+    const now = todayISOInBrussels();
+    const endCand = signedContracts
+      .filter((c) => c.end_date)
+      .map((c) => ({ id: c.id, end: (c.end_date as string).slice(0, 10), daysLeft: daysBetweenISO(now, (c.end_date as string).slice(0, 10)) }))
+      .filter((c) => c.daysLeft > 0 && !sentSet.has(`end_reminder_${c.id}`))
+      .sort((a, b) => a.daysLeft - b.daysLeft)[0];
+    if (endCand) {
+      // Programmé à J-15 (envoyé dès que daysLeft ≤ 15) ; overdue si déjà dans la fenêtre.
+      const dueISO = addDaysISO(endCand.end, -15);
+      scheduled.push({
+        key: "end-reminder",
+        label: "Rappel fin de contrat (J-15)",
+        dateLabel: fmtDateY(dueISO),
+        overdue: endCand.daysLeft <= 15,
+        note: endCand.daysLeft <= 15 ? "dans la fenêtre — au prochain envoi automatique" : undefined,
+      });
+    }
   }
 
   // 2) Relance / manquement questionnaire d'accueil.
