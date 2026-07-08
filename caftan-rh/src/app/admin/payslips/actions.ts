@@ -5,7 +5,7 @@
 //   - markPayslipPaidAction(id, note) : marque paye + reset advance
 //   - sendPayslipToEmployeeAction(id, recipient) : envoie le PDF par mail
 
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/server";
 import { processBatch } from "@/lib/payslip-processor";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 export async function uploadPayslipBatchAction(formData: FormData): Promise<
   { ok: true; batchId: string; matched: number; unmatched: number } | { ok: false; error: string }
 > {
-  const { profile } = await requireRole(["admin", "rh"]);
+  const { profile } = await requirePermission("payslips");
   const file = formData.get("pdf") as File | null;
   const employerOrgKey = String(formData.get("employer_org_key") ?? "amd_megastore") as "amd_megastore" | "caftan_factory";
   if (!file || file.type !== "application/pdf") {
@@ -44,7 +44,7 @@ export async function markPayslipsPaidBulkAction(
   payslipIds: string[],
   note?: string,
 ): Promise<{ ok: boolean; updated?: number; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (payslipIds.length === 0) return { ok: false, error: "Aucune fiche selectionnée" };
   const admin = createAdminClient();
   const { data: rows } = await admin
@@ -95,7 +95,7 @@ export async function sendOffboardingPayslipsAction(args: {
   // Karim 2026-06-02 : pieces jointes additionnelles uploaded depuis le dialog
   extraAttachments?: Array<{ filename: string; contentBase64: string; contentType: string }>;
 }): Promise<{ ok: boolean; sent?: boolean; error?: string; sentTo?: string; provider?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (args.payslipIds.length === 0) return { ok: false, error: "Aucune fiche sélectionnée" };
   const admin = createAdminClient();
 
@@ -276,7 +276,7 @@ export async function listPayslipsForEmployeeAction(employeeId: string): Promise
   payslips: Array<{ id: string; period_label: string | null; period_year: number; period_month: number; net_amount: number; amount_to_pay: number; payment_status: string }>;
   employee: { id: string; full_name: string; email: string | null; contract_type: string | null; status: string } | null;
 }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   const { data: emp } = await admin
     .from("employees")
@@ -314,7 +314,7 @@ export async function prepareOffboardingPackAction(employeeId: string): Promise<
   allPaid?: boolean;
   unpaidPeriods?: string[];
 }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
 
   const { data: emp } = await admin
@@ -386,7 +386,7 @@ export async function rematchOrphanPayslipsAction(): Promise<{
   qr_generated?: number;
   details?: string[];
 }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   try {
     const { rematchOrphanPayslips } = await import("@/lib/payslip-rematch");
     const r = await rematchOrphanPayslips();
@@ -412,7 +412,7 @@ export async function rematchOrphanPayslipsAction(): Promise<{
 export async function sendPayslipsToEmployeesBulkAction(
   payslipIds: string[],
 ): Promise<{ ok: boolean; sent?: number; skipped?: number; errors?: string[] }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (payslipIds.length === 0) return { ok: false, errors: ["Aucune fiche selectionnée"] };
   let sent = 0;
   let skipped = 0;
@@ -434,7 +434,7 @@ export async function sendPayslipsToEmployeesBulkAction(
 }
 
 export async function markPayslipPaidAction(payslipId: string, note?: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   const { data: payslip } = await admin
     .from("payslips")
@@ -475,7 +475,7 @@ export async function sendPayslipToEmployeeAction(
   payslipId: string,
   recipientEmail?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
 
   const { data: payslip } = await admin
@@ -600,7 +600,7 @@ export async function reassignPayslipAction(
   payslipId: string,
   newEmployeeId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   const { data: emp } = await admin
     .from("employees")
@@ -670,7 +670,7 @@ export async function updatePayslipAmountAction(
   payslipId: string,
   newNetAmount: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (newNetAmount < 0) return { ok: false, error: "Montant invalide" };
   const admin = createAdminClient();
 
@@ -742,7 +742,7 @@ export async function updatePayslipAmountAction(
  * de re-droper le PDF apres correction du parser.
  */
 export async function deleteBatchAction(batchId: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   // Cascade : payslips ont FK source_batch_id non NOT NULL, donc on delete d abord
   const { data: ps } = await admin.from("payslips").select("id").eq("source_batch_id", batchId);
@@ -762,7 +762,7 @@ export async function deleteBatchAction(batchId: string): Promise<{ ok: boolean;
  * donc supprimer une fiche appairée ne casse pas l'autre.
  */
 export async function deletePayslipAction(payslipId: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
 
   const { data: payslip } = await admin
@@ -810,7 +810,7 @@ export async function deletePayslipAction(payslipId: string): Promise<{ ok: bool
  * Karim 2026-05-30 : URL signee 1h pour voir/DL le PDF de la fiche.
  */
 export async function getPayslipPdfUrlAction(payslipId: string): Promise<{ ok: boolean; url?: string; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   // Karim 2026-06-15 : on récupère aussi le nom + période pour NOMMER le fichier
   // téléchargé proprement (sinon le navigateur prend l'URL signée Supabase,
@@ -936,7 +936,7 @@ export async function setAdvanceAndRecomputeAction(
   payslipId: string,
   newAdvance: number,
 ): Promise<{ ok: boolean; error?: string; qr?: "generated" | "none" }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (newAdvance < 0) return { ok: false, error: "Montant negatif interdit" };
   const admin = createAdminClient();
   const result = await recomputePayslipAdvance(admin, payslipId, newAdvance);
@@ -967,7 +967,7 @@ export async function triggerImapPayslipsSyncAction(): Promise<{
   errors?: Array<{ uid?: number; subject?: string; error: string }>;
   details?: Array<{ uid: number; subject: string; from: string; employer: string | null; pdf_count: number; inserted: number; matched: number; orphan: number }>;
 }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return { ok: false, error: "GMAIL_USER + GMAIL_APP_PASSWORD non configurés dans .env.local (compte hr@caftanfactory.com)" };
   }
@@ -984,7 +984,7 @@ export async function triggerImapPayslipsSyncAction(): Promise<{
 export async function listActiveEmployeesAction(): Promise<
   Array<{ id: string; full_name: string; iban: string | null; status: string; email: string | null; contract_type: string | null }>
 > {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   // Karim 2026-06-02 : retourne aussi email + contract_type. Le offboarding
   // dialog en a besoin pour eviter le faux warning "pas d'email" + auto-pick
@@ -1002,7 +1002,7 @@ export async function updateEmployeeAdvanceAction(
   amount: number,
   note?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   if (amount < 0) return { ok: false, error: "Montant negatif interdit" };
   const admin = createAdminClient();
   const { error } = await admin

@@ -31,6 +31,7 @@ export type Database = {
           department_id: string | null;
           phone: string | null;
           avatar_url: string | null;
+          permissions: string[];
           created_at: string;
           updated_at: string;
         };
@@ -42,6 +43,7 @@ export type Database = {
           department_id?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
+          permissions?: string[];
           created_at?: string;
           updated_at?: string;
         };
@@ -53,6 +55,7 @@ export type Database = {
           department_id: string | null;
           phone: string | null;
           avatar_url: string | null;
+          permissions: string[];
           created_at: string;
           updated_at: string;
         }>;

@@ -8,7 +8,7 @@ export default async function AdminUsersPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role, department_id, created_at, department:departments(id, name)")
+    .select("id, email, full_name, role, department_id, permissions, created_at, department:departments(id, name)")
     .order("created_at", { ascending: false });
 
   const { data: depts } = await supabase.from("departments").select("id, name").order("name");

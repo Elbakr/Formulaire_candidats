@@ -5,7 +5,7 @@ import { readCity } from "@/lib/city";
 
 export default async function MeLayout({ children }: { children: React.ReactNode }) {
   const { profile } = await requireProfile();
-  const groups = getNavSections(profile.role);
+  const groups = getNavSections(profile.role, profile.permissions);
   const city = await readCity();
   return <AppShell groups={groups} user={profile} city={city}>{children}</AppShell>;
 }

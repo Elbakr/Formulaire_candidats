@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { NameAvatar } from "@/components/ui/avatar";
 import { ROLE_LABELS } from "@/lib/config";
-import { updateUserRoleAction, updateUserDepartmentAction } from "./actions";
+import { PERMISSION_KEYS } from "@/lib/permissions";
+import { updateUserRoleAction, updateUserDepartmentAction, updateUserPermissionsAction } from "./actions";
 import { toast } from "sonner";
 import type { AppRole } from "@/types/database.types";
 
@@ -15,6 +16,7 @@ type UserRow = {
   full_name: string | null;
   role: AppRole;
   department_id: string | null;
+  permissions: string[] | null;
   department: { id: string; name: string } | null;
 };
 
@@ -38,6 +40,19 @@ export function UsersTable({ users, departments }: { users: UserRow[]; departmen
       const r = await updateUserDepartmentAction(userId, deptId);
       if (r?.error) toast.error(r.error);
       else router.refresh();
+    });
+  }
+
+  function togglePermission(u: UserRow, key: string, checked: boolean) {
+    const current = u.permissions ?? [];
+    const next = checked ? Array.from(new Set([...current, key])) : current.filter((p) => p !== key);
+    startTransition(async () => {
+      const r = await updateUserPermissionsAction(u.id, next);
+      if (r?.error) toast.error(r.error);
+      else {
+        toast.success("Permissions mises à jour.");
+        router.refresh();
+      }
     });
   }
 
@@ -73,6 +88,32 @@ export function UsersTable({ users, departments }: { users: UserRow[]; departmen
               {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
             </SelectContent>
           </Select>
+
+          {/* Karim 2026-07-08 : permissions par utilisateur. L'admin a tout
+              implicitement (cases cochées + verrouillées). Sinon l'admin coche
+              par user pour octroyer le droit (ex. fiches de paie). */}
+          <div className="flex items-center gap-3 basis-full sm:basis-auto flex-wrap">
+            {PERMISSION_KEYS.map((perm) => {
+              const isAdmin = u.role === "admin";
+              const checked = isAdmin || (u.permissions ?? []).includes(perm.key);
+              return (
+                <label
+                  key={perm.key}
+                  className={`flex items-center gap-1.5 text-xs ${isAdmin ? "text-ink-3" : "text-ink-2 cursor-pointer"}`}
+                  title={isAdmin ? "L'admin a toutes les permissions" : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-line accent-gold-dark"
+                    checked={checked}
+                    disabled={pending || isAdmin}
+                    onChange={(e) => togglePermission(u, perm.key, e.target.checked)}
+                  />
+                  {perm.label}
+                </label>
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>

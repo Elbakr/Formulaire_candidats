@@ -3,7 +3,7 @@
 // - Upload PDF groupe via dropzone
 // - Pour chaque payslip : QR EPC, marquer paye, envoyer au travailleur
 
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminPayslipsPage(props: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
 
   const [{ data: payslips }, { data: batches }, { data: bankAccounts }, senderMap] = await Promise.all([

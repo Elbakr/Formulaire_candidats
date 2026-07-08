@@ -47,6 +47,15 @@ function isAdmin(role: Role): boolean {
   return role === "admin";
 }
 
+// Karim 2026-07-08 : permission par utilisateur (voir lib/permissions.ts).
+// L'admin a tout ; un RH ne l'a que si la clé est dans son tableau. On duplique
+// ici la logique (pure, sans import serveur) pour ne pas tirer requireProfile /
+// next-navigation dans ce module partagé.
+function can(role: Role, permissions: string[] | null | undefined, key: string): boolean {
+  if (role === "admin") return true;
+  return Array.isArray(permissions) && permissions.includes(key);
+}
+
 // ────────────────────────────────────────────────────────────────
 // Karim 2026-06-13 : onglets de la barre de navigation MOBILE (bas
 // d'écran, < md). 4 raccourcis essentiels + "Plus" qui rouvre le menu
@@ -94,7 +103,7 @@ export function getMobileTabs(role: Role): MobileTab[] {
  * - rh+ voit Reporting avancé (analytics, scoring, audit).
  * - admin seul voit la section Admin (settings, intégrations, debug, tuya...).
  */
-export function getNavSections(role: Role): NavGroup[] {
+export function getNavSections(role: Role, permissions?: string[] | null): NavGroup[] {
   const groups: NavGroup[] = [];
 
   // ────────────────────────────────────────────────────────────────
@@ -260,7 +269,6 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/admin/analytics/sites", label: "Analytics par site", icon: "FileBarChart" },
       { href: "/admin/cockpit", label: "Cockpit exécutif", icon: "LayoutDashboard" },
       { href: "/admin/payroll", label: "Paie & exports", icon: "FileText" },
-      { href: "/admin/payslips", label: "Fiches de paie + QR EPC", icon: "Wallet" },
       { href: "/admin/legal-rules", label: "Règles légales", icon: "ShieldCheck" },
       { href: "/admin/baremes", label: "Barèmes de salaire", icon: "Wallet" },
       { href: "/admin/contracts", label: "Contrats (en cours / échus)", icon: "FileText" },
@@ -268,6 +276,11 @@ export function getNavSections(role: Role): NavGroup[] {
       { href: "/admin/overtime-audit", label: "Audit heures sup", icon: "Activity" },
       { href: "/admin/activity", label: "Journal d'activité", icon: "FileBarChart" },
     );
+  }
+  // Karim 2026-07-08 : fiches de paie = permission par utilisateur (OFF par
+  // défaut pour les RH). Admin l'a toujours ; un RH ne la voit que si octroyée.
+  if (isHR(role) && can(role, permissions, "payslips")) {
+    reportingItems.push({ href: "/admin/payslips", label: "Fiches de paie + QR EPC", icon: "Wallet" });
   }
   if (isAdmin(role)) {
     reportingItems.push(

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/permissions";
 import type { EmployerOrgKey } from "@/lib/contract-renderer";
 
 export interface SenderMapEntry {
@@ -13,7 +13,7 @@ export interface SenderMapEntry {
 const VALID_EMPLOYERS: EmployerOrgKey[] = ["amd_megastore", "caftan_factory"];
 
 export async function getPayslipSenderMap(): Promise<SenderMapEntry[]> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
   const admin = createAdminClient();
   const { data } = await admin
     .from("org_settings")
@@ -27,7 +27,7 @@ export async function getPayslipSenderMap(): Promise<SenderMapEntry[]> {
 export async function updatePayslipSenderMap(
   entries: SenderMapEntry[],
 ): Promise<{ ok?: boolean; error?: string }> {
-  await requireRole(["admin", "rh"]);
+  await requirePermission("payslips");
 
   // Validation
   for (const entry of entries) {

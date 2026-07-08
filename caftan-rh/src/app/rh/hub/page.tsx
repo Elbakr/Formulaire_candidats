@@ -53,7 +53,10 @@ export default async function HrHubPage() {
   const totalToDo = actions.reduce((s, a) => s + a.count, 0);
 
   // Nav complete du role -> ce qui est dispo + le menu "toutes les fonctions".
-  const groups = getNavSections(role);
+  // Karim 2026-07-08 : passe les permissions par user (fiches de paie OFF par
+  // défaut pour les RH) — la tuile "Fiches de paie" (dérivée de `available`)
+  // et l'entrée nav ne s'affichent que si l'utilisateur y a droit.
+  const groups = getNavSections(role, profile.permissions);
   const available = new Set(groups.flatMap((g) => g.items.map((i) => i.href)));
   const tiles = PRIMARY.filter((t) => available.has(t.href));
 
