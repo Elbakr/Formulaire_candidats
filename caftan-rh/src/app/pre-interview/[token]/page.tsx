@@ -48,11 +48,14 @@ export default async function PublicPreInterviewPage(
   }
 
   if (preInterview.status === "completed") {
+    // Karim 2026-07-08 : un pré-validé a DÉJÀ signé + est en poste -> message d'accueil,
+    // JAMAIS le langage de sélection (« si votre profil est retenu »).
+    const isOnboarding = preInterview.context === "onboarding";
     return (
       <PublicShell locale={locale}>
         <SuccessState
-          title={t("pre_interview.submitted_thanks", locale)}
-          message={t("pre_interview.submitted_body", locale)}
+          title={t(isOnboarding ? "pre_interview.submitted_thanks_onboarding" : "pre_interview.submitted_thanks", locale)}
+          message={t(isOnboarding ? "pre_interview.submitted_body_onboarding" : "pre_interview.submitted_body", locale)}
           footer={t("pre_interview.location_footer", locale)}
         />
       </PublicShell>

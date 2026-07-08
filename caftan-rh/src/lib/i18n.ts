@@ -524,6 +524,12 @@ const FR = {
     "Merci, vos réponses ont bien été enregistrées.",
   "pre_interview.submitted_body":
     "Notre équipe RH va les examiner dans les meilleurs délais. Si votre profil est retenu, nous vous proposerons un entretien physique.",
+  // Karim 2026-07-08 : contexte ONBOARDING — le travailleur a DÉJÀ signé et est en
+  // poste. Surtout PAS de langage de sélection (« si votre profil est retenu »).
+  "pre_interview.submitted_thanks_onboarding":
+    "Merci, c'est bien noté !",
+  "pre_interview.submitted_body_onboarding":
+    "Tes réponses nous aident à mieux te connaître et à faciliter ton intégration dans l'équipe. Encore bienvenue parmi nous — à très vite en magasin !",
   "pre_interview.expired_title": "Le délai est dépassé",
   "pre_interview.expired_body":
     "Ce pré-entretien n'est plus accessible. Si vous souhaitez relancer le processus, écrivez-nous à hr@caftanfactory.com.",
@@ -1235,6 +1241,11 @@ const NL: Record<TranslationKey, string> = {
     "Bedankt, uw antwoorden zijn goed geregistreerd.",
   "pre_interview.submitted_body":
     "Ons HR-team neemt ze zo snel mogelijk door. Indien uw profiel weerhouden wordt, nodigen we u uit voor een fysiek gesprek.",
+  // Karim 2026-07-08 : ONBOARDING-context — medewerker is AL in dienst. Geen selectietaal.
+  "pre_interview.submitted_thanks_onboarding":
+    "Bedankt, goed genoteerd!",
+  "pre_interview.submitted_body_onboarding":
+    "Je antwoorden helpen ons om je beter te leren kennen en je integratie in het team vlotter te laten verlopen. Nogmaals welkom bij ons — tot snel in de winkel!",
   "pre_interview.expired_title": "De termijn is verstreken",
   "pre_interview.expired_body":
     "Dit pre-interview is niet langer toegankelijk. Indien u het proces wilt hervatten, schrijf ons op hr@caftanfactory.com.",
