@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Activity,
   Building2,
+  Star,
 } from "lucide-react";
 import { tenureLabel, seniorTier, seniorTierLabel, nextAnniversary } from "@/lib/tenure";
 import { requireRole } from "@/lib/auth";
@@ -259,6 +260,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           <Button asChild variant="gold" size="sm">
             <Link href={`/planning/employees/${id}/contract`}>
               <FileText className="h-3.5 w-3.5" /> Contrat &amp; dossier
+            </Link>
+          </Button>
+          {/* Karim 2026-07-08 : accès direct au cockpit d'évaluation */}
+          <Button asChild variant="gold" size="sm">
+            <Link href={`/scoring/evaluate/${id}`}>
+              <Star className="h-3.5 w-3.5" /> Évaluer
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">

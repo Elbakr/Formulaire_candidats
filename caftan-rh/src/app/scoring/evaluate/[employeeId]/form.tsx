@@ -7,7 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createEvaluationAction } from "../../actions";
+import { todayISOInBrussels } from "@/lib/datetime";
 import { toast } from "sonner";
+
+// Helpers dates pures "YYYY-MM-DD" (indépendants du fuseau, arithmétique UTC).
+function addDaysISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+function mondayOfWeekISO(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = dimanche
+  return addDaysISO(iso, dow === 0 ? -6 : 1 - dow);
+}
 
 // 7 axes Discovery (recrutement.html EVAL_CRIT)
 const AXES: Array<[string, string, string]> = [
@@ -20,17 +34,33 @@ const AXES: Array<[string, string, string]> = [
   ["disponibilite", "Disponibilité", "Souplesse horaire, week-ends, dépannage"],
 ];
 
-export function EvaluationForm({ employeeId }: { employeeId: string }) {
+export function EvaluationForm({
+  employeeId,
+  contractStart = null,
+  contractEnd = null,
+}: {
+  employeeId: string;
+  contractStart?: string | null;
+  contractEnd?: string | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [scores, setScores] = useState<Record<string, number>>(
     Object.fromEntries(AXES.map(([k]) => [k, 4])),
   );
 
-  const today = new Date();
-  const defaultEnd = today.toISOString().split("T")[0];
-  const start = new Date(today.getFullYear(), today.getMonth() - 3, 1);
-  const defaultStart = start.toISOString().split("T")[0];
+  const today = todayISOInBrussels();
+  // Karim 2026-07-08 : défaut = période du CONTRAT (début du contrat -> fin, ou
+  // aujourd'hui si CDI/fin nulle). Fallback -3 mois si aucune date de contrat.
+  const initialStart = contractStart ?? addDaysISO(mondayOfWeekISO(today), -84); // ~3 mois
+  const initialEnd = contractEnd ?? today;
+  const [periodStart, setPeriodStart] = useState(initialStart);
+  const [periodEnd, setPeriodEnd] = useState(initialEnd);
+
+  const setRange = (start: string, end: string) => {
+    setPeriodStart(start);
+    setPeriodEnd(end);
+  };
 
   const total = Object.values(scores).reduce((a, b) => a + b, 0) / AXES.length;
 
@@ -38,6 +68,8 @@ export function EvaluationForm({ employeeId }: { employeeId: string }) {
     <form
       action={(fd) => {
         fd.set("employee_id", employeeId);
+        fd.set("period_start", periodStart);
+        fd.set("period_end", periodEnd);
         for (const [k] of AXES) fd.set(`score_${k}`, String(scores[k]));
         startTransition(async () => {
           const r = await createEvaluationAction(fd);
@@ -50,14 +82,37 @@ export function EvaluationForm({ employeeId }: { employeeId: string }) {
       }}
       className="p-5 space-y-5"
     >
-      <div className="grid md:grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="period_start">Période évaluée — du</Label>
-          <Input id="period_start" name="period_start" type="date" defaultValue={defaultStart} required />
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-ink-3">Période rapide :</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRange(addDaysISO(today, -1), addDaysISO(today, -1))}>
+            Hier
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRange(today, today)}>
+            Aujourd&apos;hui
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRange(mondayOfWeekISO(today), today)}>
+            Cette semaine
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!contractStart}
+            onClick={() => setRange(contractStart ?? today, contractEnd ?? today)}
+          >
+            Période du contrat
+          </Button>
         </div>
-        <div>
-          <Label htmlFor="period_end">au</Label>
-          <Input id="period_end" name="period_end" type="date" defaultValue={defaultEnd} required />
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="period_start">Période évaluée — du</Label>
+            <Input id="period_start" name="period_start" type="date" value={periodStart} onChange={(ev) => setPeriodStart(ev.target.value)} required />
+          </div>
+          <div>
+            <Label htmlFor="period_end">au</Label>
+            <Input id="period_end" name="period_end" type="date" value={periodEnd} onChange={(ev) => setPeriodEnd(ev.target.value)} required />
+          </div>
         </div>
       </div>
 

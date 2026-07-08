@@ -154,6 +154,13 @@ export default async function ScoringHomePage() {
                 ) : (
                   <div className="hidden lg:block text-xs text-ink-3 shrink-0">Pas d'éval</div>
                 )}
+                {/* Karim 2026-07-08 : accès direct 1-clic au cockpit d'évaluation */}
+                <Link
+                  href={`/scoring/evaluate/${r.employee_id}`}
+                  className="shrink-0 inline-flex items-center gap-1 h-7 px-2 rounded-md bg-gold-light text-gold-dark text-xs font-semibold hover:bg-gold hover:text-white transition-colors"
+                >
+                  <Star className="h-3.5 w-3.5" /> Évaluer
+                </Link>
                 <Link
                   href={`/scoring/${r.employee_id}`}
                   aria-label={`Détails ${r.full_name}`}
