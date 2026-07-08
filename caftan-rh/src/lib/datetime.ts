@@ -88,6 +88,18 @@ export function daysBetweenISO(fromISO: string, toISO: string): number {
 }
 
 /**
+ * Ajoute `days` jours calendaires à une date pure "YYYY-MM-DD" et renvoie la
+ * date résultante au même format (arithmétique UTC sur minuit, sans effet DST).
+ * Ex. addDaysISO("2026-07-01", 7) => "2026-07-08".
+ */
+export function addDaysISO(fromISO: string, days: number): string {
+  const [y, m, d] = fromISO.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return fromISO;
+  const t = Date.UTC(y, m - 1, d) + days * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/**
  * Convertit une heure « murale » belge (date + heure locale Europe/Brussels) en
  * instant UTC réel. Indispensable côté serveur Vercel (qui tourne en UTC) :
  * `new Date("2026-06-14T18:00:00")` y est interprété comme 18:00 UTC, soit 20:00

@@ -9,6 +9,7 @@
 // admin/rh. La page parente est déjà protégée requireRole + le panneau n'est rendu
 // que pour les rôles admin/rh (cf. page.tsx).
 
+import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,12 +21,15 @@ import {
   Star,
   MessageSquareWarning,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-import { GUIDE_DOCUMENT_KEY } from "@/lib/worker-compliance";
+import { GUIDE_DOCUMENT_KEY, GUIDE_ACK_SOURCE } from "@/lib/worker-compliance";
 import { fmtDateTime, fmtDateY, todayISOInBrussels, daysBetweenISO } from "@/lib/datetime";
 import { tenureLabel } from "@/lib/tenure";
 import { ResolveComplianceButton } from "@/app/planning/employees/[id]/resolve-compliance-button";
 import { QuickComplianceAdd } from "./quick-compliance";
+import { CommunicationsPanel } from "./communications-panel";
 
 const KIND_LABEL: Record<string, string> = {
   questionnaire_non_complete: "Questionnaire d'accueil non complété",
@@ -55,6 +59,7 @@ export async function EvaluationContextPanel({
     { data: ratingsRaw },
     { data: reportsRaw },
     { data: ackRaw },
+    { data: guideMailRaw },
   ] = await Promise.all([
     admin
       .from("worker_compliance_events")
@@ -80,6 +85,14 @@ export async function EvaluationContextPanel({
       .eq("employee_id", employeeId)
       .eq("document_key", GUIDE_DOCUMENT_KEY)
       .maybeSingle(),
+    admin
+      .from("outbound_mails")
+      .select("subject, body, sent_at")
+      .eq("employee_id", employeeId)
+      .eq("source", GUIDE_ACK_SOURCE)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const events = (eventsRaw ?? []) as Array<{
@@ -92,6 +105,10 @@ export async function EvaluationContextPanel({
     id: string; category: string | null; message: string; status: string; created_at: string;
   }>;
   const ack = (ackRaw ?? null) as { sent_at: string | null; confirmed_at: string | null } | null;
+  const guideMail = (guideMailRaw ?? null) as {
+    subject: string | null; body: string | null; sent_at: string | null;
+  } | null;
+  const empHref = `/planning/employees/${employeeId}`;
 
   const openEvents = events.filter((e) => e.status === "open");
   const openMalus = openEvents.reduce((s, e) => s + (e.malus ?? 0), 0);
@@ -141,6 +158,12 @@ export async function EvaluationContextPanel({
           ) : (
             <Badge className="bg-green-100 text-green-700 text-[10px]">à jour</Badge>
           )}
+          <Link
+            href={`${empHref}#compliance`}
+            className="ml-auto text-[10px] text-gold-dark hover:underline inline-flex items-center gap-0.5"
+          >
+            Détail <ChevronRight className="w-3 h-3" />
+          </Link>
         </div>
         {openEvents.length === 0 ? (
           <div className="px-4 py-3 text-xs text-ink-3">— Aucun manquement ouvert.</div>
@@ -172,6 +195,12 @@ export async function EvaluationContextPanel({
         <div className="p-4 border-b border-line flex items-center gap-2">
           <Star className="w-4 h-4 fill-gold text-gold" />
           <span className="text-sm font-bold">Dernières notes hebdo</span>
+          <Link
+            href={`/scoring/${employeeId}`}
+            className="ml-auto text-[10px] text-gold-dark hover:underline inline-flex items-center gap-0.5"
+          >
+            Détail <ChevronRight className="w-3 h-3" />
+          </Link>
         </div>
         {ratings.length === 0 ? (
           <div className="px-4 py-3 text-xs text-ink-3">— Aucune note hebdomadaire.</div>
@@ -197,6 +226,12 @@ export async function EvaluationContextPanel({
         <div className="p-4 border-b border-line flex items-center gap-2">
           <MessageSquareWarning className="w-4 h-4 text-gold-dark" />
           <span className="text-sm font-bold">Signalements récents</span>
+          <Link
+            href={`${empHref}#worker-reports`}
+            className="ml-auto text-[10px] text-gold-dark hover:underline inline-flex items-center gap-0.5"
+          >
+            Détail <ChevronRight className="w-3 h-3" />
+          </Link>
         </div>
         {reports.length === 0 ? (
           <div className="px-4 py-3 text-xs text-ink-3">— Aucun signalement.</div>
@@ -220,27 +255,75 @@ export async function EvaluationContextPanel({
         )}
       </Card>
 
-      {/* Statut guide conduite */}
-      <Card className="p-4">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <ShieldCheck className="w-4 h-4 text-gold-dark" /> Guide conduite
-        </div>
-        <div className="mt-2 text-sm">
-          {ack?.confirmed_at ? (
-            <span className="inline-flex items-center gap-1.5 text-success font-semibold">
-              <ShieldCheck className="w-4 h-4" /> Confirmé le {fmtDateTime(ack.confirmed_at)}
+      {/* Statut guide conduite — cliquable : dépliage message + dates */}
+      <Card className="overflow-hidden">
+        <details className="group">
+          <summary className="p-4 cursor-pointer list-none flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-gold-dark shrink-0" />
+            <span className="text-sm font-bold">Guide conduite</span>
+            <span className="ml-auto flex items-center gap-1.5">
+              {ack?.confirmed_at ? (
+                <span className="inline-flex items-center gap-1 text-xs text-success font-semibold">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Confirmé
+                </span>
+              ) : ack?.sent_at ? (
+                <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-semibold">
+                  <Clock className="w-3.5 h-3.5" /> Envoyé, non confirmé
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs text-ink-3">
+                  <Send className="w-3.5 h-3.5" /> Non envoyé
+                </span>
+              )}
+              <ChevronDown className="w-3.5 h-3.5 text-ink-3 transition-transform group-open:rotate-180" />
             </span>
-          ) : ack?.sent_at ? (
-            <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold">
-              <Clock className="w-4 h-4" /> Envoyé le {fmtDateTime(ack.sent_at)} — pas encore confirmé
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-ink-3">
-              <Send className="w-4 h-4" /> Non envoyé
-            </span>
-          )}
-        </div>
+          </summary>
+          <div className="px-4 pb-4 pt-0 text-sm space-y-2 border-t border-line">
+            <div className="pt-3 text-xs space-y-1">
+              <div className="text-ink-2">
+                Envoi :{" "}
+                {ack?.sent_at ? (
+                  <strong className="text-ink">{fmtDateTime(ack.sent_at)}</strong>
+                ) : (
+                  <span className="text-ink-3">non envoyé</span>
+                )}
+              </div>
+              <div className="text-ink-2">
+                Confirmation :{" "}
+                {ack?.confirmed_at ? (
+                  <strong className="text-success">{fmtDateTime(ack.confirmed_at)}</strong>
+                ) : (
+                  <span className="text-ink-3">en attente</span>
+                )}
+              </div>
+            </div>
+            {guideMail ? (
+              <div className="rounded-md bg-surface-2/50 border border-line p-2.5">
+                <div className="text-[11px] font-semibold text-ink">
+                  {guideMail.subject || "Guide conduite à confirmer"}
+                </div>
+                {guideMail.body ? (
+                  <div className="text-xs text-ink-2 mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                    {guideMail.body}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-xs text-ink-3">
+                — Aucun message « guide à confirmer » archivé pour ce travailleur.
+              </div>
+            )}
+            <div>
+              <Link href={`${empHref}#compliance`} className="text-[11px] text-gold-dark hover:underline">
+                Ouvrir la conformité sur la fiche →
+              </Link>
+            </div>
+          </div>
+        </details>
       </Card>
+
+      {/* Communications & messages programmés */}
+      <CommunicationsPanel employeeId={employeeId} contractStart={contractStart} />
     </div>
   );
 }

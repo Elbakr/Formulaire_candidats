@@ -20,7 +20,7 @@
 
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { todayISOInBrussels } from "@/lib/datetime";
+import { todayISOInBrussels, daysBetweenISO, addDaysISO } from "@/lib/datetime";
 
 export const SOURCE = "worker_followup";
 export type Phase = "p1" | "p2";
@@ -505,4 +505,76 @@ export function dueMilestonesDesc(days: number): Array<{ milestone: string; phas
 
 export function todayISO(): string {
   return todayISOInBrussels();
+}
+
+// ---------------------------------------------------------------------------
+// Prévision du PROCHAIN palier d'accompagnement (pour l'affichage RH).
+// ---------------------------------------------------------------------------
+
+/** Jour du palier (J+n) à partir de son identifiant milestone, ou null. */
+export function followupMilestoneDay(milestone: string): number | null {
+  const p1 = /^w1_day(\d+)$/.exec(milestone);
+  if (p1) return Number(p1[1]);
+  const p2 = /^p2_day(\d+)$/.exec(milestone);
+  if (p2) return Number(p2[1]);
+  return null;
+}
+
+/** Libellé FR lisible d'un palier, ex. « J+14 (1ᵉ mois) » / « J+38 (suivi régulier) ». */
+export function followupMilestoneLabel(milestone: string): string {
+  const day = followupMilestoneDay(milestone);
+  if (day == null) return milestone;
+  if (milestone.startsWith("w1_")) return `J+${day} (1ᵉ mois)`;
+  return `J+${day} (suivi régulier)`;
+}
+
+export interface FollowupSchedule {
+  milestone: string;
+  phase: Phase;
+  /** Jour du palier (J+day). */
+  day: number;
+  /** Date d'envoi prévue "YYYY-MM-DD" = start_date + day jours. */
+  dueDateISO: string;
+  /** true si l'échéance est déjà passée (envoi imminent au prochain run cron). */
+  overdue: boolean;
+}
+
+/**
+ * Prochain palier d'accompagnement PROGRAMMÉ (non encore envoyé) pour un
+ * travailleur, à partir de sa date de début de contrat et des paliers déjà
+ * envoyés (worker_followups.milestone). Séquence : 7/14/21/28, puis 38/48/58…
+ *
+ * Renvoie le PREMIER palier de la séquence dont le milestone n'a pas encore été
+ * envoyé, avec sa date d'envoi prévue (start_date + jour). `overdue` indique une
+ * échéance déjà passée (le cron l'enverra au prochain passage). null si pas de
+ * date de début ou si tous les paliers de l'horizon sont déjà couverts.
+ */
+export function nextFollowupSchedule(
+  startDateISO: string | null | undefined,
+  sentMilestones: string[],
+): FollowupSchedule | null {
+  const start = (startDateISO ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+
+  const sent = new Set(sentMilestones);
+  const today = todayISOInBrussels();
+  const tenure = daysBetweenISO(start, today);
+  const maxSentDay = sentMilestones.reduce((m, s) => {
+    const d = followupMilestoneDay(s);
+    return d != null && d > m ? d : m;
+  }, 0);
+  // Horizon large : au-delà de l'ancienneté actuelle et du dernier palier envoyé,
+  // pour garantir qu'on trouve le prochain palier non couvert (Phase 2 illimitée).
+  const horizon = Math.max(Number.isFinite(tenure) ? tenure : 0, maxSentDay) + 12;
+
+  const seq: Array<{ milestone: string; phase: Phase; day: number }> = [];
+  for (const d of [7, 14, 21, 28]) seq.push({ milestone: `w1_day${d}`, phase: "p1", day: d });
+  for (let d = 38; d <= Math.max(38, horizon); d += 10) {
+    seq.push({ milestone: `p2_day${d}`, phase: "p2", day: d });
+  }
+
+  const next = seq.find((p) => !sent.has(p.milestone));
+  if (!next) return null;
+  const dueDateISO = addDaysISO(start, next.day);
+  return { ...next, dueDateISO, overdue: daysBetweenISO(dueDateISO, today) > 0 };
 }
