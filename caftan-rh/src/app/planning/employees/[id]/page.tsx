@@ -41,6 +41,8 @@ import { QuickNav } from "./quick-nav";
 import { EmployeeMailsSection } from "./employee-mails-section";
 import { OnboardingAnswersSection } from "./onboarding-answers-section";
 import { WorkerReportsSection } from "./worker-reports-section";
+import { ComplianceSection } from "./compliance-section";
+import { SendGuideAckButton } from "./send-guide-ack-button";
 import { TerminationButton } from "./termination-button";
 import { EmployeeAuditSection } from "./employee-audit-section";
 import { RehireButton } from "./rehire-button";
@@ -277,6 +279,8 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
             signatories={signatories}
           />
           <SendHiringDossierButton employeeId={id} />
+          {/* Karim 2026-07-08 : envoi MANUEL 1-clic du guide conduite à confirmer */}
+          <SendGuideAckButton employeeId={id} />
           <Button asChild variant="outline" size="sm">
             <Link href={`/planning/employees/${id}/calendar?view=week`}>
               <CalendarDays className="h-3.5 w-3.5" /> Calendrier (sem/mois/année)
@@ -420,6 +424,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
       {/* Karim 2026-07-06 : signalements du travailleur (lien permanent /signaler) */}
       <WorkerReportsSection employeeId={id} />
+
+      {/* Karim 2026-07-08 : conformité & manquements (accusé guide + journal INTERNE) */}
+      <ComplianceSection employeeId={id} />
 
       {/* Karim 2026-05-31 task #78/79 : section Mails envoyés a cet employee */}
       <EmployeeMailsSection employeeId={id} />

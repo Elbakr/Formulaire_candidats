@@ -20,6 +20,7 @@ type Settings = {
   prayer_pause_dst_start?: string | null;
   prayer_pause_dst_end?: string | null;
   auto_outbound_to_people_enabled?: boolean | null;
+  auto_scoring_communication?: boolean | null;
 };
 
 export function SettingsForm({ initial }: { initial: Settings }) {
@@ -136,6 +137,24 @@ export function SettingsForm({ initial }: { initial: Settings }) {
           <span>Autoriser les emails automatiques vers les candidats/travailleurs</span>
         </label>
         <p className="text-[11px] text-ink-3">Décoché (recommandé) = aucun email automatique n&apos;est envoyé aux personnes.</p>
+      </fieldset>
+
+      <fieldset className="border border-line rounded-md p-4 space-y-2">
+        <legend className="text-sm font-bold px-2">Communication automatique du scoring</legend>
+        <p className="text-xs text-ink-3">
+          Pilotera PLUS TARD (Phase 2) la communication <strong>automatique</strong> du scoring/journal de conformité au
+          travailleur. <strong>Pour l&apos;instant ce réglage n&apos;active RIEN</strong> : le journal de manquements reste
+          strictement INTERNE (fiche RH + escalade), jamais envoyé au travailleur.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="auto_scoring_communication"
+            defaultChecked={initial.auto_scoring_communication ?? false}
+            className="h-4 w-4 rounded border-line"
+          />
+          <span>Autoriser la communication automatique du scoring (Phase 2 — inactif)</span>
+        </label>
       </fieldset>
 
       <Button type="submit" variant="gold" disabled={pending}>

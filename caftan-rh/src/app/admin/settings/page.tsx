@@ -200,6 +200,7 @@ export default async function AdminSettingsPage() {
               prayer_pause_dst_start: string | null;
               prayer_pause_dst_end: string | null;
               auto_outbound_to_people_enabled: boolean | null;
+              auto_scoring_communication: boolean | null;
             }) ?? {
               org_name: "CaftanRH",
               email_signature: "",
@@ -212,6 +213,7 @@ export default async function AdminSettingsPage() {
               prayer_pause_dst_start: "04-01",
               prayer_pause_dst_end: "10-01",
               auto_outbound_to_people_enabled: false,
+              auto_scoring_communication: false,
             }
           }
         />

@@ -48,11 +48,18 @@ export interface BlockedOutboundInfo {
 // `worker_followup`) : Phase 1 tous les 7 jours (J+7…J+28), puis Phase 2 tous les
 // 10 jours (dès J+38). Envoi automatique assumé par Karim, comme le welcome et la
 // fiche d'onboarding.
+// Karim 2026-07-08 : 5e exception — la RELANCE AUTOMATIQUE du questionnaire
+// d'accueil (source `onboarding_reminder`) envoyée par le cron onboarding-followup
+// quand le nouveau travailleur n'a pas complété son mini-questionnaire après 24h.
+// Envoi automatique assumé par Karim, comme le welcome et la fiche d'onboarding.
+// (Le guide conduite `document_ack_request` reste un envoi MANUEL automated:false
+// -> jamais concerné par le kill-switch, donc non listé ici.)
 const AUTO_ALLOWED_SOURCES = new Set<string>([
   "candidate_recap_confirm",
   "worker_welcome_questionnaire",
   "worker_onboarding_sheet",
   "worker_followup",
+  "onboarding_reminder",
 ]);
 
 /**
