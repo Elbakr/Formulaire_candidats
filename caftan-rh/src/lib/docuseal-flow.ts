@@ -15,6 +15,9 @@
 
 import { renderContractTemplate, buildContractVariables, EMPLOYER_ORGS, type EmployerOrgKey, type EmployerOrg } from "@/lib/contract-renderer";
 import { documentBrandingCss, documentBrandingHtml, corporateHeaderCss } from "@/lib/contract-branding";
+// Karim 2026-07-08 : Carlito embarqué (clone métrique de Calibri) — garantit que
+// le PDF ENVOYÉ (Chromium serverless, sans Calibri) pagine comme l'aperçu.
+import { CONTRACT_FONT_FACE_CSS } from "@/lib/contract-font";
 
 /**
  * Karim 2026-05-29 : escape HTML special pour eviter injection.
@@ -538,6 +541,9 @@ export const CONTRACT_CSS = `
   .signatures {
     margin-top: 0.7cm;
     page-break-inside: avoid;
+    /* Karim 2026-07-08 : break-inside moderne EN PLUS du legacy -> Chromium (PDF
+       envoyé) garde les 2 cadres ensemble, jamais coupés ni débordés. */
+    break-inside: avoid;
   }
   /* Karim 2026-07-05 : FLEXBOX -> les 2 cadres ont EXACTEMENT le meme gabarit et
      sont symetriques (align-items: stretch egalise la hauteur de facon fiable,
@@ -559,6 +565,8 @@ export const CONTRACT_CSS = `
     padding: 0.15cm 0.25cm;
     min-height: 2.4cm;
     box-sizing: border-box;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .signatures .sig-title {
     font-size: 10pt;
@@ -803,7 +811,7 @@ function buildContractHtmlForDocuseal(args: {
 <head>
 <meta charset="utf-8">
 <title>Contrat - ${escapeHtml(args.employeeName)}</title>
-<style>${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(brandOn)}${corporate ? corporateHeaderCss() : ""}</style>
+<style>${CONTRACT_FONT_FACE_CSS}${CONTRACT_CSS}${args.templateCode === "student" ? STUDENT_COMPACT_OVERRIDE : EMPLOYEE_COMPACT_OVERRIDE}${documentBrandingCss(brandOn)}${corporate ? corporateHeaderCss() : ""}</style>
 </head>
 <body class="contract-${args.templateCode ?? "employee"}${corporate ? " header-corporate" : ""}">
 ${documentBrandingHtml(brandOn)}

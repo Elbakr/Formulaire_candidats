@@ -31,6 +31,14 @@ async function viaChromium(html: string): Promise<Uint8Array> {
   try {
     const page = await browser.newPage();
     await page.setContent(ensureFullHtml(html), { waitUntil: "load" });
+    // Karim 2026-07-08 : attendre que les @font-face (Carlito embarqué pour les
+    // contrats) soient RÉELLEMENT chargées avant de rendre le PDF. Sinon Chromium
+    // rend avec la police de repli (Open Sans, plus large) -> pagination fausse
+    // (contrat étudiant à 3 pages au lieu de 2). Sur les autres rendus (planning,
+    // fiches) sans @font-face, fonts.ready se résout immédiatement -> sans effet.
+    await page.evaluate(async () => {
+      try { await (document as unknown as { fonts: { ready: Promise<unknown> } }).fonts.ready; } catch { /* noop */ }
+    });
     // preferCSSPageSize + printBackground : respecte le @page (A4/marges) et les
     // fonds/bordures du super layout.
     const pdf = await page.pdf({ format: "a4", printBackground: true, preferCSSPageSize: true });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition, useEffect } from "react";
-import { Eraser, Check, Loader2, FileSignature } from "lucide-react";
+import { Eraser, Check, Loader2, FileSignature, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -189,6 +189,22 @@ export function SignContractClient({
         ) : (
           <div className="p-4 max-h-[60vh] overflow-y-auto text-sm leading-relaxed bg-white">
             <div dangerouslySetInnerHTML={{ __html: md2html(renderedBody) }} />
+          </div>
+        )}
+        {/* Karim 2026-07-08 : bouton PDF clair — l'aperçu iframe est difficile à
+            imprimer/télécharger sur smartphone. Ce lien ouvre le PDF FIDÈLE
+            (même super layout, police Carlito) dans le viewer natif du téléphone,
+            imprimable et partageable en un geste. */}
+        {isFullHtml && (
+          <div className="px-4 pb-4 pt-1">
+            <a
+              href={`/api/contracts/sign/${token}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full min-h-[48px] rounded-xl border-2 border-gold/40 bg-gold-light/40 text-[#1a1a0d] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+            >
+              <Download className="h-4 w-4" /> Ouvrir / télécharger le PDF (impression mobile)
+            </a>
           </div>
         )}
       </Card>
