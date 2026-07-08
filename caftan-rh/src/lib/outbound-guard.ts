@@ -42,10 +42,17 @@ export interface BlockedOutboundInfo {
 // nouveau travailleur a rempli son questionnaire d'accueil (source
 // `worker_onboarding_sheet`). Envoi automatique assumé par Karim, comme le mail de
 // bienvenue.
+//
+// Karim 2026-07-08 : 4e exception — les mails d'ACCOMPAGNEMENT PAR PALIERS envoyés
+// automatiquement au travailleur tout au long de son parcours (source
+// `worker_followup`) : Phase 1 tous les 7 jours (J+7…J+28), puis Phase 2 tous les
+// 10 jours (dès J+38). Envoi automatique assumé par Karim, comme le welcome et la
+// fiche d'onboarding.
 const AUTO_ALLOWED_SOURCES = new Set<string>([
   "candidate_recap_confirm",
   "worker_welcome_questionnaire",
   "worker_onboarding_sheet",
+  "worker_followup",
 ]);
 
 /**

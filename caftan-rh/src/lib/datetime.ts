@@ -63,6 +63,31 @@ function brusselsOffsetMinutes(utcMs: number): number {
 }
 
 /**
+ * Date du jour (calendrier Europe/Brussels) au format "YYYY-MM-DD".
+ * Sûr côté serveur Vercel (UTC) : le fuseau belge est forcé, donc la bascule de
+ * jour se fait à minuit belge, pas à minuit UTC.
+ */
+export function todayISOInBrussels(now: DateInput = new Date()): string {
+  const dt = toDate(now) ?? new Date();
+  return dt.toLocaleDateString("en-CA", { timeZone: APP_TZ }); // en-CA => "YYYY-MM-DD"
+}
+
+/**
+ * Nombre de jours calendaires entiers écoulés de `fromISO` (inclus) à `toISO`.
+ * Les deux entrées sont des dates pures "YYYY-MM-DD" ; le calcul est indépendant
+ * du fuseau (arithmétique UTC sur minuit), donc pas d'effet DST.
+ * Ex. from=2026-07-01, to=2026-07-08 => 7.
+ */
+export function daysBetweenISO(fromISO: string, toISO: string): number {
+  const [fy, fm, fd] = fromISO.slice(0, 10).split("-").map(Number);
+  const [ty, tm, td] = toISO.slice(0, 10).split("-").map(Number);
+  if (!fy || !ty) return NaN;
+  const a = Date.UTC(fy, fm - 1, fd);
+  const b = Date.UTC(ty, tm - 1, td);
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
  * Convertit une heure « murale » belge (date + heure locale Europe/Brussels) en
  * instant UTC réel. Indispensable côté serveur Vercel (qui tourne en UTC) :
  * `new Date("2026-06-14T18:00:00")` y est interprété comme 18:00 UTC, soit 20:00
