@@ -70,7 +70,21 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_VERSION).then((c) => c.put(req, copy)).catch(() => {});
           return res;
         })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match("/"))),
+        .catch(async () => {
+          // Karim 2026-07-08 (ecran noir "This page couldn't load" au clic notif) :
+          // une navigation NE DOIT JAMAIS recevoir une reponse vide (undefined) ->
+          // c'est ce qui declenche l'ecran d'echec natif iOS PWA. On tente le cache
+          // exact, puis l'accueil, puis EN DERNIER RECOURS une page "Chargement..."
+          // qui re-tente automatiquement (jamais de reponse vide).
+          const hit = await caches.match(req);
+          if (hit) return hit;
+          const home = await caches.match("/");
+          if (home) return home;
+          return new Response(
+            "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta http-equiv=refresh content=1><body style=\"margin:0;display:flex;height:100vh;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;color:#6b6b6b;background:#faf9f6\">Chargement…</body>",
+            { headers: { "Content-Type": "text/html; charset=utf-8" } },
+          );
+        }),
     );
   }
 });
