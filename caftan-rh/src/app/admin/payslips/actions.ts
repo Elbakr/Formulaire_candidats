@@ -5,7 +5,7 @@
 //   - markPayslipPaidAction(id, note) : marque paye + reset advance
 //   - sendPayslipToEmployeeAction(id, recipient) : envoie le PDF par mail
 
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission } from "@/lib/permissions-server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { processBatch } from "@/lib/payslip-processor";
 import { revalidatePath } from "next/cache";

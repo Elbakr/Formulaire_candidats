@@ -7,8 +7,8 @@
 // Extensible : ajouter une clé dans PERMISSION_KEYS suffit pour la surfacer
 // dans l'éditeur admin et pour la gater côté serveur avec requirePermission().
 
-import { redirect } from "next/navigation";
-import { requireProfile, roleHome } from "@/lib/auth";
+// NB : ce fichier est PUR (importable par des composants CLIENT). La garde serveur
+// `requirePermission` vit dans `@/lib/permissions-server` (elle importe l'auth serveur).
 import type { AppRole } from "@/types/database.types";
 
 /** Clé technique d'une permission (stockée dans profiles.permissions[]). */
@@ -30,18 +30,4 @@ export function hasPermission(
 ): boolean {
   if (role === "admin") return true;
   return Array.isArray(permissions) && permissions.includes(key);
-}
-
-/**
- * Garde serveur : exige la permission `key` (admin OU permission octroyée).
- * Sinon redirige vers l'accueil du rôle (comme requireRole). À utiliser pour
- * protéger pages ET server actions sensibles.
- */
-export async function requirePermission(key: PermissionKey) {
-  const { user, profile } = await requireProfile();
-  const perms = (profile as { permissions?: string[] | null }).permissions;
-  if (!hasPermission(profile.role, perms, key)) {
-    redirect(roleHome(profile.role));
-  }
-  return { user, profile };
 }

@@ -3,7 +3,7 @@
 // - Upload PDF groupe via dropzone
 // - Pour chaque payslip : QR EPC, marquer paye, envoyer au travailleur
 
-import { requirePermission } from "@/lib/permissions";
+import { requirePermission } from "@/lib/permissions-server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
