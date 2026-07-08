@@ -7,7 +7,7 @@
 // TODO (a valider, touche le build) : injecter VERCEL_GIT_COMMIT_SHA dans ce
 // nom au build pour une invalidation 100% automatique a chaque deploy, au lieu
 // du bump manuel ci-dessous.
-const CACHE_VERSION = "caftanrh-shell-v78-2026-06-15-notifnav";
+const CACHE_VERSION = "caftanrh-shell-v79-2026-07-08-nocache-public-forms";
 const SHELL_ASSETS = ["/", "/login", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -33,6 +33,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+
+  // Karim 2026-07-08 (BUG CRITIQUE) : formulaires PUBLICS à token, dont l'écran
+  // dépend d'un ÉTAT dynamique (avant/après soumission, signé ou non). Les mettre
+  // en cache faisait réapparaître un ANCIEN écran périmé + forçait une re-soumission.
+  // -> JAMAIS de service worker sur ces routes : le navigateur va toujours au
+  // réseau, aucune mise en cache, aucun fallback vers un écran obsolète.
+  const NO_CACHE_PREFIXES = [
+    "/contract-info", "/pre-interview", "/sign", "/sign-termination",
+    "/signaler", "/renewal", "/postuler", "/confirm",
+  ];
+  if (NO_CACHE_PREFIXES.some((p) => url.pathname === p || url.pathname.startsWith(p + "/"))) return;
 
   // Cache-first for static assets and icons.
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
