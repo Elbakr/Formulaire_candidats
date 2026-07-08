@@ -95,16 +95,16 @@ function buildCopy(lang: "fr" | "nl", prenom: string, reportUrl: string | null):
     const subject = "Jouw gids voor een vlotte start bij Caftan Factory 🌟";
     const text =
       `Hallo ${prenom},\n\n` +
-      `Bedankt om je onthaalvragenlijst in te vullen! Hier is het essentiële om je eerste werkdag te starten, bijna op het niveau van je collega's.\n\n` +
-      `DE BASIS (vanzelfsprekend)\n` +
-      `Stiptheid, een verzorgd voorkomen, een glimlach en respect — dat is de basis, verworven voor iedereen.\n\n` +
+      `Bedankt dat je de tijd nam om je onthaalvragenlijst in te vullen — dat betekent veel voor ons. Hier zijn je belangrijkste houvasten om je eerste werkdag met vertrouwen aan te vatten, bijna al op het niveau van je collega's.\n\n` +
+      `DE BASIS\n` +
+      `Stiptheid, een verzorgd voorkomen, een glimlach en respect: dat is de basis waarop iedereen bouwt. Niets ingewikkelds — gewoon reflexen die het verschil maken.\n\n` +
       `PRIORITEIT NR. 1 — DE VERKOOP\n` +
-      `Dit is de kern van ons vak. Op elk moment: alle modellen en varianten uitgestald in de rekken en netjes geordend; alles proper en opgeruimd (rekken, paskamers, kassa). Een onberispelijke winkel = meer verkoop.\n\n` +
+      `Dit is de kern van ons vak, en hier heb je de meeste impact. Op elk moment: alle modellen en varianten uitgestald in de rekken en netjes geordend; alles proper en opgeruimd (rekken, paskamers, kassa). Een onberispelijke winkel maakt zin om te kopen — zo eenvoudig is het.\n\n` +
       `ONZE DIENSTEN\n` +
-      `Retouches EXPRESS — dezelfde dag in Brabant (behalve op vrijdag), de dag nadien in Molenbeek. Omruilen & terugbetaling zijn STRIKT gereglementeerd → vraag altijd eerst uitleg aan je verantwoordelijke vóór je handelt.\n\n` +
+      `Retouches EXPRESS — dezelfde dag in Brabant (behalve op vrijdag), de dag nadien in Molenbeek. Omruilen & terugbetalingen zijn STRIKT gereglementeerd: bij twijfel vraag je altijd eerst uitleg aan je verantwoordelijke vóór je handelt. Niemand verwacht dat je nu al alles weet.\n\n` +
       `HOUDING\n` +
-      `Blijf kalm, ook in moeilijke situaties. Regel een meningsverschil apart, buiten de piek- en drukke momenten.\n\n` +
-      `Welkom in het team — stel al je vragen aan je verantwoordelijke.\n` +
+      `Blijf kalm, ook wanneer een situatie gespannen wordt: dat is een echte sterkte. En als er een meningsverschil opduikt, regel het apart, buiten de piek- en drukke momenten.\n\n` +
+      `Welkom in het team! Stel gerust al je vragen aan je verantwoordelijke — zo leer je snel en goed.\n` +
       `Het team Human Resources — Caftan Factory Group` +
       reportTextNl;
 
@@ -118,15 +118,15 @@ function buildCopy(lang: "fr" | "nl", prenom: string, reportUrl: string | null):
           <h1 style="margin:0 0 4px;font-size:22px;line-height:1.3;color:#1a1a1a;">Jouw gids voor een vlotte start 🌟</h1>
         </td></tr>
         <tr><td style="padding:8px 32px 4px;font-size:15px;line-height:1.6;color:#3a3a3a;">
-          <p style="margin:0 0 16px;">Hallo ${safePrenom}, bedankt om je onthaalvragenlijst in te vullen! Hier is het essentiële om je eerste werkdag te starten, bijna op het niveau van je collega's.</p>
+          <p style="margin:0 0 16px;">Hallo ${safePrenom}, bedankt dat je de tijd nam om je onthaalvragenlijst in te vullen — dat betekent veel voor ons. Hier zijn je belangrijkste houvasten om je eerste werkdag met vertrouwen aan te vatten, bijna al op het niveau van je collega's.</p>
         </td></tr>
-        ${section("De basis (vanzelfsprekend)", `<p style="margin:0;">Stiptheid, een verzorgd voorkomen, een glimlach en respect — dat is de basis, verworven voor iedereen.</p>`)}
-        ${section("Prioriteit nr. 1 — DE VERKOOP", `<p style="margin:0;">Dit is de kern van ons vak. Op elk moment: alle modellen en varianten uitgestald in de rekken en netjes geordend; alles proper en opgeruimd (rekken, paskamers, kassa). <strong>Een onberispelijke winkel = meer verkoop.</strong></p>`)}
-        ${section("Onze diensten", `<p style="margin:0 0 8px;"><strong>Retouches EXPRESS</strong> — dezelfde dag in Brabant (behalve op vrijdag), de dag nadien in Molenbeek.</p><p style="margin:0;">Omruilen &amp; terugbetaling zijn <strong>STRIKT gereglementeerd</strong> → vraag altijd eerst uitleg aan je verantwoordelijke vóór je handelt.</p>`)}
-        ${section("Houding", `<p style="margin:0;">Blijf kalm, ook in moeilijke situaties. Regel een meningsverschil apart, buiten de piek- en drukke momenten.</p>`)}
+        ${section("De basis", `<p style="margin:0;">Stiptheid, een verzorgd voorkomen, een glimlach en respect: dat is de basis waarop iedereen bouwt. Niets ingewikkelds — gewoon reflexen die het verschil maken.</p>`)}
+        ${section("Prioriteit nr. 1 — DE VERKOOP", `<p style="margin:0;">Dit is de kern van ons vak, en hier heb je de meeste impact. Op elk moment: alle modellen en varianten uitgestald in de rekken en netjes geordend; alles proper en opgeruimd (rekken, paskamers, kassa). <strong>Een onberispelijke winkel maakt zin om te kopen.</strong></p>`)}
+        ${section("Onze diensten", `<p style="margin:0 0 8px;"><strong>Retouches EXPRESS</strong> — dezelfde dag in Brabant (behalve op vrijdag), de dag nadien in Molenbeek.</p><p style="margin:0;">Omruilen &amp; terugbetalingen zijn <strong>STRIKT gereglementeerd</strong>: bij twijfel vraag je altijd eerst uitleg aan je verantwoordelijke vóór je handelt. Niemand verwacht dat je nu al alles weet.</p>`)}
+        ${section("Houding", `<p style="margin:0;">Blijf kalm, ook wanneer een situatie gespannen wordt: dat is een echte sterkte. En als er een meningsverschil opduikt, regel het apart, buiten de piek- en drukke momenten.</p>`)}
         ${reportButtonHtml}
         <tr><td style="padding:6px 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
-          <p style="margin:0 0 6px;">Welkom in het team — stel al je vragen aan je verantwoordelijke.</p>
+          <p style="margin:0 0 6px;">Welkom in het team! Stel gerust al je vragen aan je verantwoordelijke — zo leer je snel en goed.</p>
           <p style="margin:0;color:#6b6b6b;">Het team Human Resources — Caftan Factory Group</p>
         </td></tr>
       </table>
@@ -141,16 +141,16 @@ function buildCopy(lang: "fr" | "nl", prenom: string, reportUrl: string | null):
   const subject = "Ton guide pour bien démarrer chez Caftan Factory 🌟";
   const text =
     `Bonjour ${prenom},\n\n` +
-    `Merci d'avoir rempli ton questionnaire d'accueil ! Voici l'essentiel pour démarrer ta première journée presque au niveau de tes collègues.\n\n` +
-    `LA BASE (évidente)\n` +
-    `Ponctualité, présentation soignée, sourire, respect — c'est le socle, acquis pour tout le monde.\n\n` +
+    `Merci d'avoir pris le temps de remplir ton questionnaire d'accueil — ça compte vraiment pour nous. Voici tes repères clés pour aborder ta première journée en confiance, presque déjà au niveau de tes collègues.\n\n` +
+    `LA BASE\n` +
+    `Ponctualité, présentation soignée, sourire et respect : c'est le socle sur lequel tout le monde s'appuie. Rien de compliqué — juste des réflexes qui font toute la différence.\n\n` +
     `PRIORITÉ N°1 — LA VENTE\n` +
-    `C'est le cœur de notre métier. À tout moment : tous les modèles et variantes présentés en rayon et bien rangés ; les lieux propres et ordonnés (rayons, cabines, caisse). Un magasin impeccable = plus de ventes.\n\n` +
+    `C'est le cœur de notre métier, et c'est là que tu auras le plus d'impact. À tout moment : tous les modèles et variantes présentés en rayon et bien rangés ; les espaces propres et ordonnés (rayons, cabines, caisse). Un magasin impeccable donne envie d'acheter — c'est aussi simple que ça.\n\n` +
     `NOS SERVICES\n` +
-    `Retouche EXPRESS — le jour même à Brabant (sauf le vendredi), le lendemain à Molenbeek. Échange & remboursement sont STRICTEMENT réglementés → demande toujours au responsable de t'expliquer avant d'agir.\n\n` +
+    `Retouche EXPRESS — le jour même à Brabant (sauf le vendredi), le lendemain à Molenbeek. Les échanges et remboursements sont STRICTEMENT réglementés : dans le doute, demande toujours à ton responsable de t'expliquer avant d'agir. Personne n'attend de toi que tu saches déjà tout.\n\n` +
     `ATTITUDE\n` +
-    `Garde ton calme même dans les situations compliquées. Règle un désaccord à l'écart, hors des heures de pointe et d'affluence.\n\n` +
-    `Bienvenue dans l'équipe — pose toutes tes questions à ton responsable.\n` +
+    `Garde ton calme, même quand une situation se tend : c'est une vraie force. Et si un désaccord surgit, règle-le à l'écart, hors des heures de pointe et d'affluence.\n\n` +
+    `Bienvenue dans l'équipe ! N'hésite jamais à poser tes questions à ton responsable — c'est comme ça qu'on apprend vite et bien.\n` +
     `L'équipe Ressources Humaines — Caftan Factory Group` +
     reportTextFr;
 
@@ -164,15 +164,15 @@ function buildCopy(lang: "fr" | "nl", prenom: string, reportUrl: string | null):
           <h1 style="margin:0 0 4px;font-size:22px;line-height:1.3;color:#1a1a1a;">Ton guide pour bien démarrer 🌟</h1>
         </td></tr>
         <tr><td style="padding:8px 32px 4px;font-size:15px;line-height:1.6;color:#3a3a3a;">
-          <p style="margin:0 0 16px;">Bonjour ${safePrenom}, merci d'avoir rempli ton questionnaire d'accueil ! Voici l'essentiel pour démarrer ta première journée presque au niveau de tes collègues.</p>
+          <p style="margin:0 0 16px;">Bonjour ${safePrenom}, merci d'avoir pris le temps de remplir ton questionnaire d'accueil — ça compte vraiment pour nous. Voici tes repères clés pour aborder ta première journée en confiance, presque déjà au niveau de tes collègues.</p>
         </td></tr>
-        ${section("La base (évidente)", `<p style="margin:0;">Ponctualité, présentation soignée, sourire, respect — c'est le socle, acquis pour tout le monde.</p>`)}
-        ${section("Priorité n°1 — LA VENTE", `<p style="margin:0;">C'est le cœur de notre métier. À tout moment : tous les modèles et variantes présentés en rayon et bien rangés ; les lieux propres et ordonnés (rayons, cabines, caisse). <strong>Un magasin impeccable = plus de ventes.</strong></p>`)}
-        ${section("Nos services", `<p style="margin:0 0 8px;"><strong>Retouche EXPRESS</strong> — le jour même à Brabant (sauf le vendredi), le lendemain à Molenbeek.</p><p style="margin:0;">Échange &amp; remboursement sont <strong>STRICTEMENT réglementés</strong> → demande toujours au responsable de t'expliquer avant d'agir.</p>`)}
-        ${section("Attitude", `<p style="margin:0;">Garde ton calme même dans les situations compliquées. Règle un désaccord à l'écart, hors des heures de pointe et d'affluence.</p>`)}
+        ${section("La base", `<p style="margin:0;">Ponctualité, présentation soignée, sourire et respect : c'est le socle sur lequel tout le monde s'appuie. Rien de compliqué — juste des réflexes qui font toute la différence.</p>`)}
+        ${section("Priorité n°1 — LA VENTE", `<p style="margin:0;">C'est le cœur de notre métier, et c'est là que tu auras le plus d'impact. À tout moment : tous les modèles et variantes présentés en rayon et bien rangés ; les espaces propres et ordonnés (rayons, cabines, caisse). <strong>Un magasin impeccable donne envie d'acheter.</strong></p>`)}
+        ${section("Nos services", `<p style="margin:0 0 8px;"><strong>Retouche EXPRESS</strong> — le jour même à Brabant (sauf le vendredi), le lendemain à Molenbeek.</p><p style="margin:0;">Les échanges &amp; remboursements sont <strong>STRICTEMENT réglementés</strong> : dans le doute, demande toujours à ton responsable de t'expliquer avant d'agir. Personne n'attend de toi que tu saches déjà tout.</p>`)}
+        ${section("Attitude", `<p style="margin:0;">Garde ton calme, même quand une situation se tend : c'est une vraie force. Et si un désaccord surgit, règle-le à l'écart, hors des heures de pointe et d'affluence.</p>`)}
         ${reportButtonHtml}
         <tr><td style="padding:6px 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
-          <p style="margin:0 0 6px;">Bienvenue dans l'équipe — pose toutes tes questions à ton responsable.</p>
+          <p style="margin:0 0 6px;">Bienvenue dans l'équipe ! N'hésite jamais à poser tes questions à ton responsable — c'est comme ça qu'on apprend vite et bien.</p>
           <p style="margin:0;color:#6b6b6b;">L'équipe Ressources Humaines — Caftan Factory Group</p>
         </td></tr>
       </table>

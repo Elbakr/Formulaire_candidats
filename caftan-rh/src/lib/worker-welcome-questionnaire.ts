@@ -189,10 +189,10 @@ export async function sendWorkerWelcomeQuestionnaire(
 
     const textBody =
       `Bonjour ${prenom},\n\n` +
-      `C'est officiel : ${bienvenu} dans l'équipe Caftan Factory ! Toute l'équipe est ravie de t'accueillir.\n\n` +
-      `Pour bien démarrer ensemble, on aimerait apprendre à mieux te connaître. Prends 2 minutes pour compléter ce petit questionnaire : il nous aide à comprendre ton parcours, tes préférences et tes attentes — et il compte beaucoup pour nous, c'est ce qui nous permet de t'accompagner au mieux dès tes débuts.\n\n` +
+      `C'est officiel : te voilà ${bienvenu} dans l'équipe Caftan Factory ! Ta signature marque le début d'une belle aventure, et toute l'équipe a déjà hâte de faire ta connaissance.\n\n` +
+      `Pour bien démarrer ensemble, on aimerait vraiment apprendre à te connaître. Prends 2 minutes pour ce petit questionnaire : il nous éclaire sur ton parcours, tes préférences et tes attentes. Ce sont tes réponses qui nous permettent de t'accompagner de la bonne manière, dès ton premier jour.\n\n` +
       `👉 Remplir mon mini-questionnaire : ${link}\n\n` +
-      `Merci d'avance, et encore bienvenue !\n` +
+      `Merci d'avance — et, encore une fois, ravis de t'avoir avec nous !\n` +
       `L'équipe Ressources Humaines — Caftan Factory Group` +
       reportText;
 
@@ -225,15 +225,15 @@ export async function sendWorkerWelcomeQuestionnaire(
         </td></tr>
         <tr><td style="padding:8px 32px 0;font-size:15px;line-height:1.6;color:#3a3a3a;">
           <p style="margin:0 0 16px;">Bonjour ${safePrenom},</p>
-          <p style="margin:0 0 16px;">C'est officiel : <strong>${safeBienvenu}</strong> dans l'équipe Caftan Factory ! Toute l'équipe est ravie de t'accueillir.</p>
-          <p style="margin:0 0 16px;">Pour bien démarrer ensemble, on aimerait apprendre à mieux te connaître. Prends 2 minutes pour compléter ce petit questionnaire : il nous aide à comprendre ton parcours, tes préférences et tes attentes — et il compte beaucoup pour nous, c'est ce qui nous permet de t'accompagner au mieux dès tes débuts.</p>
+          <p style="margin:0 0 16px;">C'est officiel : te voilà <strong>${safeBienvenu}</strong> dans l'équipe Caftan Factory ! Ta signature marque le début d'une belle aventure, et toute l'équipe a déjà hâte de faire ta connaissance.</p>
+          <p style="margin:0 0 16px;">Pour bien démarrer ensemble, on aimerait vraiment apprendre à te connaître. Prends 2 minutes pour ce petit questionnaire : il nous éclaire sur ton parcours, tes préférences et tes attentes. Ce sont tes réponses qui nous permettent de t'accompagner de la bonne manière, dès ton premier jour.</p>
         </td></tr>
         <tr><td align="center" style="padding:8px 32px 24px;">
           <a href="${link}" style="display:inline-block;background:#c9a227;color:#1a1a1a;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:10px;">Remplir mon mini-questionnaire</a>
         </td></tr>
         ${reportButtonHtml}
         <tr><td style="padding:0 32px 28px;font-size:15px;line-height:1.6;color:#3a3a3a;">
-          <p style="margin:0 0 6px;">Merci d'avance, et encore bienvenue !</p>
+          <p style="margin:0 0 6px;">Merci d'avance — et, encore une fois, ravis de t'avoir avec nous !</p>
           <p style="margin:0;color:#6b6b6b;">L'équipe Ressources Humaines — Caftan Factory Group</p>
         </td></tr>
       </table>

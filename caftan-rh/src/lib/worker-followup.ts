@@ -130,13 +130,13 @@ interface Copy {
 // Rappel SUBTIL commun aux 4 mails (1ʳᵉ semaine = mise à niveau ; on compte
 // maintenant sur tous ses talents pour un nouveau palier qu'on continue de mesurer).
 const P1_NUDGE_FR =
-  "Maintenant que cette première semaine — que nous considérons comme une mise à niveau ponctuelle — est derrière toi, nous comptons sur <strong>tous tes talents</strong> pour atteindre un nouveau palier de performance, que nous continuerons de mesurer tout au long de ton parcours.";
+  "Cette première semaine — que nous considérons comme une mise en jambes, le temps de trouver tes repères — est désormais derrière toi. Nous comptons maintenant sur <strong>tous tes talents</strong> pour atteindre ensemble un nouveau palier de performance : un cap que nous continuerons de mesurer, non pour te juger, mais pour t'accompagner au plus près tout au long de ton parcours.";
 const P1_NUDGE_NL =
-  "Nu deze eerste week — die wij als een eenmalige inwerkperiode beschouwen — achter de rug is, rekenen we op <strong>al je talenten</strong> om een nieuw prestatieniveau te bereiken, dat we gedurende je hele traject blijven meten.";
+  "Deze eerste week — die wij zien als een inloopperiode, de tijd om je draai te vinden — ligt nu achter je. We rekenen vanaf nu op <strong>al je talenten</strong> om samen een nieuw prestatieniveau te bereiken: een niveau dat we blijven meten, niet om je te beoordelen, maar om je zo goed mogelijk te begeleiden gedurende je hele traject.";
 const P1_NUDGE_FR_TXT =
-  "Maintenant que cette première semaine — que nous considérons comme une mise à niveau ponctuelle — est derrière toi, nous comptons sur tous tes talents pour atteindre un nouveau palier de performance, que nous continuerons de mesurer tout au long de ton parcours.";
+  "Cette première semaine — que nous considérons comme une mise en jambes, le temps de trouver tes repères — est désormais derrière toi. Nous comptons maintenant sur tous tes talents pour atteindre ensemble un nouveau palier de performance : un cap que nous continuerons de mesurer, non pour te juger, mais pour t'accompagner au plus près tout au long de ton parcours.";
 const P1_NUDGE_NL_TXT =
-  "Nu deze eerste week — die wij als een eenmalige inwerkperiode beschouwen — achter de rug is, rekenen we op al je talenten om een nieuw prestatieniveau te bereiken, dat we gedurende je hele traject blijven meten.";
+  "Deze eerste week — die wij zien als een inloopperiode, de tijd om je draai te vinden — ligt nu achter je. We rekenen vanaf nu op al je talenten om samen een nieuw prestatieniveau te bereiken: een niveau dat we blijven meten, niet om je te beoordelen, maar om je zo goed mogelijk te begeleiden gedurende je hele traject.";
 
 type P1Key = "w1_day7" | "w1_day14" | "w1_day21" | "w1_day28";
 
@@ -151,13 +151,13 @@ const P1: Record<P1Key, P1Variant> = {
       subject: "Une première semaine réussie chez Caftan Factory 🌟",
       title: "Bravo pour ce premier cap 🌟",
       heading: "Tes premières contributions",
-      body: "Une semaine déjà — et de belles premières contributions ! Nous sommes ravis de voir que tu prends nos consignes au sérieux et, comme nous l'aimons, au premier degré. Ton énergie pour t'intégrer et apprendre le métier se remarque, et nous t'en remercions sincèrement.",
+      body: "Déjà une semaine — et de belles premières contributions ! Nous tenions à te le dire : te voir prendre nos consignes au sérieux, et au premier degré comme nous l'aimons, nous fait sincèrement plaisir. Ton énergie pour t'intégrer et apprendre le métier ne passe pas inaperçue, et nous t'en remercions du fond du cœur.",
     },
     nl: {
       subject: "Een geslaagde eerste week bij Caftan Factory 🌟",
       title: "Proficiat met deze eerste stap 🌟",
       heading: "Je eerste bijdragen",
-      body: "Al een week — en mooie eerste bijdragen! We zijn blij te zien dat je onze richtlijnen serieus neemt en, zoals wij het graag hebben, letterlijk. Je inzet om je in te werken en het vak te leren valt op, en daarvoor danken we je oprecht.",
+      body: "Al een week — en mooie eerste bijdragen! We wilden het je even zeggen: zien dat je onze richtlijnen serieus neemt, en letterlijk zoals wij het graag hebben, doet ons oprecht plezier. Je inzet om je in te werken en het vak te leren valt echt op, en daarvoor danken we je van harte.",
     },
   },
   w1_day14: {
@@ -165,13 +165,13 @@ const P1: Record<P1Key, P1Variant> = {
       subject: "Deux semaines : ta montée en compétence 🌟",
       title: "Deux semaines, et ça monte 🌟",
       heading: "Ta progression",
-      body: "Deux semaines déjà : tu prends tes marques et ta montée en compétence est visible. Continue à appliquer les consignes avec la même rigueur — c'est exactement ce que nous apprécions. Chaque geste bien maîtrisé aujourd'hui est un atout pour la performance de demain.",
+      body: "Deux semaines déjà : tu prends tes marques et ta montée en compétence se voit clairement. Continue d'appliquer les consignes avec la même rigueur — c'est précisément ce que nous apprécions chez toi. Chaque geste que tu maîtrises aujourd'hui deviendra un vrai atout demain.",
     },
     nl: {
       subject: "Twee weken: je groei 🌟",
       title: "Twee weken, en het gaat vooruit 🌟",
       heading: "Je vooruitgang",
-      body: "Al twee weken: je vindt je draai en je groei is zichtbaar. Blijf de richtlijnen met dezelfde nauwkeurigheid toepassen — dat is precies wat wij waarderen. Elke handeling die je vandaag beheerst, is een troef voor de prestaties van morgen.",
+      body: "Al twee weken: je vindt je draai en je groei is duidelijk te zien. Blijf de richtlijnen met dezelfde nauwkeurigheid toepassen — dat is precies wat wij in jou waarderen. Elke handeling die je vandaag onder de knie krijgt, wordt morgen een echte troef.",
     },
   },
   w1_day21: {
@@ -179,13 +179,13 @@ const P1: Record<P1Key, P1Variant> = {
       subject: "Trois semaines : le rythme est là 🌟",
       title: "Trois semaines : le rythme est là 🌟",
       heading: "Ton rythme de croisière",
-      body: "Trois semaines : le rythme s'installe et tu gagnes en autonomie. Nous sommes contents de la façon dont tu tiens le cap et prends les consignes au sérieux. C'est le bon moment pour viser un cran au-dessus : soin, vente, tenue du magasin — chaque détail compte.",
+      body: "Trois semaines : le rythme s'installe et tu gagnes en autonomie — bravo. Nous apprécions vraiment la façon dont tu tiens le cap et prends les consignes au sérieux. C'est le moment idéal pour viser un cran au-dessus : soin, vente, tenue du magasin — chaque détail que tu soignes fait la différence.",
     },
     nl: {
       subject: "Drie weken: het ritme zit erin 🌟",
       title: "Drie weken: het ritme zit erin 🌟",
       heading: "Je kruissnelheid",
-      body: "Drie weken: het ritme zit erin en je wint aan zelfstandigheid. We zijn tevreden over hoe je koers houdt en de richtlijnen serieus neemt. Dit is het juiste moment om een tandje bij te steken: verzorging, verkoop, orde in de winkel — elk detail telt.",
+      body: "Drie weken: het ritme zit erin en je wint aan zelfstandigheid — proficiat. We waarderen echt hoe je koers houdt en de richtlijnen serieus neemt. Dit is het ideale moment om een tandje bij te steken: verzorging, verkoop, orde in de winkel — elk detail dat je verzorgt, maakt het verschil.",
     },
   },
   w1_day28: {
@@ -193,13 +193,13 @@ const P1: Record<P1Key, P1Variant> = {
       subject: "Bilan de ton premier mois chez Caftan Factory 🌟",
       title: "Un premier mois accompli 🌟",
       heading: "Le bilan de ton premier mois",
-      body: "Un mois déjà ! Bravo pour ce premier chapitre : tu as pris tes repères, appliqué les consignes au premier degré et montré de vrais efforts d'apprentissage. Ce premier mois pose des fondations solides. À partir de maintenant, nous comptons sur toi pour transformer cet élan en performance durable.",
+      body: "Un mois déjà ! Bravo pour ce premier chapitre : tu as trouvé tes repères, appliqué les consignes au premier degré et fourni de vrais efforts d'apprentissage. Ce premier mois pose des fondations solides sur lesquelles bâtir. À partir de maintenant, nous comptons sur toi pour transformer cet élan en une performance qui dure.",
     },
     nl: {
       subject: "Balans van je eerste maand bij Caftan Factory 🌟",
       title: "Een voltooide eerste maand 🌟",
       heading: "De balans van je eerste maand",
-      body: "Al een maand! Proficiat met dit eerste hoofdstuk: je hebt je plek gevonden, de richtlijnen letterlijk toegepast en echte leerinspanningen getoond. Deze eerste maand legt een stevige basis. Vanaf nu rekenen we op jou om dit elan om te zetten in duurzame prestaties.",
+      body: "Al een maand! Proficiat met dit eerste hoofdstuk: je hebt je plek gevonden, de richtlijnen letterlijk toegepast en echte leerinspanningen geleverd. Deze eerste maand legt een stevige basis om op verder te bouwen. Vanaf nu rekenen we op jou om dit elan om te zetten in prestaties die standhouden.",
     },
   },
 };
@@ -262,13 +262,13 @@ function buildPersoBlock(lang: "fr" | "nl", perso: Perso): { html: string; text:
     // Fallback élégant : aucune donnée exploitable, on n'invente rien.
     if (lang === "nl") {
       return {
-        html: `<p style="margin:0;">Je parcours wordt van dichtbij gevolgd. Elke situatie die je aanpakt en elke inspanning die je levert, telt mee in de waardering van je werk.</p>`,
-        text: "Je parcours wordt van dichtbij gevolgd. Elke situatie die je aanpakt en elke inspanning die je levert, telt mee in de waardering van je werk.",
+        html: `<p style="margin:0;">Je traject wordt van dichtbij en met zorg gevolgd. Elke situatie die je aanpakt en elke inspanning die je levert, telt mee in de erkenning van je werk.</p>`,
+        text: "Je traject wordt van dichtbij en met zorg gevolgd. Elke situatie die je aanpakt en elke inspanning die je levert, telt mee in de erkenning van je werk.",
       };
     }
     return {
-      html: `<p style="margin:0;">Ton parcours est suivi de près. Chaque situation que tu affrontes et chaque effort que tu fournis comptent dans l'appréciation de ton travail.</p>`,
-      text: "Ton parcours est suivi de près. Chaque situation que tu affrontes et chaque effort que tu fournis comptent dans l'appréciation de ton travail.",
+      html: `<p style="margin:0;">Ton parcours est suivi de près, avec bienveillance. Chaque situation que tu affrontes et chaque effort que tu fournis comptent dans la reconnaissance de ton travail.</p>`,
+      text: "Ton parcours est suivi de près, avec bienveillance. Chaque situation que tu affrontes et chaque effort que tu fournis comptent dans la reconnaissance de ton travail.",
     };
   }
 
@@ -327,7 +327,7 @@ function buildPhase2Copy(lang: "fr" | "nl", prenom: string, perso: Perso): Copy 
     const subject = "Je traject bij Caftan Factory — samen hoog blijven mikken";
     const intro = `Hallo ${safePrenom}, je maakt intussen deel uit van het team en je ervaring groeit dag na dag.`;
     const demand =
-      "Als ervaren medewerker verwachten we dat onze interne eisen jouw prestatieniveau evenaren: dat niveau mag nooit stagneren en al zeker niet dalen. We tellen op je om de lat hoog te houden — voor jezelf en voor het team.";
+      "Nu je een ervaren teamlid bent, stijgen onze interne eisen als vanzelf mee met jouw niveau — beschouw dat als een blijk van vertrouwen. Idealiter blijft dat niveau niet ter plaatse trappelen en zakt het zeker niet, maar groeit het verder. We rekenen op je om de lat hoog te houden — voor jezelf én voor het team.";
     const html = shell(
       "nl",
       "Samen hoog blijven mikken 🌟",
@@ -348,7 +348,7 @@ function buildPhase2Copy(lang: "fr" | "nl", prenom: string, perso: Perso): Copy 
   const subject = "Ton parcours chez Caftan Factory — continuer à viser haut";
   const intro = `Bonjour ${safePrenom}, tu fais désormais pleinement partie de l'équipe et ton expérience s'affirme jour après jour.`;
   const demand =
-    "En travailleur expérimenté, nous attendons que nos exigences internes égalent ton niveau de performance : ce niveau ne doit jamais stagner, et encore moins décroître. Nous comptons sur toi pour garder la barre haute — pour toi comme pour l'équipe.";
+    "En collaborateur désormais expérimenté, nous veillons à ce que nos exigences internes soient à la hauteur de ton niveau — vois-y une marque de confiance. Ce niveau, idéalement, ne stagne pas et ne décroît jamais : il continue de grandir. Nous comptons sur toi pour garder la barre haute — pour toi autant que pour l'équipe.";
   const html = shell(
     "fr",
     "Continuer à viser haut 🌟",
@@ -687,7 +687,7 @@ function buildEndReminderCopy(lang: "fr" | "nl", prenom: string, daysLeft: numbe
 
   if (lang === "nl") {
     const subject = "Je contract loopt af — een belangrijk woord 🌿";
-    const intro = `Hallo ${safePrenom}, over ongeveer <strong>${d} dagen</strong> loopt je huidige contract af. We wilden je hierover persoonlijk een woord schrijven.`;
+    const intro = `Hallo ${safePrenom}, over ongeveer <strong>${d} dagen</strong> loopt je huidige contract af. Maar eerst en vooral: bedankt voor alles wat je dag na dag bijdraagt — we wilden je hierover persoonlijk een woord schrijven.`;
     const html = shell(
       "nl",
       "Een woord bij het naderende einde 🌿",
@@ -708,7 +708,7 @@ function buildEndReminderCopy(lang: "fr" | "nl", prenom: string, daysLeft: numbe
     );
     const text =
       `Hallo ${prenom},\n\n` +
-      `Over ongeveer ${d} dagen loopt je huidige contract af. We wilden je hierover persoonlijk een woord schrijven.\n\n` +
+      `Over ongeveer ${d} dagen loopt je huidige contract af. Maar eerst en vooral: bedankt voor alles wat je dag na dag bijdraagt — we wilden je hierover persoonlijk een woord schrijven.\n\n` +
       `${suite.text}\n\n` +
       `Laat je prestaties nu vooral niet zakken — integendeel. Laat een mooie indruk na: bij een nieuwe behoefte denken we in de eerste plaats aan de meest verdienstelijke medewerkers.\n\n` +
       `Mocht er een minder goed gevoel opkomen: laat het iets voorbijgaands zijn en maak er een verworven les van.\n\n` +
@@ -718,7 +718,7 @@ function buildEndReminderCopy(lang: "fr" | "nl", prenom: string, daysLeft: numbe
   }
 
   const subject = "Ton contrat arrive à son terme — un mot important 🌿";
-  const intro = `Bonjour ${safePrenom}, dans environ <strong>${d} jours</strong>, ton contrat actuel arrivera à son terme. Nous tenions à t'écrire un mot à ce sujet.`;
+  const intro = `Bonjour ${safePrenom}, dans environ <strong>${d} jours</strong>, ton contrat actuel arrivera à son terme. Avant toute chose, merci pour tout ce que tu apportes jour après jour — nous tenions à t'écrire un mot personnel à ce sujet.`;
   const html = shell(
     "fr",
     "Un mot à l'approche du terme 🌿",
@@ -739,7 +739,7 @@ function buildEndReminderCopy(lang: "fr" | "nl", prenom: string, daysLeft: numbe
   );
   const text =
     `Bonjour ${prenom},\n\n` +
-    `Dans environ ${d} jours, ton contrat actuel arrivera à son terme. Nous tenions à t'écrire un mot à ce sujet.\n\n` +
+    `Dans environ ${d} jours, ton contrat actuel arrivera à son terme. Avant toute chose, merci pour tout ce que tu apportes jour après jour — nous tenions à t'écrire un mot personnel à ce sujet.\n\n` +
     `${suite.text}\n\n` +
     `Surtout, ne baisse pas en performance — au contraire. Laisse une belle empreinte : lorsqu'un besoin se représente, nous rappelons en priorité les collaborateurs les plus méritants.\n\n` +
     `Si un sentiment négatif survient, qu'il ne soit que passager et serve de base acquise pour l'avenir.\n\n` +

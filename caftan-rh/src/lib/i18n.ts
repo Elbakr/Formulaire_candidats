@@ -511,7 +511,7 @@ const FR = {
     "Quelques questions courtes (5–10 min). Vos réponses sont sauvegardées automatiquement à chaque modification — vous pouvez quitter et revenir plus tard via le même lien.",
   "pre_interview.welcome.onboarding.title": "Bienvenue ! Aide-nous à bien t'accueillir",
   "pre_interview.welcome.onboarding.intro":
-    "Maintenant que tu fais partie de l'équipe, on aimerait mieux te connaître pour bien démarrer ensemble. Quelques questions courtes (2–3 min) — tes réponses sont enregistrées automatiquement, tu peux revenir plus tard via le même lien.",
+    "Maintenant que tu fais partie de l'équipe, on aimerait vraiment apprendre à te connaître pour bien démarrer ensemble. Juste quelques questions courtes (2–3 min) — tes réponses s'enregistrent automatiquement, et tu peux reprendre plus tard via le même lien.",
   "pre_interview.deadline_label": "Lien valable jusqu'au {date}",
   "pre_interview.progress_required": "{n}/{total} obligatoires",
   "pre_interview.submit": "Soumettre",
@@ -529,7 +529,7 @@ const FR = {
   "pre_interview.submitted_thanks_onboarding":
     "Merci, c'est bien noté !",
   "pre_interview.submitted_body_onboarding":
-    "Tes réponses nous aident à mieux te connaître et à faciliter ton intégration dans l'équipe. Encore bienvenue parmi nous — à très vite en magasin !",
+    "Tes réponses nous aident à mieux te connaître et à rendre ton intégration plus fluide. Encore une fois, bienvenue parmi nous — on a hâte de te voir en magasin !",
   "pre_interview.expired_title": "Le délai est dépassé",
   "pre_interview.expired_body":
     "Ce pré-entretien n'est plus accessible. Si vous souhaitez relancer le processus, écrivez-nous à hr@caftanfactory.com.",
@@ -1228,7 +1228,7 @@ const NL: Record<TranslationKey, string> = {
     "Een paar korte vragen (5–10 min). Uw antwoorden worden bij elke wijziging automatisch opgeslagen — u kunt later terugkeren via dezelfde link.",
   "pre_interview.welcome.onboarding.title": "Welkom! Help ons je goed te onthalen",
   "pre_interview.welcome.onboarding.intro":
-    "Nu je deel uitmaakt van het team, willen we je graag beter leren kennen om samen goed van start te gaan. Een paar korte vragen (2–3 min) — je antwoorden worden automatisch opgeslagen, je kunt later terugkeren via dezelfde link.",
+    "Nu je deel uitmaakt van het team, willen we je écht beter leren kennen om samen goed van start te gaan. Slechts een paar korte vragen (2–3 min) — je antwoorden worden automatisch opgeslagen, en je kunt later verdergaan via dezelfde link.",
   "pre_interview.deadline_label": "Link geldig tot {date}",
   "pre_interview.progress_required": "{n}/{total} verplicht",
   "pre_interview.submit": "Versturen",
@@ -1245,7 +1245,7 @@ const NL: Record<TranslationKey, string> = {
   "pre_interview.submitted_thanks_onboarding":
     "Bedankt, goed genoteerd!",
   "pre_interview.submitted_body_onboarding":
-    "Je antwoorden helpen ons om je beter te leren kennen en je integratie in het team vlotter te laten verlopen. Nogmaals welkom bij ons — tot snel in de winkel!",
+    "Je antwoorden helpen ons om je beter te leren kennen en je integratie in het team nog vlotter te laten verlopen. Nogmaals van harte welkom bij ons — we kijken ernaar uit je in de winkel te zien!",
   "pre_interview.expired_title": "De termijn is verstreken",
   "pre_interview.expired_body":
     "Dit pre-interview is niet langer toegankelijk. Indien u het proces wilt hervatten, schrijf ons op hr@caftanfactory.com.",

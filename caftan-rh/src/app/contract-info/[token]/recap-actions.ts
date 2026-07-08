@@ -198,7 +198,7 @@ export async function sendCandidateRecapConfirmAction(
   </div>
   <div style="border:1px solid #e6e4da;border-top:none;border-radius:0 0 12px 12px;padding:20px">
     <p style="font-size:14px;line-height:1.5;margin:0 0 12px">Bonjour ${esc(firstName)},</p>
-    <p style="font-size:14px;line-height:1.5;margin:0 0 16px;color:#4a4a3f">Merci d'avoir complété ton dossier. Voici le <b>récapitulatif complet</b> des informations que tu nous as transmises. Relis-les attentivement, puis <b>confirme</b> si tout est correct — ou <b>corrige</b> ce qui doit l'être.</p>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 16px;color:#4a4a3f">Merci d'avoir pris le temps de compléter ton dossier ! Voici le <b>récapitulatif complet</b> des informations que tu nous as transmises. Relis-les tranquillement, puis <b>confirme</b> si tout est exact — ou <b>corrige</b> ce qui doit l'être. Aucune inquiétude : rien n'est définitif tant que tu n'as pas confirmé.</p>
 
     <table style="width:100%;border-collapse:collapse;background:#faf9f5;border:1px solid #e6e4da;border-radius:10px">
       ${statusRow}${rows}
