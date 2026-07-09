@@ -33,6 +33,11 @@ const PUBLIC_ROUTES = [
   // Karim 2026-06-13 : page "completer mon dossier" (infos manquantes) a TOKEN.
   // Remplace l'ancien magic link casse. Le travailleur remplit sans compte.
   "/contract-info",
+  // Karim 2026-07-09 (Phase 3) : tablette PARTAGEE en magasin. Page publique :
+  // le travailleur saisit son CODE PERSONNEL (clavier numerique) pour voir SON
+  // planning par defaut en lecture seule. La resolution est un server action
+  // service-role (le code fait office de commodite, pas d'auth forte).
+  "/tablette",
   // Karim 2026-06-01 : lettre 402.00 rupture amiable. Auth multi-mode geree
   // dans le handler (session admin/RH/employee OU token ?t=... pour mail).
   // Sans cette exemption, le middleware redirige vers /login meme avec un

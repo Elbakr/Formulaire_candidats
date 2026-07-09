@@ -102,3 +102,68 @@ export async function savePlanningTemplateAction(args: {
   revalidatePath(`/planning/employees/${args.employeeId}`);
   return { ok: true, id: (data as { id: string }).id };
 }
+
+/**
+ * PHASE 2 — Choisit la variante PAR DÉFAUT visible par le travailleur (tablette).
+ * Écrit `planning_proposals.selected_variant` ('A' ou 'B'). Une seule à la fois.
+ * Si aucune sélection n'est enregistrée, la tablette retombe sur 'A' par défaut.
+ */
+export async function setDefaultPlanningVariantAction(args: {
+  employeeId: string;
+  variant: "A" | "B";
+}): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (!args.employeeId) return { error: "Employé requis." };
+  if (args.variant !== "A" && args.variant !== "B") return { error: "Variante invalide." };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("planning_proposals")
+    .update({ selected_variant: args.variant })
+    .eq("employee_id", args.employeeId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/planning/employees/${args.employeeId}`);
+  return { ok: true };
+}
+
+/**
+ * PHASE 3 — Génère (ou régénère) le CODE PERSONNEL d'accès au planning tablette.
+ * Code court (6 chiffres), unique parmi les employés. Retry en cas de collision.
+ * Communiqué MANUELLEMENT au travailleur (aucun envoi automatique).
+ */
+export async function generatePlanningAccessCodeAction(args: {
+  employeeId: string;
+}): Promise<{ ok?: boolean; error?: string; code?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (!args.employeeId) return { error: "Employé requis." };
+
+  const admin = createAdminClient();
+
+  // 6 chiffres, jamais commençant par 0 (100000..999999) pour une longueur stable.
+  const genCode = () => String(100000 + Math.floor(Math.random() * 900000));
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const code = genCode();
+    // Vérifie l'unicité (l'index unique partiel garantit la cohérence en cas de course).
+    const { data: clash } = await admin
+      .from("employees")
+      .select("id")
+      .eq("planning_access_code", code)
+      .maybeSingle();
+    if (clash) continue;
+
+    const { error } = await admin
+      .from("employees")
+      .update({ planning_access_code: code })
+      .eq("id", args.employeeId);
+    if (error) {
+      // Course sur l'index unique -> on retente avec un autre code.
+      if ((error as { code?: string }).code === "23505") continue;
+      return { error: error.message };
+    }
+    revalidatePath(`/planning/employees/${args.employeeId}`);
+    return { ok: true, code };
+  }
+  return { error: "Impossible de générer un code unique, réessaie." };
+}

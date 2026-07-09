@@ -29,6 +29,7 @@ import { DangerZone } from "./danger-zone";
 import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { PlanningProposalSection, type CurrentProposal, type PlanningTemplateLite } from "./planning-proposal-section";
+import { PlanningTabletAccessSection } from "./planning-tablet-access";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
@@ -446,6 +447,13 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           employeeId={id}
           proposal={planningProposal}
           templates={planningTemplates}
+        />
+      </div>
+
+      <div id="planning-tablet-access">
+        <PlanningTabletAccessSection
+          employeeId={id}
+          currentCode={(emp as { planning_access_code: string | null }).planning_access_code ?? null}
         />
       </div>
 

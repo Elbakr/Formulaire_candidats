@@ -7,7 +7,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Loader2, CalendarClock, BookmarkPlus, Check } from "lucide-react";
+import { Sparkles, Loader2, CalendarClock, BookmarkPlus, Check, Tablet } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
 import {
   regeneratePlanningProposalAction,
   savePlanningTemplateAction,
+  setDefaultPlanningVariantAction,
 } from "./planning-proposal-actions";
 
 // ── Types (miroir du moteur lib/scheduling/planning-proposal.ts) ─────────────
@@ -121,6 +122,27 @@ export function PlanningProposalSection({
   const [recurrence, setRecurrence] = useState<string>("none");
   const [pending, startTransition] = useTransition();
 
+  // PHASE 2 : variante par défaut visible par le travailleur sur la tablette.
+  // Défaut 'A' si rien n'a été coché (aligné sur la logique tablette).
+  const [defaultVariant, setDefaultVariant] = useState<"A" | "B">(proposal?.selected_variant ?? "A");
+  const [savingDefault, startSaveDefault] = useTransition();
+
+  function onSelectDefault(variant: "A" | "B") {
+    if (variant === defaultVariant) return;
+    const prev = defaultVariant;
+    setDefaultVariant(variant);
+    startSaveDefault(async () => {
+      const r = await setDefaultPlanningVariantAction({ employeeId, variant });
+      if (r.error) {
+        setDefaultVariant(prev);
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`Variante ${variant} définie comme planning par défaut du travailleur.`);
+      router.refresh();
+    });
+  }
+
   function onGenerate() {
     startTransition(async () => {
       const r = await regeneratePlanningProposalAction({
@@ -182,6 +204,9 @@ export function PlanningProposalSection({
               defaultStartTime={proposal.default_start_time ?? null}
               defaultShiftHours={proposal.default_shift_hours ?? null}
               weeks={proposal.weeks}
+              isDefault={defaultVariant === "A"}
+              onSetDefault={() => onSelectDefault("A")}
+              savingDefault={savingDefault}
             />
             <VariantCard
               employeeId={employeeId}
@@ -190,15 +215,23 @@ export function PlanningProposalSection({
               defaultStartTime={proposal.default_start_time ?? null}
               defaultShiftHours={proposal.default_shift_hours ?? null}
               weeks={proposal.weeks}
+              isDefault={defaultVariant === "B"}
+              onSetDefault={() => onSelectDefault("B")}
+              savingDefault={savingDefault}
             />
           </div>
         )}
 
         {proposal ? (
-          <p className="text-[10px] text-ink-3 italic">
-            {/* TODO Phase 2 : sélection de la variante par défaut + report vers les shifts. */}
-            Phase 2 : choix de la variante par défaut et report dans le calendrier (à venir).
-          </p>
+          <div className="rounded-md border border-line bg-surface-2/40 p-2.5 flex items-start gap-2">
+            <Tablet className="h-4 w-4 text-gold-dark shrink-0 mt-0.5" />
+            <p className="text-[11px] text-ink-2 leading-snug">
+              La variante cochée <strong>« Planning par défaut »</strong> est CELLE que le
+              travailleur verra sur la tablette du magasin (page <code>/tablette</code>, lecture
+              seule). Une seule à la fois — variante <strong>A</strong> par défaut si rien n&apos;est
+              coché.
+            </p>
+          </div>
         ) : null}
       </div>
 
@@ -292,6 +325,9 @@ function VariantCard({
   defaultStartTime,
   defaultShiftHours,
   weeks,
+  isDefault,
+  onSetDefault,
+  savingDefault,
 }: {
   employeeId: string;
   variant: ProposalVariant;
@@ -299,6 +335,9 @@ function VariantCard({
   defaultStartTime: string | null;
   defaultShiftHours: number | null;
   weeks: number;
+  isDefault: boolean;
+  onSetDefault: () => void;
+  savingDefault: boolean;
 }) {
   const [saving, startSave] = useTransition();
 
@@ -328,7 +367,35 @@ function VariantCard({
   }
 
   return (
-    <div className="rounded-lg border border-line overflow-hidden">
+    <div
+      className={`rounded-lg border overflow-hidden transition-colors ${
+        isDefault ? "border-gold ring-1 ring-gold/40" : "border-line"
+      }`}
+    >
+      {/* PHASE 2 : case à cocher « planning par défaut visible sur la tablette ». */}
+      <label
+        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer border-b border-line ${
+          isDefault ? "bg-gold-light/60" : "bg-surface-2/60 hover:bg-surface-2"
+        }`}
+      >
+        <input
+          type="radio"
+          name={`default-variant-${employeeId}`}
+          checked={isDefault}
+          onChange={onSetDefault}
+          disabled={savingDefault}
+          className="h-4 w-4 accent-gold-dark"
+        />
+        <span className="text-[11px] font-semibold text-ink-2">
+          Planning par défaut (tablette)
+        </span>
+        {isDefault ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-gold-dark">
+            {savingDefault ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Sélectionné
+          </span>
+        ) : null}
+      </label>
       <div className="bg-surface-2 px-3 py-2 flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-bold text-ink">
