@@ -189,5 +189,42 @@ export async function submitSignatureAction(input: {
     console.warn("[welcome-questionnaire] échec:", (e as Error).message);
   }
 
+  // Karim 2026-07-09 : PROPOSITION DE PLANNING AUTOMATIQUE (Phase 1). À la
+  // signature, on génère une proposition (2 variantes, 3 semaines) démarrant le
+  // LENDEMAIN de la signature, sauvegardée sur la fiche (une seule courante par
+  // employé). AUCUN envoi au travailleur : on NOTIFIE seulement l'admin/RH.
+  // Best-effort : ne bloque JAMAIS la signature.
+  try {
+    // Lendemain de la signature en date civile Europe/Brussels.
+    const brusselsToday = new Date(nowISO).toLocaleDateString("en-CA", {
+      timeZone: "Europe/Brussels",
+    }); // "YYYY-MM-DD"
+    const [ty, tm, td] = brusselsToday.split("-").map(Number);
+    const tmr = new Date(Date.UTC(ty, tm - 1, td));
+    tmr.setUTCDate(tmr.getUTCDate() + 1);
+    const startDate = `${tmr.getUTCFullYear()}-${String(tmr.getUTCMonth() + 1).padStart(2, "0")}-${String(tmr.getUTCDate()).padStart(2, "0")}`;
+
+    const { regeneratePlanningProposal } = await import(
+      "@/lib/scheduling/planning-proposal-store"
+    );
+    const res = await regeneratePlanningProposal(supabase, contract.employee_id, {
+      startDate,
+      generatedBy: "signature",
+    });
+    if (res.ok) {
+      const { notifyRoles } = await import("@/lib/notify");
+      await notifyRoles(["admin", "rh"], {
+        kind: "planning_proposal_ready",
+        title: `Proposition de planning générée pour ${res.employeeName ?? employeeName}`,
+        body: "2 variantes sur 3 semaines à valider (à partir du lendemain de la signature).",
+        link: `/planning/employees/${contract.employee_id}#planning-proposal`,
+      });
+    } else if (res.reason) {
+      console.warn("[planning-proposal] non générée:", res.reason);
+    }
+  } catch (e) {
+    console.warn("[planning-proposal] échec:", (e as Error).message);
+  }
+
   return { ok: true };
 }

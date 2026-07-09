@@ -28,6 +28,7 @@ import { SiteAssignmentsSection } from "./site-assignments";
 import { DangerZone } from "./danger-zone";
 import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
+import { PlanningProposalSection, type CurrentProposal, type PlanningTemplateLite } from "./planning-proposal-section";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
 import { LeaveButton } from "./leave-button";
@@ -137,6 +138,45 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     defaultOrgKey = (o?.key as "amd_megastore" | "caftan_factory" | "homix") ?? undefined;
     signatories = [o?.representative, o?.co_representative]
       .filter((s): s is string => !!s && s.trim().length > 0);
+  } catch {
+    /* non bloquant */
+  }
+
+  // Karim 2026-07-09 : proposition de planning courante + modèles réutilisables
+  // (best effort, admin client pour éviter tout souci RLS côté manager).
+  let planningProposal: CurrentProposal = null;
+  let planningTemplates: PlanningTemplateLite[] = [];
+  try {
+    const adminPp = createAdminClient();
+    const [{ data: propRaw }, { data: tplRaw }] = await Promise.all([
+      adminPp
+        .from("planning_proposals")
+        .select("start_date, weeks, variant_a, variant_b, selected_variant, reason, generated_at, generated_by")
+        .eq("employee_id", id)
+        .maybeSingle(),
+      adminPp
+        .from("planning_templates")
+        .select("id, name")
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+    if (propRaw) {
+      const p = propRaw as Record<string, unknown>;
+      planningProposal = {
+        start_date: p.start_date as string,
+        weeks: (p.weeks as number) ?? 3,
+        variant_a: p.variant_a as NonNullable<CurrentProposal>["variant_a"],
+        variant_b: p.variant_b as NonNullable<CurrentProposal>["variant_b"],
+        selected_variant: (p.selected_variant as "A" | "B" | null) ?? null,
+        reason: (p.reason as string | null) ?? null,
+        generated_at: p.generated_at as string,
+        generated_by: (p.generated_by as string | null) ?? null,
+        weekly_hours: (emp as { weekly_hours: number | null }).weekly_hours,
+        default_start_time: (emp as { default_start_time: string | null }).default_start_time,
+        default_shift_hours: (emp as { default_shift_hours: number | null }).default_shift_hours,
+      };
+    }
+    planningTemplates = ((tplRaw ?? []) as Array<{ id: string; name: string }>).map((t) => ({ id: t.id, name: t.name }));
   } catch {
     /* non bloquant */
   }
@@ -398,6 +438,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         <EmployeeAvailabilitySection
           employeeId={id}
           fixedOffDays={(emp as { fixed_off_days: number[] | null }).fixed_off_days}
+        />
+      </div>
+
+      <div id="planning-proposal">
+        <PlanningProposalSection
+          employeeId={id}
+          proposal={planningProposal}
+          templates={planningTemplates}
         />
       </div>
 
