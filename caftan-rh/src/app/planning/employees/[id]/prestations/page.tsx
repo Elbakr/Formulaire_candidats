@@ -31,6 +31,7 @@ import { PrestationsViewTabs, type PrestationsView } from "./prestations-view-ta
 import { EditClockOutButton } from "./edit-clockout-button";
 import { DayCorrect } from "./clock-editor";
 import { AddShiftControls } from "./add-shift-controls";
+import { PrestationsHoursTable, type PrestationTableRow } from "./prestations-hours-table";
 
 type Shift = {
   id: string;
@@ -559,6 +560,36 @@ export default async function EmployeePrestationsPage(props: {
     weekBreakdown.push(...[...weekByMonday.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart)));
   }
 
+  // Karim 2026-07-09 : lignes pour la VUE TABLEAU compacte (une ligne par shift
+  // ou pointage hors planning), ordonnees par jour puis par heure de debut.
+  const tableRows: PrestationTableRow[] = [];
+  for (const iso of dayList) {
+    const rows = rowsByDate.get(iso) ?? [];
+    const sorted = [...rows].sort((a, b) =>
+      a.shift.start_time.localeCompare(b.shift.start_time),
+    );
+    for (const r of sorted) {
+      const isOrphan = r.shift.id.startsWith("orphan-");
+      tableRows.push({
+        iso,
+        isOrphan,
+        siteCode: r.site?.code ?? null,
+        siteColor: r.site?.color ?? null,
+        plannedStart: isOrphan ? null : r.shift.start_time.slice(0, 5),
+        plannedEnd: isOrphan ? null : r.shift.end_time.slice(0, 5),
+        plannedMinutes: r.plannedMinutes,
+        inISO: r.clockIn?.occurred_at ?? null,
+        outISO: r.clockOut?.occurred_at ?? null,
+        workedMinutes: r.workedMinutes,
+        isAutoClosedOut: r.isAutoClosedOut,
+        isLate: r.isLate,
+        lateMinutes: r.lateMinutes,
+        isMissingOut: r.isMissingOut,
+        isAbsent: r.isAbsent,
+      });
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -714,6 +745,21 @@ export default async function EmployeePrestationsPage(props: {
           </div>
         </Card>
       ) : null}
+
+      {/* Karim 2026-07-09 : VUE TABLEAU compacte — controle rapide de toutes les
+          heures (planifie vs pointe, ecart, anomalies) sur la periode. */}
+      <Card>
+        <div className="px-4 py-3 border-b border-line flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="font-bold text-sm">Tableau des heures</h2>
+            <p className="text-xs text-ink-3 mt-0.5">
+              Vue compacte pour vérifier vite les écarts et anomalies. Heures pointées à l&apos;heure belge.
+            </p>
+          </div>
+          <Legend />
+        </div>
+        <PrestationsHoursTable rows={tableRows} />
+      </Card>
 
       {/* Liste detaillee */}
       <Card>
