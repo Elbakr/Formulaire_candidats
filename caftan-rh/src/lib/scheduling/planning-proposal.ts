@@ -18,9 +18,9 @@
  *  - Motif répété chaque semaine sur 3 semaines (indispos ponctuelles réévaluées
  *    semaine par semaine).
  *  - 2 VARIANTES = 2 répartitions VALIDES des MÊMES heures :
- *      Variante A = remplissage consécutif à partir du 1er jour dispo de la semaine.
- *      Variante B = même remplissage décalé d'un cran (démarre au 2e jour dispo,
- *      enroule si besoin) → jeu de jours DIFFÉRENT quand il y a de la marge.
+ *      Variante A = jours dispos les PLUS TÔT (début de semaine).
+ *      Variante B = jours dispos les PLUS TARD (fin de semaine) → A et B
+ *      DIAMÉTRALEMENT opposées pour offrir un vrai choix au travailleur.
  *  - Défauts manquants → best-effort : proposition vide + `reason` (ne plante pas).
  *
  * Conventions de jours :
@@ -331,14 +331,13 @@ function fillWeek(args: {
       !isDayBlockedByUnavail(iso, startMin, fullShiftEndMin, unavail),
   );
 
-  // Ordre de remplissage : à partir de l'offset, en enroulant (variante B).
-  const ordered =
-    available.length > 0
-      ? Array.from({ length: available.length }, (_, k) => available[(startOffset + k) % available.length])
-      : [];
-  // Dédoublonnage défensif (offset + wrap ne doit pas répéter une date).
-  const seen = new Set<string>();
-  const fillOrder = ordered.filter((iso) => (seen.has(iso) ? false : (seen.add(iso), true)));
+  // Karim 2026-07-09 : les 2 variantes doivent être DIAMÉTRALEMENT OPPOSÉES pour
+  // offrir un vrai choix au travailleur (début de semaine VS fin de semaine).
+  //   startOffset 0 (variante A) = jours les PLUS TÔT dispos (remplissage depuis le
+  //                                 début de la semaine) ;
+  //   startOffset != 0 (variante B) = jours les PLUS TARD dispos (remplissage depuis
+  //                                    la FIN de la semaine, ordre inversé).
+  const fillOrder = startOffset === 0 ? [...available] : [...available].reverse();
 
   const shifts: ProposalShift[] = [];
   let remaining = weeklyHours;
