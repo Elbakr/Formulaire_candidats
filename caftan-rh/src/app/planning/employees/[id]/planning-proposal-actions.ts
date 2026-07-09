@@ -64,7 +64,7 @@ export async function regeneratePlanningProposalAction(args: {
 export async function savePlanningTemplateAction(args: {
   employeeId: string;
   name: string;
-  variant: "A" | "B";
+  variant: "A" | "B" | "C";
   defaultStartTime: string;
   defaultShiftHours: number;
   weeklyHours: number;
@@ -73,13 +73,18 @@ export async function savePlanningTemplateAction(args: {
   const { profile } = await requireRole(["admin", "rh", "manager"]);
   const name = args.name?.trim();
   if (!name) return { error: "Donne un nom au modèle." };
-  if (args.variant !== "A" && args.variant !== "B") return { error: "Variante invalide." };
+  if (args.variant !== "A" && args.variant !== "B" && args.variant !== "C") {
+    return { error: "Variante invalide." };
+  }
   if (!args.defaultStartTime || !args.defaultShiftHours || !args.weeklyHours) {
     return { error: "Modèle incomplet (heure/durée/heures manquantes)." };
   }
 
+  // C = répartition « spread » (pas d'offset de départ) ; A/B = offset consécutif.
   const pattern: PlanningTemplatePattern = {
-    start_offset: args.variant === "A" ? 0 : 1,
+    start_offset: args.variant === "A" ? 0 : args.variant === "B" ? 1 : 0,
+    variant: args.variant,
+    spread: args.variant === "C",
     default_start_time: args.defaultStartTime.slice(0, 5),
     default_shift_hours: Number(args.defaultShiftHours),
     weekly_hours: Number(args.weeklyHours),
@@ -105,16 +110,18 @@ export async function savePlanningTemplateAction(args: {
 
 /**
  * PHASE 2 — Choisit la variante PAR DÉFAUT visible par le travailleur (tablette).
- * Écrit `planning_proposals.selected_variant` ('A' ou 'B'). Une seule à la fois.
- * Si aucune sélection n'est enregistrée, la tablette retombe sur 'A' par défaut.
+ * Écrit `planning_proposals.selected_variant` ('A', 'B' ou 'C'). Une seule à la
+ * fois. Si aucune sélection n'est enregistrée, la tablette retombe sur 'A'.
  */
 export async function setDefaultPlanningVariantAction(args: {
   employeeId: string;
-  variant: "A" | "B";
+  variant: "A" | "B" | "C";
 }): Promise<{ ok?: boolean; error?: string }> {
   await requireRole(["admin", "rh"]);
   if (!args.employeeId) return { error: "Employé requis." };
-  if (args.variant !== "A" && args.variant !== "B") return { error: "Variante invalide." };
+  if (args.variant !== "A" && args.variant !== "B" && args.variant !== "C") {
+    return { error: "Variante invalide." };
+  }
 
   const admin = createAdminClient();
   const { error } = await admin

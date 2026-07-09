@@ -63,7 +63,7 @@ export type ProposalWeek = {
 };
 
 export type ProposalVariant = {
-  label: "A" | "B";
+  label: "A" | "B" | "C";
   strategy: string; // description lisible (audit)
   weeks: ProposalWeek[];
   total_hours: number;
@@ -77,6 +77,7 @@ export type PlanningProposal = {
   default_shift_hours: number;
   variant_a: ProposalVariant;
   variant_b: ProposalVariant;
+  variant_c: ProposalVariant; // Karim 2026-07-09 : « répartie sur toute la semaine »
   reason: string | null; // non-null si best-effort (proposition vide/partielle)
 };
 
@@ -289,6 +290,151 @@ function buildShift(
   };
 }
 
+// ── Jours DISPONIBLES d'une fenêtre de 7 jours (hors OFF / indispo) ──────────
+// Teste le blocage indispo sur la plage d'un shift PLEIN (start..start+shiftHours) :
+// suffisant pour un skip journée (Phase 1). Retour = dates ISO chronologiques.
+function computeAvailableDays(
+  weekStartISO: string,
+  startMin: number,
+  fullShiftEndMin: number,
+  fixedOffDays: Set<number>,
+  unavail: ProposalUnavailability[],
+): string[] {
+  const days: string[] = [];
+  for (let i = 0; i < 7; i++) days.push(addDaysISO(weekStartISO, i));
+  return days.filter(
+    (iso) =>
+      !isFixedOff(iso, fixedOffDays) &&
+      !isDayBlockedByUnavail(iso, startMin, fullShiftEndMin, unavail),
+  );
+}
+
+// ── Répartition « SPREAD » (variante C) : un shift sur CHAQUE jour dispo ──────
+// Karim 2026-07-09 : au lieu de concentrer les heures sur des jours consécutifs
+// (A début / B fin), la variante C COUVRE TOUS les jours à disponibilité libre de
+// la semaine, en répartissant `weeklyHours` sur l'ENSEMBLE de ces jours :
+//   durée/jour = min(defaultShiftHours, weeklyHours / joursDispos)   (équitable, plafonnée)
+// Détails :
+//  - Si weeklyHours suffit pour un shift plein partout -> chaque jour = shift plein.
+//  - Si insuffisant -> shifts plus courts mais TOUS les jours dispos couverts.
+//  - Répartition à la MINUTE (reliquat étalé sur les 1ers jours) pour que la somme
+//    = weeklyHours (au plafond près : semaine partielle si weeklyHours > joursDispos×plein).
+//  - Pas de micro-shift < 15 min : si la part/jour tombe sous 15 min, on RÉDUIT
+//    le nombre de jours couverts (jours choisis de façon ÉQUILIBRÉE dans la semaine)
+//    et on le signale via `reducedMicro`.
+//  - Mêmes pauses (2 créneaux hors heures), pause vendredi verrouillée et
+//    échelonnement Brabant que A/B (via buildShift).
+const MIN_SHIFT_MIN = 15; // pas de micro-shift < 15 min
+
+/** Choisit K dates ÉQUILIBRÉES (réparties) parmi `all` (K ≤ all.length). */
+function pickEvenlySpaced(all: string[], k: number): string[] {
+  if (k >= all.length) return [...all];
+  if (k <= 0) return [];
+  if (k === 1) return [all[Math.floor(all.length / 2)]];
+  const out: string[] = [];
+  for (let i = 0; i < k; i++) {
+    out.push(all[Math.round((i * (all.length - 1)) / (k - 1))]);
+  }
+  // Dédoublonne (arrondis peuvent collisionner) puis complète si besoin.
+  const seen = new Set(out);
+  if (seen.size < k) {
+    for (const iso of all) {
+      if (seen.size >= k) break;
+      if (!seen.has(iso)) seen.add(iso);
+    }
+  }
+  return all.filter((iso) => seen.has(iso));
+}
+
+function fillWeekSpread(args: {
+  weekIndex: number;
+  weekStartISO: string;
+  weeklyHours: number;
+  startMin: number;
+  shiftHours: number;
+  fixedOffDays: Set<number>;
+  unavail: ProposalUnavailability[];
+  prayer: ProposalPrayerPause;
+  pauseMin: number;
+  brabant: boolean;
+  staggerRank: number;
+}): { week: ProposalWeek; reducedMicro: boolean } {
+  const {
+    weekIndex,
+    weekStartISO,
+    weeklyHours,
+    startMin,
+    shiftHours,
+    fixedOffDays,
+    unavail,
+    prayer,
+    pauseMin,
+    brabant,
+    staggerRank,
+  } = args;
+
+  const capMin = Math.round(shiftHours * 60);
+  const targetMin = Math.round(weeklyHours * 60);
+  const fullShiftEndMin = startMin + capMin;
+  const available = computeAvailableDays(
+    weekStartISO,
+    startMin,
+    fullShiftEndMin,
+    fixedOffDays,
+    unavail,
+  );
+
+  const emptyWeek: ProposalWeek = {
+    week_index: weekIndex,
+    week_start: weekStartISO,
+    week_end: addDaysISO(weekStartISO, 6),
+    shifts: [],
+    total_hours: 0,
+  };
+  if (available.length === 0 || targetMin <= 0 || capMin <= 0) {
+    return { week: emptyWeek, reducedMicro: false };
+  }
+
+  // Nombre de jours couverts = TOUS les dispos, sauf si la part/jour tomberait
+  // sous MIN_SHIFT_MIN -> on réduit (jours équilibrés) et on le signale.
+  let daysToCover = available.length;
+  let reducedMicro = false;
+  if (targetMin < daysToCover * MIN_SHIFT_MIN) {
+    daysToCover = Math.max(1, Math.floor(targetMin / MIN_SHIFT_MIN));
+    reducedMicro = true;
+  }
+  const coveredDays = pickEvenlySpaced(available, daysToCover);
+
+  // Répartition à la minute : chaque jour = base (+1 min pour les `rem` premiers),
+  // plafonné à capMin. placeMin = ce qu'on peut réellement poser (semaine partielle
+  // si weeklyHours dépasse joursDispos × shift plein).
+  const placeMin = Math.min(targetMin, coveredDays.length * capMin);
+  const base = Math.floor(placeMin / coveredDays.length);
+  const rem = placeMin - base * coveredDays.length;
+
+  const shifts: ProposalShift[] = [];
+  coveredDays.forEach((iso, idx) => {
+    const workedMin = Math.min(capMin, base + (idx < rem ? 1 : 0));
+    if (workedMin < MIN_SHIFT_MIN) return; // garde-fou (ne devrait pas arriver)
+    shifts.push(
+      buildShift(iso, startMin, workedMin / 60, prayer, pauseMin, brabant, staggerRank),
+    );
+  });
+
+  shifts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const total = shifts.reduce((s, x) => s + x.hours, 0);
+  return {
+    week: {
+      week_index: weekIndex,
+      week_start: weekStartISO,
+      week_end: addDaysISO(weekStartISO, 6),
+      shifts,
+      total_hours: Number(total.toFixed(2)),
+    },
+    reducedMicro,
+  };
+}
+
 // ── Remplissage d'UNE semaine (fenêtre de 7 jours depuis weekStartISO) ───────
 function fillWeek(args: {
   weekIndex: number;
@@ -323,12 +469,12 @@ function fillWeek(args: {
   // indispo sur la plage d'un shift PLEIN (start..start+shiftHours) : suffisant
   // pour un skip journée en Phase 1.
   const fullShiftEndMin = startMin + Math.round(shiftHours * 60);
-  const days: string[] = [];
-  for (let i = 0; i < 7; i++) days.push(addDaysISO(weekStartISO, i));
-  const available = days.filter(
-    (iso) =>
-      !isFixedOff(iso, fixedOffDays) &&
-      !isDayBlockedByUnavail(iso, startMin, fullShiftEndMin, unavail),
+  const available = computeAvailableDays(
+    weekStartISO,
+    startMin,
+    fullShiftEndMin,
+    fixedOffDays,
+    unavail,
   );
 
   // Karim 2026-07-09 : les 2 variantes doivent être DIAMÉTRALEMENT OPPOSÉES pour
@@ -406,6 +552,51 @@ function buildVariant(args: {
   };
 }
 
+// ── Variante C « répartie sur toute la semaine » (spread) ────────────────────
+function buildVariantC(args: {
+  startDate: string;
+  weeks: number;
+  weeklyHours: number;
+  startMin: number;
+  shiftHours: number;
+  fixedOffDays: Set<number>;
+  unavail: ProposalUnavailability[];
+  prayer: ProposalPrayerPause;
+  pauseMin: number;
+  brabant: boolean;
+  staggerRank: number;
+}): { variant: ProposalVariant; reducedMicro: boolean } {
+  const weeksArr: ProposalWeek[] = [];
+  let reducedMicro = false;
+  for (let w = 0; w < args.weeks; w++) {
+    const { week, reducedMicro: r } = fillWeekSpread({
+      weekIndex: w,
+      weekStartISO: addDaysISO(args.startDate, w * 7),
+      weeklyHours: args.weeklyHours,
+      startMin: args.startMin,
+      shiftHours: args.shiftHours,
+      fixedOffDays: args.fixedOffDays,
+      unavail: args.unavail,
+      prayer: args.prayer,
+      pauseMin: args.pauseMin,
+      brabant: args.brabant,
+      staggerRank: args.staggerRank,
+    });
+    weeksArr.push(week);
+    if (r) reducedMicro = true;
+  }
+  const total = weeksArr.reduce((s, w) => s + w.total_hours, 0);
+  return {
+    variant: {
+      label: "C",
+      strategy: "Répartie sur TOUS les jours disponibles de la semaine (durée/jour équilibrée)",
+      weeks: weeksArr,
+      total_hours: Number(total.toFixed(2)),
+    },
+    reducedMicro,
+  };
+}
+
 // ── API publique ─────────────────────────────────────────────────────────────
 export function generatePlanningProposal(input: {
   weeklyHours: number | null | undefined;
@@ -445,7 +636,7 @@ export function generatePlanningProposal(input: {
       ? input.defaultStartTime.slice(0, 5)
       : null;
 
-  const emptyVariant = (label: "A" | "B"): ProposalVariant => ({
+  const emptyVariant = (label: "A" | "B" | "C"): ProposalVariant => ({
     label,
     strategy: "Aucune génération (paramètres manquants)",
     weeks: Array.from({ length: weeks }, (_, w) => ({
@@ -472,6 +663,7 @@ export function generatePlanningProposal(input: {
       default_shift_hours: shiftHours || 0,
       variant_a: emptyVariant("A"),
       variant_b: emptyVariant("B"),
+      variant_c: emptyVariant("C"),
       reason: `Proposition non générée : renseigne ${missing.join(", ")} sur la fiche.`,
     };
   }
@@ -520,6 +712,20 @@ export function generatePlanningProposal(input: {
     staggerRank,
   });
 
+  const { variant: variantC, reducedMicro: cReducedMicro } = buildVariantC({
+    startDate: input.startDate,
+    weeks,
+    weeklyHours,
+    startMin,
+    shiftHours,
+    fixedOffDays,
+    unavail,
+    prayer,
+    pauseMin,
+    brabant,
+    staggerRank,
+  });
+
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou
   // variantes identiques (pas de marge : jours dispo = jours nécessaires).
   const reasons: string[] = [];
@@ -539,6 +745,11 @@ export function generatePlanningProposal(input: {
       "Variantes identiques : aucune marge (jours disponibles = jours nécessaires). B = A.",
     );
   }
+  if (cReducedMicro) {
+    reasons.push(
+      "Variante C : quota hebdo trop faible pour couvrir tous les jours dispos sans micro-shift (<15 min) — nombre de jours réduit et réparti.",
+    );
+  }
 
   return {
     start_date: input.startDate,
@@ -548,6 +759,7 @@ export function generatePlanningProposal(input: {
     default_shift_hours: shiftHours,
     variant_a: variantA,
     variant_b: variantB,
+    variant_c: variantC,
     reason: reasons.length > 0 ? reasons.join(" ") : null,
   };
 }

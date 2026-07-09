@@ -19,6 +19,10 @@ import {
 /** Pattern abstrait d'un modèle de planning (planning_templates.pattern). */
 export type PlanningTemplatePattern = {
   start_offset: number; // 0 = variante A (consécutif), 1 = variante B, ...
+  /** Variante d'origine du modèle ('A' | 'B' | 'C'). Optionnel (rétro-compat). */
+  variant?: "A" | "B" | "C";
+  /** true = modèle « réparti sur la semaine » (variante C, ignore start_offset). */
+  spread?: boolean;
   default_start_time: string; // "HH:MM"
   default_shift_hours: number;
   weekly_hours: number;
@@ -217,6 +221,7 @@ export async function regeneratePlanningProposal(
           weeks: proposal.weeks,
           variant_a: proposal.variant_a,
           variant_b: proposal.variant_b,
+          variant_c: proposal.variant_c,
           selected_variant: null,
           status: "draft",
           schedule_recurrence: opts.scheduleRecurrence ?? null,

@@ -43,7 +43,7 @@ type ProposalWeek = {
   total_hours: number;
 };
 type ProposalVariant = {
-  label: "A" | "B";
+  label: "A" | "B" | "C";
   strategy: string;
   weeks: ProposalWeek[];
   total_hours: number;
@@ -53,7 +53,8 @@ export type CurrentProposal = {
   weeks: number;
   variant_a: ProposalVariant;
   variant_b: ProposalVariant;
-  selected_variant: "A" | "B" | null;
+  variant_c: ProposalVariant | null; // null pour les propositions d'avant variant_c
+  selected_variant: "A" | "B" | "C" | null;
   reason: string | null;
   generated_at: string;
   generated_by: string | null;
@@ -124,10 +125,12 @@ export function PlanningProposalSection({
 
   // PHASE 2 : variante par défaut visible par le travailleur sur la tablette.
   // Défaut 'A' si rien n'a été coché (aligné sur la logique tablette).
-  const [defaultVariant, setDefaultVariant] = useState<"A" | "B">(proposal?.selected_variant ?? "A");
+  const [defaultVariant, setDefaultVariant] = useState<"A" | "B" | "C">(
+    proposal?.selected_variant ?? "A",
+  );
   const [savingDefault, startSaveDefault] = useTransition();
 
-  function onSelectDefault(variant: "A" | "B") {
+  function onSelectDefault(variant: "A" | "B" | "C") {
     if (variant === defaultVariant) return;
     const prev = defaultVariant;
     setDefaultVariant(variant);
@@ -170,7 +173,7 @@ export function PlanningProposalSection({
             Proposition de planning
           </h2>
           <p className="text-xs text-ink-3 mt-0.5">
-            2 variantes valides sur {proposal?.weeks ?? 3} semaines, à comparer et valider.
+            3 variantes valides sur {proposal?.weeks ?? 3} semaines, à comparer et valider.
             {proposal
               ? ` Générée le ${fmtGeneratedAt(proposal.generated_at)}${proposal.generated_by === "signature" ? " (à la signature)" : ""}.`
               : " Aucune proposition pour l'instant."}
@@ -196,7 +199,7 @@ export function PlanningProposalSection({
             ou elle sera générée automatiquement à la signature du contrat.
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 gap-3">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
             <VariantCard
               employeeId={employeeId}
               variant={proposal.variant_a}
@@ -219,6 +222,26 @@ export function PlanningProposalSection({
               onSetDefault={() => onSelectDefault("B")}
               savingDefault={savingDefault}
             />
+            {proposal.variant_c ? (
+              <VariantCard
+                employeeId={employeeId}
+                variant={proposal.variant_c}
+                title="Variante C — répartie sur la semaine"
+                subtitle="Couvre tous tes jours dispos"
+                weeklyHours={proposal.weekly_hours ?? null}
+                defaultStartTime={proposal.default_start_time ?? null}
+                defaultShiftHours={proposal.default_shift_hours ?? null}
+                weeks={proposal.weeks}
+                isDefault={defaultVariant === "C"}
+                onSetDefault={() => onSelectDefault("C")}
+                savingDefault={savingDefault}
+              />
+            ) : (
+              <div className="rounded-lg border border-dashed border-line p-3 flex items-center justify-center text-center text-[11px] text-ink-3 italic">
+                Variante C (répartie sur toute la semaine) disponible après une
+                nouvelle génération.
+              </div>
+            )}
           </div>
         )}
 
@@ -321,6 +344,8 @@ export function PlanningProposalSection({
 function VariantCard({
   employeeId,
   variant,
+  title,
+  subtitle,
   weeklyHours,
   defaultStartTime,
   defaultShiftHours,
@@ -331,6 +356,8 @@ function VariantCard({
 }: {
   employeeId: string;
   variant: ProposalVariant;
+  title?: string;
+  subtitle?: string;
   weeklyHours: number | null;
   defaultStartTime: string | null;
   defaultShiftHours: number | null;
@@ -399,12 +426,12 @@ function VariantCard({
       <div className="bg-surface-2 px-3 py-2 flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-bold text-ink">
-            Variante {variant.label}
+            {title ?? `Variante ${variant.label}`}
             <span className="ml-2 text-[11px] font-mono font-normal text-ink-3">
               {variant.total_hours.toFixed(1)}h total
             </span>
           </div>
-          <div className="text-[10px] text-ink-3">{variant.strategy}</div>
+          <div className="text-[10px] text-ink-3">{subtitle ?? variant.strategy}</div>
         </div>
         {/* Lien DISCRET « enregistrer comme modèle » */}
         <button

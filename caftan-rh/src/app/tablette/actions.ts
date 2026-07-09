@@ -29,7 +29,7 @@ export type TabletWeek = {
 };
 export type TabletPlanning = {
   first_name: string;
-  variant: "A" | "B";
+  variant: "A" | "B" | "C";
   weeks: TabletWeek[];
   total_hours: number;
 };
@@ -73,11 +73,16 @@ export async function resolvePlanningByCodeAction(
 
   const { data: propRaw } = await admin
     .from("planning_proposals")
-    .select("variant_a, variant_b, selected_variant")
+    .select("variant_a, variant_b, variant_c, selected_variant")
     .eq("employee_id", emp.id)
     .maybeSingle();
   const prop = propRaw as
-    | { variant_a: unknown; variant_b: unknown; selected_variant: "A" | "B" | null }
+    | {
+        variant_a: unknown;
+        variant_b: unknown;
+        variant_c: unknown;
+        selected_variant: "A" | "B" | "C" | null;
+      }
     | null;
 
   if (!prop) {
@@ -88,11 +93,18 @@ export async function resolvePlanningByCodeAction(
     };
   }
 
-  // Défaut 'A' si rien n'a été coché (aligné sur la Phase 2).
-  const variant: "A" | "B" = prop.selected_variant === "B" ? "B" : "A";
-  const chosen = (variant === "B" ? prop.variant_b : prop.variant_a) as
+  // Défaut 'A' si rien n'a été coché (aligné sur la Phase 2). Si 'C' est
+  // sélectionnée mais absente (proposition d'avant la migration variant_c), on
+  // retombe sur A pour ne jamais afficher un planning vide.
+  const sel = prop.selected_variant;
+  let variant: "A" | "B" | "C" = sel === "B" ? "B" : sel === "C" ? "C" : "A";
+  let chosen = (variant === "C" ? prop.variant_c : variant === "B" ? prop.variant_b : prop.variant_a) as
     | { weeks?: TabletWeek[]; total_hours?: number }
     | null;
+  if (variant === "C" && !chosen) {
+    variant = "A";
+    chosen = prop.variant_a as { weeks?: TabletWeek[]; total_hours?: number } | null;
+  }
 
   const weeks = (chosen?.weeks ?? []) as TabletWeek[];
   const totalHours =
