@@ -597,6 +597,77 @@ function buildVariantC(args: {
   };
 }
 
+// ── RENFORT / heures supplémentaires (helper pur) ────────────────────────────
+// Karim 2026-07-09 : les 3 variantes portent sur des JOURS DIFFÉRENTS et se
+// COMPLÈTENT. Un travailleur preste son planning PAR DÉFAUT (la `selected_variant`,
+// celle qu'il a choisie), mais s'il est APTE aux heures sup ET libre, on peut lui
+// ENCHAÎNER des jours issus des AUTRES variantes quand l'entreprise a un besoin.
+// Ce helper calcule ces JOURS-CRÉNEAUX candidats : dates présentes dans les
+// variantes NON sélectionnées mais ABSENTES du planning par défaut (dispo exprimée
+// via le moteur, non déjà travaillée). Dédoublonné par date (pas de double compte),
+// off/indispos déjà exclus en amont par le moteur. INFO RH — aucune activation ici.
+export type ReinforcementSlot = {
+  date: string; // "YYYY-MM-DD"
+  start_time: string; // horaire type (heure de début du shift de la variante)
+  end_time: string; // fin (pauses incluses, comme le shift source)
+  hours: number; // heures travaillées du créneau
+  /** Variantes NON sélectionnées où ce jour apparaît (audit / explicabilité). */
+  from_variants: Array<"A" | "B" | "C">;
+};
+
+export function computeReinforcementSlots(input: {
+  variantA: ProposalVariant | null | undefined;
+  variantB: ProposalVariant | null | undefined;
+  variantC: ProposalVariant | null | undefined;
+  /** Planning PAR DÉFAUT du travailleur ; null/absent -> 'A' (aligné tablette). */
+  selectedVariant: "A" | "B" | "C" | null | undefined;
+}): ReinforcementSlot[] {
+  const byLabel: Record<"A" | "B" | "C", ProposalVariant | null | undefined> = {
+    A: input.variantA,
+    B: input.variantB,
+    C: input.variantC,
+  };
+  const selected = input.selectedVariant ?? "A";
+  const defaultVariant = byLabel[selected] ?? null;
+
+  // Jours DÉJÀ travaillés dans le planning par défaut -> exclus (pas de double).
+  const defaultDates = new Set<string>();
+  if (defaultVariant) {
+    for (const w of defaultVariant.weeks ?? []) {
+      for (const s of w.shifts ?? []) defaultDates.add(s.date);
+    }
+  }
+
+  // Jours des variantes NON sélectionnées, absents du défaut -> candidats renfort.
+  const slots = new Map<string, ReinforcementSlot>();
+  (["A", "B", "C"] as const).forEach((label) => {
+    if (label === selected) return;
+    const v = byLabel[label];
+    if (!v) return;
+    for (const w of v.weeks ?? []) {
+      for (const s of w.shifts ?? []) {
+        if (defaultDates.has(s.date)) continue; // jamais un jour du défaut
+        const existing = slots.get(s.date);
+        if (existing) {
+          if (!existing.from_variants.includes(label)) existing.from_variants.push(label);
+        } else {
+          slots.set(s.date, {
+            date: s.date,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            hours: s.hours,
+            from_variants: [label],
+          });
+        }
+      }
+    }
+  });
+
+  return Array.from(slots.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+}
+
 // ── API publique ─────────────────────────────────────────────────────────────
 export function generatePlanningProposal(input: {
   weeklyHours: number | null | undefined;

@@ -7,7 +7,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Loader2, CalendarClock, BookmarkPlus, Check, Tablet } from "lucide-react";
+import {
+  Sparkles,
+  Loader2,
+  CalendarClock,
+  BookmarkPlus,
+  Check,
+  Tablet,
+  Repeat,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,9 +29,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  computeReinforcementSlots,
+  type ReinforcementSlot,
+} from "@/lib/scheduling/planning-proposal";
+import {
   regeneratePlanningProposalAction,
   savePlanningTemplateAction,
   setDefaultPlanningVariantAction,
+  activateReinforcementShiftAction,
 } from "./planning-proposal-actions";
 
 // ── Types (miroir du moteur lib/scheduling/planning-proposal.ts) ─────────────
@@ -111,10 +125,18 @@ export function PlanningProposalSection({
   employeeId,
   proposal,
   templates,
+  overtimeCapable,
+  firstName,
+  bookedDates,
 }: {
   employeeId: string;
   proposal: CurrentProposal;
   templates: PlanningTemplateLite[];
+  /** `employees.ot_eligible` — apte/éligible aux heures supplémentaires (renfort). */
+  overtimeCapable: boolean;
+  firstName: string;
+  /** Dates ("YYYY-MM-DD") où le travailleur a DÉJÀ un shift réel (exclues du renfort). */
+  bookedDates: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -255,6 +277,19 @@ export function PlanningProposalSection({
               coché.
             </p>
           </div>
+        ) : null}
+
+        {proposal ? (
+          <RenfortSection
+            employeeId={employeeId}
+            firstName={firstName}
+            overtimeCapable={overtimeCapable}
+            variantA={proposal.variant_a}
+            variantB={proposal.variant_b}
+            variantC={proposal.variant_c}
+            selectedVariant={defaultVariant}
+            bookedDates={bookedDates}
+          />
         ) : null}
       </div>
 
@@ -497,5 +532,142 @@ function VariantCard({
         de Brabant elles sont échelonnées pour garder le magasin couvert.
       </div>
     </div>
+  );
+}
+
+// ── 🔁 Renfort possible (heures sup) ─────────────────────────────────────────
+// Karim 2026-07-09 : les 3 variantes portent sur des JOURS différents. Le
+// travailleur preste sa variante PAR DÉFAUT, mais s'il est APTE aux heures sup et
+// libre, on peut lui enchaîner un jour issu d'une AUTRE variante (dispo exprimée,
+// non déjà travaillée) quand l'entreprise a un besoin. Section INFO + activation
+// 1-clic (crée un vrai shift heures sup sur le site principal).
+function RenfortSection({
+  employeeId,
+  firstName,
+  overtimeCapable,
+  variantA,
+  variantB,
+  variantC,
+  selectedVariant,
+  bookedDates,
+}: {
+  employeeId: string;
+  firstName: string;
+  overtimeCapable: boolean;
+  variantA: ProposalVariant;
+  variantB: ProposalVariant;
+  variantC: ProposalVariant | null;
+  selectedVariant: "A" | "B" | "C";
+  bookedDates: string[];
+}) {
+  // Créneaux candidats = jours des variantes NON par défaut, absents du défaut ET
+  // sans shift réel déjà posé (sinon il ne s'agit plus d'un « renfort possible »).
+  const booked = new Set(bookedDates);
+  const slots = computeReinforcementSlots({
+    variantA,
+    variantB,
+    variantC,
+    selectedVariant,
+  }).filter((s) => !booked.has(s.date));
+
+  return (
+    <div className="rounded-md border border-dashed border-gold/50 bg-gold-light/20 p-3 space-y-2">
+      <div className="flex items-center gap-1.5">
+        <Repeat className="h-3.5 w-3.5 text-gold-dark" />
+        <span className="text-xs font-bold text-ink">Renfort possible (heures sup)</span>
+      </div>
+
+      {!overtimeCapable ? (
+        <p className="text-[11px] text-ink-3 italic leading-snug">
+          Marquer {firstName} <strong>apte aux heures sup</strong> (case « Éligible aux heures
+          supplémentaires » dans les contraintes planning ci-dessus) pour proposer du renfort
+          issu des autres variantes.
+        </p>
+      ) : slots.length === 0 ? (
+        <p className="text-[11px] text-ink-3 italic leading-snug">
+          Aucun créneau de renfort : les variantes ne dégagent pas de jour dispo supplémentaire
+          hors du planning par défaut (ou ils sont déjà planifiés).
+        </p>
+      ) : (
+        <>
+          <p className="text-[11px] text-ink-2 leading-snug">
+            Jours où {firstName} a exprimé une dispo (autres variantes) mais ne travaille pas déjà.
+            Activables <strong>si {firstName} est libre et que l&apos;entreprise a un besoin</strong> —
+            crée alors un vrai shift <strong>heures sup</strong> sur son site principal.
+          </p>
+          <ul className="space-y-1">
+            {slots.map((s) => (
+              <RenfortSlotRow key={s.date} employeeId={employeeId} slot={s} />
+            ))}
+          </ul>
+          <p className="text-[10px] text-ink-3 leading-snug">
+            Besoin d&apos;un renfort classique (autre site / proposition au travailleur) ?{" "}
+            <a
+              href={`/planning/reinforcement?note=${encodeURIComponent(`Renfort possible : ${firstName} est apte aux heures sup`)}`}
+              className="underline hover:text-gold-dark"
+            >
+              Ouvrir le module renfort
+            </a>
+            .
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RenfortSlotRow({
+  employeeId,
+  slot,
+}: {
+  employeeId: string;
+  slot: ReinforcementSlot;
+}) {
+  const router = useRouter();
+  const [pending, startActivate] = useTransition();
+
+  function onActivate() {
+    startActivate(async () => {
+      const r = await activateReinforcementShiftAction({
+        employeeId,
+        date: slot.date,
+        startTime: slot.start_time,
+        endTime: slot.end_time,
+        shiftHours: slot.hours,
+      });
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`Renfort activé (heures sup) le ${fmtDayLabel(slot.date)}.`);
+      router.refresh();
+    });
+  }
+
+  return (
+    <li className="flex items-center gap-2 rounded border border-line bg-surface px-2 py-1.5 text-[11px]">
+      <span className="font-mono w-20 text-ink-3">{fmtDayLabel(slot.date)}</span>
+      <span className="font-mono font-bold">
+        {slot.start_time}–{slot.end_time}
+      </span>
+      <span className="text-ink-3">{slot.hours.toFixed(1)}h</span>
+      <span className="text-[9px] text-ink-3">(variante {slot.from_variants.join("/")})</span>
+      <Button
+        type="button"
+        variant="gold"
+        size="sm"
+        className="ml-auto h-6 px-2 text-[10px]"
+        onClick={onActivate}
+        disabled={pending}
+        title="Créer un vrai shift heures sup sur le site principal (aucun envoi au travailleur)"
+      >
+        {pending ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Plus className="h-3 w-3" />
+        )}
+        Activer en renfort
+      </Button>
+    </li>
   );
 }

@@ -147,6 +147,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   // (best effort, admin client pour éviter tout souci RLS côté manager).
   let planningProposal: CurrentProposal = null;
   let planningTemplates: PlanningTemplateLite[] = [];
+  // Karim 2026-07-09 : jours déjà planifiés (shift réel) dans la fenêtre de la
+  // proposition -> exclus des créneaux de renfort (déjà travaillés / évite double-booking).
+  let planningBookedDates: string[] = [];
   try {
     const adminPp = createAdminClient();
     const [{ data: propRaw }, { data: tplRaw }] = await Promise.all([
@@ -179,6 +182,23 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       };
     }
     planningTemplates = ((tplRaw ?? []) as Array<{ id: string; name: string }>).map((t) => ({ id: t.id, name: t.name }));
+
+    if (planningProposal) {
+      const start = planningProposal.start_date;
+      const [wy, wm, wd] = start.split("-").map(Number);
+      const endDt = new Date(Date.UTC(wy, wm - 1, wd));
+      endDt.setUTCDate(endDt.getUTCDate() + (planningProposal.weeks ?? 3) * 7);
+      const endISO = `${endDt.getUTCFullYear()}-${String(endDt.getUTCMonth() + 1).padStart(2, "0")}-${String(endDt.getUTCDate()).padStart(2, "0")}`;
+      const { data: bookedRaw } = await adminPp
+        .from("shifts")
+        .select("date")
+        .eq("employee_id", id)
+        .gte("date", start)
+        .lt("date", endISO);
+      planningBookedDates = Array.from(
+        new Set(((bookedRaw ?? []) as Array<{ date: string }>).map((r) => r.date)),
+      );
+    }
   } catch {
     /* non bloquant */
   }
@@ -448,6 +468,9 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           employeeId={id}
           proposal={planningProposal}
           templates={planningTemplates}
+          overtimeCapable={!!(emp as { ot_eligible: boolean | null }).ot_eligible}
+          firstName={((emp as { full_name: string }).full_name ?? "").trim().split(/\s+/)[0] || "le travailleur"}
+          bookedDates={planningBookedDates}
         />
       </div>
 

@@ -7,6 +7,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
+import { notifyRoles } from "@/lib/notify";
 import {
   regeneratePlanningProposal,
   type PlanningTemplatePattern,
@@ -131,6 +132,186 @@ export async function setDefaultPlanningVariantAction(args: {
   if (error) return { error: error.message };
 
   revalidatePath(`/planning/employees/${args.employeeId}`);
+  return { ok: true };
+}
+
+/**
+ * RENFORT — Active un CRÉNEAU DE RENFORT (heures sup) en VRAI shift, 1 clic.
+ *
+ * Karim 2026-07-09 : un travailleur APTE aux heures sup (`ot_eligible`) peut se voir
+ * enchaîner, ponctuellement, un jour issu d'une variante NON sélectionnée (voir
+ * `computeReinforcementSlots`). Cette action matérialise ce créneau : elle crée un
+ * shift RÉEL marqué HEURES SUP (`is_overtime = true`) sur le SITE PRINCIPAL du
+ * travailleur, en réutilisant l'horaire déjà construit par le moteur
+ * (`startTime`/`endTime` du créneau : pauses hors heures, pause vendredi verrouillée
+ * et échelonnement Brabant sont déjà baked dans `endTime`). AUCUN envoi au
+ * travailleur — notification INTERNE RH uniquement.
+ */
+export async function activateReinforcementShiftAction(args: {
+  employeeId: string;
+  date: string; // "YYYY-MM-DD"
+  startTime: string; // "HH:MM" (issu du créneau moteur)
+  endTime: string; // "HH:MM" (fin déjà allongée par le moteur : pauses incluses)
+  shiftHours: number; // heures TRAVAILLÉES du créneau (hors pauses)
+}): Promise<{ ok?: boolean; error?: string }> {
+  const { profile } = await requireRole(["admin", "rh"]);
+  const { employeeId, date } = args;
+  if (!employeeId) return { error: "Employé requis." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Date invalide." };
+  const startTime = (args.startTime ?? "").slice(0, 5);
+  const endTime = (args.endTime ?? "").slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+    return { error: "Horaire invalide." };
+  }
+  const toMin = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const startMin = toMin(startTime);
+  const endMin = toMin(endTime);
+  if (endMin <= startMin) return { error: "Heure de fin ≤ heure de début." };
+  const workedMin = Math.round(Number(args.shiftHours || 0) * 60);
+  if (workedMin <= 0) return { error: "Durée du créneau invalide." };
+  // break_minutes = tout ce qui n'est pas travaillé dans la plage (pauses hors
+  // heures). Le moteur a déjà allongé endTime d'autant -> on garde ses heures.
+  const breakMinutes = Math.max(0, endMin - startMin - workedMin);
+
+  const admin = createAdminClient();
+
+  // 1) Employé + GATE apte aux heures sup (réutilise le flag existant ot_eligible).
+  const { data: empRaw } = await admin
+    .from("employees")
+    .select("id, full_name, ot_eligible, fixed_off_days")
+    .eq("id", employeeId)
+    .maybeSingle();
+  const emp = empRaw as
+    | { id: string; full_name: string; ot_eligible: boolean | null; fixed_off_days: number[] | null }
+    | null;
+  if (!emp) return { error: "Employé introuvable." };
+  if (!emp.ot_eligible) {
+    return {
+      error: `${emp.full_name} n'est pas marqué apte aux heures sup — coche « Éligible aux heures supplémentaires » sur sa fiche d'abord.`,
+    };
+  }
+
+  // 2) Jour OFF fixe (fixed_off_days : 0=Lun..6=Dim) — re-vérif (normalement déjà exclu).
+  const [y, m, d] = date.split("-").map(Number);
+  const jsDow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Dim..6=Sam
+  const isoDow = jsDow === 0 ? 6 : jsDow - 1; // 0=Lun..6=Dim
+  if ((emp.fixed_off_days ?? []).includes(isoDow)) {
+    return { error: "Jour OFF fixe du travailleur — renfort impossible." };
+  }
+
+  // 3) SITE PRINCIPAL actif (site_assignments is_primary couvrant la date).
+  const { data: assignRaw } = await admin
+    .from("site_assignments")
+    .select("site_id, is_primary, start_date, end_date")
+    .eq("employee_id", employeeId)
+    .eq("is_primary", true)
+    .lte("start_date", date)
+    .or(`end_date.is.null,end_date.gte.${date}`)
+    .order("start_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const siteId = (assignRaw as { site_id: string } | null)?.site_id ?? null;
+  if (!siteId) {
+    return {
+      error: "Aucun site principal actif à cette date — affecte un site principal avant d'activer un renfort.",
+    };
+  }
+
+  // 4) ANTI-DOUBLE-BOOKING : aucun shift existant ce jour-là pour ce travailleur.
+  const { data: existingRaw } = await admin
+    .from("shifts")
+    .select("id")
+    .eq("employee_id", employeeId)
+    .eq("date", date)
+    .limit(1);
+  if (((existingRaw ?? []) as unknown[]).length > 0) {
+    return { error: "Ce travailleur a déjà un shift ce jour-là — renfort non ajouté." };
+  }
+
+  // 5) Congé approuvé couvrant la date.
+  const { data: offRaw } = await admin
+    .from("time_off_requests")
+    .select("id")
+    .eq("employee_id", employeeId)
+    .eq("status", "approved")
+    .lte("start_date", date)
+    .gte("end_date", date)
+    .limit(1);
+  if (((offRaw ?? []) as unknown[]).length > 0) {
+    return { error: "Travailleur en congé approuvé ce jour-là — renfort impossible." };
+  }
+
+  // 6) Indisponibilité déclarée (récurrente jour de semaine OU ponctuelle) qui
+  //    chevauche le créneau (ou journée entière). Convention day_of_week = JS getDay.
+  const { data: unavailRaw } = await admin
+    .from("employee_unavailabilities")
+    .select("day_of_week, date_specific, start_time, end_time")
+    .eq("employee_id", employeeId)
+    .eq("is_active", true);
+  const unavail = (unavailRaw ?? []) as Array<{
+    day_of_week: number | null;
+    date_specific: string | null;
+    start_time: string | null;
+    end_time: string | null;
+  }>;
+  const blocked = unavail.some((u) => {
+    const matchDay =
+      (u.day_of_week != null && u.day_of_week === jsDow) || u.date_specific === date;
+    if (!matchDay) return false;
+    if (!u.start_time || !u.end_time) return true; // journée entière
+    return startMin < toMin(u.end_time) && endMin > toMin(u.start_time);
+  });
+  if (blocked) {
+    return { error: "Indisponibilité déclarée ce jour-là — renfort impossible." };
+  }
+
+  // 7) Crée le VRAI shift, marqué HEURES SUP / RENFORT (is_overtime = true).
+  const { error: insErr } = await admin.from("shifts").insert({
+    employee_id: employeeId,
+    site_id: siteId,
+    date,
+    start_time: startTime,
+    end_time: endTime,
+    break_minutes: breakMinutes,
+    position: null,
+    status: "planned",
+    is_overtime: true,
+    overtime_multiplier: 1.5,
+    created_by: profile.id,
+    notes: "Renfort (heures sup) — activé depuis la proposition de planning",
+  });
+  if (insErr) return { error: insErr.message };
+
+  // 8) Notification INTERNE RH (aucun envoi au travailleur).
+  const dateFr = (() => {
+    try {
+      return new Date(date + "T00:00:00").toLocaleDateString("fr-BE", {
+        timeZone: "Europe/Brussels",
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+      });
+    } catch {
+      return date;
+    }
+  })();
+  try {
+    await notifyRoles(["admin", "rh"], {
+      kind: "reinforcement_activated",
+      title: "Renfort activé (heures sup)",
+      body: `${emp.full_name} — ${dateFr} ${startTime}–${endTime} (${args.shiftHours}h).`,
+      link: `/planning/employees/${employeeId}/calendar?view=week`,
+      data: { employee_id: employeeId, date },
+    });
+  } catch {
+    /* la notif ne doit pas bloquer la création du shift */
+  }
+
+  revalidatePath(`/planning/employees/${employeeId}`);
+  revalidatePath(`/planning/employees/${employeeId}/calendar`);
   return { ok: true };
 }
 
