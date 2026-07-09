@@ -17,7 +17,7 @@ type Employee = { id: string; full_name: string; status: string };
 type Mapping = {
   id: string;
   tuya_device_id: string | null;
-  tuya_user_id: string;
+  tuya_user_id: string | null;
   employee_id: string;
   direction: "in" | "out";
   tuya_name: string | null;
@@ -240,7 +240,7 @@ function MappingRow({
   const [eEmployeeId, setEEmployeeId] = useState(mapping.employee_id);
   const [eDirection, setEDirection] = useState<"in" | "out">(mapping.direction);
   const [eDeviceId, setEDeviceId] = useState<string>(mapping.tuya_device_id ?? "");
-  const [eTuyaUserId, setETuyaUserId] = useState(mapping.tuya_user_id);
+  const [eTuyaUserId, setETuyaUserId] = useState(mapping.tuya_user_id ?? "");
   const [eTuyaName, setETuyaName] = useState(mapping.tuya_name ?? "");
   const [eSearch, setESearch] = useState("");
 
@@ -265,7 +265,7 @@ function MappingRow({
     setEEmployeeId(mapping.employee_id);
     setEDirection(mapping.direction);
     setEDeviceId(mapping.tuya_device_id ?? "");
-    setETuyaUserId(mapping.tuya_user_id);
+    setETuyaUserId(mapping.tuya_user_id ?? "");
     setETuyaName(mapping.tuya_name ?? "");
     setESearch("");
     setEditing(true);
@@ -420,7 +420,10 @@ function MappingRow({
         <span className="text-[12px] text-ink-2 truncate">
           <strong>{device?.tuya_device_name ?? mapping.tuya_device_id?.slice(0, 12) ?? "?"}</strong>
           {" · "}
-          <span className="text-ink-3">tuya_id=</span><code>{mapping.tuya_user_id}</code>
+          <span className="text-ink-3">tuya_id=</span>
+          {mapping.tuya_user_id
+            ? <code>{mapping.tuya_user_id}</code>
+            : <code className="text-red-700 bg-red-50 px-1 rounded">non mappé (alpha seul)</code>}
           {mapping.tuya_name && (<>
             {" · "}
             <span className="text-ink-3">nom=</span><em>{mapping.tuya_name}</em>

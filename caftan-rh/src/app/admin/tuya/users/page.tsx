@@ -11,7 +11,8 @@ type EmployeeRow = { id: string; full_name: string; status: string };
 type MappingRow = {
   id: string;
   tuya_device_id: string | null;
-  tuya_user_id: string;
+  tuya_user_id: string | null;
+  tuya_user_id_alpha: string | null;
   employee_id: string;
   direction: "in" | "out";
   tuya_name: string | null;
@@ -37,7 +38,7 @@ export default async function AdminTuyaUsersPage() {
       .order("full_name"),
     supabase
       .from("tuya_user_mapping")
-      .select("id, tuya_device_id, tuya_user_id, employee_id, direction, tuya_name, is_active, created_at")
+      .select("id, tuya_device_id, tuya_user_id, tuya_user_id_alpha, employee_id, direction, tuya_name, is_active, created_at")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -71,6 +72,32 @@ export default async function AdminTuyaUsersPage() {
     }
   }
 
+  // Karim 2026-07-09 : "INVISIBLES au pointage". Le poll Tuya resout un badge
+  // via le SLOT NUMERIQUE (tuya_user_id) present dans les logs. Un mapping qui
+  // n a QUE tuya_user_id_alpha (ex import listDeviceUsers, migration name-based)
+  // avec tuya_user_id = NULL n est JAMAIS resolu -> l employe est physiquement
+  // present mais apparait absent, et ses badges tombent dans tuya_unmapped_slots.
+  // On liste ici les employes actifs dont AUCUN mapping actif n a de slot
+  // numerique : ce sont exactement ceux qu il faut (re)mapper depuis les logs.
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  const numericByEmp = new Map<string, number>();
+  const alphaOnlyByEmp = new Map<string, MappingRow[]>();
+  for (const m of mappings) {
+    if (!m.is_active) continue;
+    if (m.tuya_user_id != null && String(m.tuya_user_id).trim() !== "") {
+      numericByEmp.set(m.employee_id, (numericByEmp.get(m.employee_id) ?? 0) + 1);
+    } else {
+      const arr = alphaOnlyByEmp.get(m.employee_id) ?? [];
+      arr.push(m);
+      alphaOnlyByEmp.set(m.employee_id, arr);
+    }
+  }
+  const invisibles = [...alphaOnlyByEmp.entries()]
+    .filter(([empId]) => (numericByEmp.get(empId) ?? 0) === 0)
+    .map(([empId, rows]) => ({ employee: empById.get(empId), rows }))
+    .filter((x): x is { employee: EmployeeRow; rows: MappingRow[] } => Boolean(x.employee))
+    .sort((a, b) => a.employee.full_name.localeCompare(b.employee.full_name));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -102,6 +129,38 @@ export default async function AdminTuyaUsersPage() {
         <Card>
           <div className="p-6 text-center text-sm text-ink-3">
             Aucun terminal pointage actif. Configure d'abord <Link className="underline text-gold-dark" href="/admin/tuya/devices">les terminaux</Link>.
+          </div>
+        </Card>
+      )}
+
+      {invisibles.length > 0 && (
+        <Card className="border-red-300 bg-red-50/50">
+          <div className="p-4">
+            <h2 className="font-bold text-sm flex items-center gap-2 text-red-900">
+              <AlertTriangle className="h-4 w-4" />
+              Invisibles au pointage ({invisibles.length}) — action requise
+            </h2>
+            <p className="text-[11px] text-red-800 mt-0.5">
+              Ces employés actifs n&apos;ont <strong>aucun slot numérique</strong> mappé
+              (seulement un nom/alpha Tuya). Le poll ne peut pas les reconnaître :
+              ils apparaissent <strong>absents</strong> même présents, et leurs badges
+              sont perdus. Fais-les badger, puis mappe leur slot en 1 clic depuis{" "}
+              <Link className="underline font-bold" href="/admin/tuya/logs">les logs</Link>.
+            </p>
+            <ul className="mt-2 text-[12px] space-y-1">
+              {invisibles.slice(0, 20).map((x) => (
+                <li key={x.employee.id} className="text-red-900">
+                  <strong>{x.employee.full_name}</strong>
+                  {" — "}
+                  <span className="text-red-700">
+                    {x.rows.map((r) => r.tuya_name ?? r.tuya_user_id_alpha ?? "?").join(", ")}
+                  </span>
+                </li>
+              ))}
+              {invisibles.length > 20 && (
+                <li className="text-red-700 italic">…et {invisibles.length - 20} autres.</li>
+              )}
+            </ul>
           </div>
         </Card>
       )}

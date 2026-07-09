@@ -108,22 +108,51 @@ export async function processTuyaEvents(
               `Karim doit mapper via /admin/tuya/logs.`,
           );
         }
-        // Best-effort : tag l event dans tuya_unmapped_slots
+        // Best-effort : tag l event dans tuya_unmapped_slots.
+        // Karim 2026-07-09 : read-modify-write pour PRESERVER first_seen_at et
+        // INCREMENTER event_count (l ancien upsert remettait first_seen_at a
+        // maintenant et event_count a 1 a chaque passage -> compteur/anteriorite
+        // faux). On repasse resolved_at a null si le slot re-devient orphelin.
         try {
+          const seenAt = new Date(log.event_time).toISOString();
+          const { data: existingSlot } = await supabase
+            .from("tuya_unmapped_slots")
+            .select("first_seen_at, event_count")
+            .eq("tuya_device_id", dev.tuya_device_id)
+            .eq("tuya_user_id", userIdLocal)
+            .maybeSingle();
+          const prev = existingSlot as { first_seen_at: string; event_count: number } | null;
           await supabase
             .from("tuya_unmapped_slots")
             .upsert({
               tuya_device_id: dev.tuya_device_id,
               tuya_user_id: userIdLocal,
-              first_seen_at: new Date(log.event_time).toISOString(),
-              last_seen_at: new Date(log.event_time).toISOString(),
-              event_count: 1,
+              first_seen_at: prev?.first_seen_at ?? seenAt,
+              last_seen_at: seenAt,
+              event_count: (prev?.event_count ?? 0) + 1,
+              resolved_at: null,
             }, { onConflict: "tuya_device_id,tuya_user_id", ignoreDuplicates: false });
         } catch {
           // table optionnelle
         }
         result.skipped_no_mapping++;
         continue;
+      }
+
+      // Karim 2026-07-09 : ce slot EST mappe -> on marque l eventuelle ligne
+      // tuya_unmapped_slots comme resolue (best-effort, guard resolved_at IS NULL
+      // pour ne rien ecrire si deja resolue). Evite les fausses alertes
+      // "badge perdu / slot non mappe" (health-check) sur des slots desormais
+      // rattaches, et garde la liste des slots vraiment orphelins propre.
+      try {
+        await supabase
+          .from("tuya_unmapped_slots")
+          .update({ resolved_at: new Date().toISOString() })
+          .eq("tuya_device_id", dev.tuya_device_id)
+          .eq("tuya_user_id", userIdLocal)
+          .is("resolved_at", null);
+      } catch {
+        // table optionnelle / non bloquant
       }
 
       const occurredAt = new Date(log.event_time).toISOString();
