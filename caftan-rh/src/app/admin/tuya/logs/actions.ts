@@ -205,8 +205,10 @@ export async function quickEnrollAction(args: {
   // "ok" sans écrire (0 ligne touchée) -> toast vert mais le slot restait NULL
   // (cas confirmé sur les mappings E de Ilham/Omaima/Salmane/Remiki/Ibtissem).
   const admin = createAdminClient();
-  // UPSERT (au lieu d INSERT pur) pour gerer le cas ou un mapping name-based
-  // pre-existe (migration 406 : tuya_user_id=null + tuya_user_id_alpha=chaine).
+  // UPSERT keye sur (device, tuya_user_id) : un SLOT physique = une seule ligne.
+  // Karim 2026-07-09 (multi-slot) : re-mapper un slot drifte AJOUTE un slot
+  // (nouvelle ligne) au lieu d'ecraser l'ancien ; re-affecter un slot existant
+  // a un autre employe met a jour son employee_id. Fin de la churn de re-mapping.
   const { error } = await admin
     .from("tuya_user_mapping")
     .upsert(
@@ -218,22 +220,21 @@ export async function quickEnrollAction(args: {
         tuya_name: args.tuya_name?.trim() || null,
         is_active: true,
       },
-      { onConflict: "tuya_device_id,employee_id,direction" },
+      { onConflict: "tuya_device_id,tuya_user_id" },
     );
   if (error) return { ok: false, error: error.message };
 
-  // VÉRIFICATION : on relit la ligne et on confirme que le slot a bien atterri.
-  // Un "succès" ne s'affiche QUE si l'écriture est réellement persistée.
+  // VÉRIFICATION : on relit la ligne du SLOT et on confirme qu'il est bien
+  // rattaché à l'employé visé. Un "succès" ne s'affiche QUE si persisté.
   const { data: check } = await admin
     .from("tuya_user_mapping")
-    .select("tuya_user_id")
+    .select("employee_id")
     .eq("tuya_device_id", args.tuya_device_id)
-    .eq("employee_id", args.employee_id)
-    .eq("direction", args.direction)
+    .eq("tuya_user_id", args.tuya_user_id)
     .maybeSingle();
-  const saved = (check as { tuya_user_id: string | null } | null)?.tuya_user_id ?? null;
-  if (String(saved ?? "") !== String(args.tuya_user_id)) {
-    return { ok: false, error: `Écriture non confirmée (slot enregistré="${saved}" au lieu de "${args.tuya_user_id}"). Signale-le à Karim.` };
+  const savedEmp = (check as { employee_id: string | null } | null)?.employee_id ?? null;
+  if (String(savedEmp ?? "") !== String(args.employee_id)) {
+    return { ok: false, error: `Écriture non confirmée (slot ${args.tuya_user_id} rattaché à "${savedEmp ?? "—"}" au lieu de l'employé visé). Signale-le à Karim.` };
   }
 
   revalidatePath("/admin/tuya/logs");
@@ -359,7 +360,8 @@ export async function createEmployeeAndEnrollAction(args: {
     return { ok: false, error: `site_assignment : ${assignErr.message}` };
   }
 
-  // 3. Cree (ou met a jour) le mapping Tuya - upsert sur (device, employee, direction)
+  // 3. Cree (ou met a jour) le mapping Tuya - upsert sur (device, tuya_user_id)
+  //    (Karim 2026-07-09 multi-slot : cle sur le slot physique, pas la direction).
   const { error: mapErr } = await supabase.from("tuya_user_mapping").upsert(
     {
       tuya_device_id: args.tuya_device_id,
@@ -369,7 +371,7 @@ export async function createEmployeeAndEnrollAction(args: {
       tuya_name: args.tuya_name?.trim() || `${fullName} ${args.direction.toUpperCase()}`,
       is_active: true,
     },
-    { onConflict: "tuya_device_id,employee_id,direction" },
+    { onConflict: "tuya_device_id,tuya_user_id" },
   );
   if (mapErr) {
     // Note : on ne rollback PAS l employe + assignment ici, ils restent valides
