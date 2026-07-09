@@ -31,8 +31,68 @@ type EmpRow = {
   weekly_hours: number | null;
   default_start_time: string | null;
   default_shift_hours: number | null;
+  default_pause_minutes: number | null;
   fixed_off_days: number[] | null;
 };
+
+// Magasins « Brabant » (rue de Brabant, Schaerbeek) — non-chevauchement des pauses
+// exigé. Sous-ensemble de Bruxelles (A,B,D,E) : E = Molenbeek en est EXCLU.
+// (cf. src/lib/city.ts : Bruxelles = A,B,D,E ; Anvers = C,F.)
+const BRABANT_SITE_CODES = new Set(["A", "B", "D"]);
+
+/**
+ * Résout le site PRINCIPAL d'un travailleur (site_assignments.is_primary, actif)
+ * + la liste des travailleurs de CE magasin (pour l'échelonnement Brabant). En
+ * l'absence d'assignation, renvoie non-Brabant (aucune contrainte).
+ *
+ * `staggerRank` = rang déterministe du travailleur parmi les présents du magasin
+ * (tri par employee_id), pour décaler ses fenêtres de pause. Source « autres
+ * pauses » = LISTE DES TRAVAILLEURS du site : la table `shifts` NE STOCKE PAS les
+ * pauses (aucune colonne break), donc on ne peut pas lire les fenêtres réelles ->
+ * fallback déterministe par rang (cf. moteur). Limite signalée dans `reason`.
+ */
+async function resolveSiteStagger(
+  admin: SupabaseClient,
+  employeeId: string,
+): Promise<{ brabant: boolean; staggerRank: number; siteCode: string | null }> {
+  try {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
+    const { data: aRaw } = await admin
+      .from("site_assignments")
+      .select("site_id, is_primary, start_date, end_date, site:sites(code)")
+      .eq("employee_id", employeeId)
+      .order("is_primary", { ascending: false })
+      .order("start_date", { ascending: false });
+    const assigns = ((aRaw ?? []) as unknown) as Array<{
+      site_id: string;
+      is_primary: boolean | null;
+      end_date: string | null;
+      site: { code: string } | null;
+    }>;
+    const active = assigns.filter((a) => !a.end_date || a.end_date >= today);
+    const primary = active.find((a) => a.is_primary) ?? active[0] ?? null;
+    if (!primary) return { brabant: false, staggerRank: 0, siteCode: null };
+    const siteCode = primary.site?.code ?? null;
+    if (!siteCode || !BRABANT_SITE_CODES.has(siteCode)) {
+      return { brabant: false, staggerRank: 0, siteCode };
+    }
+
+    // Rang déterministe parmi les travailleurs affectés (primaire, actif) à ce site.
+    const { data: matesRaw } = await admin
+      .from("site_assignments")
+      .select("employee_id, end_date")
+      .eq("site_id", primary.site_id)
+      .eq("is_primary", true);
+    const mates = ((matesRaw ?? []) as Array<{ employee_id: string; end_date: string | null }>)
+      .filter((m) => !m.end_date || m.end_date >= today)
+      .map((m) => m.employee_id);
+    const uniqueSorted = Array.from(new Set(mates)).sort();
+    const idx = uniqueSorted.indexOf(employeeId);
+    return { brabant: true, staggerRank: idx >= 0 ? idx : 0, siteCode };
+  } catch {
+    return { brabant: false, staggerRank: 0, siteCode: null };
+  }
+}
 
 async function loadPrayerPause(admin: SupabaseClient): Promise<ProposalPrayerPause> {
   try {
@@ -86,7 +146,7 @@ export async function regeneratePlanningProposal(
   try {
     const { data: empRaw } = await admin
       .from("employees")
-      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, fixed_off_days")
+      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, default_pause_minutes, fixed_off_days")
       .eq("id", employeeId)
       .maybeSingle();
     const emp = empRaw as EmpRow | null;
@@ -113,6 +173,11 @@ export async function regeneratePlanningProposal(
 
     const prayerPause = await loadPrayerPause(admin);
 
+    // Pause quotidienne du travailleur (fiche), fractionnée en 2 par le moteur et
+    // EXCLUE des heures (shift allongé). Site principal Brabant -> échelonnement.
+    const pauseMinutes = emp.default_pause_minutes ?? 30;
+    const { brabant, staggerRank } = await resolveSiteStagger(admin, employeeId);
+
     // Modèle appliqué : on override heure/durée/heures cibles + répartition, mais
     // le moteur RE-VÉRIFIE off/indispo/pause vendredi pour CE travailleur et CETTE
     // date de début (les dates concrètes ne viennent jamais du modèle).
@@ -128,7 +193,19 @@ export async function regeneratePlanningProposal(
       prayerPause,
       variantAOffset: t ? t.start_offset : 0,
       variantBOffset: t ? t.start_offset + 1 : 1,
+      pauseMinutes,
+      brabant,
+      staggerRank,
     });
+
+    // Échelonnement Brabant : la table `shifts` ne stocke pas les fenêtres de
+    // pause réelles -> on utilise un décalage DÉTERMINISTE par rang. On le signale
+    // (l'admin peut ajuster manuellement si un chevauchement subsiste).
+    if (brabant && pauseMinutes > 0) {
+      const note =
+        "Magasin Brabant : pauses échelonnées par rang (décalage déterministe, les pauses réelles ne sont pas encore stockées) — vérifie la couverture si besoin.";
+      proposal.reason = proposal.reason ? `${proposal.reason} ${note}` : note;
+    }
 
     // UPSERT « une seule proposition courante par employé » (unique employee_id).
     const { error } = await admin

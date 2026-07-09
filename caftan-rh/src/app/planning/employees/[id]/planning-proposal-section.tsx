@@ -25,12 +25,14 @@ import {
 } from "./planning-proposal-actions";
 
 // ── Types (miroir du moteur lib/scheduling/planning-proposal.ts) ─────────────
+type ProposalBreak = { start: string; end: string };
 type ProposalShift = {
   date: string;
   start_time: string;
   end_time: string;
   hours: number;
   pause?: { start: string; end: string } | null;
+  breaks?: ProposalBreak[];
 };
 type ProposalWeek = {
   week_index: number;
@@ -363,23 +365,42 @@ function VariantCard({
             ) : (
               <ul className="text-[11px] space-y-0.5">
                 {w.shifts.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2">
-                    <span className="font-mono w-20 text-ink-3">{fmtDayLabel(s.date)}</span>
-                    <span className="font-mono font-bold">
-                      {s.start_time}–{s.end_time}
-                    </span>
-                    {s.pause ? (
-                      <span className="text-[9px] text-violet" title={`Pause vendredi ${s.pause.start}–${s.pause.end}`}>
-                        ⏸ ven.
+                  <li key={i} className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono w-20 text-ink-3">{fmtDayLabel(s.date)}</span>
+                      <span className="font-mono font-bold">
+                        {s.start_time}–{s.end_time}
                       </span>
+                      {s.pause ? (
+                        <span className="text-[9px] text-violet" title={`Pause prière vendredi ${s.pause.start}–${s.pause.end} (verrouillée, hors heures)`}>
+                          ⏸ ven. {s.pause.start}–{s.pause.end}
+                        </span>
+                      ) : null}
+                      <span className="ml-auto text-ink-3">{s.hours.toFixed(1)}h</span>
+                    </div>
+                    {s.breaks && s.breaks.length > 0 ? (
+                      <div
+                        className="pl-20 flex items-center gap-1 text-[9px] text-ink-3"
+                        title="Pauses exclues des heures : le shift est allongé d'autant"
+                      >
+                        <span className="text-gold-dark">⏸</span>
+                        <span className="font-mono">
+                          {s.breaks.map((b) => `${b.start}–${b.end}`).join(" · ")}
+                        </span>
+                        <span className="italic">(hors heures)</span>
+                      </div>
                     ) : null}
-                    <span className="ml-auto text-ink-3">{s.hours.toFixed(1)}h</span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
         ))}
+      </div>
+      <div className="px-3 py-1.5 border-t border-line bg-surface-2/50 text-[9px] text-ink-3 leading-snug">
+        <span className="text-gold-dark">⏸</span> = 2 pauses/jour (fin allongée d&apos;autant).
+        Les pauses sont <strong>exclues des heures</strong> travaillées ; sur les magasins
+        de Brabant elles sont échelonnées pour garder le magasin couvert.
       </div>
     </div>
   );

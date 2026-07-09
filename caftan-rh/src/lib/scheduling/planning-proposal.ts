@@ -37,13 +37,21 @@ export type ProposalUnavailability = {
   end_time: string | null;
 };
 
+export type ProposalBreak = { start: string; end: string };
+
 export type ProposalShift = {
   date: string; // "YYYY-MM-DD"
   start_time: string; // "HH:MM"
-  end_time: string; // "HH:MM"
-  hours: number; // heures TRAVAILLÉES (pause vendredi exclue)
+  end_time: string; // "HH:MM" — FIN ALLONGÉE (heures travaillées + pauses, exclues des heures)
+  hours: number; // heures TRAVAILLÉES (pauses exclues)
   /** Fenêtre de pause prière (vendredi) contournée par ce shift, si applicable. */
   pause?: { start: string; end: string } | null;
+  /**
+   * 2 pauses quotidiennes (`default_pause_minutes` du travailleur réparti en 2),
+   * EXCLUES des heures travaillées : le shift est allongé d'autant. Vide le
+   * vendredi quand la pause prière (verrouillée) s'applique (voir buildShift).
+   */
+  breaks?: ProposalBreak[];
 };
 
 export type ProposalWeek = {
@@ -182,20 +190,78 @@ function isDayBlockedByUnavail(
   return false;
 }
 
-// ── Construction d'un shift (avec contournement pause vendredi) ──────────────
+// ── Pauses quotidiennes fractionnées en 2 (EXCLUES des heures) ───────────────
+// `default_pause_minutes` (propre au travailleur) est réparti en 2 pauses placées
+// ~1/3 et ~2/3 du TEMPS TRAVAILLÉ (jamais en tout début/fin de shift). Elles sont
+// exclues des heures : le shift est allongé de la durée totale de pause
+// (end = start + travaillé + pause). ÉCHELONNEMENT BRABANT (magasins A/B/D) :
+// on décale les fenêtres de ce travailleur par rang (offset déterministe = rang ×
+// durée d'une demi-pause) pour ne pas chevaucher les pauses des autres présents.
+const BREAK_EDGE_MARGIN_MIN = 30; // aucune pause dans les 30 premières/dernières min
+
+function computeDailyBreaks(
+  startMin: number,
+  workedMin: number,
+  pauseMin: number,
+  brabant: boolean,
+  staggerRank: number,
+): ProposalBreak[] {
+  if (pauseMin <= 0 || workedMin <= 0) return [];
+
+  const dur1 = Math.round(pauseMin / 2);
+  const dur2 = pauseMin - dur1; // somme EXACTE = pauseMin
+
+  // Shift trop court pour 2 pauses lisibles -> 1 pause unique au milieu.
+  if (workedMin < 180) {
+    const mid = Math.max(1, Math.round(workedMin / 2));
+    const s = startMin + mid;
+    return [{ start: minToTime(s), end: minToTime(s + pauseMin) }];
+  }
+
+  // Fenêtre de placement (en minutes travaillées écoulées), marge aux extrémités.
+  const lo = Math.min(BREAK_EDGE_MARGIN_MIN, Math.floor(workedMin / 4));
+  const hi = workedMin - lo;
+  const span = Math.max(1, hi - lo);
+
+  // Ancres ~1/3 et ~2/3 de la fenêtre + décalage Brabant (déterministe par rang),
+  // enroulé dans la fenêtre pour rester dans le shift même à rang élevé.
+  const off = brabant && staggerRank > 0 ? staggerRank * dur1 : 0;
+  const mod = (n: number) => (((n % span) + span) % span);
+  const r1 = mod(Math.round(span / 3) + off);
+  const r2 = mod(Math.round((2 * span) / 3) + off);
+  // min/max garantit l'ordre (a1<a2) ; l'écart reste ≥ span/3 (> durée de pause).
+  const a1 = lo + Math.min(r1, r2);
+  const a2 = lo + Math.max(r1, r2);
+
+  // Retour en heure murale : la 2e pause survient après la 1re (déjà « prise »).
+  const b1s = startMin + a1;
+  const b2s = startMin + a2 + dur1;
+  return [
+    { start: minToTime(b1s), end: minToTime(b1s + dur1) },
+    { start: minToTime(b2s), end: minToTime(b2s + dur2) },
+  ];
+}
+
+// ── Construction d'un shift (pauses quotidiennes + contournement pause vendredi) ─
 function buildShift(
   iso: string,
   startMin: number,
   workedHours: number,
   prayer: ProposalPrayerPause,
+  pauseMin: number,
+  brabant: boolean,
+  staggerRank: number,
 ): ProposalShift {
   const workedMin = Math.round(workedHours * 60);
   let endMin = startMin + workedMin;
   let pause: { start: string; end: string } | null = null;
+  let breaks: ProposalBreak[] = [];
 
-  // PAUSE VENDREDI VERROUILLÉE : si le shift chevauche la fenêtre de pause, on
-  // NE travaille PAS pendant la pause -> on allonge la fin du shift de la durée
-  // de la pause (heures travaillées inchangées, pause carve-out préservée).
+  // PAUSE VENDREDI VERROUILLÉE (prière) : si le shift chevauche la fenêtre, on ne
+  // travaille PAS pendant la pause -> on allonge la fin du shift de sa durée. Ce
+  // jour-là, la pause prière FAIT OFFICE de pause du travailleur : on N'AJOUTE PAS
+  // les 2 pauses génériques (sinon on doublerait/contredirait le carve-out prière,
+  // et la fenêtre prière — commune à tous, verrouillée — n'est pas échelonnée).
   const pw = prayerPauseForISO(iso, prayer);
   if (pw) {
     const pS = timeToMin(pw.start);
@@ -206,12 +272,20 @@ function buildShift(
     }
   }
 
+  // Jours SANS pause prière effective : 2 pauses quotidiennes fractionnées,
+  // exclues des heures -> on allonge la fin du shift de la durée totale de pause.
+  if (!pause && pauseMin > 0) {
+    breaks = computeDailyBreaks(startMin, workedMin, pauseMin, brabant, staggerRank);
+    endMin += pauseMin;
+  }
+
   return {
     date: iso,
     start_time: minToTime(startMin),
     end_time: minToTime(endMin),
     hours: Number(workedHours.toFixed(2)),
     pause,
+    breaks,
   };
 }
 
@@ -226,6 +300,9 @@ function fillWeek(args: {
   unavail: ProposalUnavailability[];
   prayer: ProposalPrayerPause;
   startOffset: number; // 0 = variante A, 1 = variante B
+  pauseMin: number;
+  brabant: boolean;
+  staggerRank: number;
 }): ProposalWeek {
   const {
     weekIndex,
@@ -237,6 +314,9 @@ function fillWeek(args: {
     unavail,
     prayer,
     startOffset,
+    pauseMin,
+    brabant,
+    staggerRank,
   } = args;
 
   // Jours de la fenêtre + filtre dispo (OFF / indispo). On teste le blocage
@@ -266,7 +346,7 @@ function fillWeek(args: {
     if (remaining <= 0.01) break;
     const worked = Math.min(shiftHours, remaining);
     if (worked < 0.25) break; // pas de micro-shift < 15 min
-    shifts.push(buildShift(iso, startMin, worked, prayer));
+    shifts.push(buildShift(iso, startMin, worked, prayer, pauseMin, brabant, staggerRank));
     remaining -= worked;
   }
 
@@ -295,6 +375,9 @@ function buildVariant(args: {
   fixedOffDays: Set<number>;
   unavail: ProposalUnavailability[];
   prayer: ProposalPrayerPause;
+  pauseMin: number;
+  brabant: boolean;
+  staggerRank: number;
 }): ProposalVariant {
   const weeksArr: ProposalWeek[] = [];
   for (let w = 0; w < args.weeks; w++) {
@@ -309,6 +392,9 @@ function buildVariant(args: {
         unavail: args.unavail,
         prayer: args.prayer,
         startOffset: args.startOffset,
+        pauseMin: args.pauseMin,
+        brabant: args.brabant,
+        staggerRank: args.staggerRank,
       }),
     );
   }
@@ -336,11 +422,22 @@ export function generatePlanningProposal(input: {
   variantAOffset?: number;
   /** Décalage de départ de la variante B (défaut 1). */
   variantBOffset?: number;
+  /** Pause quotidienne du travailleur (`default_pause_minutes`), fractionnée en 2
+   *  et EXCLUE des heures (shift allongé). Défaut 30 si non renseigné / 0 pour aucune. */
+  pauseMinutes?: number | null;
+  /** Site principal = magasin BRABANT (A/B/D) -> échelonnement des pauses. */
+  brabant?: boolean;
+  /** Rang déterministe du travailleur sur son magasin Brabant (0-based) pour
+   *  échelonner ses fenêtres de pause vs les autres présents (voir store). */
+  staggerRank?: number;
 }): PlanningProposal {
   const weeks = input.weeks ?? 3;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
   const fixedOffDays = new Set<number>((input.fixedOffDays ?? []).filter((n) => n >= 0 && n <= 6));
   const unavail = input.unavailabilities ?? [];
+  const pauseMin = Math.max(0, Math.round(Number(input.pauseMinutes ?? 30) || 0));
+  const brabant = input.brabant === true;
+  const staggerRank = Number.isInteger(input.staggerRank) ? (input.staggerRank as number) : 0;
 
   const weeklyHours = Number(input.weeklyHours ?? 0);
   const shiftHours = Number(input.defaultShiftHours ?? 0);
@@ -399,6 +496,9 @@ export function generatePlanningProposal(input: {
     fixedOffDays,
     unavail,
     prayer,
+    pauseMin,
+    brabant,
+    staggerRank,
   });
 
   const variantB = buildVariant({
@@ -416,6 +516,9 @@ export function generatePlanningProposal(input: {
     fixedOffDays,
     unavail,
     prayer,
+    pauseMin,
+    brabant,
+    staggerRank,
   });
 
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou
