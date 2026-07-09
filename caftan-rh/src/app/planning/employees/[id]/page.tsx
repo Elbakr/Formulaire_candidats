@@ -152,7 +152,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     const [{ data: propRaw }, { data: tplRaw }] = await Promise.all([
       adminPp
         .from("planning_proposals")
-        .select("start_date, weeks, variant_a, variant_b, selected_variant, reason, generated_at, generated_by")
+        .select("start_date, weeks, variant_a, variant_b, variant_c, selected_variant, reason, generated_at, generated_by")
         .eq("employee_id", id)
         .maybeSingle(),
       adminPp
@@ -168,7 +168,8 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         weeks: (p.weeks as number) ?? 3,
         variant_a: p.variant_a as NonNullable<CurrentProposal>["variant_a"],
         variant_b: p.variant_b as NonNullable<CurrentProposal>["variant_b"],
-        selected_variant: (p.selected_variant as "A" | "B" | null) ?? null,
+        variant_c: (p.variant_c as NonNullable<CurrentProposal>["variant_c"]) ?? null,
+        selected_variant: (p.selected_variant as "A" | "B" | "C" | null) ?? null,
         reason: (p.reason as string | null) ?? null,
         generated_at: p.generated_at as string,
         generated_by: (p.generated_by as string | null) ?? null,
