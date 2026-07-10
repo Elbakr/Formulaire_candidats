@@ -82,16 +82,22 @@ export function getMobileTabs(role: Role): MobileTab[] {
     ];
   }
   // admin / rh / manager
-  const pointage: MobileTab = isHR(role)
-    ? { href: "/admin/presence", label: "Pointage", icon: "Clock" }
-    : { href: "/planning/employees", label: "Équipe", icon: "UserCheck" };
-  return [
+  const tabs: MobileTab[] = [
     { href: "/m", label: "Accueil", icon: "Home" },
     { href: "/planning/calendar", label: "Planning", icon: "CalendarDays" },
     { href: "/rh/hub", label: "RH", icon: "Briefcase" },
-    pointage,
-    { label: "Plus", icon: "Menu", more: true },
   ];
+  // Karim 2026-07-10 : onglet TRAVAILLEURS (fiches employés) dans la barre du bas.
+  // Pour admin/RH : Pointage + Travailleurs (2 onglets). Pour manager : "Équipe"
+  // pointe déjà vers /planning/employees (pas de doublon).
+  if (isHR(role)) {
+    tabs.push({ href: "/admin/presence", label: "Pointage", icon: "Clock" });
+    tabs.push({ href: "/planning/employees", label: "Travailleurs", icon: "UserCheck" });
+  } else {
+    tabs.push({ href: "/planning/employees", label: "Équipe", icon: "UserCheck" });
+  }
+  tabs.push({ label: "Plus", icon: "Menu", more: true });
+  return tabs;
 }
 
 /**
