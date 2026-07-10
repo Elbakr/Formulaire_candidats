@@ -27,7 +27,15 @@
  *  - `fixedOffDays` : 0=Lundi … 6=Dimanche (convention `employees.fixed_off_days`).
  *  - `unavailabilities[].day_of_week` : 0=Dimanche … 6=Samedi (convention
  *    `employee_unavailabilities.day_of_week` = JS getDay).
+ *
+ * PLAFOND DE FERMETURE (Karim 2026-07-10) : la fin d'un shift ne dépasse JAMAIS
+ * l'heure de fermeture du SITE PRINCIPAL du travailleur pour ce jour (helper
+ * `siteClosingTime`). Si `start + heures + pauses` dépasse la fermeture, on ROGNE
+ * les heures travaillées de CE jour (fin plafonnée) ; le reliquat se reporte
+ * naturellement sur les jours suivants (le remplissage vise `weeklyHours`).
  */
+
+import { siteClosingMinutes } from "@/lib/scheduling/site-hours";
 
 export type ProposalUnavailability = {
   day_of_week: number | null; // 0=Dim..6=Sam (récurrente) — convention JS getDay
@@ -264,6 +272,14 @@ function shiftSpanMin(
  * (1re fenêtre libre assez large pour durée travaillée + pauses). Pas de
  * débordement après minuit. Retour null si aucune fenêtre n'est assez large
  * (ou jour bloqué / paramètres invalides) -> l'appelant SKIP le jour.
+ *
+ * PLAFOND DE FERMETURE : la FIN (start + travaillé + pauses) ne dépasse jamais
+ * l'heure de fermeture du site (`siteClosingTime(siteCode, iso)`). Si le shift
+ * plein déborde la fermeture, on ROGNE les heures travaillées de CE jour pour
+ * finir pile à la fermeture (le reliquat repart sur les jours suivants côté
+ * appelant). Si même un shift minimal ne tient pas avant la fermeture depuis le
+ * début requis -> null (jour non couvert). La contrainte d'indispo (fenêtre qui
+ * doit contenir le shift PLEIN) est inchangée : on ne rogne QUE pour la fermeture.
  */
 function placeAndBuildShift(
   iso: string,
@@ -274,10 +290,13 @@ function placeAndBuildShift(
   pauseMin: number,
   brabant: boolean,
   staggerRank: number,
+  siteCode: string | null,
 ): ProposalShift | null {
   if (isFullDayBlocked(iso, unavail)) return null;
   const workedMin = Math.round(workedHours * 60);
   if (workedMin <= 0) return null;
+  // Plafond de fermeture du jour (borné à minuit par sécurité).
+  const closingMin = Math.min(DAY_MIN, siteClosingMinutes(siteCode, iso));
   const wins = freeWindows(partialBusyIntervals(iso, unavail));
   for (const win of wins) {
     // On ne démarre jamais AVANT l'heure de début par défaut ; on ne fait que
@@ -286,7 +305,19 @@ function placeAndBuildShift(
     if (start >= win.end) continue; // fenêtre entièrement avant le début souhaité
     const span = shiftSpanMin(iso, start, workedMin, prayer, pauseMin);
     if (start + span <= win.end && start + span <= DAY_MIN) {
-      return buildShift(iso, start, workedHours, prayer, pauseMin, brabant, staggerRank);
+      // La fenêtre (indispos) contient le shift PLEIN. On applique le plafond de
+      // fermeture : si la fin dépasse la fermeture, on réduit les heures pour
+      // finir à la fermeture (pauses = offset FIXE, donc rognage direct sur le
+      // travaillé). `addition` = durée des pauses ajoutées à la fin.
+      if (start >= closingMin) return null; // fermé avant même de démarrer
+      const addition = span - workedMin;
+      let placeMin = workedMin;
+      if (start + span > closingMin) {
+        placeMin = closingMin - start - addition;
+      }
+      // Trop peu de marge avant la fermeture pour un vrai shift depuis ce début.
+      if (placeMin < MIN_SHIFT_MIN) return null;
+      return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, siteCode);
     }
   }
   return null;
@@ -353,6 +384,7 @@ function buildShift(
   pauseMin: number,
   brabant: boolean,
   staggerRank: number,
+  siteCode: string | null,
 ): ProposalShift {
   const workedMin = Math.round(workedHours * 60);
   let endMin = startMin + workedMin;
@@ -380,6 +412,12 @@ function buildShift(
     breaks = computeDailyBreaks(startMin, workedMin, pauseMin, brabant, staggerRank);
     endMin += pauseMin;
   }
+
+  // Garde-fou plafond de fermeture : la fin ne dépasse JAMAIS la fermeture du
+  // site pour ce jour. En pratique un no-op (placeAndBuildShift dimensionne déjà
+  // les heures pour tenir), mais protège tout appel direct / arrondi résiduel.
+  const closingMin = Math.min(DAY_MIN, siteClosingMinutes(siteCode, iso));
+  if (endMin > closingMin) endMin = closingMin;
 
   return {
     date: iso,
@@ -456,6 +494,7 @@ function fillWeekSpread(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
+  siteCode: string | null;
 }): { week: ProposalWeek; reducedMicro: boolean } {
   const {
     weekIndex,
@@ -469,6 +508,7 @@ function fillWeekSpread(args: {
     pauseMin,
     brabant,
     staggerRank,
+    siteCode,
   } = args;
 
   const capMin = Math.round(shiftHours * 60);
@@ -518,6 +558,7 @@ function fillWeekSpread(args: {
       pauseMin,
       brabant,
       staggerRank,
+      siteCode,
     );
     if (shift) shifts.push(shift);
   });
@@ -550,6 +591,7 @@ function fillWeek(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
+  siteCode: string | null;
 }): ProposalWeek {
   const {
     weekIndex,
@@ -564,6 +606,7 @@ function fillWeek(args: {
     pauseMin,
     brabant,
     staggerRank,
+    siteCode,
   } = args;
 
   // Jours candidats de la fenêtre (OFF fixe / indispo JOURNÉE exclus ; les jours
@@ -595,10 +638,14 @@ function fillWeek(args: {
       pauseMin,
       brabant,
       staggerRank,
+      siteCode,
     );
     if (!shift) continue;
     shifts.push(shift);
-    remaining -= worked;
+    // Plafond de fermeture : le shift a pu être ROGNÉ (fin plafonnée). On décompte
+    // les heures RÉELLEMENT posées (shift.hours) et non `worked`, pour que le
+    // reliquat non presté se reporte sur les jours suivants.
+    remaining -= shift.hours;
   }
 
   // Tri chronologique pour l'affichage (le remplissage B enroule).
@@ -629,6 +676,7 @@ function buildVariant(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
+  siteCode: string | null;
 }): ProposalVariant {
   const weeksArr: ProposalWeek[] = [];
   for (let w = 0; w < args.weeks; w++) {
@@ -646,6 +694,7 @@ function buildVariant(args: {
         pauseMin: args.pauseMin,
         brabant: args.brabant,
         staggerRank: args.staggerRank,
+        siteCode: args.siteCode,
       }),
     );
   }
@@ -671,6 +720,7 @@ function buildVariantC(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
+  siteCode: string | null;
 }): { variant: ProposalVariant; reducedMicro: boolean } {
   const weeksArr: ProposalWeek[] = [];
   let reducedMicro = false;
@@ -687,6 +737,7 @@ function buildVariantC(args: {
       pauseMin: args.pauseMin,
       brabant: args.brabant,
       staggerRank: args.staggerRank,
+      siteCode: args.siteCode,
     });
     weeksArr.push(week);
     if (r) reducedMicro = true;
@@ -797,6 +848,10 @@ export function generatePlanningProposal(input: {
   /** Rang déterministe du travailleur sur son magasin Brabant (0-based) pour
    *  échelonner ses fenêtres de pause vs les autres présents (voir store). */
   staggerRank?: number;
+  /** Code du SITE PRINCIPAL du travailleur (ex. "A", "B"…) pour PLAFONNER la fin
+   *  des shifts à l'heure de fermeture du site (siteClosingTime). null/absent ->
+   *  défaut « autres sites » (20:00 week-end, 19:30 en semaine). */
+  siteCode?: string | null;
 }): PlanningProposal {
   const weeks = input.weeks ?? 3;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
@@ -805,6 +860,7 @@ export function generatePlanningProposal(input: {
   const pauseMin = Math.max(0, Math.round(Number(input.pauseMinutes ?? 30) || 0));
   const brabant = input.brabant === true;
   const staggerRank = Number.isInteger(input.staggerRank) ? (input.staggerRank as number) : 0;
+  const siteCode = input.siteCode ?? null;
 
   const weeklyHours = Number(input.weeklyHours ?? 0);
   const shiftHours = Number(input.defaultShiftHours ?? 0);
@@ -867,6 +923,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
+    siteCode,
   });
 
   const variantB = buildVariant({
@@ -887,6 +944,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
+    siteCode,
   });
 
   const { variant: variantC, reducedMicro: cReducedMicro } = buildVariantC({
@@ -901,6 +959,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
+    siteCode,
   });
 
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou

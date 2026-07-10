@@ -187,7 +187,7 @@ export async function regeneratePlanningProposal(
     // Pause quotidienne du travailleur (fiche), fractionnée en 2 par le moteur et
     // EXCLUE des heures (shift allongé). Site principal Brabant -> échelonnement.
     const pauseMinutes = emp.default_pause_minutes ?? 30;
-    const { brabant, staggerRank } = await resolveSiteStagger(admin, employeeId);
+    const { brabant, staggerRank, siteCode } = await resolveSiteStagger(admin, employeeId);
 
     // Modèle appliqué : on override heure/durée/heures cibles + répartition, mais
     // le moteur RE-VÉRIFIE off/indispo/pause vendredi pour CE travailleur et CETTE
@@ -207,6 +207,9 @@ export async function regeneratePlanningProposal(
       pauseMinutes,
       brabant,
       staggerRank,
+      // Plafond de fermeture : la fin des shifts ne dépasse jamais l'heure de
+      // fermeture du site principal (siteClosingTime). Site inconnu -> défaut sûr.
+      siteCode,
     });
 
     // Échelonnement Brabant : la table `shifts` ne stocke pas les fenêtres de
