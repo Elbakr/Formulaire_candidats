@@ -9,12 +9,38 @@
 // C'est la PREMIÈRE barrière (secret d'appareil). Le CODE PERSONNEL du
 // travailleur reste requis EN PLUS dans TabletteClient (double barrière).
 
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth";
 import { TabletteClient } from "../../tablette/tablette-client";
 
 export const dynamic = "force-dynamic";
+
+// Karim 2026-07-10 (Phase 3) : ces métadonnées SURCHARGENT, pour cette route
+// uniquement, le manifest global (start_url "/", short_name "CaftanRH") et le
+// titre iOS « CaftanRH ». Résultat sur la tablette :
+//   - manifest dédié -> l'icône rouvre DIRECTEMENT /t/<jeton> (pas de login app)
+//   - titre + apple title « Planning » -> l'icône s'appelle « Planning »
+// iOS lance le raccourci sur l'URL courante (/t/<jeton>) et lit apple title ;
+// Android lit le manifest et son start_url. Les deux plateformes sont couvertes.
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  return {
+    title: "Planning",
+    applicationName: "Planning",
+    manifest: `/t/${encodeURIComponent(token)}/pwa`,
+    appleWebApp: {
+      capable: true,
+      title: "Planning",
+      statusBarStyle: "black-translucent",
+    },
+  };
+}
 
 async function isValidDeviceToken(token: string): Promise<boolean> {
   const t = (token ?? "").trim();
