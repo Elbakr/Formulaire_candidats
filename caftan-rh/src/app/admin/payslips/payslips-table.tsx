@@ -620,6 +620,8 @@ function SendButton({ row }: { row: PayslipRow }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState(row.employee?.email ?? "");
+  // Karim 2026-07-10 : par défaut PIÈCE JOINTE PDF. Case discrète pour envoyer via lien.
+  const [sendViaLink, setSendViaLink] = useState(false);
   const [pending, startTransition] = useTransition();
   const disabled = !row.employee;
   return (
@@ -641,13 +643,19 @@ function SendButton({ row }: { row: PayslipRow }) {
               Par défaut : email du travailleur. Tu peux mettre celui d un comptable, banque, etc.
             </p>
           </div>
+          {/* Karim 2026-07-10 : par défaut la fiche part en PIÈCE JOINTE PDF.
+              Case discrète pour basculer sur un lien signé. */}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={sendViaLink} onChange={(e) => setSendViaLink(e.target.checked)} />
+            <span>Envoyer via lien (au lieu de pièce jointe) — <span className="opacity-70">Verzenden via link i.p.v. bijlage</span></span>
+          </label>
           <Button
             disabled={pending || !recipient}
             onClick={() => {
               startTransition(async () => {
-                const res = await sendPayslipToEmployeeAction(row.id, recipient);
+                const res = await sendPayslipToEmployeeAction(row.id, recipient, sendViaLink ? "link" : "attachment");
                 if (res.ok) {
-                  toast.success(`Envoyé à ${recipient}`);
+                  toast.success(`Envoyé à ${recipient} — ${sendViaLink ? "lien sécurisé" : "pièce jointe PDF"}`);
                   setOpen(false);
                   router.refresh();
                 } else toast.error(res.error ?? "Erreur");
@@ -656,7 +664,7 @@ function SendButton({ row }: { row: PayslipRow }) {
             className="w-full"
           >
             {pending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
-            Envoyer
+            Envoyer {sendViaLink ? "(lien)" : "(PDF joint)"}
           </Button>
         </div>
       </DialogContent>

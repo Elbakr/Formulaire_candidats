@@ -42,6 +42,9 @@ export function OffboardingButton() {
   const [extraFiles, setExtraFiles] = useState<Array<{ name: string; size: number; type: string; base64: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showFullPreview, setShowFullPreview] = useState(false);
+  // Karim 2026-07-10 : par défaut on envoie les fiches en PIÈCE JOINTE PDF.
+  // Cette case (discrète, décochée) bascule sur un envoi via lien signé.
+  const [sendViaLink, setSendViaLink] = useState(false);
   // Karim 2026-07-02 : info pack de sortie (dernier mois + statut payé)
   const [packInfo, setPackInfo] = useState<{ allPaid: boolean; unpaidPeriods: string[]; lastMonthLabel: string; lang: string } | null>(null);
 
@@ -111,6 +114,7 @@ export function OffboardingButton() {
     setEditMode(false);
     setExtraFiles([]);
     setPackInfo(null);
+    setSendViaLink(false);
   }
 
   async function handleAddFiles(files: FileList | null) {
@@ -171,12 +175,14 @@ export function OffboardingButton() {
         customBody: editMode ? customBody : undefined,
         recipientEmailOverride: overrideEmail.trim() || undefined,
         extraAttachments: extraFiles.map((f) => ({ filename: f.name, contentBase64: f.base64, contentType: f.type })),
+        sendMode: sendViaLink ? "link" : "attachment",
       });
       if (res.ok) {
-        const providerLabel =
-          res.provider === "resend" ? "✓ pièces jointes natives PDF (Resend)" :
-          res.provider === "smtp_gmail" ? "✓ pièces jointes natives PDF (Gmail SMTP)" :
-          "⚠ liens (configure RESEND_API_KEY ou GMAIL_APP_PASSWORD pour PJ natives)";
+        const providerLabel = sendViaLink
+          ? "✓ lien sécurisé"
+          : res.provider === "resend" ? "✓ pièces jointes natives PDF (Resend)" :
+            res.provider === "smtp_gmail" ? "✓ pièces jointes natives PDF (Gmail SMTP)" :
+            "⚠ liens (configure RESEND_API_KEY ou GMAIL_APP_PASSWORD pour PJ natives)";
         toast.success(`Mail envoyé à ${res.sentTo} — ${providerLabel}`, { duration: 6000 });
         reset();
         setOpen(false);
@@ -211,8 +217,8 @@ export function OffboardingButton() {
             <DialogTitle>Pack de sortie — fiches de paie + message de remerciement</DialogTitle>
             <DialogDescription>
               Sélectionne le travailleur : l&apos;app pré-remplit les fiches du <strong>dernier mois</strong> et un
-              message bilingue FR/NL. Le pack ne part que si les fiches sont <strong>payées</strong>. Fiches jointes en
-              PDF (natif si Resend/Gmail configuré, sinon liens sécurisés 30 jours).
+              message bilingue FR/NL. Le pack ne part que si les fiches sont <strong>payées</strong>. Fiches
+              envoyées en <strong>pièce jointe PDF</strong> par défaut (option « lien » ci-dessous).
             </DialogDescription>
           </DialogHeader>
 
@@ -431,8 +437,18 @@ export function OffboardingButton() {
                   <span className="text-[10px] text-ink-3">Max 10 MB/fichier</span>
                 </div>
 
+                {/* Karim 2026-07-10 : par défaut PIÈCE JOINTE PDF. Option discrète
+                    pour basculer sur un lien signé (au lieu de la pièce jointe). */}
+                <label className="flex items-center gap-2 mt-2 pt-2 border-t border-green-200 text-[11px] text-ink-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={sendViaLink}
+                    onChange={(e) => setSendViaLink(e.target.checked)}
+                  />
+                  <span>Envoyer via lien (au lieu de pièce jointe) — <span className="text-ink-3">Verzenden via link i.p.v. bijlage</span></span>
+                </label>
                 <div className="text-[10px] text-ink-3 italic mt-1">
-                  📨 Mode envoi : {process.env.NEXT_PUBLIC_HAS_RESEND === "1" ? "pièces jointes natives (Resend)" : "à confirmer après envoi (PJ natives si Resend configuré, sinon liens 30j)"}
+                  📨 Mode envoi : {sendViaLink ? "lien sécurisé (aucune pièce jointe)" : "pièce jointe PDF (par défaut, mail pro sans lien)"}
                 </div>
               </div>
             </div>

@@ -94,6 +94,9 @@ export async function sendOffboardingPayslipsAction(args: {
   recipientEmailOverride?: string;
   // Karim 2026-06-02 : pieces jointes additionnelles uploaded depuis le dialog
   extraAttachments?: Array<{ filename: string; contentBase64: string; contentType: string }>;
+  // Karim 2026-07-10 : par DÉFAUT pièces jointes PDF natives. 'link' = envoi via
+  // liens signés 15 jours (case à cocher du dialog), sans révéler l'expiration.
+  sendMode?: "attachment" | "link";
 }): Promise<{ ok: boolean; sent?: boolean; error?: string; sentTo?: string; provider?: string }> {
   await requirePermission("payslips");
   if (args.payslipIds.length === 0) return { ok: false, error: "Aucune fiche sélectionnée" };
@@ -128,54 +131,57 @@ export async function sendOffboardingPayslipsAction(args: {
     };
   }
 
-  // Karim 2026-06-02 : download + watermark + accumule bytes pour pieces
-  // jointes natives (Resend) + URLs signed comme fallback EmailJS.
+  // Karim 2026-06-02 / 2026-07-10 : download + watermark → bytes pour pièces
+  // jointes natives (Gmail/Resend). ROBUSTESSE : si le watermark échoue, on
+  // attache quand même les bytes du PDF ORIGINAL (jamais de retombée silencieuse
+  // sur un lien). Les URLs signées (15 j) ne sont générées QU'EN mode 'link'.
+  const sendMode: "attachment" | "link" = args.sendMode ?? "attachment";
+  const LINK_TTL = 15 * 24 * 3600;
   const { applyDynamicWatermark } = await import("@/lib/pdf-watermark");
   const attachmentBytes: Array<{ filename: string; content: Uint8Array; contentType: string; period: string }> = [];
   const attachmentUrls: Array<{ name: string; url: string; period: string }> = [];
 
   for (const ps of payslips) {
     if (!ps.pdf_storage_path) continue;
-    let wmBytes: Uint8Array | null = null;
-    let signedUrl: string | null = null;
+    let docBytes: Uint8Array | null = null;   // watermarké si OK, sinon original
+    let wmStoragePath: string | null = null;  // version watermarkée (pour signer en mode lien)
     try {
       const { data: blob } = await admin.storage.from("payslips").download(ps.pdf_storage_path);
       if (blob) {
         const origBytes = new Uint8Array(await blob.arrayBuffer());
-        wmBytes = await applyDynamicWatermark(origBytes, {
-          recipientName: emp.full_name ?? destEmail,
-          recipientEmail: destEmail,
-          docRef: ps.id.slice(0, 8),
-          diagonalText: "COPIE PERSONNELLE - FIN DE CONTRAT",
-        });
-        const wmPath = `${ps.pdf_storage_path.replace(/\.pdf$/i, "")}__offboard__${Date.now()}.pdf`;
-        const up = await admin.storage
-          .from("payslips")
-          .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
-        if (!up.error) {
-          const signed = await admin.storage.from("payslips").createSignedUrl(wmPath, 30 * 24 * 3600);
-          if (signed.data?.signedUrl) signedUrl = signed.data.signedUrl;
+        docBytes = origBytes; // défaut robuste : l'original
+        try {
+          const wmBytes = await applyDynamicWatermark(origBytes, {
+            recipientName: emp.full_name ?? destEmail,
+            recipientEmail: destEmail,
+            docRef: ps.id.slice(0, 8),
+            diagonalText: "COPIE PERSONNELLE - FIN DE CONTRAT",
+          });
+          docBytes = wmBytes;
+          const wmPath = `${ps.pdf_storage_path.replace(/\.pdf$/i, "")}__offboard__${Date.now()}.pdf`;
+          const up = await admin.storage
+            .from("payslips")
+            .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
+          if (!up.error) wmStoragePath = wmPath;
+        } catch (e) {
+          console.warn("[offboarding] watermark KO → bytes originaux:", (e as Error).message);
+          // docBytes reste = origBytes
         }
       }
     } catch (e) {
-      console.warn("[offboarding] watermark fallback:", (e as Error).message);
-    }
-    if (!signedUrl) {
-      const { data: signed } = await admin.storage
-        .from("payslips")
-        .createSignedUrl(ps.pdf_storage_path, 30 * 24 * 3600);
-      signedUrl = signed?.signedUrl ?? null;
+      console.warn("[offboarding] download:", (e as Error).message);
     }
     const period = ps.period_label ?? `${ps.period_year}-${String(ps.period_month).padStart(2, "0")}`;
     const filename = ps.pdf_filename ?? `Fiche de paie ${period}.pdf`;
-    if (wmBytes) {
-      attachmentBytes.push({ filename, content: wmBytes, contentType: "application/pdf", period });
+    if (docBytes) {
+      attachmentBytes.push({ filename, content: docBytes, contentType: "application/pdf", period });
     }
-    if (signedUrl) {
-      attachmentUrls.push({ name: filename, url: signedUrl, period });
+    if (sendMode === "link") {
+      const pathToSign = wmStoragePath ?? ps.pdf_storage_path;
+      const { data: signed } = await admin.storage.from("payslips").createSignedUrl(pathToSign, LINK_TTL);
+      if (signed?.signedUrl) attachmentUrls.push({ name: filename, url: signed.signedUrl, period });
     }
   }
-  if (attachmentUrls.length === 0 && attachmentBytes.length === 0) return { ok: false, error: "Aucun PDF accessible" };
 
   // Karim 2026-06-02 : pieces jointes additionnelles ajoutees par l'admin
   // (certificat travail, attestation, etc.) — uploadees en base64 depuis le UI
@@ -189,16 +195,18 @@ export async function sendOffboardingPayslipsAction(args: {
           contentType: extra.contentType,
           period: "extra",
         });
-        // Upload aussi pour fallback EmailJS URL
-        const path = `extra/${args.employeeId}/${Date.now()}__${extra.filename}`;
-        const up = await admin.storage.from("payslips").upload(path, bytes, {
-          contentType: extra.contentType,
-          upsert: true,
-        });
-        if (!up.error) {
-          const signed = await admin.storage.from("payslips").createSignedUrl(path, 30 * 24 * 3600);
-          if (signed.data?.signedUrl) {
-            attachmentUrls.push({ name: extra.filename, url: signed.data.signedUrl, period: "extra" });
+        // En mode lien : upload + URL signée 15 j pour la pièce additionnelle.
+        if (sendMode === "link") {
+          const path = `extra/${args.employeeId}/${Date.now()}__${extra.filename}`;
+          const up = await admin.storage.from("payslips").upload(path, bytes, {
+            contentType: extra.contentType,
+            upsert: true,
+          });
+          if (!up.error) {
+            const signed = await admin.storage.from("payslips").createSignedUrl(path, LINK_TTL);
+            if (signed.data?.signedUrl) {
+              attachmentUrls.push({ name: extra.filename, url: signed.data.signedUrl, period: "extra" });
+            }
           }
         }
       } catch (e) {
@@ -206,6 +214,10 @@ export async function sendOffboardingPayslipsAction(args: {
       }
     }
   }
+
+  // Garde-fou : le mode choisi doit avoir du contenu à envoyer.
+  if (sendMode === "link" && attachmentUrls.length === 0) return { ok: false, error: "Aucun lien PDF générable" };
+  if (sendMode === "attachment" && attachmentBytes.length === 0) return { ok: false, error: "Aucun PDF accessible" };
 
   // Karim 2026-07-02 : message "pack de sortie" bilingue FR/NL (langue = préférence
   // du travailleur). customSubject/customBody (édités dans le dialog) priment.
@@ -224,13 +236,22 @@ export async function sendOffboardingPayslipsAction(args: {
     subject,
     body,
     replyTo: "hr@caftanfactory.com",
-    attachments: attachmentBytes.length > 0 ? attachmentBytes : undefined,
-    attachmentUrls: attachmentUrls.map((a) => ({ name: a.name, url: a.url })),
+    // Karim 2026-07-10 : défaut = PJ natives (aucun lien dans le corps). Mode
+    // 'link' = liens signés 15 j injectés par le helper, sans révéler l'expiration.
+    ...(sendMode === "link"
+      ? { attachmentUrls: attachmentUrls.map((a) => ({ name: a.name, url: a.url })), preferLinks: true }
+      : { attachments: attachmentBytes }),
     bccHr: true, // Karim 2026-06-02 : copie BCC vers hr@caftanfactory.com pour archivage boite commune
   });
   if (!result.ok) return { ok: false, error: result.error ?? "Envoi KO" };
 
   // Log outbound_mails + audit
+  // Karim 2026-07-10 : en mode PJ (défaut) il n'y a pas d'URL — on journalise
+  // les pièces jointes par leur nom (url vide). En mode lien, on garde les URLs.
+  const loggedAttachments = sendMode === "link"
+    ? attachmentUrls.map((a) => ({ name: a.name, url: a.url }))
+    : attachmentBytes.map((a) => ({ name: a.filename, url: "" }));
+  const ficheCount = attachmentBytes.filter((a) => a.period !== "extra").length;
   try {
     const { logOutboundMail } = await import("@/lib/outbound-mail-log");
     await logOutboundMail({
@@ -241,7 +262,7 @@ export async function sendOffboardingPayslipsAction(args: {
       source: "payslip_share",
       source_ref: args.payslipIds.join(","),
       employee_id: args.employeeId,
-      attachments: attachmentUrls.map((a) => ({ name: a.name, url: a.url })),
+      attachments: loggedAttachments,
     });
     for (const psId of args.payslipIds) {
       const { logDocAudit } = await import("@/lib/document-audit-log");
@@ -249,7 +270,7 @@ export async function sendOffboardingPayslipsAction(args: {
         employee_id: args.employeeId,
         doc_type: "payslip",
         doc_ref: psId,
-        doc_label: `Pack de sortie (${lang.toUpperCase()}) — ${attachmentUrls.length} fiche(s)`,
+        doc_label: `Pack de sortie (${lang.toUpperCase()}) — ${ficheCount} fiche(s)`,
         action: "share_email",
         channel: `${result.provider}_offboarding`,
         recipient_email: destEmail,
@@ -411,6 +432,7 @@ export async function rematchOrphanPayslipsAction(): Promise<{
  */
 export async function sendPayslipsToEmployeesBulkAction(
   payslipIds: string[],
+  sendMode: "attachment" | "link" = "attachment",
 ): Promise<{ ok: boolean; sent?: number; skipped?: number; errors?: string[] }> {
   await requirePermission("payslips");
   if (payslipIds.length === 0) return { ok: false, errors: ["Aucune fiche selectionnée"] };
@@ -419,7 +441,7 @@ export async function sendPayslipsToEmployeesBulkAction(
   const errors: string[] = [];
   for (const id of payslipIds) {
     try {
-      const r = await sendPayslipToEmployeeAction(id);
+      const r = await sendPayslipToEmployeeAction(id, undefined, sendMode);
       if (r.ok) sent++;
       else {
         skipped++;
@@ -474,6 +496,10 @@ export async function markPayslipPaidAction(payslipId: string, note?: string): P
 export async function sendPayslipToEmployeeAction(
   payslipId: string,
   recipientEmail?: string,
+  // Karim 2026-07-10 : par DÉFAUT la fiche part en PIÈCE JOINTE PDF (mail pro,
+  // aucun lien dans le corps). sendMode:'link' = envoi via lien signé 15 jours
+  // (case à cocher du dialog), sans révéler l'expiration au destinataire.
+  sendMode: "attachment" | "link" = "attachment",
 ): Promise<{ ok: boolean; error?: string }> {
   await requirePermission("payslips");
   const admin = createAdminClient();
@@ -495,64 +521,77 @@ export async function sendPayslipToEmployeeAction(
   const destEmail = recipientEmail?.trim() || emp.email;
   if (!destEmail) return { ok: false, error: "Pas d email destinataire" };
 
-  // Karim 2026-05-31 : watermark dynamique anti-fuite avant envoi.
-  // On télécharge le PDF original, on tatoue (destinataire + date), on
-  // upload sur un path partagé, et on signe sur cette version. Fallback
-  // safe : si watermark échoue, on retombe sur le PDF original.
-  let signedUrl: string | null = null;
+  // Karim 2026-05-31 / 2026-07-10 : watermark dynamique anti-fuite avant envoi.
+  // On télécharge le PDF original et on le tatoue (destinataire + date).
+  // ROBUSTESSE : si le watermark échoue, on attache/signe quand même les bytes
+  // du PDF ORIGINAL — on ne retombe JAMAIS silencieusement sur « rien » ni sur
+  // un lien non demandé.
+  let docBytes: Uint8Array | null = null;    // bytes à joindre (watermarké si OK, sinon original)
+  let wmStoragePath: string | null = null;   // version watermarkée uploadée (pour signer en mode lien)
   try {
     const { data: blob } = await admin.storage.from("payslips").download(payslip.pdf_storage_path);
     if (blob) {
       const origBytes = new Uint8Array(await blob.arrayBuffer());
-      const { applyDynamicWatermark } = await import("@/lib/pdf-watermark");
-      const wmBytes = await applyDynamicWatermark(origBytes, {
-        recipientName: emp.full_name ?? destEmail,
-        recipientEmail: destEmail,
-        docRef: payslipId.slice(0, 8),
-        diagonalText: "COPIE PERSONNELLE",
-      });
-      const wmPath = `${payslip.pdf_storage_path.replace(/\.pdf$/i, "")}__wm__${Date.now()}.pdf`;
-      const up = await admin.storage
-        .from("payslips")
-        .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
-      if (!up.error) {
-        const signedWm = await admin.storage.from("payslips").createSignedUrl(wmPath, 30 * 24 * 3600);
-        if (signedWm.data?.signedUrl) signedUrl = signedWm.data.signedUrl;
+      docBytes = origBytes; // défaut robuste : l'original
+      try {
+        const { applyDynamicWatermark } = await import("@/lib/pdf-watermark");
+        const wmBytes = await applyDynamicWatermark(origBytes, {
+          recipientName: emp.full_name ?? destEmail,
+          recipientEmail: destEmail,
+          docRef: payslipId.slice(0, 8),
+          diagonalText: "COPIE PERSONNELLE",
+        });
+        docBytes = wmBytes;
+        // Upload la version watermarkée (nécessaire pour le mode lien).
+        const wmPath = `${payslip.pdf_storage_path.replace(/\.pdf$/i, "")}__wm__${Date.now()}.pdf`;
+        const up = await admin.storage
+          .from("payslips")
+          .upload(wmPath, wmBytes, { contentType: "application/pdf", upsert: true });
+        if (!up.error) wmStoragePath = wmPath;
+      } catch (e) {
+        console.warn("[sendPayslipToEmployeeAction] watermark KO → bytes originaux:", (e as Error).message);
+        // docBytes reste = origBytes
       }
     }
   } catch (e) {
-    console.warn("[sendPayslipToEmployeeAction] watermark fallback:", (e as Error).message);
+    console.warn("[sendPayslipToEmployeeAction] download:", (e as Error).message);
   }
-  // Karim 2026-06-03 : signed URL Supabase 30 jours, INDEPENDANT du tunnel.
-  // (Avant : on enrobait dans /api/docs/view/<token> mais ce lien dependait
-  // du tunnel qui rotate quotidien → liens cassés pour les destinataires.)
-  // Trade-off : on perd le tracking de view individuelle (logDocAudit
-  // share_email reste log au moment de l envoi pour audit basique).
-  if (!signedUrl) {
+
+  const filename = payslip.pdf_filename ?? `Fiche de paie ${payslip.period_label ?? ""}.pdf`.trim();
+
+  // Mode lien : signed URL Supabase 15 JOURS (sur la version watermarkée si dispo,
+  // sinon l'originale). INDEPENDANT du tunnel. On ne révèle pas l'expiration.
+  let signedUrl: string | null = null;
+  if (sendMode === "link") {
+    const pathToSign = wmStoragePath ?? payslip.pdf_storage_path;
     const { data: signed } = await admin.storage
       .from("payslips")
-      .createSignedUrl(payslip.pdf_storage_path, 30 * 24 * 3600);
-    if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer URL PDF" };
+      .createSignedUrl(pathToSign, 15 * 24 * 3600);
+    if (!signed?.signedUrl) return { ok: false, error: "Impossible de generer le lien signé" };
     signedUrl = signed.signedUrl;
+  } else if (!docBytes) {
+    return { ok: false, error: "Impossible de lire le PDF de la fiche (pièce jointe)" };
   }
-  const signed = { signedUrl };
 
   // Envoi via sendAppMail
   const { sendAppMail } = await import("@/lib/app-mail");
 
+  // Karim 2026-07-10 : corps SANS aucune URL ni mention d'expiration. En mode
+  // pièce jointe → la fiche est réellement jointe. En mode lien → le lien est
+  // injecté par mail-with-attachments (section « Pièces jointes (liens sécurisés) »).
   const lang = (emp.preferred_language ?? "fr") as "fr" | "nl" | "en";
   const messages = {
     fr: {
       subject: `Votre fiche de paie - ${payslip.period_label}`,
-      body: `Bonjour ${emp.full_name?.split(" ")[0] ?? ""},\n\nVeuillez trouver ci-joint votre fiche de paie pour la periode ${payslip.period_label}.\n\nLien securise (valable 7 jours) :\n${signed.signedUrl}\n\nBien a vous,\nL equipe Caftan Factory (By AMD Megastore)`,
+      body: `Bonjour ${emp.full_name?.split(" ")[0] ?? ""},\n\nVeuillez trouver votre fiche de paie pour la periode ${payslip.period_label}.\n\nBien a vous,\nL equipe Caftan Factory (By AMD Megastore)`,
     },
     nl: {
       subject: `Uw loonbrief - ${payslip.period_label}`,
-      body: `Beste ${emp.full_name?.split(" ")[0] ?? ""},\n\nIn bijlage vindt u uw loonbrief voor periode ${payslip.period_label}.\n\nBeveiligde link (7 dagen geldig) :\n${signed.signedUrl}\n\nMet vriendelijke groet,\nHet team Caftan Factory (By AMD Megastore)`,
+      body: `Beste ${emp.full_name?.split(" ")[0] ?? ""},\n\nHierbij uw loonbrief voor periode ${payslip.period_label}.\n\nMet vriendelijke groet,\nHet team Caftan Factory (By AMD Megastore)`,
     },
     en: {
       subject: `Your payslip - ${payslip.period_label}`,
-      body: `Dear ${emp.full_name?.split(" ")[0] ?? ""},\n\nPlease find attached your payslip for period ${payslip.period_label}.\n\nSecure link (valid 7 days) :\n${signed.signedUrl}\n\nBest regards,\nThe Caftan Factory team (By AMD Megastore)`,
+      body: `Dear ${emp.full_name?.split(" ")[0] ?? ""},\n\nPlease find your payslip for period ${payslip.period_label}.\n\nBest regards,\nThe Caftan Factory team (By AMD Megastore)`,
     },
   };
   const m = messages[lang];
@@ -562,7 +601,9 @@ export async function sendPayslipToEmployeeAction(
     toName: emp.full_name ?? destEmail,
     subject: m.subject,
     body: m.body,
-    attachmentUrls: [{ name: payslip.pdf_filename ?? "Fiche de paie", url: signed.signedUrl }],
+    ...(sendMode === "link"
+      ? { attachmentUrls: [{ name: filename, url: signedUrl! }], preferLinks: true }
+      : { attachments: [{ filename, content: docBytes!, contentType: "application/pdf" }] }),
     source: "payslip_share",
     sourceRef: payslipId,
     employeeId: payslip.employee_id,

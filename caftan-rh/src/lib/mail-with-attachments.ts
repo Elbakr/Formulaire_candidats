@@ -32,6 +32,14 @@ export interface SendMailOptions {
   attachments?: MailAttachment[];
   // Fallback : URL des PDFs si Resend KO et qu'on bascule EmailJS
   attachmentUrls?: Array<{ name: string; url: string }>;
+  // Karim 2026-07-10 : par défaut, les liens (attachmentUrls) ne sont JAMAIS
+  // injectés dans le corps quand un provider à PJ natives (Gmail/Resend) envoie
+  // — le mail part propre avec la PJ. Les liens n'apparaissent dans le corps que
+  //   (a) sur le fallback EmailJS (qui ne sait pas faire de PJ native), ou
+  //   (b) si l'appelant demande explicitement l'envoi PAR LIEN via preferLinks.
+  // Cas d'usage : fiches de paie envoyées « via lien » (case à cocher UI) au lieu
+  // de pièce jointe. On n'écrit jamais l'expiration du lien dans le corps.
+  preferLinks?: boolean;
   // Karim 2026-06-02 : copie systematique a hr@caftanfactory.com pour
   // archivage boite commune. Resend/SMTP supportent bcc, EmailJS non
   // (on fait un 2e envoi explicite).
@@ -115,6 +123,21 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
   const htmlBody = opts.htmlBody ?? opts.body.replace(/\n/g, "<br>");
 
+  // Karim 2026-07-10 : pour les providers à PJ natives (Gmail/Resend), on
+  // n'injecte les liens dans le corps QUE si l'appelant a demandé l'envoi par
+  // lien (preferLinks). Par défaut → mail propre avec PJ, ZÉRO lien dans le corps.
+  // (Le fallback EmailJS, plus bas, gère ses propres liens car il ne peut pas
+  //  faire de PJ native.) On ne mentionne jamais l'expiration du lien.
+  const embedLinksNative = opts.preferLinks === true && (opts.attachmentUrls?.length ?? 0) > 0;
+  let bodyNative = opts.body;
+  let htmlNative = htmlBody;
+  if (embedLinksNative) {
+    const linksText = opts.attachmentUrls!.map((a) => `• ${a.name} : ${a.url}`).join("\n");
+    bodyNative = `${opts.body}\n\n📎 Pièces jointes (liens sécurisés) :\n${linksText}`;
+    const linksHtml = opts.attachmentUrls!.map((a) => `• <a href="${a.url}">${a.name}</a>`).join("<br>");
+    htmlNative = `${htmlBody}<br><br><strong>📎 Pièces jointes (liens sécurisés) :</strong><br>${linksHtml}`;
+  }
+
   // Karim 2026-06-15 : PRIORITÉ GMAIL. Ordre demandé : Gmail SMTP (primaire) ->
   // Resend (secours, PJ natives) -> EmailJS (dernier secours, liens).
 
@@ -135,15 +158,15 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
         bcc: opts.bccHr ? "hr@caftanfactory.com" : undefined,
         replyTo: opts.replyTo ?? "hr@caftanfactory.com",
         subject: opts.subject,
-        text: opts.body,
-        html: htmlBody,
+        text: bodyNative,
+        html: htmlNative,
         attachments: (opts.attachments ?? []).map((a) => ({
           filename: a.filename,
           content: Buffer.from(a.content),
           contentType: a.contentType ?? "application/pdf",
         })),
       });
-      await logSend(opts, "smtp_gmail", "sent", undefined, htmlBody);
+      await logSend({ ...opts, body: bodyNative }, "smtp_gmail", "sent", undefined, htmlNative);
       return { ok: true, provider: "smtp_gmail", messageId: info.messageId };
     } catch (e) {
       console.warn("[mail] SMTP Gmail exception:", (e as Error).message);
@@ -172,8 +195,8 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
           to: recipients,
           bcc: opts.bccHr ? ["hr@caftanfactory.com"] : undefined,
           subject: opts.subject,
-          text: opts.body,
-          html: htmlBody,
+          text: bodyNative,
+          html: htmlNative,
           reply_to: opts.replyTo ?? "hr@caftanfactory.com",
           attachments: attachments.length > 0 ? attachments : undefined,
         }),
@@ -181,11 +204,11 @@ export async function sendMailWithAttachments(opts: SendMailOptions): Promise<Se
       if (!res.ok) {
         const txt = await res.text();
         console.warn("[mail] Resend HTTP", res.status, txt);
-        await logSend(opts, "resend", "failed", `Resend HTTP ${res.status}`, htmlBody);
+        await logSend(opts, "resend", "failed", `Resend HTTP ${res.status}`, htmlNative);
         // Fallback EmailJS si Resend echoue
       } else {
         const data = await res.json() as { id?: string };
-        await logSend(opts, "resend", "sent", undefined, htmlBody);
+        await logSend({ ...opts, body: bodyNative }, "resend", "sent", undefined, htmlNative);
         return { ok: true, provider: "resend", messageId: data.id };
       }
     } catch (e) {
