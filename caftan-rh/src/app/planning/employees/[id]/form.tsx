@@ -113,6 +113,9 @@ export function EmployeeAdminForm({
   const [unavailSites, setUnavailSites] = useState<Set<string>>(
     new Set(employee.unavailable_site_ids ?? []),
   );
+  // Karim 2026-07-10 : éligibilité heures sup remontée en state pour déverrouiller
+  // LIVE la saisie > 38h dans WorkTimeAndHours (au lieu d'attendre un save/refresh).
+  const [otEligible, setOtEligible] = useState<boolean>(!!employee.ot_eligible);
 
   function toggleDay(idx: number) {
     setFixedOff((prev) => (prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx].sort()));
@@ -191,6 +194,7 @@ export function EmployeeAdminForm({
             defaultKind={employee.work_time_kind}
             defaultHours={employee.weekly_hours}
             contractType={employee.contract_type}
+            otEligible={otEligible}
           />
           <Field label="Taux horaire (€)" name="hourly_rate" defaultValue={employee.hourly_rate != null ? String(employee.hourly_rate) : ""} type="number" />
           <Field label="Date d'entrée" name="start_date" defaultValue={employee.start_date ?? ""} type="date" />
@@ -287,7 +291,8 @@ export function EmployeeAdminForm({
               type="checkbox"
               id="ot_eligible"
               name="ot_eligible"
-              defaultChecked={!!employee.ot_eligible}
+              checked={otEligible}
+              onChange={(e) => setOtEligible(e.target.checked)}
               className="h-4 w-4"
             />
             <Label htmlFor="ot_eligible" className="flex-1 cursor-pointer">
@@ -530,14 +535,21 @@ function BirthDateAndNrn({
 //   - Temps partiel -> clamp [13, 30]h
 //   - Étudiant -> libre [1, 38]h (règles 600h/an gérées séparément)
 // Le trigger BD applique la même logique en backup si jamais le form contourné.
+// Karim 2026-07-10 : ÉLIGIBLE HEURES SUP (otEligible) -> le plafond 38h est LEVÉ :
+//   on autorise une saisie > 38h (garde kind='full' pour >= 38h) jusqu'à un max
+//   raisonnable de 60h. Sans éligibilité, comportement inchangé (38h figé).
+const OT_MAX_HOURS = 60; // plafond raisonnable heures sup (garde-fou saisie)
+
 function WorkTimeAndHours({
   defaultKind,
   defaultHours,
   contractType,
+  otEligible,
 }: {
   defaultKind: string | null;
   defaultHours: number | null;
   contractType: string | null;
+  otEligible: boolean;
 }) {
   const isStudent = contractType === "Étudiant" || contractType === "Etudiant";
   // Karim 2026-06-17 : seuil unique 38h. < 38h ⇒ temps partiel d'office
@@ -553,7 +565,13 @@ function WorkTimeAndHours({
     setKind(newKind);
     if (isStudent) return;
     if (newKind === "full") {
-      setHours("38");
+      // Éligible h. sup : on CONSERVE une valeur déjà > 38 (ex. 45) ; sinon 38.
+      const cur = parseInt(hours, 10);
+      if (otEligible && Number.isFinite(cur) && cur > 38) {
+        setHours(String(Math.min(cur, OT_MAX_HOURS)));
+      } else {
+        setHours("38");
+      }
     } else {
       const cur = parseInt(hours, 10);
       if (!Number.isFinite(cur) || cur < 13) setHours("13");
@@ -565,19 +583,29 @@ function WorkTimeAndHours({
     if (isStudent) return;
     const n = parseInt(hours, 10);
     if (!Number.isFinite(n)) return;
-    // Les heures pilotent le régime : >= 38h ⇒ temps plein (38) ; < 38h ⇒ temps partiel.
+    // Les heures pilotent le régime : >= 38h ⇒ temps plein ; < 38h ⇒ temps partiel.
     if (n >= 38) {
       setKind("full");
-      setHours("38");
+      // Éligible h. sup : on GARDE la valeur saisie > 38 (plafonnée à OT_MAX_HOURS).
+      // Sinon : plafond légal figé à 38h.
+      if (otEligible) setHours(String(Math.min(n, OT_MAX_HOURS)));
+      else setHours("38");
     } else {
       setKind("part");
       if (n < 13) setHours("13");
     }
   }
 
-  const hoursDisabled = !isStudent && kind === "full";
+  // Éligible h. sup + plein temps : le champ reste ÉDITABLE (> 38 autorisé).
+  const hoursDisabled = !isStudent && kind === "full" && !otEligible;
   const min = isStudent ? 1 : kind === "full" ? 38 : 13;
-  const max = isStudent ? 38 : kind === "full" ? 38 : 37;
+  const max = isStudent
+    ? 38
+    : kind === "full"
+    ? otEligible
+      ? OT_MAX_HOURS
+      : 38
+    : 37;
 
   return (
     <>
@@ -621,8 +649,12 @@ function WorkTimeAndHours({
           className="mt-1 w-full px-2 py-1.5 text-sm rounded border border-line bg-surface disabled:bg-muted disabled:opacity-60"
         />
         {!isStudent && (
-          <p className="text-[10px] text-ink-3 mt-0.5">
-            {kind === "full" ? "Auto-figé à 38h (CP 201)" : "Min 13h / max 30h (loi belge)"}
+          <p className={cn("text-[10px] mt-0.5", kind === "full" && otEligible ? "text-amber-600 font-semibold" : "text-ink-3")}>
+            {kind === "full"
+              ? otEligible
+                ? `🔥 Éligible heures sup : > 38h autorisé (max ${OT_MAX_HOURS}h)`
+                : "Auto-figé à 38h (CP 201)"
+              : "Min 13h / max 30h (loi belge)"}
           </p>
         )}
       </div>

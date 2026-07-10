@@ -162,17 +162,17 @@ function isFixedOff(iso: string, fixedOffDays: Set<number>): boolean {
   return fixedOffDays.has(isoDow);
 }
 
-// ── Indispos : le jour est-il indisponible pour le shift proposé ? ───────────
-// On considère le jour bloqué si une indispo (récurrente OU ponctuelle) est
-// journée entière, OU si son créneau chevauche la plage du shift proposé
-// [startMin, startMin + shiftMin]. Phase 1 : on SAUTE le jour entier (pas de
-// tentative de décalage horaire), pour des variantes lisibles et déterministes.
-function isDayBlockedByUnavail(
-  iso: string,
-  shiftStartMin: number,
-  shiftEndMin: number,
-  unavail: ProposalUnavailability[],
-): boolean {
+// ── Indispos : fenêtres réellement disponibles du jour ───────────────────────
+// Karim 2026-07-10 (BUG indispo partielle) : une indispo PARTIELLE ne doit plus
+// faire sauter TOUT le jour. On calcule les FENÊTRES LIBRES = journée moins les
+// créneaux d'indispo partielle (récurrente `day_of_week` + ponctuelle
+// `date_specific`), puis on DÉCALE le shift dans la 1re fenêtre assez large.
+// Seule une indispo JOURNÉE ENTIÈRE (start/end null) — ou un OFF fixe — bloque
+// réellement le jour.
+const DAY_MIN = 24 * 60; // minuit exclu (pas de débordement au lendemain)
+
+/** Le jour est-il bloqué TOTALEMENT (indispo journée entière) ? */
+function isFullDayBlocked(iso: string, unavail: ProposalUnavailability[]): boolean {
   const jsDow = jsDowOf(iso);
   for (const u of unavail) {
     const matchRecurring = u.day_of_week != null && u.day_of_week === jsDow;
@@ -181,14 +181,115 @@ function isDayBlockedByUnavail(
       iso >= u.date_specific &&
       iso <= (u.date_end ?? u.date_specific);
     if (!matchRecurring && !matchSpecific) continue;
-    // Journée entière (pas de bornes) -> bloqué.
-    if (!u.start_time || !u.end_time) return true;
-    // Sinon : bloqué seulement si chevauchement avec la plage du shift.
-    const uS = timeToMin(u.start_time);
-    const uE = timeToMin(u.end_time);
-    if (shiftStartMin < uE && shiftEndMin > uS) return true;
+    if (!u.start_time || !u.end_time) return true; // journée entière -> bloqué
   }
   return false;
+}
+
+/** Créneaux d'indispo PARTIELLE applicables ce jour, fusionnés & triés (minutes). */
+function partialBusyIntervals(
+  iso: string,
+  unavail: ProposalUnavailability[],
+): Array<{ start: number; end: number }> {
+  const jsDow = jsDowOf(iso);
+  const raw: Array<{ start: number; end: number }> = [];
+  for (const u of unavail) {
+    const matchRecurring = u.day_of_week != null && u.day_of_week === jsDow;
+    const matchSpecific =
+      u.date_specific != null &&
+      iso >= u.date_specific &&
+      iso <= (u.date_end ?? u.date_specific);
+    if (!matchRecurring && !matchSpecific) continue;
+    if (!u.start_time || !u.end_time) continue; // journée entière traitée ailleurs
+    const s = timeToMin(u.start_time);
+    const e = timeToMin(u.end_time);
+    if (e > s) raw.push({ start: s, end: e });
+  }
+  raw.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const iv of raw) {
+    const last = merged[merged.length - 1];
+    if (last && iv.start <= last.end) last.end = Math.max(last.end, iv.end);
+    else merged.push({ ...iv });
+  }
+  return merged;
+}
+
+/** Fenêtres LIBRES du jour = [0, 1440) moins les créneaux d'indispo partielle. */
+function freeWindows(
+  busy: Array<{ start: number; end: number }>,
+): Array<{ start: number; end: number }> {
+  const wins: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+  for (const iv of busy) {
+    if (iv.start > cursor) wins.push({ start: cursor, end: iv.start });
+    cursor = Math.max(cursor, iv.end);
+  }
+  if (cursor < DAY_MIN) wins.push({ start: cursor, end: DAY_MIN });
+  return wins;
+}
+
+/**
+ * Longueur TOTALE (murale) d'un shift à `startMin` : heures travaillées + pauses.
+ * Le vendredi, si la pause prière (verrouillée) chevauche le shift, elle FAIT
+ * office de pause (durée prière) ; sinon on ajoute `pauseMin` (2 pauses réparties).
+ * Doit rester COHÉRENT avec buildShift (même test de chevauchement prière).
+ */
+function shiftSpanMin(
+  iso: string,
+  startMin: number,
+  workedMin: number,
+  prayer: ProposalPrayerPause,
+  pauseMin: number,
+): number {
+  let span = workedMin;
+  const pw = prayerPauseForISO(iso, prayer);
+  let prayerApplies = false;
+  if (pw) {
+    const pS = timeToMin(pw.start);
+    const pE = timeToMin(pw.end);
+    if (startMin < pE && startMin + workedMin > pS) {
+      prayerApplies = true;
+      span += pE - pS;
+    }
+  }
+  if (!prayerApplies && pauseMin > 0) span += pauseMin;
+  return span;
+}
+
+/**
+ * Place ET construit un shift de `workedHours` sur `iso`, en respectant les
+ * indispos partielles : on ESSAIE `desiredStartMin` (heure de début par défaut),
+ * et si ça chevauche une indispo, on DÉCALE le début après la fin de l'indispo
+ * (1re fenêtre libre assez large pour durée travaillée + pauses). Pas de
+ * débordement après minuit. Retour null si aucune fenêtre n'est assez large
+ * (ou jour bloqué / paramètres invalides) -> l'appelant SKIP le jour.
+ */
+function placeAndBuildShift(
+  iso: string,
+  desiredStartMin: number,
+  workedHours: number,
+  unavail: ProposalUnavailability[],
+  prayer: ProposalPrayerPause,
+  pauseMin: number,
+  brabant: boolean,
+  staggerRank: number,
+): ProposalShift | null {
+  if (isFullDayBlocked(iso, unavail)) return null;
+  const workedMin = Math.round(workedHours * 60);
+  if (workedMin <= 0) return null;
+  const wins = freeWindows(partialBusyIntervals(iso, unavail));
+  for (const win of wins) {
+    // On ne démarre jamais AVANT l'heure de début par défaut ; on ne fait que
+    // décaler plus tard pour contourner une indispo antérieure.
+    const start = Math.max(desiredStartMin, win.start);
+    if (start >= win.end) continue; // fenêtre entièrement avant le début souhaité
+    const span = shiftSpanMin(iso, start, workedMin, prayer, pauseMin);
+    if (start + span <= win.end && start + span <= DAY_MIN) {
+      return buildShift(iso, start, workedHours, prayer, pauseMin, brabant, staggerRank);
+    }
+  }
+  return null;
 }
 
 // ── Pauses quotidiennes fractionnées en 2 (EXCLUES des heures) ───────────────
@@ -290,22 +391,19 @@ function buildShift(
   };
 }
 
-// ── Jours DISPONIBLES d'une fenêtre de 7 jours (hors OFF / indispo) ──────────
-// Teste le blocage indispo sur la plage d'un shift PLEIN (start..start+shiftHours) :
-// suffisant pour un skip journée (Phase 1). Retour = dates ISO chronologiques.
+// ── Jours CANDIDATS d'une fenêtre de 7 jours (hors OFF / indispo JOURNÉE) ─────
+// Karim 2026-07-10 : un jour à indispo PARTIELLE reste CANDIDAT (le shift y sera
+// décalé via placeAndBuildShift). Seuls OFF fixe et indispo JOURNÉE ENTIÈRE
+// excluent le jour. Retour = dates ISO chronologiques.
 function computeAvailableDays(
   weekStartISO: string,
-  startMin: number,
-  fullShiftEndMin: number,
   fixedOffDays: Set<number>,
   unavail: ProposalUnavailability[],
 ): string[] {
   const days: string[] = [];
   for (let i = 0; i < 7; i++) days.push(addDaysISO(weekStartISO, i));
   return days.filter(
-    (iso) =>
-      !isFixedOff(iso, fixedOffDays) &&
-      !isDayBlockedByUnavail(iso, startMin, fullShiftEndMin, unavail),
+    (iso) => !isFixedOff(iso, fixedOffDays) && !isFullDayBlocked(iso, unavail),
   );
 }
 
@@ -375,14 +473,7 @@ function fillWeekSpread(args: {
 
   const capMin = Math.round(shiftHours * 60);
   const targetMin = Math.round(weeklyHours * 60);
-  const fullShiftEndMin = startMin + capMin;
-  const available = computeAvailableDays(
-    weekStartISO,
-    startMin,
-    fullShiftEndMin,
-    fixedOffDays,
-    unavail,
-  );
+  const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
 
   const emptyWeek: ProposalWeek = {
     week_index: weekIndex,
@@ -416,9 +507,19 @@ function fillWeekSpread(args: {
   coveredDays.forEach((iso, idx) => {
     const workedMin = Math.min(capMin, base + (idx < rem ? 1 : 0));
     if (workedMin < MIN_SHIFT_MIN) return; // garde-fou (ne devrait pas arriver)
-    shifts.push(
-      buildShift(iso, startMin, workedMin / 60, prayer, pauseMin, brabant, staggerRank),
+    // Décale le shift après une éventuelle indispo partielle du jour ; si aucune
+    // fenêtre n'est assez large, le jour est simplement non couvert (best-effort).
+    const shift = placeAndBuildShift(
+      iso,
+      startMin,
+      workedMin / 60,
+      unavail,
+      prayer,
+      pauseMin,
+      brabant,
+      staggerRank,
     );
+    if (shift) shifts.push(shift);
   });
 
   shifts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -465,17 +566,9 @@ function fillWeek(args: {
     staggerRank,
   } = args;
 
-  // Jours de la fenêtre + filtre dispo (OFF / indispo). On teste le blocage
-  // indispo sur la plage d'un shift PLEIN (start..start+shiftHours) : suffisant
-  // pour un skip journée en Phase 1.
-  const fullShiftEndMin = startMin + Math.round(shiftHours * 60);
-  const available = computeAvailableDays(
-    weekStartISO,
-    startMin,
-    fullShiftEndMin,
-    fixedOffDays,
-    unavail,
-  );
+  // Jours candidats de la fenêtre (OFF fixe / indispo JOURNÉE exclus ; les jours
+  // à indispo PARTIELLE restent candidats, le shift y sera décalé).
+  const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
 
   // Karim 2026-07-09 : les 2 variantes doivent être DIAMÉTRALEMENT OPPOSÉES pour
   // offrir un vrai choix au travailleur (début de semaine VS fin de semaine).
@@ -491,7 +584,20 @@ function fillWeek(args: {
     if (remaining <= 0.01) break;
     const worked = Math.min(shiftHours, remaining);
     if (worked < 0.25) break; // pas de micro-shift < 15 min
-    shifts.push(buildShift(iso, startMin, worked, prayer, pauseMin, brabant, staggerRank));
+    // Place le shift (décalé après une indispo partielle si besoin). Si aucune
+    // fenêtre du jour n'est assez large -> SKIP le jour (remaining inchangé).
+    const shift = placeAndBuildShift(
+      iso,
+      startMin,
+      worked,
+      unavail,
+      prayer,
+      pauseMin,
+      brabant,
+      staggerRank,
+    );
+    if (!shift) continue;
+    shifts.push(shift);
     remaining -= worked;
   }
 
