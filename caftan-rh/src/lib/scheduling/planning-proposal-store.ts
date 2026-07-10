@@ -156,21 +156,28 @@ export async function regeneratePlanningProposal(
     const emp = empRaw as EmpRow | null;
     if (!emp) return { ok: false, reason: "employé introuvable" };
 
-    const { data: unavailRaw } = await admin
+    // Karim 2026-07-10 (BUG) : `employee_unavailabilities` N'A PAS de colonne
+    // `date_end` -> l'ancien select la demandait, la requête échouait (400) et les
+    // indispos étaient SILENCIEUSEMENT ignorées à la génération. On ne sélectionne
+    // que les colonnes réelles ; une indispo ponctuelle = une seule date
+    // (`date_specific`), date_end=null.
+    const { data: unavailRaw, error: unavailErr } = await admin
       .from("employee_unavailabilities")
-      .select("day_of_week, date_specific, date_end, start_time, end_time, is_active")
+      .select("day_of_week, date_specific, start_time, end_time, is_active")
       .eq("employee_id", employeeId)
       .eq("is_active", true);
+    if (unavailErr) {
+      console.warn("[planning-proposal] chargement indispos KO:", unavailErr.message);
+    }
     const unavailabilities = ((unavailRaw ?? []) as Array<{
       day_of_week: number | null;
       date_specific: string | null;
-      date_end: string | null;
       start_time: string | null;
       end_time: string | null;
     }>).map<ProposalUnavailability>((u) => ({
       day_of_week: u.day_of_week,
       date_specific: u.date_specific,
-      date_end: u.date_end,
+      date_end: null,
       start_time: u.start_time,
       end_time: u.end_time,
     }));
