@@ -183,6 +183,7 @@ export function TabletteClient() {
         city={city}
         code={activeCode}
         current={siteToday}
+        onChangeLang={chooseLang}
         onDeclared={(siteCode) => setSiteToday(siteCode)}
         onBack={() => setView("planning")}
       />
@@ -341,6 +342,7 @@ function SiteChooser({
   city,
   code,
   current,
+  onChangeLang,
   onDeclared,
   onBack,
 }: {
@@ -348,6 +350,7 @@ function SiteChooser({
   city: TabletCity;
   code: string;
   current: string | null;
+  onChangeLang: (l: Lang) => void;
   onDeclared: (siteCode: string) => void;
   onBack: () => void;
 }) {
@@ -402,7 +405,7 @@ function SiteChooser({
           <div className="text-xl font-bold truncate">{t.whereToday}</div>
         </div>
         <div className="ml-auto">
-          <LangToggle lang={lang} onChange={() => {}} readOnlyCity />
+          <LangToggle lang={lang} onChange={onChangeLang} />
         </div>
       </header>
 
