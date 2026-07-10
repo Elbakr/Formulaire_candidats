@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth";
@@ -27,4 +28,23 @@ export async function saveSettingsAction(formData: FormData) {
   if (error) return { error: error.message };
   revalidatePath("/admin/settings");
   return { ok: true };
+}
+
+// Karim 2026-07-10 (Phase 3) : génère / régénère le JETON D'APPAREIL de la
+// tablette planning. Le chemin public devient /t/<jeton> (secret d'URL) au lieu
+// de /tablette (devinable). Régénérer INVALIDE l'ancien lien : la tablette du
+// magasin devra être reconfigurée avec le nouveau lien. base64url ~43 chars.
+export async function regenerateTabletDeviceTokenAction(): Promise<
+  { ok: true; token: string } | { error: string }
+> {
+  await requireRole(["admin"]);
+  const supabase = await createClient();
+  const token = randomBytes(32).toString("base64url"); // ~43 chars, > 24
+  const { error } = await supabase
+    .from("org_settings")
+    .update({ tablet_device_token: token })
+    .eq("id", 1);
+  if (error) return { error: error.message };
+  revalidatePath("/admin/settings");
+  return { ok: true, token };
 }

@@ -19,6 +19,23 @@ export async function requireProfile() {
   return { user, profile };
 }
 
+// Karim 2026-07-10 : check NON redirigeant du rôle admin, pour les pages
+// PUBLIQUES qui accordent un accès preview à l'admin connecté sans casser le
+// flux visiteur (ex. /t/<jeton> et /tablette). Renvoie simplement true/false.
+export async function isAdminSession(): Promise<boolean> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (profile as { role?: string } | null)?.role === "admin";
+}
+
 export async function requireRole(allowed: AppRole[]) {
   const { user, profile } = await requireProfile();
   if (!allowed.includes(profile.role)) {

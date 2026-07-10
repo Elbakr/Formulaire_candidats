@@ -37,7 +37,15 @@ const PUBLIC_ROUTES = [
   // le travailleur saisit son CODE PERSONNEL (clavier numerique) pour voir SON
   // planning par defaut en lecture seule. La resolution est un server action
   // service-role (le code fait office de commodite, pas d'auth forte).
+  // Karim 2026-07-10 : /tablette est desormais VERROUILLE admin-only dans la
+  // page (preview) et renvoie 404 aux externes ; on le garde public pour que le
+  // 404 s'affiche (pas un redirect /login). L'acces magasin passe par /t/<jeton>.
   "/tablette",
+  // Karim 2026-07-10 (Phase 3) : chemin OBSCUR de la tablette. /t/<jeton> valide
+  // le jeton d'appareil (org_settings.tablet_device_token) dans la page : jeton
+  // OK ou admin connecte -> experience tablette ; sinon 404. Doit etre public
+  // (la tablette magasin n'a aucune session).
+  "/t",
   // Karim 2026-06-01 : lettre 402.00 rupture amiable. Auth multi-mode geree
   // dans le handler (session admin/RH/employee OU token ?t=... pour mail).
   // Sans cette exemption, le middleware redirige vers /login meme avec un

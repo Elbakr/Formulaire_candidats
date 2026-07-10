@@ -4,12 +4,17 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
+import { TabletAccessForm } from "./tablet-access-form";
+import { getOutboundBaseUrl } from "@/lib/public-base-url";
 import { pushIsConfigured } from "@/lib/push-notify";
 
 export default async function AdminSettingsPage() {
   await requireRole(["admin"]);
   const supabase = await createClient();
   const { data } = await supabase.from("org_settings").select("*").eq("id", 1).maybeSingle();
+  const tabletToken =
+    (data as unknown as { tablet_device_token: string | null } | null)?.tablet_device_token ?? null;
+  const outboundBaseUrl = getOutboundBaseUrl();
   const pushReady = pushIsConfigured();
   return (
     <div className="space-y-4">
@@ -183,6 +188,13 @@ export default async function AdminSettingsPage() {
           </div>
           <ChevronRight className="h-4 w-4 text-ink-3" />
         </Link>
+      </Card>
+
+      <Card>
+        <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2">
+          Accès tablette planning
+        </div>
+        <TabletAccessForm initialToken={tabletToken} baseUrl={outboundBaseUrl} />
       </Card>
 
       <Card>
