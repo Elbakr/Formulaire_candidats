@@ -29,13 +29,31 @@
  *    `employee_unavailabilities.day_of_week` = JS getDay).
  *
  * PLAFOND DE FERMETURE (Karim 2026-07-10) : la fin d'un shift ne dépasse JAMAIS
- * l'heure de fermeture du SITE PRINCIPAL du travailleur pour ce jour (helper
- * `siteClosingTime`). Si `start + heures + pauses` dépasse la fermeture, on ROGNE
- * les heures travaillées de CE jour (fin plafonnée) ; le reliquat se reporte
- * naturellement sur les jours suivants (le remplissage vise `weeklyHours`).
+ * l'heure de fermeture du SITE PRINCIPAL du travailleur pour ce jour. Si
+ * `start + heures + pauses` dépasse la fermeture, on ROGNE les heures travaillées
+ * de CE jour (fin plafonnée) ; le reliquat se reporte naturellement sur les jours
+ * suivants (le remplissage vise `weeklyHours`).
+ *
+ * SOURCE DE LA FERMETURE (Karim 2026-07-10, v2) : DÉRIVÉE des horaires RÉELS de la
+ * table `site_needs` (max des `end_time` du site pour ce jour de semaine, plafond
+ * 20:00) — chargée dans le STORE et injectée ici via `siteClosings` (map jsDow ->
+ * "HH:MM"). Le moteur reste PUR : il reçoit une map + un `siteCode` de secours, et
+ * construit un résolveur `closingFor(iso)` qui prend la valeur `site_needs` du jour
+ * si présente, sinon retombe sur la RÈGLE EN DUR `siteClosingMinutes` (site-hours.ts).
+ * Plafond absolu 20:00 appliqué dans les deux cas.
  */
 
 import { siteClosingMinutes } from "@/lib/scheduling/site-hours";
+
+/**
+ * Résout la fermeture (minutes depuis minuit) d'une date ISO pour le site
+ * principal du travailleur. Construit par `generatePlanningProposal` à partir de
+ * la map `siteClosings` (dérivée de `site_needs`) + fallback règle en dur.
+ */
+export type ClosingResolver = (iso: string) => number;
+
+/** Plafond absolu de fermeture : aucune journée ne finit après 20:00. */
+const ABSOLUTE_CLOSING_MIN = 20 * 60;
 
 export type ProposalUnavailability = {
   day_of_week: number | null; // 0=Dim..6=Sam (récurrente) — convention JS getDay
@@ -290,13 +308,13 @@ function placeAndBuildShift(
   pauseMin: number,
   brabant: boolean,
   staggerRank: number,
-  siteCode: string | null,
+  closingFor: ClosingResolver,
 ): ProposalShift | null {
   if (isFullDayBlocked(iso, unavail)) return null;
   const workedMin = Math.round(workedHours * 60);
   if (workedMin <= 0) return null;
   // Plafond de fermeture du jour (borné à minuit par sécurité).
-  const closingMin = Math.min(DAY_MIN, siteClosingMinutes(siteCode, iso));
+  const closingMin = Math.min(DAY_MIN, closingFor(iso));
   const wins = freeWindows(partialBusyIntervals(iso, unavail));
   for (const win of wins) {
     // On ne démarre jamais AVANT l'heure de début par défaut ; on ne fait que
@@ -317,7 +335,7 @@ function placeAndBuildShift(
       }
       // Trop peu de marge avant la fermeture pour un vrai shift depuis ce début.
       if (placeMin < MIN_SHIFT_MIN) return null;
-      return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, siteCode);
+      return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, closingFor);
     }
   }
   return null;
@@ -384,7 +402,7 @@ function buildShift(
   pauseMin: number,
   brabant: boolean,
   staggerRank: number,
-  siteCode: string | null,
+  closingFor: ClosingResolver,
 ): ProposalShift {
   const workedMin = Math.round(workedHours * 60);
   let endMin = startMin + workedMin;
@@ -416,7 +434,7 @@ function buildShift(
   // Garde-fou plafond de fermeture : la fin ne dépasse JAMAIS la fermeture du
   // site pour ce jour. En pratique un no-op (placeAndBuildShift dimensionne déjà
   // les heures pour tenir), mais protège tout appel direct / arrondi résiduel.
-  const closingMin = Math.min(DAY_MIN, siteClosingMinutes(siteCode, iso));
+  const closingMin = Math.min(DAY_MIN, closingFor(iso));
   if (endMin > closingMin) endMin = closingMin;
 
   return {
@@ -494,7 +512,7 @@ function fillWeekSpread(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
-  siteCode: string | null;
+  closingFor: ClosingResolver;
 }): { week: ProposalWeek; reducedMicro: boolean } {
   const {
     weekIndex,
@@ -508,7 +526,7 @@ function fillWeekSpread(args: {
     pauseMin,
     brabant,
     staggerRank,
-    siteCode,
+    closingFor,
   } = args;
 
   const capMin = Math.round(shiftHours * 60);
@@ -558,7 +576,7 @@ function fillWeekSpread(args: {
       pauseMin,
       brabant,
       staggerRank,
-      siteCode,
+      closingFor,
     );
     if (shift) shifts.push(shift);
   });
@@ -591,7 +609,7 @@ function fillWeek(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
-  siteCode: string | null;
+  closingFor: ClosingResolver;
 }): ProposalWeek {
   const {
     weekIndex,
@@ -606,7 +624,7 @@ function fillWeek(args: {
     pauseMin,
     brabant,
     staggerRank,
-    siteCode,
+    closingFor,
   } = args;
 
   // Jours candidats de la fenêtre (OFF fixe / indispo JOURNÉE exclus ; les jours
@@ -638,7 +656,7 @@ function fillWeek(args: {
       pauseMin,
       brabant,
       staggerRank,
-      siteCode,
+      closingFor,
     );
     if (!shift) continue;
     shifts.push(shift);
@@ -676,7 +694,7 @@ function buildVariant(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
-  siteCode: string | null;
+  closingFor: ClosingResolver;
 }): ProposalVariant {
   const weeksArr: ProposalWeek[] = [];
   for (let w = 0; w < args.weeks; w++) {
@@ -694,7 +712,7 @@ function buildVariant(args: {
         pauseMin: args.pauseMin,
         brabant: args.brabant,
         staggerRank: args.staggerRank,
-        siteCode: args.siteCode,
+        closingFor: args.closingFor,
       }),
     );
   }
@@ -720,7 +738,7 @@ function buildVariantC(args: {
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
-  siteCode: string | null;
+  closingFor: ClosingResolver;
 }): { variant: ProposalVariant; reducedMicro: boolean } {
   const weeksArr: ProposalWeek[] = [];
   let reducedMicro = false;
@@ -737,7 +755,7 @@ function buildVariantC(args: {
       pauseMin: args.pauseMin,
       brabant: args.brabant,
       staggerRank: args.staggerRank,
-      siteCode: args.siteCode,
+      closingFor: args.closingFor,
     });
     weeksArr.push(week);
     if (r) reducedMicro = true;
@@ -848,10 +866,15 @@ export function generatePlanningProposal(input: {
   /** Rang déterministe du travailleur sur son magasin Brabant (0-based) pour
    *  échelonner ses fenêtres de pause vs les autres présents (voir store). */
   staggerRank?: number;
-  /** Code du SITE PRINCIPAL du travailleur (ex. "A", "B"…) pour PLAFONNER la fin
-   *  des shifts à l'heure de fermeture du site (siteClosingTime). null/absent ->
-   *  défaut « autres sites » (20:00 week-end, 19:30 en semaine). */
+  /** Code du SITE PRINCIPAL du travailleur (ex. "A", "B"…) — utilisé UNIQUEMENT
+   *  comme FALLBACK (règle en dur `siteClosingTime`) quand `siteClosings` n'a pas
+   *  de valeur pour un jour donné. null/absent -> défaut « autres sites »
+   *  (20:00 week-end, 19:30 en semaine). */
   siteCode?: string | null;
+  /** Fermeture DÉRIVÉE de `site_needs` : map jsDow (0=Dim..6=Sam) -> "HH:MM"
+   *  (= max des `end_time` du site ce jour, plafonné à 20:00), construite par le
+   *  store. Prioritaire sur `siteCode`. Jours absents -> fallback règle en dur. */
+  siteClosings?: Record<number, string> | null;
 }): PlanningProposal {
   const weeks = input.weeks ?? 3;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
@@ -861,6 +884,16 @@ export function generatePlanningProposal(input: {
   const brabant = input.brabant === true;
   const staggerRank = Number.isInteger(input.staggerRank) ? (input.staggerRank as number) : 0;
   const siteCode = input.siteCode ?? null;
+
+  // Résolveur de fermeture : la valeur `site_needs` du jour (map injectée par le
+  // store) prime ; à défaut, on retombe sur la RÈGLE EN DUR par site/jour. Plafond
+  // absolu 20:00 dans tous les cas (belt-and-suspenders, la map est déjà plafonnée).
+  const siteClosings = input.siteClosings ?? null;
+  const closingFor: ClosingResolver = (iso) => {
+    const hhmm = siteClosings?.[jsDowOf(iso)];
+    const min = hhmm != null ? timeToMin(hhmm) : siteClosingMinutes(siteCode, iso);
+    return Math.min(ABSOLUTE_CLOSING_MIN, min);
+  };
 
   const weeklyHours = Number(input.weeklyHours ?? 0);
   const shiftHours = Number(input.defaultShiftHours ?? 0);
@@ -923,7 +956,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
-    siteCode,
+    closingFor,
   });
 
   const variantB = buildVariant({
@@ -944,7 +977,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
-    siteCode,
+    closingFor,
   });
 
   const { variant: variantC, reducedMicro: cReducedMicro } = buildVariantC({
@@ -959,7 +992,7 @@ export function generatePlanningProposal(input: {
     pauseMin,
     brabant,
     staggerRank,
-    siteCode,
+    closingFor,
   });
 
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou

@@ -58,7 +58,12 @@ const BRABANT_SITE_CODES = new Set(["A", "B", "D"]);
 async function resolveSiteStagger(
   admin: SupabaseClient,
   employeeId: string,
-): Promise<{ brabant: boolean; staggerRank: number; siteCode: string | null }> {
+): Promise<{
+  brabant: boolean;
+  staggerRank: number;
+  siteCode: string | null;
+  siteId: string | null;
+}> {
   try {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
     const { data: aRaw } = await admin
@@ -75,10 +80,11 @@ async function resolveSiteStagger(
     }>;
     const active = assigns.filter((a) => !a.end_date || a.end_date >= today);
     const primary = active.find((a) => a.is_primary) ?? active[0] ?? null;
-    if (!primary) return { brabant: false, staggerRank: 0, siteCode: null };
+    if (!primary) return { brabant: false, staggerRank: 0, siteCode: null, siteId: null };
     const siteCode = primary.site?.code ?? null;
+    const siteId = primary.site_id ?? null;
     if (!siteCode || !BRABANT_SITE_CODES.has(siteCode)) {
-      return { brabant: false, staggerRank: 0, siteCode };
+      return { brabant: false, staggerRank: 0, siteCode, siteId };
     }
 
     // Rang déterministe parmi les travailleurs affectés (primaire, actif) à ce site.
@@ -92,9 +98,63 @@ async function resolveSiteStagger(
       .map((m) => m.employee_id);
     const uniqueSorted = Array.from(new Set(mates)).sort();
     const idx = uniqueSorted.indexOf(employeeId);
-    return { brabant: true, staggerRank: idx >= 0 ? idx : 0, siteCode };
+    return { brabant: true, staggerRank: idx >= 0 ? idx : 0, siteCode, siteId };
   } catch {
-    return { brabant: false, staggerRank: 0, siteCode: null };
+    return { brabant: false, staggerRank: 0, siteCode: null, siteId: null };
+  }
+}
+
+// ── Heures de fermeture DÉRIVÉES de `site_needs` (Karim 2026-07-10, v2) ───────
+// L'heure de fermeture d'un site pour un JOUR DE SEMAINE = le MAX des `end_time`
+// des créneaux d'effectif (`site_needs`) de ce site ce jour-là, PLAFONNÉ à 20:00.
+// Convention `site_needs.day_of_week` = 0=Dim..6=Sam (JS getDay) — IDENTIQUE à
+// celle du moteur (`jsDowOf`), donc AUCUNE conversion : la clé de la map = dow tel
+// quel. On ne remplit que les jours qui ont au moins une ligne `site_needs` active ;
+// les jours absents ne sont PAS mis dans la map -> le moteur retombe alors sur la
+// règle en dur (`siteClosingTime`) pour ce jour. Best-effort : en cas d'échec DB,
+// map vide -> fallback total sur la règle en dur.
+const CLOSING_CAP_MIN = 20 * 60; // plafond absolu 20:00.
+
+function timeToMinLocal(t: string): number {
+  const [h, m] = t.slice(0, 5).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function minToHHMM(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+async function loadSiteClosings(
+  admin: SupabaseClient,
+  siteId: string | null,
+): Promise<Record<number, string>> {
+  if (!siteId) return {};
+  try {
+    const { data, error } = await admin
+      .from("site_needs")
+      .select("day_of_week, end_time")
+      .eq("site_id", siteId)
+      .eq("is_enabled", true);
+    if (error || !data) return {};
+    const rows = data as Array<{ day_of_week: number | null; end_time: string | null }>;
+    // Max end_time par jour de semaine (en minutes), puis plafonné à 20:00.
+    const maxByDow = new Map<number, number>();
+    for (const r of rows) {
+      if (r.day_of_week == null || r.day_of_week < 0 || r.day_of_week > 6) continue;
+      if (!r.end_time) continue;
+      const min = timeToMinLocal(r.end_time);
+      const cur = maxByDow.get(r.day_of_week);
+      if (cur == null || min > cur) maxByDow.set(r.day_of_week, min);
+    }
+    const out: Record<number, string> = {};
+    for (const [dow, min] of maxByDow) {
+      out[dow] = minToHHMM(Math.min(CLOSING_CAP_MIN, min));
+    }
+    return out;
+  } catch {
+    return {};
   }
 }
 
@@ -187,7 +247,11 @@ export async function regeneratePlanningProposal(
     // Pause quotidienne du travailleur (fiche), fractionnée en 2 par le moteur et
     // EXCLUE des heures (shift allongé). Site principal Brabant -> échelonnement.
     const pauseMinutes = emp.default_pause_minutes ?? 30;
-    const { brabant, staggerRank, siteCode } = await resolveSiteStagger(admin, employeeId);
+    const { brabant, staggerRank, siteCode, siteId } = await resolveSiteStagger(admin, employeeId);
+
+    // Fermetures DÉRIVÉES de `site_needs` (max end_time/jour, plafond 20:00) pour le
+    // site principal. Jours sans donnée -> fallback règle en dur côté moteur.
+    const siteClosings = await loadSiteClosings(admin, siteId);
 
     // Modèle appliqué : on override heure/durée/heures cibles + répartition, mais
     // le moteur RE-VÉRIFIE off/indispo/pause vendredi pour CE travailleur et CETTE
@@ -208,8 +272,11 @@ export async function regeneratePlanningProposal(
       brabant,
       staggerRank,
       // Plafond de fermeture : la fin des shifts ne dépasse jamais l'heure de
-      // fermeture du site principal (siteClosingTime). Site inconnu -> défaut sûr.
+      // fermeture du site principal. Source = `site_needs` (max end_time/jour,
+      // plafond 20:00) via `siteClosings` ; `siteCode` sert de FALLBACK (règle en
+      // dur) pour les jours sans donnée `site_needs`.
       siteCode,
+      siteClosings,
     });
 
     // Échelonnement Brabant : la table `shifts` ne stocke pas les fenêtres de

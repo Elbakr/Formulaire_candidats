@@ -7,11 +7,17 @@
 // Ce plafond s'APPLIQUE à la fin des shifts proposés par le moteur de planning
 // (planning-proposal.ts) : un shift ne peut jamais finir après la fermeture.
 //
-// SOURCE / discordance connue : la table `site_needs` encode déjà des créneaux
-// d'effectif avec `end_time` (la fermeture de fait = le end_time max du jour).
-// La règle ci-dessous est la source de vérité MÉTIER énoncée par Karim ; elle
-// DIVERGE de `site_needs` pour C (19:00) et F (18:45). Tant que Karim n'a pas
-// tranché, on applique SA règle explicite (défaut en dur) et on signale l'écart.
+// SOURCE (Karim 2026-07-10, v2, TRANCHÉ) : la fermeture RÉELLE d'un site/jour est
+// désormais DÉRIVÉE de la table `site_needs` = le MAX des `end_time` des créneaux
+// d'effectif de ce site ce jour-là (plafonné à 20:00). Cette dérivation est faite
+// dans le STORE (`planning-proposal-store.ts` -> `loadSiteClosings`) et injectée
+// au moteur via `siteClosings`. Ainsi C ferme à 19:00, F à 18:45, A à 20:00, etc.
+//
+// La règle EN DUR ci-dessous (`siteClosingTime`) n'est PLUS la source primaire :
+// elle sert de FALLBACK, utilisé par le moteur pour un jour où `site_needs` n'a
+// AUCUNE ligne active (map `siteClosings` sans entrée pour ce jour de semaine).
+// On la conserve donc telle quelle (défaut sûr : A=20:00 7/7 ; autres = 20:00 WE /
+// 19:30 lun-ven ; plafond 20:00).
 
 const ABSOLUTE_CLOSING = "20:00"; // plafond absolu, jamais dépassé nulle part.
 
