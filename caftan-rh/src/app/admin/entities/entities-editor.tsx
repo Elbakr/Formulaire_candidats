@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useFieldAutosave } from "@/hooks/use-field-autosave";
-import { autosaveEmployerOrgAction, assignSiteToOrgAction } from "./actions";
+import { autosaveEmployerOrgAction, assignSiteToOrgAction, renameSiteAction } from "./actions";
 
 type Org = {
   key: string;
@@ -101,22 +101,26 @@ function SiteAssign({ sites, orgs }: { sites: Site[]; orgs: Org[] }) {
 
   return (
     <Card className="p-4 space-y-3">
-      <div className="text-sm font-bold text-ink">Affectation des sites aux entités</div>
+      <div className="text-sm font-bold text-ink">Sites : nom &amp; entité</div>
+      <p className="text-[11px] text-ink-2 -mt-1">
+        Le <strong>nom du site</strong> est modifiable ici (enregistré automatiquement) et s&apos;applique
+        partout : tablette, planning, documents.
+      </p>
       <div className="divide-y divide-line">
         {sites.map((s) => (
-          <div key={s.id} className="flex items-center gap-2 py-1.5">
-            <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded bg-surface-2 px-1 text-[11px] font-bold">
+          <div key={s.id} className="flex items-center gap-2 py-2">
+            <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded bg-surface-2 px-1 text-[11px] font-bold shrink-0">
               {s.code}
             </span>
-            <span className="flex-1 text-sm truncate">
-              {s.name}
-              {s.city ? <span className="text-ink-3"> · {s.city}</span> : null}
-            </span>
+            <div className="flex-1 min-w-0">
+              <SiteNameInput site={s} />
+              {s.city ? <span className="text-[11px] text-ink-3">{s.city}</span> : null}
+            </div>
             <select
               value={local[s.id] ?? ""}
               onChange={(e) => assign(s.id, e.target.value)}
               disabled={pending}
-              className="text-sm rounded-md border border-line bg-surface px-2 py-1"
+              className="text-sm rounded-md border border-line bg-surface px-2 py-1 shrink-0"
             >
               <option value="">— aucune —</option>
               {orgs.map((o) => (
@@ -127,6 +131,55 @@ function SiteAssign({ sites, orgs }: { sites: Site[]; orgs: Org[] }) {
         ))}
       </div>
     </Card>
+  );
+}
+
+// Nom du site éditable (auto-save au blur). Réinitialise à l'ancien nom en cas
+// d'échec pour ne jamais laisser un nom vide/erroné affiché.
+function SiteNameInput({ site }: { site: Site }) {
+  const [value, setValue] = useState(site.name);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function commit() {
+    const v = value.trim();
+    if (!v || v === site.name) {
+      if (!v) setValue(site.name);
+      return;
+    }
+    setSaving(true);
+    setSaved(false);
+    const r = await renameSiteAction(site.id, v);
+    setSaving(false);
+    if (r.ok) {
+      site.name = v; // aligne la référence locale
+      setSaved(true);
+      toast.success("Nom du site enregistré.");
+      setTimeout(() => setSaved(false), 1500);
+    } else {
+      toast.error(r.error ?? "Échec du renommage.");
+      setValue(site.name);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="h-8 text-sm"
+        aria-label={`Nom du site ${site.code}`}
+      />
+      {saving ? (
+        <span className="text-[10px] text-ink-3">…</span>
+      ) : saved ? (
+        <span className="text-[10px] font-semibold text-success">✓</span>
+      ) : null}
+    </div>
   );
 }
 

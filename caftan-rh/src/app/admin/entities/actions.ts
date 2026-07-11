@@ -60,3 +60,21 @@ export async function assignSiteToOrgAction(
   revalidatePath("/admin/entities");
   return { ok: true };
 }
+
+// Karim 2026-07-11 : renommer un site depuis l'admin (auto-save). Le nom du site
+// est affiché PARTOUT (tablette, planning, contrats via l'entité) -> un seul
+// point d'édition central ici évite les valeurs figées comme "B Ransfort".
+export async function renameSiteAction(
+  siteId: string,
+  name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (!siteId) return { ok: false, error: "Site manquant." };
+  const v = (name ?? "").trim();
+  if (!v) return { ok: false, error: "Le nom ne peut pas être vide." };
+  const admin = createAdminClient();
+  const { error } = await admin.from("sites").update({ name: v }).eq("id", siteId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/entities");
+  return { ok: true };
+}

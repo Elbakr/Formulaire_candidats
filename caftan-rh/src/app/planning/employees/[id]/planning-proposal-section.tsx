@@ -81,12 +81,28 @@ export type PlanningTemplateLite = { id: string; name: string };
 
 const FR_DAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 
-function tomorrowISO(): string {
-  const now = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
-  const [y, m, d] = now.split("-").map(Number);
+function todayISO(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
+}
+
+function addDaysISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + 1);
+  dt.setUTCDate(dt.getUTCDate() + n);
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+function tomorrowISO(): string {
+  return addDaysISO(todayISO(), 1);
+}
+
+/** Prochain lundi (si aujourd'hui est lundi -> lundi suivant). */
+function nextMondayISO(): string {
+  const t = todayISO();
+  const [y, m, d] = t.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Dim..6=Sam
+  const delta = ((1 - dow + 7) % 7) || 7;
+  return addDaysISO(t, delta);
 }
 
 function fmtDayLabel(iso: string): string {
@@ -248,8 +264,7 @@ export function PlanningProposalSection({
               <VariantCard
                 employeeId={employeeId}
                 variant={proposal.variant_c}
-                title="Variante C — répartie sur la semaine"
-                subtitle="Couvre tous tes jours dispos"
+                subtitle={proposal.variant_c.strategy}
                 weeklyHours={proposal.weekly_hours ?? null}
                 defaultStartTime={proposal.default_start_time ?? null}
                 defaultShiftHours={proposal.default_shift_hours ?? null}
@@ -318,6 +333,28 @@ export function PlanningProposalSection({
                 onChange={(e) => setStartDate(e.target.value)}
                 className="w-full px-2 py-1.5 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
               />
+              {/* Karim 2026-07-11 : raccourcis de date de début sous le champ. */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {[
+                  { label: "Demain", value: tomorrowISO() },
+                  { label: "Aujourd'hui", value: todayISO() },
+                  { label: "Lundi prochain", value: nextMondayISO() },
+                  { label: "Dans 1 semaine", value: addDaysISO(todayISO(), 7) },
+                ].map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => setStartDate(p.value)}
+                    className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                      startDate === p.value
+                        ? "border-gold bg-gold-light/70 text-gold-dark font-bold"
+                        : "border-line text-ink-2 hover:border-gold/60"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
               <p className="text-[10px] text-ink-3 mt-1">Défaut : demain.</p>
             </div>
 

@@ -595,6 +595,22 @@ function fillWeekSpread(args: {
   };
 }
 
+// ── Rotation d'une liste de jours (pour l'enchaînement A -> B -> C) ───────────
+// Karim 2026-07-11 : les variantes se COMPLÈTENT en SÉQUENCE. B reprend là où A
+// s'arrête, C là où B s'arrête. On tourne donc la liste des jours dispos d'un
+// décalage = nombre de jours consommés par la/les variante(s) précédente(s).
+function rotateDays(arr: string[], start: number): string[] {
+  if (arr.length === 0) return [];
+  const s = ((start % arr.length) + arr.length) % arr.length;
+  return [...arr.slice(s), ...arr.slice(0, s)];
+}
+
+/** Nombre de jours nécessaires pour couvrir le quota hebdo (1 shift plein/jour). */
+function daysNeeded(weeklyHours: number, shiftHours: number): number {
+  if (shiftHours <= 0) return 1;
+  return Math.max(1, Math.ceil(weeklyHours / shiftHours - 1e-9));
+}
+
 // ── Remplissage d'UNE semaine (fenêtre de 7 jours depuis weekStartISO) ───────
 function fillWeek(args: {
   weekIndex: number;
@@ -605,7 +621,9 @@ function fillWeek(args: {
   fixedOffDays: Set<number>;
   unavail: ProposalUnavailability[];
   prayer: ProposalPrayerPause;
-  startOffset: number; // 0 = variante A, 1 = variante B
+  /** Index de départ (rotation) dans les jours dispos : 0 = A, daysNeeded = B
+   *  (suite de A), 2×daysNeeded = C (suite de B). Enroule si besoin. */
+  rotationStart: number;
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
@@ -620,7 +638,7 @@ function fillWeek(args: {
     fixedOffDays,
     unavail,
     prayer,
-    startOffset,
+    rotationStart,
     pauseMin,
     brabant,
     staggerRank,
@@ -631,13 +649,11 @@ function fillWeek(args: {
   // à indispo PARTIELLE restent candidats, le shift y sera décalé).
   const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
 
-  // Karim 2026-07-09 : les 2 variantes doivent être DIAMÉTRALEMENT OPPOSÉES pour
-  // offrir un vrai choix au travailleur (début de semaine VS fin de semaine).
-  //   startOffset 0 (variante A) = jours les PLUS TÔT dispos (remplissage depuis le
-  //                                 début de la semaine) ;
-  //   startOffset != 0 (variante B) = jours les PLUS TARD dispos (remplissage depuis
-  //                                    la FIN de la semaine, ordre inversé).
-  const fillOrder = startOffset === 0 ? [...available] : [...available].reverse();
+  // Karim 2026-07-11 : enchaînement SÉQUENTIEL. On démarre le remplissage au jour
+  // `rotationStart` (chronologique, enroulé) : A part du 1er jour dispo, B reprend
+  // exactement après les jours de A, C exactement après ceux de B. Ainsi A, B et C
+  // couvrent des tranches CONSÉCUTIVES et complémentaires de la disponibilité.
+  const fillOrder = rotateDays(available, rotationStart);
 
   const shifts: ProposalShift[] = [];
   let remaining = weeklyHours;
@@ -680,9 +696,9 @@ function fillWeek(args: {
 }
 
 function buildVariant(args: {
-  label: "A" | "B";
+  label: "A" | "B" | "C";
   strategy: string;
-  startOffset: number;
+  rotationStart: number;
   startDate: string;
   weeks: number;
   weeklyHours: number;
@@ -708,7 +724,7 @@ function buildVariant(args: {
         fixedOffDays: args.fixedOffDays,
         unavail: args.unavail,
         prayer: args.prayer,
-        startOffset: args.startOffset,
+        rotationStart: args.rotationStart,
         pauseMin: args.pauseMin,
         brabant: args.brabant,
         staggerRank: args.staggerRank,
@@ -935,16 +951,31 @@ export function generatePlanningProposal(input: {
   }
 
   const startMin = timeToMin(startTime!);
+
+  // Karim 2026-07-11 : A/B/C SÉQUENTIELLES et complémentaires.
+  //   - A démarre au 1er jour dispo (rotation 0) et remplit le quota ;
+  //   - B est la SUITE EXACTE de A : rotation = nombre de jours de A (dpw) ;
+  //   - C est la SUITE EXACTE de B (rotation = 2×dpw)… SAUF si A et B couvrent
+  //     DÉJÀ l'intégralité des jours dispos de la semaine — dans ce cas SEULEMENT,
+  //     C devient une variante ALTERNATIVE (répartie sur toute la semaine) qui peut
+  //     mieux convenir au travailleur.
+  // `variantAOffset`/`variantBOffset` (application d'un modèle) restent prioritaires.
+  const dpw = daysNeeded(weeklyHours, shiftHours);
   const offsetA = Number.isInteger(input.variantAOffset) ? (input.variantAOffset as number) : 0;
-  const offsetB = Number.isInteger(input.variantBOffset) ? (input.variantBOffset as number) : 1;
+  const offsetB = Number.isInteger(input.variantBOffset) ? (input.variantBOffset as number) : dpw;
+
+  // Couverture de référence : jours dispos de la 1re semaine (cas courant = mêmes
+  // dispos chaque semaine). A+B couvrent tout dès que 2×dpw ≥ nb de jours dispos.
+  const reprAvailable = computeAvailableDays(input.startDate, fixedOffDays, unavail).length;
+  const abCoverAll = reprAvailable > 0 && 2 * dpw >= reprAvailable;
 
   const variantA = buildVariant({
     label: "A",
     strategy:
       offsetA === 0
-        ? "Remplissage consécutif à partir du 1er jour disponible de la semaine"
+        ? "Jours les plus tôt disponibles (remplit le quota à partir du 1er jour dispo)"
         : `Remplissage décalé de ${offsetA} jour(s) dispo (modèle appliqué)`,
-    startOffset: offsetA,
+    rotationStart: offsetA,
     startDate: input.startDate,
     weeks,
     weeklyHours,
@@ -961,11 +992,8 @@ export function generatePlanningProposal(input: {
 
   const variantB = buildVariant({
     label: "B",
-    strategy:
-      offsetB === 1
-        ? "Remplissage décalé d'un cran (démarre au 2e jour disponible, enroule si besoin)"
-        : `Remplissage décalé de ${offsetB} jour(s) dispo`,
-    startOffset: offsetB,
+    strategy: "Suite exacte de A : reprend aux jours disponibles suivants (enroule si besoin)",
+    rotationStart: offsetB,
     startDate: input.startDate,
     weeks,
     weeklyHours,
@@ -980,20 +1008,45 @@ export function generatePlanningProposal(input: {
     closingFor,
   });
 
-  const { variant: variantC, reducedMicro: cReducedMicro } = buildVariantC({
-    startDate: input.startDate,
-    weeks,
-    weeklyHours,
-    startMin,
-    shiftHours,
-    fixedOffDays,
-    unavail,
-    prayer,
-    pauseMin,
-    brabant,
-    staggerRank,
-    closingFor,
-  });
+  // C : suite de B si des jours restent à couvrir ; sinon variante répartie.
+  let variantC: ProposalVariant;
+  let cReducedMicro = false;
+  if (abCoverAll) {
+    const c = buildVariantC({
+      startDate: input.startDate,
+      weeks,
+      weeklyHours,
+      startMin,
+      shiftHours,
+      fixedOffDays,
+      unavail,
+      prayer,
+      pauseMin,
+      brabant,
+      staggerRank,
+      closingFor,
+    });
+    variantC = c.variant;
+    cReducedMicro = c.reducedMicro;
+  } else {
+    variantC = buildVariant({
+      label: "C",
+      strategy: "Suite exacte de B : reprend aux jours disponibles suivants (enroule si besoin)",
+      rotationStart: offsetB + dpw,
+      startDate: input.startDate,
+      weeks,
+      weeklyHours,
+      startMin,
+      shiftHours,
+      fixedOffDays,
+      unavail,
+      prayer,
+      pauseMin,
+      brabant,
+      staggerRank,
+      closingFor,
+    });
+  }
 
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou
   // variantes identiques (pas de marge : jours dispo = jours nécessaires).
@@ -1012,6 +1065,11 @@ export function generatePlanningProposal(input: {
   if (sameShape) {
     reasons.push(
       "Variantes identiques : aucune marge (jours disponibles = jours nécessaires). B = A.",
+    );
+  }
+  if (abCoverAll) {
+    reasons.push(
+      "A et B couvrent déjà toute la disponibilité : la variante C est une alternative répartie sur la semaine.",
     );
   }
   if (cReducedMicro) {
