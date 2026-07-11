@@ -275,8 +275,8 @@ export function PlanningProposalSection({
               />
             ) : (
               <div className="rounded-lg border border-dashed border-line p-3 flex items-center justify-center text-center text-[11px] text-ink-3 italic">
-                Variante C (répartie sur toute la semaine) disponible après une
-                nouvelle génération.
+                Variante C (complète les jours dispos oubliés par A/B, puis heures
+                de pointe) disponible après une nouvelle génération.
               </div>
             )}
           </div>
