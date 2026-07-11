@@ -1,39 +1,64 @@
-// Karim 2026-07-11 : choix du variant (A/B/C/D…) qui colle le mieux à AUJOURD'HUI
-// (mode Auto-Variant tablette ET affichage "actif" sur la fiche admin). Pur.
+// Karim 2026-07-11 : choix du variant (A/B/C/D…) qui colle le mieux à l'INSTANT
+// PRÉSENT (mode Auto-Variant tablette ET affichage "actif" sur la fiche admin).
 //
-// Priorité : (1) le variant qui a un shift AUJOURD'HUI (le plus d'heures, puis
-// ordre alphabétique) ; (2) sinon celui dont le PROCHAIN shift est le plus
-// proche ; (3) le premier disponible.
+// CONSCIENT DE L'HEURE (`nowMin`) : un shift AUJOURD'HUI déjà TERMINÉ ne compte
+// plus comme « actif » — sinon on afficherait à un travailleur qui arrive à 14h47
+// un shift 10:00–14:45 déjà fini (cas réel Salima). Priorité :
+//   (1) variant avec un shift aujourd'hui ENCORE en cours / à venir (fin > maintenant),
+//       classé par heures restantes puis alpha ;
+//   (2) sinon variant dont le PROCHAIN shift (à venir) est le plus proche ;
+//   (3) sinon le premier.
+// `nowMin = -1` (défaut) désactive la conscience de l'heure (compat/tests).
 
-type ShiftLite = { date: string; hours?: number | null };
+type ShiftLite = { date: string; start_time?: string | null; end_time?: string | null; hours?: number | null };
 type WeekLite = { shifts?: ShiftLite[] | null };
 export type VariantLite = { label: string; weeks?: WeekLite[] | null };
 
-export function pickVariantForToday(variants: VariantLite[], today: string): string {
+function toMin(t: string | null | undefined): number {
+  if (!t) return 0;
+  const [h, m] = t.slice(0, 5).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+export function pickVariantForToday(variants: VariantLite[], today: string, nowMin = -1): string {
   const entries = (variants ?? []).filter((v) => v && v.weeks);
   if (entries.length === 0) return "A";
 
-  const hoursOn = (v: VariantLite, date: string): number => {
+  // Un shift est ENCORE PERTINENT s'il est à venir (date future) ou aujourd'hui
+  // mais pas encore terminé (fin > maintenant).
+  const stillRelevant = (s: ShiftLite): boolean =>
+    s.date > today || (s.date === today && toMin(s.end_time) > nowMin);
+
+  // Heures d'aujourd'hui ENCORE faisables (shift non terminé).
+  const hoursTodayLeft = (v: VariantLite): number => {
     let h = 0;
-    for (const w of v.weeks ?? []) for (const s of w.shifts ?? []) if (s.date === date) h += s.hours ?? 0;
+    for (const w of v.weeks ?? [])
+      for (const s of w.shifts ?? [])
+        if (s.date === today && toMin(s.end_time) > nowMin) h += s.hours ?? 0;
     return h;
   };
+  // Clé du prochain shift PERTINENT (date + heure de début), pour départager.
   const soonest = (v: VariantLite): string | null => {
     let best: string | null = null;
     for (const w of v.weeks ?? [])
-      for (const s of w.shifts ?? [])
-        if (s.date >= today && (best === null || s.date < best)) best = s.date;
+      for (const s of w.shifts ?? []) {
+        if (!stillRelevant(s)) continue;
+        const key = `${s.date} ${(s.start_time ?? "00:00").slice(0, 5)}`;
+        if (best === null || key < best) best = key;
+      }
     return best;
   };
 
+  // (1) Variant qui fait travailler ENCORE aujourd'hui.
   const withToday = entries
-    .map((v) => ({ v, h: hoursOn(v, today) }))
+    .map((v) => ({ v, h: hoursTodayLeft(v) }))
     .filter((e) => e.h > 0.01);
   if (withToday.length) {
     withToday.sort((a, b) => b.h - a.h || a.v.label.localeCompare(b.v.label));
     return withToday[0].v.label;
   }
 
+  // (2) Variant dont le prochain shift pertinent est le plus proche.
   const withSoon = entries
     .map((v) => ({ v, d: soonest(v) }))
     .filter((e): e is { v: VariantLite; d: string } => !!e.d);
@@ -42,6 +67,7 @@ export function pickVariantForToday(variants: VariantLite[], today: string): str
     return withSoon[0].v.label;
   }
 
+  // (3) Fallback : premier variant.
   return entries[0].label;
 }
 
@@ -58,4 +84,15 @@ export function allVariantsOf(prop: {
   if (prop.variant_c) out.push({ ...prop.variant_c, label: prop.variant_c.label || "C" });
   for (const e of prop.variants_extra ?? []) if (e) out.push(e);
   return out;
+}
+
+/** Minutes écoulées depuis minuit à Bruxelles, pour `nowMin`. */
+export function brusselsNowMinutes(): number {
+  const hhmm = new Date().toLocaleTimeString("en-GB", {
+    timeZone: "Europe/Brussels",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return toMin(hhmm);
 }

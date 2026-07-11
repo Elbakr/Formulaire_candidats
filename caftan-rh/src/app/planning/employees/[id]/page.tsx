@@ -30,7 +30,7 @@ import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { PlanningProposalSection, type CurrentProposal, type PlanningTemplateLite } from "./planning-proposal-section";
 import { isGlobalAutoShiftActive } from "@/lib/auto-shift";
-import { pickVariantForToday, allVariantsOf } from "@/lib/pick-variant";
+import { pickVariantForToday, allVariantsOf, brusselsNowMinutes } from "@/lib/pick-variant";
 import { PlanningTabletAccessSection } from "./planning-tablet-access";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
@@ -219,7 +219,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       tabletMode = "auto_shift";
     } else if (empAutoVariant && planningProposal) {
       tabletMode = "auto_variant";
-      tabletActiveVariant = pickVariantForToday(allVariantsOf(planningProposal), todayBxl);
+      tabletActiveVariant = pickVariantForToday(allVariantsOf(planningProposal), todayBxl, brusselsNowMinutes());
     } else {
       tabletMode = "variant";
       tabletActiveVariant = planningProposal?.selected_variant ?? "A";

@@ -19,7 +19,7 @@ import {
 } from "@/lib/city";
 import { siteClosingTime } from "@/lib/scheduling/site-hours";
 import { isAutoShiftActiveFor } from "@/lib/auto-shift";
-import { pickVariantForToday, allVariantsOf } from "@/lib/pick-variant";
+import { pickVariantForToday, allVariantsOf, brusselsNowMinutes } from "@/lib/pick-variant";
 
 export type TabletBreak = { start: string; end: string };
 export type TabletShift = {
@@ -148,7 +148,7 @@ export async function resolvePlanningByCodeAction(
   const allV = allVariantsOf(prop) as Array<{ label: string; weeks?: TabletWeek[]; total_hours?: number }>;
   let label: string;
   if (autoVariant) {
-    label = pickVariantForToday(allV, today);
+    label = pickVariantForToday(allV, today, brusselsNowMinutes());
   } else {
     label = prop.selected_variant === "B" ? "B" : prop.selected_variant === "C" ? "C" : "A";
   }
