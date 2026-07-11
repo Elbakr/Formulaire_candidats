@@ -40,6 +40,7 @@ import { SendHiringDossierButton } from "./send-hiring-dossier-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { DocExpiryReminderBanner } from "./doc-expiry-banner";
+import { ResidenceFields } from "./residence-fields";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
@@ -334,6 +335,15 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         employeeId={id}
         expiry={(emp as { residence_doc_expiry: string | null }).residence_doc_expiry ?? null}
         reminderAt={(emp as { residence_doc_reminder_at: string | null }).residence_doc_reminder_at ?? null}
+      />
+
+      <ResidenceFields
+        employeeId={id}
+        nationality={(emp as { nationality: string | null }).nationality ?? null}
+        docType={(emp as { residence_doc_type: string | null }).residence_doc_type ?? null}
+        docExpiry={(emp as { residence_doc_expiry: string | null }).residence_doc_expiry ?? null}
+        docNumber={(emp as { residence_doc_number: string | null }).residence_doc_number ?? null}
+        workAuthorization={(emp as { work_authorization: string | null }).work_authorization ?? null}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
