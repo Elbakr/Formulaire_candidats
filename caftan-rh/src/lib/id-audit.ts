@@ -29,6 +29,7 @@ export type IdAuditResult = {
     missingNationality: number;
     workAuthToVerify: number;
     expiredOrExpiring: number;
+    postedToControl: number;
   };
 };
 
@@ -39,6 +40,7 @@ type SubjectRow = {
   nationality: string | null;
   residence_doc_type: string | null;
   residence_doc_expiry: string | null;
+  posted_worker?: boolean | null; // employés uniquement (détaché)
 };
 
 function ageFrom(bd: string | null | undefined, today: string): number | null {
@@ -64,7 +66,7 @@ async function gatherSubjects(
   if (kind === "employee") {
     const { data } = await admin
       .from("employees")
-      .select(`${SELECT}, end_date`)
+      .select(`${SELECT}, posted_worker, end_date`)
       .or(`end_date.is.null,end_date.gte.${today}`);
     rows = ((data ?? []) as Array<SubjectRow & { end_date: string | null }>).map(
       ({ end_date, ...r }) => r, // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -99,6 +101,7 @@ export async function runIdCardAudit(admin: SupabaseClient): Promise<IdAuditResu
     missingNationality: 0,
     workAuthToVerify: 0,
     expiredOrExpiring: 0,
+    postedToControl: 0,
   };
   const issues: IdAuditIssue[] = [];
   let checked = 0;
@@ -150,6 +153,12 @@ export async function runIdCardAudit(admin: SupabaseClient): Promise<IdAuditResu
         }
       }
 
+      // Travailleur détaché (employé) : Limosa + A1 à contrôler (vérif humaine).
+      if (kind === "employee" && e.posted_worker) {
+        problems.push("détaché : contrôler Limosa (L1) + certificat A1");
+        counts.postedToControl += 1;
+      }
+
       if (problems.length) {
         issues.push({ subjectId: e.id, kind, name: e.full_name ?? "?", problems });
       }
@@ -165,8 +174,8 @@ export function formatIdAuditBody(res: IdAuditResult): string {
   const header =
     `Contrôle de ${res.checked} personne(s) (employés courants + candidats pré-validés) : ${res.okCount} OK, ${res.issues.length} à vérifier.\n` +
     `Résumé — ${c.missingIdCard} sans CI · ${c.expiredOrExpiring} titre expiré/expirant · ` +
-    `${c.workAuthToVerify} droit au travail à vérifier (hors-UE) · ${c.minors} mineur(s) · ` +
-    `${c.missingBirthDate} sans date de naissance · ${c.missingNationality} sans nationalité.`;
+    `${c.workAuthToVerify} droit au travail à vérifier (hors-UE) · ${c.postedToControl} détaché(s) Limosa/A1 · ` +
+    `${c.minors} mineur(s) · ${c.missingBirthDate} sans date de naissance · ${c.missingNationality} sans nationalité.`;
   const list = res.issues
     .map((i) => `• ${i.name}${i.kind === "candidate" ? " (candidat)" : ""} : ${i.problems.join(" ; ")}`)
     .join("\n");

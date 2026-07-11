@@ -344,6 +344,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         docExpiry={(emp as { residence_doc_expiry: string | null }).residence_doc_expiry ?? null}
         docNumber={(emp as { residence_doc_number: string | null }).residence_doc_number ?? null}
         workAuthorization={(emp as { work_authorization: string | null }).work_authorization ?? null}
+        postedWorker={!!(emp as { posted_worker: boolean | null }).posted_worker}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">

@@ -45,3 +45,17 @@ export async function saveResidenceFieldAction(
   revalidatePath(`/planning/employees/${employeeId}`);
   return { ok: true, workStatus: wa.status };
 }
+
+/** Travailleur DÉTACHÉ (posté) : employeur étranger, Limosa + A1 requis. */
+export async function setPostedWorkerAction(
+  employeeId: string,
+  on: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (!employeeId) return { ok: false, error: "Travailleur manquant." };
+  const admin = createAdminClient();
+  const { error } = await admin.from("employees").update({ posted_worker: on }).eq("id", employeeId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/planning/employees/${employeeId}`);
+  return { ok: true };
+}

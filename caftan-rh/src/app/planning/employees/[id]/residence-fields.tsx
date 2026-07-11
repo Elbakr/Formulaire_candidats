@@ -5,10 +5,10 @@
 // serveur (affiché en direct). Alimente le rappel d'expiration (45 j avant).
 
 import { useState, useTransition } from "react";
-import { IdCard, Loader2, Check, ShieldCheck, ShieldAlert } from "lucide-react";
+import { IdCard, Loader2, Check, ShieldCheck, ShieldAlert, Plane } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
-import { saveResidenceFieldAction } from "./residence-actions";
+import { saveResidenceFieldAction, setPostedWorkerAction } from "./residence-actions";
 
 const DOC_TYPES = [
   { value: "", label: "—" },
@@ -32,6 +32,7 @@ export function ResidenceFields({
   docExpiry,
   docNumber,
   workAuthorization,
+  postedWorker,
 }: {
   employeeId: string;
   nationality: string | null;
@@ -39,10 +40,27 @@ export function ResidenceFields({
   docExpiry: string | null;
   docNumber: string | null;
   workAuthorization: string | null;
+  postedWorker: boolean;
 }) {
   const [work, setWork] = useState<string | null>(workAuthorization);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [posted, setPosted] = useState(postedWorker);
+  const [postedSaving, startPosted] = useTransition();
   const [, start] = useTransition();
+
+  function togglePosted() {
+    const next = !posted;
+    setPosted(next);
+    startPosted(async () => {
+      const r = await setPostedWorkerAction(employeeId, next);
+      if (r.error) {
+        setPosted(!next);
+        toast.error(r.error);
+      } else {
+        toast.success(next ? "Marqué détaché : Limosa + A1 requis." : "Détachement retiré.");
+      }
+    });
+  }
 
   function save(field: string, value: string) {
     setSavingKey(field);
@@ -124,6 +142,34 @@ export function ResidenceFields({
           rappel d&apos;expiration (45 j avant).
         </p>
       )}
+
+      {/* Travailleur détaché : Limosa + A1 requis. */}
+      <div className="border-t border-line pt-2 flex items-start gap-2">
+        <Plane className={`h-4 w-4 shrink-0 mt-0.5 ${posted ? "text-indigo-600" : "text-ink-3"}`} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] font-semibold text-ink">Travailleur détaché (employeur étranger)</div>
+          <p className="text-[11px] text-ink-2 leading-snug">
+            {posted
+              ? "Documents requis à contrôler : Limosa (L1) + certificat A1. Vérification humaine obligatoire."
+              : "Active si le travailleur est détaché en Belgique par un employeur étranger."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={togglePosted}
+          disabled={postedSaving}
+          aria-pressed={posted}
+          className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+            posted ? "bg-indigo-600" : "bg-ink-3/40"
+          }`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              posted ? "translate-x-5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
     </Card>
   );
 }
