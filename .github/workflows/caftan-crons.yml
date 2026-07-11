@@ -24,7 +24,7 @@ on:
     - cron: '0 3 * * *'      # scoring-recompute
     - cron: '0 8 * * *'      # daily-reminders, vip-birthdays, training-expiration-alerts, worker-followup, onboarding-followup
     - cron: '*/10 * * * *'   # sequences-tick, onboarding-sheet
-    - cron: '0 9 * * *'      # doc-chaser, special-day-preview, unassigned-employees-alert, signature-reminder
+    - cron: '0 9 * * *'      # doc-chaser, special-day-preview, unassigned-employees-alert, signature-reminder, doc-expiry-scan
     - cron: '*/5 * * * *'    # inbound-imap-poll, tuya-poll
     - cron: '0 6 * * *'      # anomaly-scan, dimona-reminder
     - cron: '* * * * *'      # auto-execute (de facto ~5-10 min)
@@ -78,7 +78,7 @@ jobs:
           MAP['0 3 * * *']='scoring-recompute'
           MAP['0 8 * * *']='daily-reminders vip-birthdays training-expiration-alerts pre-interview-reminder worker-followup onboarding-followup'
           MAP['*/10 * * * *']='sequences-tick onboarding-sheet'
-          MAP['0 9 * * *']='doc-chaser special-day-preview unassigned-employees-alert signature-reminder'
+          MAP['0 9 * * *']='doc-chaser special-day-preview unassigned-employees-alert signature-reminder doc-expiry-scan'
           MAP['*/5 * * * *']='inbound-imap-poll tuya-poll site-opening-empty reinforcement-cascade-next'
           MAP['0 6 * * *']='anomaly-scan dimona-reminder system-health'
           MAP['* * * * *']='auto-execute'

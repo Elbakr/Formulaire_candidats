@@ -39,6 +39,7 @@ import { SignContractButton } from "./sign-contract-button";
 import { SendHiringDossierButton } from "./send-hiring-dossier-button";
 import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
+import { DocExpiryReminderBanner } from "./doc-expiry-banner";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
@@ -327,6 +328,12 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         employeeName={(emp as { full_name: string }).full_name}
         contractSignedAt={latestContract?.signed_at ?? null}
         dimonaDone={dimonaDone}
+      />
+
+      <DocExpiryReminderBanner
+        employeeId={id}
+        expiry={(emp as { residence_doc_expiry: string | null }).residence_doc_expiry ?? null}
+        reminderAt={(emp as { residence_doc_reminder_at: string | null }).residence_doc_reminder_at ?? null}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
