@@ -310,6 +310,7 @@ export async function regeneratePlanningProposal(
           variant_a: proposal.variant_a,
           variant_b: proposal.variant_b,
           variant_c: proposal.variant_c,
+          variants_extra: proposal.variants_extra,
           selected_variant: null,
           status: "draft",
           schedule_recurrence: opts.scheduleRecurrence ?? null,

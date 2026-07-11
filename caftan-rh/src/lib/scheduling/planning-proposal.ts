@@ -89,7 +89,7 @@ export type ProposalWeek = {
 };
 
 export type ProposalVariant = {
-  label: "A" | "B" | "C";
+  label: string; // "A".."L" (au-delà de C = variants de couverture ouverture→fermeture)
   strategy: string; // description lisible (audit)
   weeks: ProposalWeek[];
   total_hours: number;
@@ -104,6 +104,10 @@ export type PlanningProposal = {
   variant_a: ProposalVariant;
   variant_b: ProposalVariant;
   variant_c: ProposalVariant; // Karim 2026-07-09 : « répartie sur toute la semaine »
+  // Karim 2026-07-11 : variants SUPPLÉMENTAIRES (D, E, F…) générés pour les petits
+  // contrats afin que l'UNION des variants couvre toute la plage ouverture→fermeture
+  // (10:15 → 19:45 site A / fermeture du site). Vide pour les volumes standards.
+  variants_extra: ProposalVariant[];
   reason: string | null; // non-null si best-effort (proposition vide/partielle)
 };
 
@@ -693,12 +697,151 @@ function fillWeekSequential(args: {
 
 /** Assemble une variante à partir de ses semaines déjà remplies. */
 function mkVariant(
-  label: "A" | "B" | "C",
+  label: string,
   strategy: string,
   weeksArr: ProposalWeek[],
 ): ProposalVariant {
   const total = weeksArr.reduce((s, w) => s + w.total_hours, 0);
   return { label, strategy, weeks: weeksArr, total_hours: Number(total.toFixed(2)) };
+}
+
+// ── Variants d'appoint : COUVERTURE ouverture→fermeture (petits contrats) ─────
+// Karim 2026-07-11 : quand A/B/C ne suffisent pas à couvrir toute la plage
+// 10:15 → fermeture (souvent le cas des petits volumes/semaine), on génère AUTANT
+// de variants supplémentaires (D, E, F…) que nécessaire pour que l'UNION des
+// variants couvre chaque jour ouvré du MATIN (ouverture) au SOIR (fermeture cible :
+// 19:45 si site principal = A, sinon fermeture du site). Ainsi l'étudiant a un
+// maximum de créneaux accessibles. Garde-fou : 12 variants au total.
+const OPEN_MIN = 10 * 60 + 15; // 10:15 — ouverture magasin (globalisée)
+const COVERAGE_TOTAL_CAP = 12; // A..L max
+
+function buildCoverageExtras(args: {
+  startDate: string;
+  weeks: number;
+  weeklyHours: number;
+  shiftHours: number;
+  fixedOffDays: Set<number>;
+  unavail: ProposalUnavailability[];
+  prayer: ProposalPrayerPause;
+  pauseMin: number;
+  brabant: boolean;
+  staggerRank: number;
+  closingFor: ClosingResolver;
+  siteCode: string | null;
+  base: ProposalVariant[]; // A/B/C déjà générés
+}): ProposalVariant[] {
+  const {
+    startDate, weeks, weeklyHours, shiftHours, fixedOffDays, unavail,
+    prayer, pauseMin, brabant, staggerRank, closingFor, siteCode, base,
+  } = args;
+  if (weeklyHours <= 0 || shiftHours <= 0) return [];
+
+  const isSiteA = (siteCode ?? "").trim().toUpperCase() === "A";
+  // Fermeture CIBLE de couverture : 19:45 pour un site A par défaut, sinon la
+  // fermeture réelle du site (site_needs / règle en dur), plafonnée à minuit.
+  const coverageClose = (iso: string): number =>
+    isSiteA ? timeToMin("19:45") : Math.min(DAY_MIN, closingFor(iso));
+
+  const openDays = computeAvailableDays(startDate, fixedOffDays, unavail); // semaine 0 (référence)
+
+  // Shifts A/B/C sur la semaine 0, indexés par date (pour repérer le déjà-couvert).
+  const byDate = new Map<string, ProposalShift[]>();
+  for (const v of base) {
+    for (const s of v.weeks[0]?.shifts ?? []) {
+      const a = byDate.get(s.date) ?? [];
+      a.push(s);
+      byDate.set(s.date, a);
+    }
+  }
+
+  // Ancres NON couvertes : par jour ouvré, un créneau MATIN (ouverture) et si besoin
+  // un créneau FERMETURE, seulement s'ils ne sont pas déjà couverts par A/B/C.
+  type Anchor = { dayOffset: number; kind: "morning" | "closing" };
+  const workedMinFull = Math.round(shiftHours * 60);
+  const anchors: Anchor[] = [];
+  for (const iso of openDays) {
+    const dayOffset = Math.round(
+      (Date.parse(iso + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86_400_000,
+    );
+    const closeMin = coverageClose(iso);
+    const dayShifts = byDate.get(iso) ?? [];
+
+    if (!dayShifts.some((s) => timeToMin(s.start_time) <= OPEN_MIN + 60)) {
+      anchors.push({ dayOffset, kind: "morning" });
+    }
+    const morningSpan = shiftSpanMin(iso, OPEN_MIN, workedMinFull, prayer, pauseMin);
+    if (OPEN_MIN + morningSpan < closeMin - 15) {
+      if (!dayShifts.some((s) => timeToMin(s.end_time) >= closeMin - 60)) {
+        anchors.push({ dayOffset, kind: "closing" });
+      }
+    }
+  }
+  if (anchors.length === 0) return [];
+
+  const maxExtra = Math.max(0, COVERAGE_TOTAL_CAP - base.length);
+  if (maxExtra === 0) return [];
+
+  // Bin-packing : UN SEUL shift par jour et par variant, remplit ~quota hebdo par
+  // variant. On ne met jamais deux créneaux du même jour dans la même variante
+  // (un travailleur ne fait pas 2 shifts/jour) — ils vont dans des variantes
+  // différentes, de sorte que l'UNION couvre matin ET fermeture de chaque jour.
+  type Bundle = { items: Array<Anchor & { worked: number }>; rem: number; days: Set<number> };
+  const bundles: Bundle[] = [];
+  for (const a of anchors) {
+    let placed = false;
+    for (const b of bundles) {
+      if (b.rem >= 0.25 && !b.days.has(a.dayOffset)) {
+        const worked = Math.min(shiftHours, b.rem);
+        b.items.push({ ...a, worked });
+        b.rem -= worked;
+        b.days.add(a.dayOffset);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      if (bundles.length >= maxExtra) break; // plafond atteint -> best-effort
+      const worked = Math.min(shiftHours, weeklyHours);
+      bundles.push({ items: [{ ...a, worked }], rem: weeklyHours - worked, days: new Set([a.dayOffset]) });
+    }
+  }
+
+  const LABELS = ["D", "E", "F", "G", "H", "I", "J", "K", "L"];
+  return bundles.slice(0, maxExtra).map((bundle, i) => {
+    const weeksArr: ProposalWeek[] = [];
+    for (let w = 0; w < weeks; w++) {
+      const ws = addDaysISO(startDate, w * 7);
+      const shifts: ProposalShift[] = [];
+      for (const it of bundle.items) {
+        const iso = addDaysISO(ws, it.dayOffset);
+        const wm = Math.round(it.worked * 60);
+        // MATIN : démarre à l'ouverture. FERMETURE : démarre pour FINIR à la
+        // fermeture cible (calé sur les heures réelles de ce créneau).
+        let startMin = OPEN_MIN;
+        if (it.kind === "closing") {
+          const closeMin = coverageClose(iso);
+          const span = shiftSpanMin(iso, Math.max(OPEN_MIN, closeMin - wm), wm, prayer, pauseMin);
+          startMin = Math.max(OPEN_MIN, closeMin - span);
+        }
+        const shift = placeAndBuildShift(
+          iso, startMin, it.worked, unavail, prayer, pauseMin, brabant, staggerRank,
+          (d) => coverageClose(d),
+        );
+        if (shift) shifts.push(shift);
+      }
+      shifts.sort((x, y) =>
+        x.date < y.date ? -1 : x.date > y.date ? 1 : x.start_time < y.start_time ? -1 : 1,
+      );
+      weeksArr.push({
+        week_index: w,
+        week_start: ws,
+        week_end: addDaysISO(ws, 6),
+        shifts,
+        total_hours: Number(shifts.reduce((s, x) => s + x.hours, 0).toFixed(2)),
+      });
+    }
+    return mkVariant(LABELS[i] ?? `V${base.length + i + 1}`, "Créneaux d'appoint pour couvrir l'ouverture→fermeture", weeksArr);
+  });
 }
 
 // ── RENFORT / heures supplémentaires (helper pur) ────────────────────────────
@@ -859,6 +1002,7 @@ export function generatePlanningProposal(input: {
       variant_a: emptyVariant("A"),
       variant_b: emptyVariant("B"),
       variant_c: emptyVariant("C"),
+      variants_extra: [],
       reason: `Proposition non générée : renseigne ${missing.join(", ")} sur la fiche.`,
     };
   }
@@ -957,6 +1101,30 @@ export function generatePlanningProposal(input: {
     );
   }
 
+  // Karim 2026-07-11 : si A/B/C ne couvrent pas toute la plage ouverture→fermeture
+  // (petits contrats), on ajoute AUTANT de variants d'appoint (D, E, F…) que
+  // nécessaire pour couvrir chaque jour ouvré du matin au soir. Vide si déjà couvert.
+  const variants_extra = buildCoverageExtras({
+    startDate: input.startDate,
+    weeks,
+    weeklyHours,
+    shiftHours,
+    fixedOffDays,
+    unavail,
+    prayer,
+    pauseMin,
+    brabant,
+    staggerRank,
+    closingFor,
+    siteCode,
+    base: [variantA, variantB, variantC],
+  });
+  if (variants_extra.length > 0) {
+    reasons.push(
+      `${variants_extra.length} variant(s) d'appoint ajouté(s) pour couvrir l'ouverture→fermeture (petit volume horaire).`,
+    );
+  }
+
   return {
     start_date: input.startDate,
     weeks,
@@ -966,6 +1134,7 @@ export function generatePlanningProposal(input: {
     variant_a: variantA,
     variant_b: variantB,
     variant_c: variantC,
+    variants_extra,
     reason: reasons.length > 0 ? reasons.join(" ") : null,
   };
 }

@@ -59,7 +59,7 @@ type ProposalWeek = {
   total_hours: number;
 };
 type ProposalVariant = {
-  label: "A" | "B" | "C";
+  label: string; // "A".."L"
   strategy: string;
   weeks: ProposalWeek[];
   total_hours: number;
@@ -70,6 +70,7 @@ export type CurrentProposal = {
   variant_a: ProposalVariant;
   variant_b: ProposalVariant;
   variant_c: ProposalVariant | null; // null pour les propositions d'avant variant_c
+  variants_extra?: ProposalVariant[] | null; // D, E, F… (couverture ouverture→fermeture)
   selected_variant: "A" | "B" | "C" | null;
   reason: string | null;
   generated_at: string;
@@ -166,8 +167,8 @@ export function PlanningProposalSection({
   autoVariant: boolean;
   /** Mode réellement affiché sur la tablette AUJOURD'HUI (calculé serveur). */
   tabletMode: "auto_shift" | "auto_variant" | "variant";
-  /** Variant réellement affiché (null en Auto-Shift). */
-  tabletActiveVariant: "A" | "B" | "C" | null;
+  /** Variant réellement affiché (null en Auto-Shift ; peut être D+ en Auto-Variant). */
+  tabletActiveVariant: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -352,7 +353,35 @@ export function PlanningProposalSection({
                 de pointe) disponible après une nouvelle génération.
               </div>
             )}
+            {(proposal.variants_extra ?? []).map((v) => (
+              <VariantCard
+                key={v.label}
+                employeeId={employeeId}
+                variant={v}
+                title={`Variante ${v.label} — appoint`}
+                subtitle={v.strategy}
+                weeklyHours={proposal.weekly_hours ?? null}
+                defaultStartTime={proposal.default_start_time ?? null}
+                defaultShiftHours={proposal.default_shift_hours ?? null}
+                weeks={proposal.weeks}
+                isDefault={false}
+                onSetDefault={() => {}}
+                savingDefault={false}
+                showDefaultToggle={false}
+                isActiveOnTablet={tabletMode !== "auto_shift" && tabletActiveVariant === v.label}
+              />
+            ))}
           </div>
+          {(proposal.variants_extra ?? []).length > 0 ? (
+            <p className="text-[11px] text-ink-2 mt-2 flex items-start gap-1.5">
+              <span className="text-gold-dark">➕</span>
+              <span>
+                <strong>{(proposal.variants_extra ?? []).length} variante(s) d&apos;appoint</strong> (D, E…)
+                ajoutée(s) : le volume horaire est faible, ces variantes complètent la couverture
+                <strong> ouverture → fermeture</strong> (10h15 → 19h45 site A / fermeture du site).
+              </span>
+            </p>
+          ) : null}
           </>
         )}
 
@@ -574,7 +603,7 @@ function TabletActiveBanner({
   variant,
 }: {
   mode: "auto_shift" | "auto_variant" | "variant";
-  variant: "A" | "B" | "C" | null;
+  variant: string | null;
 }) {
   const isShift = mode === "auto_shift";
   const isAuto = mode === "auto_variant";
@@ -620,6 +649,7 @@ function VariantCard({
   onSetDefault,
   savingDefault,
   isActiveOnTablet = false,
+  showDefaultToggle = true,
 }: {
   employeeId: string;
   variant: ProposalVariant;
@@ -634,6 +664,8 @@ function VariantCard({
   savingDefault: boolean;
   /** Ce variant est-il celui RÉELLEMENT affiché sur la tablette aujourd'hui ? */
   isActiveOnTablet?: boolean;
+  /** Afficher le radio « planning par défaut » (non pertinent pour les appoints). */
+  showDefaultToggle?: boolean;
 }) {
   const [saving, startSave] = useTransition();
 
@@ -678,30 +710,33 @@ function VariantCard({
           📱 Affiché en ce moment sur la tablette
         </div>
       ) : null}
-      {/* PHASE 2 : case à cocher « planning par défaut visible sur la tablette ». */}
-      <label
-        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer border-b border-line ${
-          isDefault ? "bg-gold-light/60" : "bg-surface-2/60 hover:bg-surface-2"
-        }`}
-      >
-        <input
-          type="radio"
-          name={`default-variant-${employeeId}`}
-          checked={isDefault}
-          onChange={onSetDefault}
-          disabled={savingDefault}
-          className="h-4 w-4 accent-gold-dark"
-        />
-        <span className="text-[11px] font-semibold text-ink-2">
-          Planning par défaut (tablette)
-        </span>
-        {isDefault ? (
-          <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-gold-dark">
-            {savingDefault ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            Sélectionné
+      {/* PHASE 2 : case à cocher « planning par défaut visible sur la tablette ».
+          Masquée pour les variantes d'appoint (non sélectionnables par défaut). */}
+      {showDefaultToggle ? (
+        <label
+          className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer border-b border-line ${
+            isDefault ? "bg-gold-light/60" : "bg-surface-2/60 hover:bg-surface-2"
+          }`}
+        >
+          <input
+            type="radio"
+            name={`default-variant-${employeeId}`}
+            checked={isDefault}
+            onChange={onSetDefault}
+            disabled={savingDefault}
+            className="h-4 w-4 accent-gold-dark"
+          />
+          <span className="text-[11px] font-semibold text-ink-2">
+            Planning par défaut (tablette)
           </span>
-        ) : null}
-      </label>
+          {isDefault ? (
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-gold-dark">
+              {savingDefault ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              Sélectionné
+            </span>
+          ) : null}
+        </label>
+      ) : null}
       <div className="bg-surface-2 px-3 py-2 flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-bold text-ink">

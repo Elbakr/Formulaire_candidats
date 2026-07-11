@@ -30,7 +30,7 @@ import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { PlanningProposalSection, type CurrentProposal, type PlanningTemplateLite } from "./planning-proposal-section";
 import { isGlobalAutoShiftActive } from "@/lib/auto-shift";
-import { pickVariantForToday } from "@/lib/pick-variant";
+import { pickVariantForToday, allVariantsOf } from "@/lib/pick-variant";
 import { PlanningTabletAccessSection } from "./planning-tablet-access";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
@@ -157,7 +157,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     const [{ data: propRaw }, { data: tplRaw }] = await Promise.all([
       adminPp
         .from("planning_proposals")
-        .select("start_date, weeks, variant_a, variant_b, variant_c, selected_variant, reason, generated_at, generated_by")
+        .select("start_date, weeks, variant_a, variant_b, variant_c, variants_extra, selected_variant, reason, generated_at, generated_by")
         .eq("employee_id", id)
         .maybeSingle(),
       adminPp
@@ -174,6 +174,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         variant_a: p.variant_a as NonNullable<CurrentProposal>["variant_a"],
         variant_b: p.variant_b as NonNullable<CurrentProposal>["variant_b"],
         variant_c: (p.variant_c as NonNullable<CurrentProposal>["variant_c"]) ?? null,
+        variants_extra: (p.variants_extra as NonNullable<CurrentProposal>["variants_extra"]) ?? [],
         selected_variant: (p.selected_variant as "A" | "B" | "C" | null) ?? null,
         reason: (p.reason as string | null) ?? null,
         generated_at: p.generated_at as string,
@@ -211,14 +212,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
   const empAutoShift = !!(emp as { auto_shift: boolean | null }).auto_shift;
   const empAutoVariant = !!(emp as { auto_variant: boolean | null }).auto_variant;
   let tabletMode: "auto_shift" | "auto_variant" | "variant" = "variant";
-  let tabletActiveVariant: "A" | "B" | "C" | null = null;
+  let tabletActiveVariant: string | null = null;
   try {
     const globalAS = await isGlobalAutoShiftActive();
     if (empAutoShift || globalAS) {
       tabletMode = "auto_shift";
     } else if (empAutoVariant && planningProposal) {
       tabletMode = "auto_variant";
-      tabletActiveVariant = pickVariantForToday(planningProposal, todayBxl);
+      tabletActiveVariant = pickVariantForToday(allVariantsOf(planningProposal), todayBxl);
     } else {
       tabletMode = "variant";
       tabletActiveVariant = planningProposal?.selected_variant ?? "A";

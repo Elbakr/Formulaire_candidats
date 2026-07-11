@@ -19,7 +19,7 @@ import {
 } from "@/lib/city";
 import { siteClosingTime } from "@/lib/scheduling/site-hours";
 import { isAutoShiftActiveFor } from "@/lib/auto-shift";
-import { pickVariantForToday } from "@/lib/pick-variant";
+import { pickVariantForToday, allVariantsOf } from "@/lib/pick-variant";
 
 export type TabletBreak = { start: string; end: string };
 export type TabletShift = {
@@ -43,7 +43,7 @@ export type TabletWeek = {
 };
 export type TabletPlanning = {
   first_name: string;
-  variant: "A" | "B" | "C";
+  variant: string; // "A".."L" (label du variant affiché)
   weeks: TabletWeek[];
   total_hours: number;
   // Karim 2026-07-10 : contexte "site du jour". `default_city` = ville déduite
@@ -117,14 +117,16 @@ export async function resolvePlanningByCodeAction(
 
   const { data: propRaw } = await admin
     .from("planning_proposals")
-    .select("variant_a, variant_b, variant_c, selected_variant")
+    .select("variant_a, variant_b, variant_c, variants_extra, selected_variant")
     .eq("employee_id", emp.id)
     .maybeSingle();
+  type VarRow = { label?: string; weeks?: TabletWeek[]; total_hours?: number } | null;
   const prop = propRaw as
     | {
-        variant_a: unknown;
-        variant_b: unknown;
-        variant_c: unknown;
+        variant_a: VarRow;
+        variant_b: VarRow;
+        variant_c: VarRow;
+        variants_extra: Array<{ label?: string; weeks?: TabletWeek[]; total_hours?: number }> | null;
         selected_variant: "A" | "B" | "C" | null;
       }
     | null;
@@ -140,23 +142,18 @@ export async function resolvePlanningByCodeAction(
   const today = brusselsToday();
   const autoVariant = emp.auto_variant === true;
 
-  // Karim 2026-07-11 : en AUTO-VARIANT, on choisit le variant qui répond le mieux
-  // à la SITUATION DU JOUR (shift aujourd'hui > prochain shift le plus proche > A).
-  // Sinon : variant coché par défaut ('A' si rien, retombe sur A si C absent).
-  let variant: "A" | "B" | "C";
+  // Tous les variants (A/B/C + appoints D…). En AUTO-VARIANT on choisit celui qui
+  // répond le mieux à AUJOURD'HUI (shift du jour > prochain plus proche). Sinon :
+  // variant coché par défaut ('A' si rien).
+  const allV = allVariantsOf(prop) as Array<{ label: string; weeks?: TabletWeek[]; total_hours?: number }>;
+  let label: string;
   if (autoVariant) {
-    variant = pickVariantForToday(prop, today);
+    label = pickVariantForToday(allV, today);
   } else {
-    const sel = prop.selected_variant;
-    variant = sel === "B" ? "B" : sel === "C" ? "C" : "A";
+    label = prop.selected_variant === "B" ? "B" : prop.selected_variant === "C" ? "C" : "A";
   }
-  let chosen = (variant === "C" ? prop.variant_c : variant === "B" ? prop.variant_b : prop.variant_a) as
-    | { weeks?: TabletWeek[]; total_hours?: number }
-    | null;
-  if (!chosen) {
-    variant = "A";
-    chosen = prop.variant_a as { weeks?: TabletWeek[]; total_hours?: number } | null;
-  }
+  const chosen = allV.find((v) => v.label === label) ?? allV[0] ?? null;
+  const variant = chosen?.label ?? "A";
 
   const weeks = markToday((chosen?.weeks ?? []) as TabletWeek[], today);
   const totalHours =
