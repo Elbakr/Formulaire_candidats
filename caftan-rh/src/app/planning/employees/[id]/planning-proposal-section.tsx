@@ -349,8 +349,8 @@ export function PlanningProposalSection({
               />
             ) : (
               <div className="rounded-lg border border-dashed border-line p-3 flex items-center justify-center text-center text-[11px] text-ink-3 italic">
-                Variante C (complète les jours dispos oubliés par A/B, puis heures
-                de pointe) disponible après une nouvelle génération.
+                Variante C (suite exacte de B, 100 % du quota) disponible après une
+                nouvelle génération.
               </div>
             )}
             {(proposal.variants_extra ?? []).map((v) => (
@@ -358,7 +358,7 @@ export function PlanningProposalSection({
                 key={v.label}
                 employeeId={employeeId}
                 variant={v}
-                title={`Variante ${v.label} — appoint`}
+                title={`Variante ${v.label}`}
                 subtitle={v.strategy}
                 weeklyHours={proposal.weekly_hours ?? null}
                 defaultStartTime={proposal.default_start_time ?? null}
@@ -376,9 +376,10 @@ export function PlanningProposalSection({
             <p className="text-[11px] text-ink-2 mt-2 flex items-start gap-1.5">
               <span className="text-gold-dark">➕</span>
               <span>
-                <strong>{(proposal.variants_extra ?? []).length} variante(s) d&apos;appoint</strong> (D, E…)
-                ajoutée(s) : le volume horaire est faible, ces variantes complètent la couverture
-                <strong> ouverture → fermeture</strong> (10h15 → 19h45 site A / fermeture du site).
+                <strong>{(proposal.variants_extra ?? []).length} variante(s) supplémentaire(s)</strong> (D, E…) :
+                chacune couvre <strong>100 % du quota hebdomadaire</strong> et suit le
+                <strong> flux séquentiel</strong> (reprend au jour+heure où la précédente s&apos;arrête).
+                Aucune n&apos;est un appoint partiel.
               </span>
             </p>
           ) : null}

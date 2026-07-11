@@ -463,124 +463,6 @@ function computeAvailableDays(
 
 const MIN_SHIFT_MIN = 15; // pas de micro-shift < 15 min
 
-// ── Heures de pointe (variante C, phase 2) ───────────────────────────────────
-// Karim 2026-07-11 : après avoir comblé les jours DÉCLARÉS DISPO oubliés par A et
-// B, la variante C place le RESTE des heures sur les HEURES DE POINTE : 14:00–18:30
-// en général, mais en ÉTÉ (juin–août) la pointe démarre plus tard (~15:00).
-const PEAK_END_MIN = 18 * 60 + 30; // fin de pointe 18:30
-
-/** Heure de début de pointe (minutes) selon la saison de la date. */
-function peakStartMin(iso: string): number {
-  const month = Number(iso.slice(5, 7));
-  const summer = month >= 6 && month <= 8; // juin–août
-  return summer ? 15 * 60 : 14 * 60; // été 15:00, sinon 14:00
-}
-
-/** Ordonne les jours dispos : WEEK-END d'abord (samedi/dimanche = pointe commerce),
- *  puis la semaine, chronologiquement. */
-function orderPeakDays(available: string[]): string[] {
-  const weekend = available.filter((d) => {
-    const w = jsDowOf(d);
-    return w === 0 || w === 6;
-  });
-  const week = available.filter((d) => {
-    const w = jsDowOf(d);
-    return w !== 0 && w !== 6;
-  });
-  return [...weekend, ...week];
-}
-
-// ── Variante C : combler les dispos oubliées par A/B, puis heures de pointe ───
-// Karim 2026-07-11 : C a un DOUBLE rôle, dans cet ordre de priorité :
-//   1) COMPLÉTER les jours déclarés dispos que NI A NI B ne reprennent (ex. le
-//      jeudi de Salima) — aucune disponibilité déclarée ne doit être gaspillée ;
-//   2) répartir le RESTE du quota sur les HEURES DE POINTE (week-end d'abord),
-//      shift démarrant à 14:00 (été 15:00), fin plafonnée à 18:30 (et à la
-//      fermeture réelle du site).
-// Un même jour n'est pas utilisé deux fois dans C.
-function fillWeekVariantC(args: {
-  weekIndex: number;
-  weekStartISO: string;
-  weeklyHours: number;
-  startMin: number;
-  shiftHours: number;
-  fixedOffDays: Set<number>;
-  unavail: ProposalUnavailability[];
-  prayer: ProposalPrayerPause;
-  pauseMin: number;
-  brabant: boolean;
-  staggerRank: number;
-  closingFor: ClosingResolver;
-  /** Jours déjà couverts par A OU B (on comble le reste en priorité). */
-  usedABDates: Set<string>;
-}): ProposalWeek {
-  const {
-    weekIndex,
-    weekStartISO,
-    weeklyHours,
-    startMin,
-    shiftHours,
-    fixedOffDays,
-    unavail,
-    prayer,
-    pauseMin,
-    brabant,
-    staggerRank,
-    closingFor,
-    usedABDates,
-  } = args;
-
-  const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
-  const EPS = 0.25;
-  const shifts: ProposalShift[] = [];
-  const usedC = new Set<string>();
-  let remaining = weeklyHours;
-
-  // Phase 1 : combler les jours déclarés dispos oubliés par A ET B (chronologique).
-  const missing = available.filter((d) => !usedABDates.has(d));
-  for (const iso of missing) {
-    if (remaining <= EPS) break;
-    const want = Math.min(shiftHours, remaining);
-    const shift = placeAndBuildShift(
-      iso, startMin, want, unavail, prayer, pauseMin, brabant, staggerRank, closingFor,
-    );
-    if (shift) {
-      shifts.push(shift);
-      usedC.add(iso);
-      remaining -= shift.hours;
-    }
-  }
-
-  // Phase 2 : le reste des heures sur les HEURES DE POINTE (fermeture resserrée à
-  // 18:30). Week-end d'abord ; on saute les jours déjà pris par la phase 1.
-  if (remaining > EPS) {
-    const peakClosing: ClosingResolver = (d) => Math.min(closingFor(d), PEAK_END_MIN);
-    for (const iso of orderPeakDays(available)) {
-      if (remaining <= EPS) break;
-      if (usedC.has(iso)) continue;
-      const want = Math.min(shiftHours, remaining);
-      const shift = placeAndBuildShift(
-        iso, peakStartMin(iso), want, unavail, prayer, pauseMin, brabant, staggerRank, peakClosing,
-      );
-      if (shift) {
-        shifts.push(shift);
-        usedC.add(iso);
-        remaining -= shift.hours;
-      }
-    }
-  }
-
-  shifts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const total = shifts.reduce((s, x) => s + x.hours, 0);
-  return {
-    week_index: weekIndex,
-    week_start: weekStartISO,
-    week_end: addDaysISO(weekStartISO, 6),
-    shifts,
-    total_hours: Number(total.toFixed(2)),
-  };
-}
-
 // ── Remplissage SÉQUENTIEL d'UNE semaine, curseur horaire A -> B -> C ─────────
 // Karim 2026-07-11 : les variantes forment un FLUX D'HEURES CONTINU. B reprend
 // EXACTEMENT au jour ET à l'heure où A s'arrête (ex. A finit lundi 15:15 -> B
@@ -634,12 +516,27 @@ function fillWeekSequential(args: {
   const EPS = 0.25; // 15 min : ni quota résiduel ni shift en dessous.
 
   let dayIdx = 0;
-  let cursor = startMin; // heure de début sur le jour courant (available[dayIdx])
+  let cursor = startMin; // heure de début sur le jour courant (available[dayIdx % n])
 
+  // Karim 2026-07-11 (RÈGLE FERME) : le flux séquentiel est CONSERVÉ (chaque variante
+  // reprend au jour+heure EXACTS où la précédente s'arrête), MAIS chaque variante doit
+  // couvrir 100 % du quota. Quand le curseur atteint la fin de la semaine sans avoir
+  // rempli le quota, il ENROULE sur le début de la semaine (jours non encore utilisés
+  // PAR CETTE variante) jusqu'à compléter le quota. Aucune variante d'appoint.
   for (let v = 0; v < numVariants; v++) {
     let remaining = weeklyHours;
-    while (remaining > EPS && dayIdx < available.length) {
-      const iso = available[dayIdx];
+    const usedDays = new Set<string>(); // jours déjà pris DANS cette variante
+    const maxSteps = available.length * 2 + 4; // garde-fou anti-boucle
+    let steps = 0;
+    while (remaining > EPS && available.length > 0 && steps < maxSteps) {
+      steps++;
+      const iso = available[dayIdx % available.length];
+      if (usedDays.has(iso)) {
+        // Jour déjà utilisé par CETTE variante -> jour suivant (enroulement).
+        dayIdx++;
+        cursor = startMin;
+        continue;
+      }
       const want = Math.min(remaining, shiftHours);
       if (want < EPS) break;
       const shift = placeAndBuildShift(
@@ -660,13 +557,14 @@ function fillWeekSequential(args: {
         continue;
       }
       perVariant[v].push(shift);
+      usedDays.add(iso);
       remaining -= shift.hours;
       const endMin = timeToMin(shift.end_time);
       const closingMin = Math.min(DAY_MIN, closingFor(iso));
       const reachedClosing = endMin >= closingMin - 1;
       if (remaining <= EPS && !reachedClosing) {
         // Quota atteint EN MILIEU DE JOURNÉE : le curseur reste ici -> la variante
-        // suivante enchaîne CE jour à cette heure (handoff exact).
+        // suivante enchaîne CE jour à cette heure (handoff exact = mode séquentiel).
         cursor = endMin;
         break;
       }
@@ -699,165 +597,8 @@ function mkVariant(
   return { label, strategy, weeks: weeksArr, total_hours: Number(total.toFixed(2)) };
 }
 
-// ── Variants d'appoint : COUVERTURE ouverture→fermeture (petits contrats) ─────
-// Karim 2026-07-11 : quand A/B/C ne suffisent pas à couvrir toute la plage
-// 10:15 → fermeture (souvent le cas des petits volumes/semaine), on génère AUTANT
-// de variants supplémentaires (D, E, F…) que nécessaire pour que l'UNION des
-// variants couvre chaque jour ouvré du MATIN (ouverture) au SOIR (fermeture cible :
-// 19:45 si site principal = A, sinon fermeture du site). Ainsi l'étudiant a un
-// maximum de créneaux accessibles. Garde-fou : 12 variants au total.
-const OPEN_MIN = 10 * 60 + 15; // 10:15 — ouverture magasin (globalisée)
 const COVERAGE_TOTAL_CAP = 12; // A..L max
 
-function buildCoverageExtras(args: {
-  startDate: string;
-  weeks: number;
-  weeklyHours: number;
-  startMin: number;
-  shiftHours: number;
-  fixedOffDays: Set<number>;
-  unavail: ProposalUnavailability[];
-  prayer: ProposalPrayerPause;
-  pauseMin: number;
-  brabant: boolean;
-  staggerRank: number;
-  closingFor: ClosingResolver;
-  siteCode: string | null;
-  base: ProposalVariant[]; // A/B/C déjà générés
-}): ProposalVariant[] {
-  const {
-    startDate, weeks, weeklyHours, startMin, shiftHours, fixedOffDays, unavail,
-    prayer, pauseMin, brabant, staggerRank, closingFor, siteCode, base,
-  } = args;
-  if (weeklyHours <= 0 || shiftHours <= 0) return [];
-
-  const isSiteA = (siteCode ?? "").trim().toUpperCase() === "A";
-  // Fermeture CIBLE de couverture : 19:45 pour un site A par défaut, sinon la
-  // fermeture réelle du site (site_needs / règle en dur), plafonnée à minuit.
-  const coverageClose = (iso: string): number =>
-    isSiteA ? timeToMin("19:45") : Math.min(DAY_MIN, closingFor(iso));
-
-  const openDays = computeAvailableDays(startDate, fixedOffDays, unavail); // semaine 0 (référence)
-
-  // Shifts A/B/C sur la semaine 0, indexés par date (pour repérer le déjà-couvert).
-  const byDate = new Map<string, ProposalShift[]>();
-  for (const v of base) {
-    for (const s of v.weeks[0]?.shifts ?? []) {
-      const a = byDate.get(s.date) ?? [];
-      a.push(s);
-      byDate.set(s.date, a);
-    }
-  }
-
-  // Ancres NON couvertes : par jour ouvré, un créneau MATIN (ouverture) et si besoin
-  // un créneau FERMETURE, seulement s'ils ne sont pas déjà couverts par A/B/C.
-  type Anchor = { dayOffset: number; kind: "morning" | "closing" };
-  const workedMinFull = Math.round(shiftHours * 60);
-  const anchors: Anchor[] = [];
-  for (const iso of openDays) {
-    const dayOffset = Math.round(
-      (Date.parse(iso + "T00:00:00Z") - Date.parse(startDate + "T00:00:00Z")) / 86_400_000,
-    );
-    const closeMin = coverageClose(iso);
-    const dayShifts = byDate.get(iso) ?? [];
-
-    // Couverture RÉELLE (shifts A/B/C existants) — pas hypothétique.
-    const morningCovered = dayShifts.some((s) => timeToMin(s.start_time) <= OPEN_MIN + 60);
-    const closingCovered = dayShifts.some((s) => timeToMin(s.end_time) >= closeMin - 60);
-    // Une seule prestation depuis l'ouverture peut-elle atteindre la fermeture ?
-    const morningSpan = shiftSpanMin(iso, OPEN_MIN, workedMinFull, prayer, pauseMin);
-    const oneShiftCoversDay = OPEN_MIN + morningSpan >= closeMin - 15;
-
-    if (!morningCovered) anchors.push({ dayOffset, kind: "morning" });
-    // Créneau FERMETURE requis dès que la fin de journée n'est pas couverte par les
-    // shifts RÉELS (ex. samedi de Salima : B finit 14:45, fermeture 19:45 -> trou).
-    // Exception : si une seule prestation matin (qu'on vient d'ajouter) couvre déjà
-    // toute la journée jusqu'à la fermeture, pas besoin d'un 2e créneau.
-    if (!closingCovered && !(oneShiftCoversDay && !morningCovered)) {
-      anchors.push({ dayOffset, kind: "closing" });
-    }
-  }
-  if (anchors.length === 0) return [];
-
-  const maxExtra = Math.max(0, COVERAGE_TOTAL_CAP - base.length);
-  if (maxExtra === 0) return [];
-
-  // Karim 2026-07-11 : chaque variant d'appoint est un PLANNING COMPLET (quota hebdo
-  // ENTIER). Il INCLUT le créneau non couvert (« graine » : matin ou fermeture d'un
-  // jour), puis remplit le RESTE du quota sur les autres jours dispos au début par
-  // défaut. Ainsi TOUS les variants couvrent 100 % des heures contractuelles, et
-  // l'union couvre l'ouverture→fermeture.
-  const LABELS = ["D", "E", "F", "G", "H", "I", "J", "K", "L"];
-  const variants: ProposalVariant[] = [];
-  for (const anchor of anchors) {
-    if (variants.length >= maxExtra) break;
-    const weeksArr: ProposalWeek[] = [];
-    for (let w = 0; w < weeks; w++) {
-      const ws = addDaysISO(startDate, w * 7);
-      const available = computeAvailableDays(ws, fixedOffDays, unavail);
-      const shifts: ProposalShift[] = [];
-      const used = new Set<string>();
-      let remaining = weeklyHours;
-
-      // 1) GRAINE : le créneau non couvert (matin à l'ouverture, ou fermeture calée
-      //    pour finir à la fermeture cible).
-      const seedIso = addDaysISO(ws, anchor.dayOffset);
-      if (available.includes(seedIso)) {
-        const want = Math.min(shiftHours, remaining);
-        let seedStart = OPEN_MIN;
-        if (anchor.kind === "closing") {
-          const closeMin = coverageClose(seedIso);
-          const wm = Math.round(want * 60);
-          const span = shiftSpanMin(seedIso, Math.max(OPEN_MIN, closeMin - wm), wm, prayer, pauseMin);
-          seedStart = Math.max(OPEN_MIN, closeMin - span);
-        }
-        const seed = placeAndBuildShift(
-          seedIso, seedStart, want, unavail, prayer, pauseMin, brabant, staggerRank,
-          (d) => coverageClose(d),
-        );
-        if (seed) {
-          shifts.push(seed);
-          used.add(seedIso);
-          remaining -= seed.hours;
-        }
-      }
-
-      // 2) REMPLIT LE RESTE du quota sur les autres jours dispos (début par défaut).
-      for (const iso of available) {
-        if (remaining <= 0.25) break;
-        if (used.has(iso)) continue;
-        const want = Math.min(shiftHours, remaining);
-        const shift = placeAndBuildShift(
-          iso, startMin, want, unavail, prayer, pauseMin, brabant, staggerRank, closingFor,
-        );
-        if (shift) {
-          shifts.push(shift);
-          used.add(iso);
-          remaining -= shift.hours;
-        }
-      }
-
-      shifts.sort((x, y) =>
-        x.date < y.date ? -1 : x.date > y.date ? 1 : x.start_time < y.start_time ? -1 : 1,
-      );
-      weeksArr.push({
-        week_index: w,
-        week_start: ws,
-        week_end: addDaysISO(ws, 6),
-        shifts,
-        total_hours: Number(shifts.reduce((s, x) => s + x.hours, 0).toFixed(2)),
-      });
-    }
-    variants.push(
-      mkVariant(
-        LABELS[variants.length] ?? `V${base.length + variants.length + 1}`,
-        "Planning complet incluant un créneau ouverture→fermeture d'appoint",
-        weeksArr,
-      ),
-    );
-  }
-  return variants;
-}
 
 // ── RENFORT / heures supplémentaires (helper pur) ────────────────────────────
 // Karim 2026-07-09 : les 3 variantes portent sur des JOURS DIFFÉRENTS et se
@@ -1024,14 +765,28 @@ export function generatePlanningProposal(input: {
 
   const startMin = timeToMin(startTime!);
 
-  // Karim 2026-07-11 : A et B = FLUX D'HEURES CONTINU (B reprend au jour+heure
-  // EXACTS où A s'arrête, ex. A finit lundi 15:15 -> B commence lundi 15:15).
-  // C a un DOUBLE rôle : (1) COMPLÉTER les jours déclarés dispos qu'aucune des deux
-  // ne reprend (ex. le jeudi de Salima), puis (2) répartir le reste sur les HEURES
-  // DE POINTE (14:00 / été 15:00 -> 18:30, week-end d'abord).
-  const weeksA: ProposalWeek[] = [];
-  const weeksB: ProposalWeek[] = [];
-  const weeksC: ProposalWeek[] = [];
+  // Karim 2026-07-11 (RÈGLE FERME) : TOUTES les variantes sont issues du FLUX
+  // SÉQUENTIEL (B reprend au jour+heure EXACTS où A s'arrête, C au bout de B, etc.)
+  // ET couvrent CHACUNE 100 % du quota hebdomadaire (enroulement si besoin). Il n'y a
+  // AUCUNE variante d'appoint/partielle. On en génère assez pour tuiler toute la
+  // semaine disponible (davantage de choix pour les petits volumes), plafond 12.
+  const week0Avail = computeAvailableDays(input.startDate, fixedOffDays, unavail);
+  const capacityH = week0Avail.length * shiftHours; // capacité approx. de la semaine
+  // +1 : une variante de plus que le strict « tuilage » pour offrir un choix
+  // supplémentaire (le dédoublonnage retire ensuite les doublons exacts).
+  const numVariants = Math.min(
+    COVERAGE_TOTAL_CAP,
+    Math.max(3, weeklyHours > 0 ? Math.ceil(capacityH / weeklyHours) + 1 : 3),
+  );
+
+  const LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+  const strategyFor = (i: number): string =>
+    i === 0
+      ? "Premières heures disponibles (remplit le quota à partir du 1er jour dispo)"
+      : `Suite exacte de ${LABELS[i - 1]} : reprend au jour et à l'heure où ${LABELS[i - 1]} s'arrête (100 % du quota)`;
+
+  // Remplit chaque semaine avec N variantes séquentielles, puis assemble par variante.
+  const weeksByVariant: ProposalWeek[][] = Array.from({ length: numVariants }, () => []);
   for (let w = 0; w < weeks; w++) {
     const weekStartISO = addDaysISO(input.startDate, w * 7);
     const seq = fillWeekSequential({
@@ -1047,97 +802,53 @@ export function generatePlanningProposal(input: {
       brabant,
       staggerRank,
       closingFor,
-      numVariants: 2, // A et B ; C est construite à part (comblement + pointe)
+      numVariants,
     });
-    const weekA = seq[0];
-    const weekB = seq[1];
-    weeksA.push(weekA);
-    weeksB.push(weekB);
-
-    const usedABDates = new Set<string>([
-      ...weekA.shifts.map((s) => s.date),
-      ...weekB.shifts.map((s) => s.date),
-    ]);
-    weeksC.push(
-      fillWeekVariantC({
-        weekIndex: w,
-        weekStartISO,
-        weeklyHours,
-        startMin,
-        shiftHours,
-        fixedOffDays,
-        unavail,
-        prayer,
-        pauseMin,
-        brabant,
-        staggerRank,
-        closingFor,
-        usedABDates,
-      }),
-    );
+    seq.forEach((week, v) => weeksByVariant[v].push(week));
   }
 
-  const variantA = mkVariant(
-    "A",
-    "Premières heures disponibles (remplit le quota à partir du 1er jour dispo)",
-    weeksA,
-  );
-  const variantB = mkVariant(
-    "B",
-    "Suite exacte de A : reprend au jour et à l'heure où A s'arrête",
-    weeksB,
-  );
-  const variantC = mkVariant(
-    "C",
-    "Complète les jours dispos oubliés par A/B, puis heures de pointe (14:00 / été 15:00 – 18:30)",
-    weeksC,
-  );
+  // Assemble, puis DÉDUPLIQUE les variantes identiques (même suite exacte de shifts).
+  const allVariants: ProposalVariant[] = [];
+  const seenSig = new Set<string>();
+  for (let i = 0; i < numVariants; i++) {
+    const v = mkVariant(LABELS[i] ?? `V${i + 1}`, strategyFor(i), weeksByVariant[i]);
+    if ((v.weeks[0]?.shifts.length ?? 0) === 0) continue; // variante vide -> ignorer
+    const sig = JSON.stringify(
+      v.weeks.map((wk) => wk.shifts.map((s) => `${s.date}|${s.start_time}|${s.end_time}`)),
+    );
+    if (seenSig.has(sig)) continue;
+    seenSig.add(sig);
+    allVariants.push(v);
+  }
+  // Ré-étiquette A, B, C… dans l'ordre après dédup.
+  allVariants.forEach((v, i) => {
+    v.label = LABELS[i] ?? `V${i + 1}`;
+    v.strategy = strategyFor(i);
+  });
+  // Le type garantit A/B/C : si la dédup a trop réduit (aucune marge), complète.
+  while (allVariants.length < 3) {
+    allVariants.push(emptyVariant(LABELS[allVariants.length] ?? `V${allVariants.length + 1}`));
+  }
 
-  // Raison best-effort : proposition partielle (jours dispo insuffisants) ou
-  // variantes identiques (pas de marge : jours dispo = jours nécessaires).
+  const variantA = allVariants[0];
+  const variantB = allVariants[1];
+  const variantC = allVariants[2];
+  const variants_extra = allVariants.slice(3);
+
+  // Raison best-effort : semaines partielles (jours dispo insuffisants) ou peu de marge.
   const reasons: string[] = [];
-  // Tolérance 0.5h : le handoff horaire (A->B) peut laisser ~15 min de reliquat
-  // sans que ce soit une vraie semaine partielle. On ne signale que A et B (C est
-  // la variante de complément/pointe, dont la longueur dépend du reste à couvrir).
-  const anyPartial = [...variantA.weeks, ...variantB.weeks].some(
-    (w) => w.total_hours < weeklyHours - 0.5,
+  const anyPartial = allVariants.some((v) =>
+    v.weeks.some((wk) => wk.shifts.length > 0 && wk.total_hours < weeklyHours - 0.5),
   );
   if (anyPartial) {
     reasons.push(
-      "Certaines semaines n'atteignent pas le quota (pas assez de jours disponibles après OFF / indispos).",
+      "Certaines variantes n'atteignent pas le quota (pas assez de jours disponibles après OFF / indispos).",
     );
   }
-  const sameShape =
-    JSON.stringify(variantA.weeks.map((w) => w.shifts.map((s) => s.date))) ===
-    JSON.stringify(variantB.weeks.map((w) => w.shifts.map((s) => s.date)));
-  if (sameShape) {
+  const distinct = allVariants.filter((v) => (v.weeks[0]?.shifts.length ?? 0) > 0).length;
+  if (distinct < 2) {
     reasons.push(
-      "Variantes identiques : aucune marge (jours disponibles = jours nécessaires). B = A.",
-    );
-  }
-
-  // Karim 2026-07-11 : si A/B/C ne couvrent pas toute la plage ouverture→fermeture
-  // (petits contrats), on ajoute AUTANT de variants d'appoint (D, E, F…) que
-  // nécessaire pour couvrir chaque jour ouvré du matin au soir. Vide si déjà couvert.
-  const variants_extra = buildCoverageExtras({
-    startDate: input.startDate,
-    weeks,
-    weeklyHours,
-    startMin,
-    shiftHours,
-    fixedOffDays,
-    unavail,
-    prayer,
-    pauseMin,
-    brabant,
-    staggerRank,
-    closingFor,
-    siteCode,
-    base: [variantA, variantB, variantC],
-  });
-  if (variants_extra.length > 0) {
-    reasons.push(
-      `${variants_extra.length} variant(s) d'appoint ajouté(s) pour couvrir l'ouverture→fermeture (petit volume horaire).`,
+      "Une seule variante distincte : aucune marge (jours disponibles = jours nécessaires).",
     );
   }
 
