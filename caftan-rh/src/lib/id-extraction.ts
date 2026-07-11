@@ -7,7 +7,7 @@ import "server-only";
 // travail ici : voir lib/work-authorization.ts + escalade admin.
 
 import { createAdminClient } from "@/lib/supabase/server";
-import { callAnthropicVision, isAnthropicConfigured } from "@/lib/ai/providers/anthropic";
+import { callAnthropicVision, callAnthropicPdf, isAnthropicConfigured } from "@/lib/ai/providers/anthropic";
 
 export type ExtractedId = {
   doc_type: "ci_belge" | "titre_sejour" | "passeport" | "autre" | null;
@@ -100,29 +100,55 @@ export async function extractIdDocument(
       expectsJson: true,
       maxTokens: 800,
     });
-    const o = (res.output ?? {}) as Record<string, unknown>;
-    const data: ExtractedId = {
-      doc_type: (["ci_belge", "titre_sejour", "passeport", "autre"].includes(String(o.doc_type))
-        ? (o.doc_type as ExtractedId["doc_type"])
-        : null),
-      first_name: strOrNull(o.first_name),
-      last_name: strOrNull(o.last_name),
-      full_name:
-        strOrNull(o.full_name) ??
-        ([strOrNull(o.first_name), strOrNull(o.last_name)].filter(Boolean).join(" ") || null),
-      birth_date: isoOrNull(o.birth_date),
-      sex: strOrNull(o.sex),
-      birth_place: strOrNull(o.birth_place),
-      nationality: strOrNull(o.nationality),
-      nrn: strOrNull(o.nrn),
-      doc_number: strOrNull(o.doc_number),
-      expiry_date: isoOrNull(o.expiry_date),
-      authorizes_work:
-        typeof o.authorizes_work === "boolean" ? o.authorizes_work : null,
-      confidence: typeof o.confidence === "number" ? Math.max(0, Math.min(1, o.confidence)) : 0.5,
-    };
-    return { ok: true, data, cost_usd: res.cost_usd };
+    return { ok: true, data: mapExtractionOutput(res.output), cost_usd: res.cost_usd };
   } catch (e) {
     return { ok: false, error: `Extraction impossible : ${(e as Error).message}` };
   }
+}
+
+/** Extraction depuis un PDF (CI stockée recto/verso fusionnée). Claude lit le PDF nativement. */
+export async function extractIdDocumentFromPdf(pdfBase64: string): Promise<ExtractResult> {
+  if (!isAnthropicConfigured()) {
+    return { ok: false, error: "Extraction IA indisponible (clé API non configurée)." };
+  }
+  const data64 = stripDataUrl(pdfBase64 ?? "");
+  if (!data64) return { ok: false, error: "PDF vide." };
+  try {
+    const model = await resolveModel();
+    const res = await callAnthropicPdf({
+      model,
+      system: SYSTEM,
+      user: "Extrais les champs de ce document d'identité (PDF recto/verso) selon le schéma JSON demandé.",
+      pdfBase64: data64,
+      expectsJson: true,
+      maxTokens: 800,
+    });
+    return { ok: true, data: mapExtractionOutput(res.output), cost_usd: res.cost_usd };
+  } catch (e) {
+    return { ok: false, error: `Extraction impossible : ${(e as Error).message}` };
+  }
+}
+
+/** Normalise la sortie brute du modèle en ExtractedId (commun images/PDF). */
+function mapExtractionOutput(rawOutput: unknown): ExtractedId {
+  const o = (rawOutput ?? {}) as Record<string, unknown>;
+  return {
+    doc_type: ["ci_belge", "titre_sejour", "passeport", "autre"].includes(String(o.doc_type))
+      ? (o.doc_type as ExtractedId["doc_type"])
+      : null,
+    first_name: strOrNull(o.first_name),
+    last_name: strOrNull(o.last_name),
+    full_name:
+      strOrNull(o.full_name) ??
+      ([strOrNull(o.first_name), strOrNull(o.last_name)].filter(Boolean).join(" ") || null),
+    birth_date: isoOrNull(o.birth_date),
+    sex: strOrNull(o.sex),
+    birth_place: strOrNull(o.birth_place),
+    nationality: strOrNull(o.nationality),
+    nrn: strOrNull(o.nrn),
+    doc_number: strOrNull(o.doc_number),
+    expiry_date: isoOrNull(o.expiry_date),
+    authorizes_work: typeof o.authorizes_work === "boolean" ? o.authorizes_work : null,
+    confidence: typeof o.confidence === "number" ? Math.max(0, Math.min(1, o.confidence)) : 0.5,
+  };
 }

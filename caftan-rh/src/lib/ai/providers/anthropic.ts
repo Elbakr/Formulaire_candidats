@@ -161,6 +161,55 @@ export async function callAnthropicVision(args: AnthropicVisionArgs): Promise<An
   return { output, raw_text, tokens_in, tokens_out, cost_usd, model: args.model };
 }
 
+export type AnthropicPdfArgs = {
+  model: string;
+  system: string;
+  user: string;
+  /** PDF en base64 (sans préfixe data:). */
+  pdfBase64: string;
+  expectsJson?: boolean;
+  maxTokens?: number;
+};
+
+/**
+ * Variante DOCUMENT (PDF) de callAnthropic. Claude lit nativement le PDF (bloc
+ * `document`) — pas besoin de rasteriser. Sert à extraire les CI stockées en PDF.
+ */
+export async function callAnthropicPdf(args: AnthropicPdfArgs): Promise<AnthropicCallResult> {
+  const c = getClient();
+  const userContent = [
+    {
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: args.pdfBase64 },
+    },
+    { type: "text", text: args.user },
+  ] as unknown as Anthropic.MessageParam["content"];
+
+  const resp = await c.messages.create({
+    model: args.model,
+    max_tokens: args.maxTokens ?? 1000,
+    system: [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  const raw_text = resp.content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("\n")
+    .trim();
+
+  let output: unknown = raw_text;
+  if (args.expectsJson) output = parseJsonOrThrow(raw_text);
+
+  const tokens_in =
+    (resp.usage?.input_tokens ?? 0) +
+    (resp.usage?.cache_creation_input_tokens ?? 0) +
+    (resp.usage?.cache_read_input_tokens ?? 0);
+  const tokens_out = resp.usage?.output_tokens ?? 0;
+  const cost_usd = computeCostUsd(args.model, tokens_in, tokens_out);
+
+  return { output, raw_text, tokens_in, tokens_out, cost_usd, model: args.model };
+}
+
 function parseJsonOrThrow(text: string): unknown {
   // Strip markdown fences if any
   let t = text.trim();

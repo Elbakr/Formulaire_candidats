@@ -11,6 +11,9 @@ import { DocumentsTable, type DocumentRow } from "./documents-table";
 import { IdAuditButton } from "./id-audit-button";
 
 export const dynamic = "force-dynamic";
+// Karim 2026-07-11 : l'extraction IA en lot (server action de cette route) fait
+// plusieurs appels Claude -> on autorise jusqu'à 60 s d'exécution.
+export const maxDuration = 60;
 
 const MAX_ROWS = 500;
 
