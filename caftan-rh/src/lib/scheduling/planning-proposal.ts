@@ -313,6 +313,7 @@ function placeAndBuildShift(
   brabant: boolean,
   staggerRank: number,
   closingFor: ClosingResolver,
+  minShiftMin: number = MIN_SHIFT_MIN,
 ): ProposalShift | null {
   if (isFullDayBlocked(iso, unavail)) return null;
   const workedMin = Math.round(workedHours * 60);
@@ -333,7 +334,7 @@ function placeAndBuildShift(
     // shift trop long (ex. créneau fermeture) est simplement raccourci.
     const addition = shiftSpanMin(iso, start, workedMin, prayer, pauseMin) - workedMin;
     const placeMin = Math.min(workedMin, hardEnd - start - addition);
-    if (placeMin < MIN_SHIFT_MIN) continue; // trop peu de place ici -> fenêtre suivante
+    if (placeMin < minShiftMin) continue; // sous le shift minimum conforme -> fenêtre suivante
     return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, closingFor);
   }
   return null;
@@ -461,7 +462,16 @@ function computeAvailableDays(
   );
 }
 
-const MIN_SHIFT_MIN = 15; // pas de micro-shift < 15 min
+const MIN_SHIFT_MIN = 15; // plancher technique (fallback) : pas de micro-shift < 15 min
+
+// ── Conformité belge (Karim 2026-07-11) ──────────────────────────────────────
+// Un shift ne peut PAS être inférieur à 3 h (règle de conformité). EXCEPTION : les
+// ÉTUDIANTS peuvent prester des mini-shifts (on les motive dès qu'ils ont un petit
+// moment de libre) -> plancher abaissé. Le minimum d'heures/semaine (13 h, hors
+// étudiant) est VÉRIFIÉ et signalé dans `reason` (jamais forcé en silence).
+const CONFORM_MIN_SHIFT_MIN = 3 * 60; // 3 h — shift minimum conforme (non-étudiant)
+const STUDENT_MIN_SHIFT_MIN = 30; // étudiant : mini-shift autorisé (30 min)
+const MIN_WEEKLY_HOURS = 13; // minimum légal d'heures/semaine (hors étudiant)
 
 // ── Remplissage SÉQUENTIEL d'UNE semaine, curseur horaire A -> B -> C ─────────
 // Karim 2026-07-11 : les variantes forment un FLUX D'HEURES CONTINU. B reprend
@@ -493,7 +503,8 @@ function fillWeekSequential(args: {
   brabant: boolean;
   staggerRank: number;
   closingFor: ClosingResolver;
-  numVariants: number; // 2 (C = alternative ailleurs) ou 3
+  numVariants: number;
+  minShiftMin: number; // shift minimum conforme (3 h non-étudiant, plus bas étudiant)
 }): ProposalWeek[] {
   const {
     weekIndex,
@@ -509,7 +520,9 @@ function fillWeekSequential(args: {
     staggerRank,
     closingFor,
     numVariants,
+    minShiftMin,
   } = args;
+  const minShiftH = minShiftMin / 60;
 
   const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
   const perVariant: ProposalShift[][] = Array.from({ length: numVariants }, () => []);
@@ -537,11 +550,37 @@ function fillWeekSequential(args: {
         cursor = startMin;
         continue;
       }
-      const want = Math.min(remaining, shiftHours);
+      let want = Math.min(remaining, shiftHours);
+      // Conformité : ne pas laisser de reliquat sous le shift minimum (sinon la
+      // dernière prestation serait < 3 h). On raccourcit ce shift pour que le reste
+      // soit nul OU ≥ au minimum conforme.
+      const leftover = remaining - want;
+      if (leftover > EPS && leftover < minShiftH) {
+        const adj = remaining - minShiftH;
+        if (adj >= minShiftH) want = adj;
+      }
       if (want < EPS) break;
+
+      // Karim 2026-07-11 : PAUSE VENDREDI. Un PETIT shift du vendredi qui tient
+      // entièrement APRÈS la pause prière (fermeture hebdo de ce jour) est démarré
+      // APRÈS celle-ci (on évite un mini-shift du matin coupé par la prière).
+      let desiredStart = cursor;
+      const pw = prayer.enabled ? prayerPauseForISO(iso, prayer) : null;
+      if (pw) {
+        const pauseEndMin = timeToMin(pw.end);
+        const closeMin = Math.min(DAY_MIN, closingFor(iso));
+        const wm = Math.round(want * 60);
+        if (
+          cursor <= pauseEndMin &&
+          pauseEndMin + shiftSpanMin(iso, pauseEndMin, wm, prayer, pauseMin) <= closeMin
+        ) {
+          desiredStart = pauseEndMin;
+        }
+      }
+
       const shift = placeAndBuildShift(
         iso,
-        cursor,
+        desiredStart,
         want,
         unavail,
         prayer,
@@ -549,6 +588,7 @@ function fillWeekSequential(args: {
         brabant,
         staggerRank,
         closingFor,
+        minShiftMin,
       );
       if (!shift) {
         // Fenêtre trop courte depuis le curseur -> jour suivant, début par défaut.
@@ -703,8 +743,15 @@ export function generatePlanningProposal(input: {
    *  (= max des `end_time` du site ce jour, plafonné à 20:00), construite par le
    *  store. Prioritaire sur `siteCode`. Jours absents -> fallback règle en dur. */
   siteClosings?: Record<number, string> | null;
+  /** Travailleur ÉTUDIANT (contract_type ~ "Étudiant") : autorise les mini-shifts
+   *  (< 3 h) et exempte du minimum de 13 h/semaine. Défaut false = régime conforme
+   *  (shift ≥ 3 h, min 13 h/sem signalé). */
+  isStudent?: boolean;
 }): PlanningProposal {
   const weeks = input.weeks ?? 3;
+  const isStudent = input.isStudent === true;
+  // Shift minimum conforme : 3 h (non-étudiant), abaissé pour les étudiants.
+  const minShiftMin = isStudent ? STUDENT_MIN_SHIFT_MIN : CONFORM_MIN_SHIFT_MIN;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
   const fixedOffDays = new Set<number>((input.fixedOffDays ?? []).filter((n) => n >= 0 && n <= 6));
   const unavail = input.unavailabilities ?? [];
@@ -803,6 +850,7 @@ export function generatePlanningProposal(input: {
       staggerRank,
       closingFor,
       numVariants,
+      minShiftMin,
     });
     seq.forEach((week, v) => weeksByVariant[v].push(week));
   }
@@ -849,6 +897,13 @@ export function generatePlanningProposal(input: {
   if (distinct < 2) {
     reasons.push(
       "Une seule variante distincte : aucune marge (jours disponibles = jours nécessaires).",
+    );
+  }
+  // Conformité : minimum légal de 13 h/semaine (hors étudiant). On SIGNALE, on ne
+  // force jamais (le contrat reste la source de vérité — à corriger côté admin).
+  if (!isStudent && weeklyHours > 0 && weeklyHours < MIN_WEEKLY_HOURS) {
+    reasons.push(
+      `⚠️ Conformité : ${weeklyHours} h/semaine est sous le minimum légal de ${MIN_WEEKLY_HOURS} h (hors étudiant) — à vérifier/corriger sur le contrat.`,
     );
   }
 

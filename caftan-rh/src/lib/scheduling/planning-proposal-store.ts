@@ -37,6 +37,7 @@ type EmpRow = {
   default_shift_hours: number | null;
   default_pause_minutes: number | null;
   fixed_off_days: number[] | null;
+  contract_type: string | null;
 };
 
 // Magasins « Brabant » (rue de Brabant, Schaerbeek) — non-chevauchement des pauses
@@ -219,7 +220,7 @@ export async function regeneratePlanningProposal(
   try {
     const { data: empRaw } = await admin
       .from("employees")
-      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, default_pause_minutes, fixed_off_days")
+      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, default_pause_minutes, fixed_off_days, contract_type")
       .eq("id", employeeId)
       .maybeSingle();
     const emp = empRaw as EmpRow | null;
@@ -288,6 +289,8 @@ export async function regeneratePlanningProposal(
       // dur) pour les jours sans donnée `site_needs`.
       siteCode,
       siteClosings,
+      // Conformité : étudiant -> mini-shifts autorisés + exempté du min 13 h/sem.
+      isStudent: /tudiant/i.test(emp.contract_type ?? ""),
     });
 
     // Échelonnement Brabant : la table `shifts` ne stocke pas les fenêtres de
