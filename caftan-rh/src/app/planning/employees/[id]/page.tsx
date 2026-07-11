@@ -41,6 +41,7 @@ import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { DocExpiryReminderBanner } from "./doc-expiry-banner";
 import { ResidenceFields } from "./residence-fields";
+import { DocumentsEbookViewer } from "./documents-ebook";
 import { getEmployeeExpiringItems } from "@/lib/doc-expiry-reminder";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
@@ -126,6 +127,35 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       idCardExisting = { fileName: ci.file_name, at: ci.created_at };
       const { data: s } = await adminCi.storage.from("documents").createSignedUrl(ci.storage_path, 60 * 60);
       idCardDownloadUrl = s?.signedUrl ?? null;
+    }
+  } catch {
+    /* non bloquant */
+  }
+
+  // Karim 2026-07-11 : tous les documents du travailleur (CI, Limosa, A1…) + URL
+  // signée, pour la visionneuse « ebook » (défilement des pages sur la fiche).
+  let workerDocs: Array<{ id: string; label: string; url: string; isPdf: boolean; kind: string; iaStatus: string | null }> = [];
+  try {
+    const adminDocs = createAdminClient();
+    const { data: dl } = await adminDocs
+      .from("documents")
+      .select("id, file_name, kind, storage_path, mime_type, created_at, ia_status")
+      .eq("employee_id", id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    for (const d of (dl ?? []) as Array<{ id: string; file_name: string | null; kind: string | null; storage_path: string; mime_type: string | null; ia_status: string | null }>) {
+      if (/^https?:\/\//i.test(d.storage_path)) continue;
+      const { data: s } = await adminDocs.storage.from("documents").createSignedUrl(d.storage_path, 60 * 60);
+      if (!s?.signedUrl) continue;
+      const isPdf = /pdf/i.test(d.mime_type ?? "") || d.storage_path.toLowerCase().endsWith(".pdf");
+      workerDocs.push({
+        id: d.id,
+        label: d.file_name || d.kind || "Document",
+        url: s.signedUrl,
+        isPdf,
+        kind: d.kind ?? "",
+        iaStatus: d.ia_status,
+      });
     }
   } catch {
     /* non bloquant */
@@ -355,6 +385,8 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         workAuthorization={(emp as { work_authorization: string | null }).work_authorization ?? null}
         postedWorker={!!(emp as { posted_worker: boolean | null }).posted_worker}
       />
+
+      {workerDocs.length > 0 ? <DocumentsEbookViewer docs={workerDocs} /> : null}
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Button asChild variant="ghost" size="sm">

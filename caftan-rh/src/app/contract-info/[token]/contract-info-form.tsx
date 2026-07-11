@@ -6,6 +6,7 @@ import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
 import { IdCardUpload, type IdExtractedFields } from "@/components/id-card-upload";
+import { WorkerDocumentUpload } from "./document-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
 import { reverseGeocodeAction } from "@/lib/geocode-actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
@@ -806,6 +807,34 @@ export function ContractInfoForm({
           </p>
           <IdCardUpload kind="token" token={token} existing={idCardExisting} onExtracted={applyExtracted} />
         </div>
+
+        {/* Karim 2026-07-11 : documents de DÉTACHEMENT (Limosa + A1) — à remplir
+            uniquement si le travailleur est détaché par un employeur étranger. */}
+        <div>
+          <div className="text-sm font-bold text-ink mb-1">
+            {locale === "nl" ? "Detacheringsdocumenten (indien van toepassing)" : "Documents de détachement (si concerné)"}
+          </div>
+          <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
+            {locale === "nl"
+              ? "Als je door een buitenlandse werkgever gedetacheerd bent, laad hier je Limosa (L1) en A1-attest op."
+              : "Si tu es détaché(e) par un employeur étranger, dépose ici ta Limosa (L1) et ton certificat A1."}
+          </p>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <WorkerDocumentUpload
+              token={token}
+              kind="limosa"
+              title="Limosa (L1)"
+              hint={locale === "nl" ? "Limosa-melding (L1), pdf of foto." : "Déclaration Limosa (L1), PDF ou photo."}
+            />
+            <WorkerDocumentUpload
+              token={token}
+              kind="a1"
+              title={locale === "nl" ? "A1-attest" : "Certificat A1"}
+              hint={locale === "nl" ? "A1-formulier, pdf of foto." : "Formulaire A1, PDF ou photo."}
+            />
+          </div>
+        </div>
+
         <UnavailabilitiesStep token={token} initialItems={initialUnavailabilities} onDone={finish} />
         {/* Karim 2026-07-05 : la « case pour ajouter quelque chose » vit ICI, à la
             toute fin du parcours (plus au milieu), avec un vrai champ de saisie. */}
