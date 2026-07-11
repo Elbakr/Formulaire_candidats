@@ -73,7 +73,10 @@ export async function getEmployeeExpiringItems(
 
   const today = brusselsToday();
   const within = addDaysISO(today, MAX_WINDOW_DAYS);
-  const floor = addDaysISO(today, -7); // inclut l'échéance récente
+  // Karim 2026-07-11 : sur la FICHE (envoi manuel), on inclut AUSSI les titres déjà
+  // expirés depuis longtemps (un titre expiré reste une situation à régulariser). Le
+  // plancher -7 j précédent bloquait l'envoi pour une carte expirée depuis des mois.
+  const floor = addDaysISO(today, -3650);
 
   const items: ExpiringItem[] = [];
   if (e?.residence_doc_expiry && e.residence_doc_expiry <= within && e.residence_doc_expiry >= floor) {

@@ -21,7 +21,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Mail } from "lucide-react";
 import { saveResidenceFieldAction, setPostedWorkerAction } from "./residence-actions";
+import { sendResidenceUpdateRequestAction } from "./residence-request-actions";
 import { EU_EEA_CH_NATIONALITIES, OTHER_NATIONALITIES } from "@/lib/nationalities";
 
 const DOC_TYPES = [
@@ -79,6 +82,15 @@ export function ResidenceFields({
   const [posted, setPosted] = useState(postedWorker);
   const [postedSaving, startPosted] = useTransition();
   const [, start] = useTransition();
+  const [sending, startSend] = useTransition();
+
+  function sendUpdateRequest() {
+    startSend(async () => {
+      const r = await sendResidenceUpdateRequestAction(employeeId);
+      if (r.ok) toast.success(`Mail envoyé au travailleur${r.to ? ` (${r.to})` : ""}.`);
+      else toast.error(r.error ?? "Échec de l'envoi.");
+    });
+  }
 
   // Resync depuis les props après une extraction IA (router.refresh côté bouton).
   useEffect(() => setNat(nationality ?? ""), [nationality]);
@@ -187,11 +199,32 @@ export function ResidenceFields({
         ) : (
           <IdCard className="h-4 w-4 shrink-0 mt-0.5" />
         )}
-        <span>
-          {danger ? "⚠️ " : ""}
-          Droit au travail : <strong>{bannerText}</strong>
-          {(danger || warn) && nonEu ? " Décision finale humaine (admin)." : ""}
-        </span>
+        <div className="min-w-0 flex-1">
+          <span>
+            {danger ? "⚠️ " : ""}
+            Droit au travail : <strong>{bannerText}</strong>
+            {(danger || warn) && nonEu ? " Décision finale humaine (admin)." : ""}
+          </span>
+          {danger || warn || posted ? (
+            <div className="mt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={danger ? "danger" : "outline"}
+                onClick={sendUpdateRequest}
+                disabled={sending}
+                title="Envoyer un mail au travailleur : alerte + demande d'upload de la nouvelle carte de séjour (+ Limosa/A1 si détaché)"
+              >
+                {sending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Mail className="h-3.5 w-3.5 mr-1" />}
+                Demander la mise à jour au travailleur
+              </Button>
+              <p className="text-[10px] text-ink-3 mt-1">
+                Mail bilingue (FR/NL) : alerte + lien pour déposer la nouvelle carte de séjour valide
+                {posted ? " + Limosa (L1) et A1" : ""}. Envoi manuel, 1 clic.
+              </p>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">
