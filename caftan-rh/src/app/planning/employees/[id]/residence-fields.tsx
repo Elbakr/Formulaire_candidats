@@ -9,6 +9,7 @@ import { IdCard, Loader2, Check, ShieldCheck, ShieldAlert, Plane } from "lucide-
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { saveResidenceFieldAction, setPostedWorkerAction } from "./residence-actions";
+import { EU_EEA_CH_NATIONALITIES, OTHER_NATIONALITIES } from "@/lib/nationalities";
 
 const DOC_TYPES = [
   { value: "", label: "—" },
@@ -89,11 +90,29 @@ export function ResidenceFields({
         <Field label="Nationalité" saving={savingKey === "nationality"}>
           <input
             type="text"
+            list="nationalities-list"
             defaultValue={nationality ?? ""}
-            placeholder="ex. Belge, Marocaine…"
+            placeholder="Choisir dans la liste…"
+            onChange={(e) => {
+              // Sélection dans la liste = enregistre direct ; sinon au blur.
+              const v = e.currentTarget.value;
+              if (EU_EEA_CH_NATIONALITIES.includes(v) || OTHER_NATIONALITIES.includes(v)) save("nationality", v);
+            }}
             onBlur={(e) => save("nationality", e.currentTarget.value)}
             className="w-full px-2 py-1.5 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
           />
+          <datalist id="nationalities-list">
+            <optgroup label="UE / EEE / Suisse (droit au travail direct)">
+              {EU_EEA_CH_NATIONALITIES.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </optgroup>
+            <optgroup label="Hors UE (titre de séjour requis)">
+              {OTHER_NATIONALITIES.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </optgroup>
+          </datalist>
         </Field>
         <Field label="Type de document" saving={savingKey === "residence_doc_type"}>
           <select
