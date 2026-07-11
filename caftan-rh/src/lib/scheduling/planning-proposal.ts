@@ -766,14 +766,20 @@ function buildCoverageExtras(args: {
     const closeMin = coverageClose(iso);
     const dayShifts = byDate.get(iso) ?? [];
 
-    if (!dayShifts.some((s) => timeToMin(s.start_time) <= OPEN_MIN + 60)) {
-      anchors.push({ dayOffset, kind: "morning" });
-    }
+    // Couverture RÉELLE (shifts A/B/C existants) — pas hypothétique.
+    const morningCovered = dayShifts.some((s) => timeToMin(s.start_time) <= OPEN_MIN + 60);
+    const closingCovered = dayShifts.some((s) => timeToMin(s.end_time) >= closeMin - 60);
+    // Une seule prestation depuis l'ouverture peut-elle atteindre la fermeture ?
     const morningSpan = shiftSpanMin(iso, OPEN_MIN, workedMinFull, prayer, pauseMin);
-    if (OPEN_MIN + morningSpan < closeMin - 15) {
-      if (!dayShifts.some((s) => timeToMin(s.end_time) >= closeMin - 60)) {
-        anchors.push({ dayOffset, kind: "closing" });
-      }
+    const oneShiftCoversDay = OPEN_MIN + morningSpan >= closeMin - 15;
+
+    if (!morningCovered) anchors.push({ dayOffset, kind: "morning" });
+    // Créneau FERMETURE requis dès que la fin de journée n'est pas couverte par les
+    // shifts RÉELS (ex. samedi de Salima : B finit 14:45, fermeture 19:45 -> trou).
+    // Exception : si une seule prestation matin (qu'on vient d'ajouter) couvre déjà
+    // toute la journée jusqu'à la fermeture, pas besoin d'un 2e créneau.
+    if (!closingCovered && !(oneShiftCoversDay && !morningCovered)) {
+      anchors.push({ dayOffset, kind: "closing" });
     }
   }
   if (anchors.length === 0) return [];
