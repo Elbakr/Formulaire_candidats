@@ -1,17 +1,15 @@
-// Karim 2026-07-11 : scan quotidien des titres de séjour / CI arrivant à
-// expiration. 45 j avant l'échéance (pendant le contrat), NOTIFIE L'ADMIN pour
-// qu'il VALIDE l'envoi du rappel au travailleur (bouton 1-clic sur la fiche).
-// AUCUN envoi automatique au travailleur ici (kill-switch respecté).
-// Anti-spam : 1 notif admin par travailleur / 30 jours.
+// Karim 2026-07-11 : scan quotidien des documents (titre de séjour + valise :
+// Limosa, A1…) arrivant à expiration. Paliers 45 / 30 / 15 / 7 j + DATE LIMITE :
+// à chaque nouveau palier franchi, NOTIFIE L'ADMIN pour qu'il VALIDE l'envoi du
+// rappel au travailleur (« mets à jour pour poursuivre le travail »). AUCUN envoi
+// automatique au travailleur (kill-switch respecté). Palier stocké = anti-spam.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { notifyRoles } from "@/lib/notify";
-import { findExpiringWorkers, daysUntil, DOC_EXPIRY_WINDOW_DAYS } from "@/lib/doc-expiry-reminder";
+import { scanExpiringEmployees } from "@/lib/doc-expiry-reminder";
 
 export const dynamic = "force-dynamic";
-
-const DEDUP_DAYS = 30;
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -21,34 +19,34 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const workers = await findExpiringWorkers(admin, DOC_EXPIRY_WINDOW_DAYS);
+  const scan = await scanExpiringEmployees(admin);
 
-  const cutoff = new Date(Date.now() - DEDUP_DAYS * 86_400_000).toISOString();
   let notified = 0;
-  for (const w of workers) {
-    // Déjà envoyé au travailleur ? -> plus besoin de solliciter l'admin.
-    if (w.residence_doc_reminder_at) continue;
+  for (const p of scan) {
+    if (p.stage <= 0) continue;
 
-    const link = `/planning/employees/${w.id}`;
-    // Dédup : notif admin déjà émise pour CE travailleur dans les 30 derniers jours ?
-    const { data: recent } = await admin
-      .from("notifications")
-      .select("id")
-      .eq("kind", "doc_expiry_admin")
-      .eq("link", link)
-      .gte("created_at", cutoff)
-      .limit(1)
-      .maybeSingle();
-    if (recent) continue;
+    // Renouvellement (échéance repoussée) OU nouveau palier : on met à jour le
+    // palier stocké. On ne NOTIFIE que si un NOUVEAU palier (plus urgent) est franchi.
+    const crossed = p.stage > p.storedStage;
+    if (p.stage !== p.storedStage) {
+      try {
+        await admin.from("employees").update({ residence_doc_reminder_stage: p.stage }).eq("id", p.id);
+      } catch {
+        /* best-effort */
+      }
+    }
+    if (!crossed) continue;
 
-    const d = daysUntil(w.residence_doc_expiry);
+    const label = p.minDays <= 0 ? "ÉCHÉANCE ATTEINTE" : `expire dans ${p.minDays} j`;
     try {
       await notifyRoles(["admin", "rh"], {
         kind: "doc_expiry_admin",
-        title: `Titre de séjour / CI de ${w.full_name ?? "un travailleur"} expire dans ${d} j`,
-        body: `Échéance le ${w.residence_doc_expiry}. Ouvre la fiche pour VALIDER l'envoi du rappel au travailleur (renouvellement + copie du nouveau document).`,
-        link,
-        data: { employeeId: w.id, expiry: w.residence_doc_expiry, days: d, docType: w.residence_doc_type },
+        title: `Documents de ${p.name ?? "un travailleur"} — ${label}`,
+        body:
+          `Un ou plusieurs documents (titre de séjour / valise) arrivent à expiration. ` +
+          `Ouvre la fiche pour VALIDER l'envoi du rappel au travailleur (« mets à jour tes documents pour poursuivre le travail »).`,
+        link: `/planning/employees/${p.id}`,
+        data: { employeeId: p.id, minDays: p.minDays, stage: p.stage },
       });
       notified += 1;
     } catch {
@@ -56,5 +54,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, expiringWithin: DOC_EXPIRY_WINDOW_DAYS, found: workers.length, notified });
+  return NextResponse.json({ ok: true, scanned: scan.length, notified });
 }

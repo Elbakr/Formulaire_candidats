@@ -41,6 +41,7 @@ import { TuyaFingerprintsSection } from "./tuya-fingerprints-section";
 import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { DocExpiryReminderBanner } from "./doc-expiry-banner";
 import { ResidenceFields } from "./residence-fields";
+import { getEmployeeExpiringItems } from "@/lib/doc-expiry-reminder";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
 import { CompletionBar } from "./completion-bar";
@@ -230,6 +231,14 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     /* défaut variant */
   }
 
+  // Documents proches de l'expiration (titre de séjour + valise) pour le bandeau.
+  let docExpiryItems: Array<{ label: string; expiry: string; days: number }> = [];
+  try {
+    docExpiryItems = (await getEmployeeExpiringItems(createAdminClient(), id)).items;
+  } catch {
+    /* best-effort */
+  }
+
   // Onboarding (best effort, ne pas casser la page si vide)
   const { data: runRaw } = await supabase
     .from("onboarding_runs")
@@ -333,7 +342,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
 
       <DocExpiryReminderBanner
         employeeId={id}
-        expiry={(emp as { residence_doc_expiry: string | null }).residence_doc_expiry ?? null}
+        items={docExpiryItems}
         reminderAt={(emp as { residence_doc_reminder_at: string | null }).residence_doc_reminder_at ?? null}
       />
 
