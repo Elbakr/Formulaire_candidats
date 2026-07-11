@@ -47,7 +47,7 @@ export async function extractAndAuditAction(): Promise<{ ok: boolean; summary?: 
   const audit = await runIdCardAudit(admin); // avec les données fraîchement complétées
 
   const title =
-    `Cartes d'identité — ${batch.filledWorkers} fiche(s) complétée(s), ` +
+    `Cartes d'identité — ${batch.filledSubjects} fiche(s) complétée(s), ` +
     `${batch.discordances.length} discordance(s) · Audit : ${audit.issues.length}/${audit.checked} à vérifier`;
   const body = `${formatExtractBatchBody(batch)}\n\n———\n\n${formatIdAuditBody(audit)}`;
 
@@ -60,7 +60,7 @@ export async function extractAndAuditAction(): Promise<{ ok: boolean; summary?: 
       data: {
         extraction: {
           processed: batch.processed,
-          filledWorkers: batch.filledWorkers,
+          filledSubjects: batch.filledSubjects,
           filledFields: batch.filledFields,
           discordances: batch.discordances.length,
           errors: batch.errors.length,
@@ -73,7 +73,7 @@ export async function extractAndAuditAction(): Promise<{ ok: boolean; summary?: 
   }
 
   const summary =
-    `${batch.processed} carte(s) lue(s) · ${batch.filledWorkers} fiche(s) complétée(s) · ` +
+    `${batch.processed} carte(s) lue(s) · ${batch.filledSubjects} fiche(s) complétée(s) · ` +
     `${batch.discordances.length} discordance(s). Audit : ${audit.issues.length} à vérifier. Notif envoyée.`;
   return { ok: true, summary };
 }
