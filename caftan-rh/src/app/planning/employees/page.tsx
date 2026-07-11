@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { EmployeesActions, ExportEmployeesButton } from "./employees-actions";
 import { EmployeesList } from "./employees-list";
+import { GenerateAllProposalsButton } from "./generate-all-button";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +188,7 @@ export default async function EmployeesPage() {
               Données solver
             </Link>
           </Button>
+          {(profile.role === "admin" || profile.role === "rh") && <GenerateAllProposalsButton />}
           <ExportEmployeesButton employees={employees} />
           <EmployeesActions departments={depts ?? []} />
         </div>

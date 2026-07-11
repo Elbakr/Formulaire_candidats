@@ -174,7 +174,7 @@ export function PlanningProposalSection({
   const [open, setOpen] = useState(false);
   const [startDate, setStartDate] = useState<string>(proposal?.start_date ?? centeredStartISO());
   const [templateId, setTemplateId] = useState<string>("");
-  const [recurrence, setRecurrence] = useState<string>("none");
+  const [recurrence] = useState<string>("none");
   const [pending, startTransition] = useTransition();
 
   // PHASE 2 : variante par défaut visible par le travailleur sur la tablette.
@@ -566,20 +566,14 @@ export function PlanningProposalSection({
 
             <div>
               <label className="text-[10px] uppercase tracking-wider font-bold text-ink-3 block mb-1">
-                🔁 Génération programmée (à venir)
+                🔁 Génération programmée
               </label>
-              <select
-                value={recurrence}
-                onChange={(e) => setRecurrence(e.target.value)}
-                className="w-full px-2 py-1.5 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
-              >
-                <option value="none">Ponctuelle (par défaut)</option>
-                <option value="weekly">Hebdomadaire (Phase 2)</option>
-                <option value="monthly">Mensuelle (Phase 2)</option>
-              </select>
-              <p className="text-[10px] text-ink-3 mt-1">
-                Le choix est mémorisé ; la récurrence réelle sera câblée plus tard.
-              </p>
+              <div className="rounded border border-line bg-surface-2/50 px-2 py-1.5 text-[11px] text-ink-2 leading-snug">
+                Géré <strong>globalement</strong> : chaque lundi, le planning de <strong>tous</strong> les
+                employés actifs est régénéré automatiquement (variante par défaut conservée). Activable /
+                désactivable dans <code>Réglages</code> ; bouton manuel « Générer plannings (tous) » sur la
+                liste des employés.
+              </div>
             </div>
           </div>
 

@@ -23,6 +23,8 @@ export async function saveSettingsAction(formData: FormData) {
     auto_outbound_to_people_enabled: formData.get("auto_outbound_to_people_enabled") === "on",
     // Karim 2026-07-08 : flag Phase 2 (communication auto du scoring) — inactif pour l'instant.
     auto_scoring_communication: formData.get("auto_scoring_communication") === "on",
+    // Karim 2026-07-11 : kill-switch du cron hebdomadaire de génération des plannings.
+    planning_weekly_autogen_enabled: formData.get("planning_weekly_autogen_enabled") === "on",
   };
   const { error } = await supabase.from("org_settings").update(payload).eq("id", 1);
   if (error) return { error: error.message };

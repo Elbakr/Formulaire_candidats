@@ -302,6 +302,22 @@ export async function regeneratePlanningProposal(
       proposal.reason = proposal.reason ? `${proposal.reason} ${note}` : note;
     }
 
+    // Karim 2026-07-11 : à la (re)génération, CONSERVER la variante par défaut déjà
+    // choisie (celle affichée sur la tablette) si sa lettre existe encore dans la
+    // nouvelle proposition. On ne réinitialise à null que si elle a disparu.
+    const { data: existingSel } = await admin
+      .from("planning_proposals")
+      .select("selected_variant")
+      .eq("employee_id", employeeId)
+      .maybeSingle();
+    const prevSel = (existingSel as { selected_variant: string | null } | null)?.selected_variant ?? null;
+    const availableLabels = new Set(
+      [proposal.variant_a, proposal.variant_b, proposal.variant_c, ...proposal.variants_extra].map(
+        (v) => v.label,
+      ),
+    );
+    const keptSel = prevSel && availableLabels.has(prevSel) ? prevSel : null;
+
     // UPSERT « une seule proposition courante par employé » (unique employee_id).
     const { error } = await admin
       .from("planning_proposals")
@@ -314,7 +330,7 @@ export async function regeneratePlanningProposal(
           variant_b: proposal.variant_b,
           variant_c: proposal.variant_c,
           variants_extra: proposal.variants_extra,
-          selected_variant: null,
+          selected_variant: keptSel,
           status: "draft",
           schedule_recurrence: opts.scheduleRecurrence ?? null,
           reason: proposal.reason,
@@ -329,4 +345,63 @@ export async function regeneratePlanningProposal(
   } catch (e) {
     return { ok: false, reason: (e as Error).message };
   }
+}
+
+// ── Batch GLOBAL : (re)génère la proposition de TOUS les employés actifs ──────
+// Karim 2026-07-11 : la « génération programmée » (Phase 2) s'exécute pour TOUS
+// les employés SIMULTANÉMENT (pas fiche par fiche). Déclenché par le cron
+// hebdomadaire ET par le bouton admin « Générer pour tous ». Réutilise le moteur
+// conforme (100 % quota, séquentiel, shift 3 h, min 13 h, pause vendredi) et
+// CONSERVE la variante par défaut déjà choisie. AUCUN envoi au travailleur.
+export type BatchGenerateSummary = {
+  total: number;
+  ok: number;
+  failed: Array<{ id: string; name: string; reason: string }>;
+  alerts: Array<{ id: string; name: string; reason: string }>; // proposition avec `reason` (quota/conformité)
+};
+
+export async function regenerateAllPlanningProposals(
+  admin: SupabaseClient,
+  opts: { startDate: string; generatedBy: string; scheduleRecurrence?: string | null },
+): Promise<BatchGenerateSummary> {
+  const { data: rows } = await admin
+    .from("employees")
+    .select("id, full_name")
+    .eq("status", "active")
+    .order("full_name", { ascending: true });
+  const employees = (rows ?? []) as Array<{ id: string; full_name: string | null }>;
+
+  const summary: BatchGenerateSummary = { total: employees.length, ok: 0, failed: [], alerts: [] };
+  const CONCURRENCY = 4; // limite pour ne pas saturer la DB / le temps d'exécution cron
+
+  for (let i = 0; i < employees.length; i += CONCURRENCY) {
+    const chunk = employees.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (emp) => {
+        const name = emp.full_name ?? emp.id;
+        try {
+          const res = await regeneratePlanningProposal(admin, emp.id, {
+            startDate: opts.startDate,
+            generatedBy: opts.generatedBy,
+            scheduleRecurrence: opts.scheduleRecurrence ?? "weekly",
+          });
+          return { emp, name, res };
+        } catch (e) {
+          return { emp, name, res: { ok: false, reason: (e as Error).message } as const };
+        }
+      }),
+    );
+    for (const { emp, name, res } of results) {
+      if (!res.ok) {
+        summary.failed.push({ id: emp.id, name, reason: res.reason ?? "erreur inconnue" });
+      } else {
+        summary.ok += 1;
+        if (res.proposal?.reason) {
+          summary.alerts.push({ id: emp.id, name, reason: res.proposal.reason });
+        }
+      }
+    }
+  }
+
+  return summary;
 }

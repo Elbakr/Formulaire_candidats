@@ -39,6 +39,7 @@ on:
     - cron: '0 4 * * *'      # candidate-match-rescore
     - cron: '*/30 * * * *'   # payslip-imap-poll
     - cron: '0 4 * * 1'      # leave-balance-recompute (lundi 4h)
+    - cron: '0 5 * * 1'      # planning-proposals-weekly (lundi 5h) — génération globale des plannings
     - cron: '0 */6 * * *'    # check-mail-links
     - cron: '0 3 1 * *'      # rgpd-anonymize (1er du mois 3h)
     - cron: '0 7 1 * *'      # monthly-admin-report (1er du mois 7h)
@@ -93,6 +94,7 @@ jobs:
           MAP['0 4 * * *']='candidate-match-rescore'
           MAP['*/30 * * * *']='payslip-imap-poll'
           MAP['0 4 * * 1']='leave-balance-recompute'
+          MAP['0 5 * * 1']='planning-proposals-weekly'
           MAP['0 */6 * * *']='check-mail-links selftest'
           MAP['0 3 1 * *']='rgpd-anonymize'
           MAP['0 7 1 * *']='monthly-admin-report'

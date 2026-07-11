@@ -21,6 +21,7 @@ type Settings = {
   prayer_pause_dst_end?: string | null;
   auto_outbound_to_people_enabled?: boolean | null;
   auto_scoring_communication?: boolean | null;
+  planning_weekly_autogen_enabled?: boolean | null;
 };
 
 export function SettingsForm({ initial }: { initial: Settings }) {
@@ -154,6 +155,25 @@ export function SettingsForm({ initial }: { initial: Settings }) {
             className="h-4 w-4 rounded border-line"
           />
           <span>Autoriser la communication automatique du scoring (Phase 2 — inactif)</span>
+        </label>
+      </fieldset>
+
+      <fieldset className="border border-line rounded-md p-4 space-y-2">
+        <legend className="text-sm font-bold px-2">Génération programmée des plannings (hebdomadaire)</legend>
+        <p className="text-xs text-ink-3">
+          Chaque <strong>lundi</strong>, le système régénère automatiquement la proposition de planning de{" "}
+          <strong>tous les employés actifs</strong> (variantes conformes, variante par défaut conservée). Interne : aucun
+          envoi au travailleur. Décoche pour <strong>désactiver le cron</strong> à tout moment (le bouton manuel « Générer
+          plannings (tous) » reste utilisable).
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="planning_weekly_autogen_enabled"
+            defaultChecked={initial.planning_weekly_autogen_enabled ?? true}
+            className="h-4 w-4 rounded border-line"
+          />
+          <span>Activer la génération hebdomadaire automatique des plannings</span>
         </label>
       </fieldset>
 
