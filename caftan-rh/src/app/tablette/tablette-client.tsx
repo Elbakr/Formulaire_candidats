@@ -49,6 +49,7 @@ const T = {
     whereToday: "Où travailles-tu aujourd'hui ?",
     today: "Aujourd'hui",
     live: "Planning en direct",
+    variantOfDay: "Variante du jour",
     back: "Retour",
     saved: "Enregistré",
     dayEndsAt: (t: string) => `Ta journée finit à ${t}`,
@@ -73,6 +74,7 @@ const T = {
     whereToday: "Waar werk je vandaag?",
     today: "Vandaag",
     live: "Live planning",
+    variantOfDay: "Variant van vandaag",
     back: "Terug",
     saved: "Opgeslagen",
     dayEndsAt: (t: string) => `Je dag eindigt om ${t}`,
@@ -205,6 +207,11 @@ export function TabletteClient() {
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   {t.live}
+                </span>
+              ) : planning.mode === "auto_variant" ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/25 text-indigo-200 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse" />
+                  {t.variantOfDay} {planning.variant}
                 </span>
               ) : null}
             </div>

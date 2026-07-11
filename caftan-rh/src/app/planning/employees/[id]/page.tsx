@@ -472,6 +472,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           firstName={((emp as { full_name: string }).full_name ?? "").trim().split(/\s+/)[0] || "le travailleur"}
           bookedDates={planningBookedDates}
           autoShift={!!(emp as { auto_shift: boolean | null }).auto_shift}
+          autoVariant={!!(emp as { auto_variant: boolean | null }).auto_variant}
         />
       </div>
 

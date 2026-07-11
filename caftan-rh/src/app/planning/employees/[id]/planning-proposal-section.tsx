@@ -38,8 +38,8 @@ import {
   setDefaultPlanningVariantAction,
   activateReinforcementShiftAction,
 } from "./planning-proposal-actions";
-import { setWorkerAutoShiftAction } from "@/app/admin/auto-shift-actions";
-import { Radio } from "lucide-react";
+import { setWorkerAutoShiftAction, setWorkerAutoVariantAction } from "@/app/admin/auto-shift-actions";
+import { Radio, Shuffle } from "lucide-react";
 
 // ── Types (miroir du moteur lib/scheduling/planning-proposal.ts) ─────────────
 type ProposalBreak = { start: string; end: string };
@@ -147,6 +147,7 @@ export function PlanningProposalSection({
   firstName,
   bookedDates,
   autoShift,
+  autoVariant,
 }: {
   employeeId: string;
   proposal: CurrentProposal;
@@ -158,6 +159,8 @@ export function PlanningProposalSection({
   bookedDates: string[];
   /** `employees.auto_shift` — Auto-Shift individuel (tablette = planning réel). */
   autoShift: boolean;
+  /** `employees.auto_variant` — Auto-Variant (tablette = variant du jour auto). */
+  autoVariant: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -173,17 +176,24 @@ export function PlanningProposalSection({
   );
   const [savingDefault, startSaveDefault] = useTransition();
 
-  // Auto-Shift individuel : la tablette montre le planning RÉEL du jour au lieu
-  // du variant coché. Bascule immédiate.
+  // Modes d'affichage tablette (mutuellement exclusifs) : Auto-Shift (planning
+  // réel) et Auto-Variant (variant du jour auto). Off/Off = variant coché.
   const [autoShiftOn, setAutoShiftOn] = useState(autoShift);
+  const [autoVariantOn, setAutoVariantOn] = useState(autoVariant);
   const [savingAutoShift, startSaveAutoShift] = useTransition();
+  const [savingAutoVariant, startSaveAutoVariant] = useTransition();
+
   function toggleAutoShift() {
     const next = !autoShiftOn;
+    const prevShift = autoShiftOn;
+    const prevVariant = autoVariantOn;
     setAutoShiftOn(next);
+    if (next) setAutoVariantOn(false); // exclusif
     startSaveAutoShift(async () => {
       const r = await setWorkerAutoShiftAction(employeeId, next);
       if (r.error) {
-        setAutoShiftOn(!next);
+        setAutoShiftOn(prevShift);
+        setAutoVariantOn(prevVariant);
         toast.error(r.error);
         return;
       }
@@ -191,6 +201,29 @@ export function PlanningProposalSection({
         next
           ? "Auto-Shift activé : la tablette affiche le planning réel du jour."
           : "Auto-Shift désactivé : la tablette réaffiche le variant coché.",
+      );
+      router.refresh();
+    });
+  }
+
+  function toggleAutoVariant() {
+    const next = !autoVariantOn;
+    const prevShift = autoShiftOn;
+    const prevVariant = autoVariantOn;
+    setAutoVariantOn(next);
+    if (next) setAutoShiftOn(false); // exclusif
+    startSaveAutoVariant(async () => {
+      const r = await setWorkerAutoVariantAction(employeeId, next);
+      if (r.error) {
+        setAutoShiftOn(prevShift);
+        setAutoVariantOn(prevVariant);
+        toast.error(r.error);
+        return;
+      }
+      toast.success(
+        next
+          ? "Auto-Variant activé : la tablette choisit le variant qui colle à aujourd'hui."
+          : "Auto-Variant désactivé : la tablette réaffiche le variant coché.",
       );
       router.refresh();
     });
@@ -355,6 +388,45 @@ export function PlanningProposalSection({
             <span
               className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
                 autoShiftOn ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Auto-Variant : la tablette choisit le variant A/B/C du jour. */}
+        <div
+          className={`rounded-md border p-2.5 flex items-start gap-2 ${
+            autoVariantOn ? "border-indigo-300 bg-indigo-50" : "border-line bg-surface-2/40"
+          }`}
+        >
+          <Shuffle className={`h-4 w-4 shrink-0 mt-0.5 ${autoVariantOn ? "text-indigo-600" : "text-ink-3"}`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-bold text-ink flex items-center gap-1.5">
+              Auto-Variant
+              {autoVariantOn ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-600 text-white px-1.5 py-0.5 text-[9px] font-bold uppercase">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Actif
+                </span>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-ink-2 leading-snug mt-0.5">
+              La tablette choisit <strong>automatiquement le variant (A/B/C) qui colle à aujourd&apos;hui</strong>
+              {" "}(le variant qui a un shift ce jour ; sinon le prochain le plus proche). Idéal retour de
+              congé / désistement : le travailleur voit direct le planning du moment.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleAutoVariant}
+            disabled={savingAutoVariant}
+            aria-pressed={autoVariantOn}
+            className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+              autoVariantOn ? "bg-indigo-600" : "bg-ink-3/40"
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                autoVariantOn ? "translate-x-5" : "translate-x-0.5"
               }`}
             />
           </button>

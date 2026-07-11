@@ -50,9 +50,11 @@ export type TabletPlanning = {
   // sites) ; `site_today` = site déjà signalé aujourd'hui (null sinon).
   default_city: TabletCity;
   site_today: string | null;
-  // Karim 2026-07-11 : mode d'affichage. 'variant' = variant coché (défaut) ;
-  // 'auto_shift' = planning RÉEL (shifts publiés), jour en cours mis en avant.
-  mode: "variant" | "auto_shift";
+  // Karim 2026-07-11 : mode d'affichage.
+  //  'variant'      = variant coché par défaut ;
+  //  'auto_shift'   = planning RÉEL (shifts publiés) ;
+  //  'auto_variant' = variant A/B/C auto-choisi pour la situation du jour.
+  mode: "variant" | "auto_shift" | "auto_variant";
   today: string; // date du jour (Europe/Brussels), pour le surlignage
 };
 
@@ -96,10 +98,15 @@ export async function resolvePlanningByCodeAction(
   const admin = createAdminClient();
   const { data: empRaw } = await admin
     .from("employees")
-    .select("id, full_name, auto_shift")
+    .select("id, full_name, auto_shift, auto_variant")
     .eq("planning_access_code", code)
     .maybeSingle();
-  const emp = empRaw as { id: string; full_name: string | null; auto_shift: boolean | null } | null;
+  const emp = empRaw as {
+    id: string;
+    full_name: string | null;
+    auto_shift: boolean | null;
+    auto_variant: boolean | null;
+  } | null;
   if (!emp) return generic;
 
   // Karim 2026-07-11 : mode AUTO-SHIFT (individuel ou global) -> planning RÉEL.
@@ -129,20 +136,28 @@ export async function resolvePlanningByCodeAction(
     };
   }
 
-  // Défaut 'A' si rien n'a été coché (aligné sur la Phase 2). Si 'C' est
-  // sélectionnée mais absente (proposition d'avant la migration variant_c), on
-  // retombe sur A pour ne jamais afficher un planning vide.
-  const sel = prop.selected_variant;
-  let variant: "A" | "B" | "C" = sel === "B" ? "B" : sel === "C" ? "C" : "A";
+  const today = brusselsToday();
+  const autoVariant = emp.auto_variant === true;
+
+  // Karim 2026-07-11 : en AUTO-VARIANT, on choisit le variant qui répond le mieux
+  // à la SITUATION DU JOUR (shift aujourd'hui > prochain shift le plus proche > A).
+  // Sinon : variant coché par défaut ('A' si rien, retombe sur A si C absent).
+  let variant: "A" | "B" | "C";
+  if (autoVariant) {
+    variant = pickVariantForToday(prop, today);
+  } else {
+    const sel = prop.selected_variant;
+    variant = sel === "B" ? "B" : sel === "C" ? "C" : "A";
+  }
   let chosen = (variant === "C" ? prop.variant_c : variant === "B" ? prop.variant_b : prop.variant_a) as
     | { weeks?: TabletWeek[]; total_hours?: number }
     | null;
-  if (variant === "C" && !chosen) {
+  if (!chosen) {
     variant = "A";
     chosen = prop.variant_a as { weeks?: TabletWeek[]; total_hours?: number } | null;
   }
 
-  const weeks = (chosen?.weeks ?? []) as TabletWeek[];
+  const weeks = markToday((chosen?.weeks ?? []) as TabletWeek[], today);
   const totalHours =
     typeof chosen?.total_hours === "number"
       ? chosen.total_hours
@@ -162,10 +177,64 @@ export async function resolvePlanningByCodeAction(
       total_hours: totalHours,
       default_city,
       site_today,
-      mode: "variant",
-      today: brusselsToday(),
+      mode: autoVariant ? "auto_variant" : "variant",
+      today,
     },
   };
+}
+
+// ── AUTO-VARIANT : choix du variant qui colle le mieux à AUJOURD'HUI ──────────
+type PropForPick = { variant_a: unknown; variant_b: unknown; variant_c: unknown };
+
+function pickVariantForToday(prop: PropForPick, today: string): "A" | "B" | "C" {
+  const entries: Array<{ label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] } | null }> = [
+    { label: "A", v: prop.variant_a as { weeks?: TabletWeek[] } | null },
+    { label: "B", v: prop.variant_b as { weeks?: TabletWeek[] } | null },
+    { label: "C", v: prop.variant_c as { weeks?: TabletWeek[] } | null },
+  ].filter((e) => e.v) as Array<{ label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] } }>;
+  if (entries.length === 0) return "A";
+
+  const hoursOn = (v: { weeks?: TabletWeek[] }, date: string): number => {
+    let h = 0;
+    for (const w of v.weeks ?? []) for (const s of w.shifts ?? []) if (s.date === date) h += s.hours ?? 0;
+    return h;
+  };
+  const soonest = (v: { weeks?: TabletWeek[] }): string | null => {
+    let best: string | null = null;
+    for (const w of v.weeks ?? [])
+      for (const s of w.shifts ?? [])
+        if (s.date >= today && (best === null || s.date < best)) best = s.date;
+    return best;
+  };
+
+  // 1) Variant(s) avec un shift AUJOURD'HUI -> le plus d'heures aujourd'hui, puis A>B>C.
+  const withToday = entries
+    .map((e) => ({ ...e, h: hoursOn(e.v, today) }))
+    .filter((e) => e.h > 0.01);
+  if (withToday.length) {
+    withToday.sort((a, b) => b.h - a.h || a.label.localeCompare(b.label));
+    return withToday[0].label;
+  }
+
+  // 2) Sinon : variant dont le PROCHAIN shift est le plus proche.
+  const withSoon = entries
+    .map((e) => ({ ...e, d: soonest(e.v) }))
+    .filter((e): e is { label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] }; d: string } => !!e.d);
+  if (withSoon.length) {
+    withSoon.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.label.localeCompare(b.label)));
+    return withSoon[0].label;
+  }
+
+  // 3) Fallback : A.
+  return entries[0].label;
+}
+
+/** Recopie les semaines en marquant le shift du jour (surlignage tablette). */
+function markToday(weeks: TabletWeek[], today: string): TabletWeek[] {
+  return (weeks ?? []).map((w) => ({
+    ...w,
+    shifts: (w.shifts ?? []).map((s) => ({ ...s, is_today: s.date === today })),
+  }));
 }
 
 // ── AUTO-SHIFT : planning RÉEL (shifts publiés) sur 3 semaines ────────────────

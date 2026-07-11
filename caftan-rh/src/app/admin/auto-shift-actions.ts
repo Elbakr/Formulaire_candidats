@@ -17,7 +17,7 @@ import {
   type GlobalAutoShiftState,
 } from "@/lib/auto-shift";
 
-/** Auto-Shift INDIVIDUEL d'un travailleur (immédiat). */
+/** Auto-Shift INDIVIDUEL d'un travailleur (immédiat). Exclusif d'Auto-Variant. */
 export async function setWorkerAutoShiftAction(
   employeeId: string,
   on: boolean,
@@ -25,7 +25,24 @@ export async function setWorkerAutoShiftAction(
   await requireRole(["admin", "rh"]);
   if (!employeeId) return { ok: false, error: "Travailleur manquant." };
   const admin = createAdminClient();
-  const { error } = await admin.from("employees").update({ auto_shift: on }).eq("id", employeeId);
+  // Activer Auto-Shift coupe Auto-Variant (modes d'affichage mutuellement exclusifs).
+  const patch = on ? { auto_shift: true, auto_variant: false } : { auto_shift: false };
+  const { error } = await admin.from("employees").update(patch).eq("id", employeeId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/planning/employees/${employeeId}`);
+  return { ok: true };
+}
+
+/** Auto-Variant INDIVIDUEL : la tablette choisit le variant du jour. Exclusif d'Auto-Shift. */
+export async function setWorkerAutoVariantAction(
+  employeeId: string,
+  on: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole(["admin", "rh"]);
+  if (!employeeId) return { ok: false, error: "Travailleur manquant." };
+  const admin = createAdminClient();
+  const patch = on ? { auto_variant: true, auto_shift: false } : { auto_variant: false };
+  const { error } = await admin.from("employees").update(patch).eq("id", employeeId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/planning/employees/${employeeId}`);
   return { ok: true };
