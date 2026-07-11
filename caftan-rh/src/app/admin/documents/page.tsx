@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Clock, CheckCircle2, XCircle, Sparkles } from "lucide-react";
 import { DocumentsTable, type DocumentRow } from "./documents-table";
+import { IdAuditButton } from "./id-audit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -200,6 +201,7 @@ export default async function AdminDocumentsPage() {
             {totalCount > MAX_ROWS ? ` · ${MAX_ROWS} affichés (les plus récents)` : ""}.
           </p>
         </div>
+        <IdAuditButton />
       </div>
 
       {/* Stats cards */}
