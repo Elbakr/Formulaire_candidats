@@ -595,24 +595,31 @@ function fillWeekSpread(args: {
   };
 }
 
-// ── Rotation d'une liste de jours (pour l'enchaînement A -> B -> C) ───────────
-// Karim 2026-07-11 : les variantes se COMPLÈTENT en SÉQUENCE. B reprend là où A
-// s'arrête, C là où B s'arrête. On tourne donc la liste des jours dispos d'un
-// décalage = nombre de jours consommés par la/les variante(s) précédente(s).
-function rotateDays(arr: string[], start: number): string[] {
-  if (arr.length === 0) return [];
-  const s = ((start % arr.length) + arr.length) % arr.length;
-  return [...arr.slice(s), ...arr.slice(0, s)];
-}
-
-/** Nombre de jours nécessaires pour couvrir le quota hebdo (1 shift plein/jour). */
+/** Nombre de jours nécessaires pour couvrir le quota hebdo (1 shift plein/jour).
+ *  Sert au diagnostic « A et B couvrent-elles déjà toute la dispo ? ». */
 function daysNeeded(weeklyHours: number, shiftHours: number): number {
   if (shiftHours <= 0) return 1;
   return Math.max(1, Math.ceil(weeklyHours / shiftHours - 1e-9));
 }
 
-// ── Remplissage d'UNE semaine (fenêtre de 7 jours depuis weekStartISO) ───────
-function fillWeek(args: {
+// ── Remplissage SÉQUENTIEL d'UNE semaine, curseur horaire A -> B -> C ─────────
+// Karim 2026-07-11 : les variantes forment un FLUX D'HEURES CONTINU. B reprend
+// EXACTEMENT au jour ET à l'heure où A s'arrête (ex. A finit lundi 15:15 -> B
+// commence lundi 15:15), C reprend où B s'arrête. On maintient donc un CURSEUR
+// (jour dispo + heure) qui avance à travers la semaine, et chaque variante y
+// consomme `weeklyHours` de travail.
+//
+// Règles :
+//  - un travailleur fait AU PLUS un shift par jour DANS une variante ;
+//  - si une variante atteint son quota EN MILIEU DE JOURNÉE (avant la fermeture),
+//    le curseur reste sur ce jour à l'heure de fin -> la variante SUIVANTE
+//    enchaîne le même jour à cette heure (c'est le « handoff » lundi 15:15) ;
+//  - si le shift atteint la fermeture, on passe au jour dispo suivant (heure de
+//    début par défaut) ;
+//  - les jours OFF / indispo JOURNÉE sont déjà exclus ; une indispo PARTIELLE
+//    décale le shift (placeAndBuildShift).
+// Retour = un ProposalWeek par variante (index 0 = A, 1 = B, 2 = C).
+function fillWeekSequential(args: {
   weekIndex: number;
   weekStartISO: string;
   weeklyHours: number;
@@ -621,14 +628,12 @@ function fillWeek(args: {
   fixedOffDays: Set<number>;
   unavail: ProposalUnavailability[];
   prayer: ProposalPrayerPause;
-  /** Index de départ (rotation) dans les jours dispos : 0 = A, daysNeeded = B
-   *  (suite de A), 2×daysNeeded = C (suite de B). Enroule si besoin. */
-  rotationStart: number;
   pauseMin: number;
   brabant: boolean;
   staggerRank: number;
   closingFor: ClosingResolver;
-}): ProposalWeek {
+  numVariants: number; // 2 (C = alternative ailleurs) ou 3
+}): ProposalWeek[] {
   const {
     weekIndex,
     weekStartISO,
@@ -638,107 +643,81 @@ function fillWeek(args: {
     fixedOffDays,
     unavail,
     prayer,
-    rotationStart,
     pauseMin,
     brabant,
     staggerRank,
     closingFor,
+    numVariants,
   } = args;
 
-  // Jours candidats de la fenêtre (OFF fixe / indispo JOURNÉE exclus ; les jours
-  // à indispo PARTIELLE restent candidats, le shift y sera décalé).
   const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
+  const perVariant: ProposalShift[][] = Array.from({ length: numVariants }, () => []);
+  const EPS = 0.25; // 15 min : ni quota résiduel ni shift en dessous.
 
-  // Karim 2026-07-11 : enchaînement SÉQUENTIEL. On démarre le remplissage au jour
-  // `rotationStart` (chronologique, enroulé) : A part du 1er jour dispo, B reprend
-  // exactement après les jours de A, C exactement après ceux de B. Ainsi A, B et C
-  // couvrent des tranches CONSÉCUTIVES et complémentaires de la disponibilité.
-  const fillOrder = rotateDays(available, rotationStart);
+  let dayIdx = 0;
+  let cursor = startMin; // heure de début sur le jour courant (available[dayIdx])
 
-  const shifts: ProposalShift[] = [];
-  let remaining = weeklyHours;
-  for (const iso of fillOrder) {
-    if (remaining <= 0.01) break;
-    const worked = Math.min(shiftHours, remaining);
-    if (worked < 0.25) break; // pas de micro-shift < 15 min
-    // Place le shift (décalé après une indispo partielle si besoin). Si aucune
-    // fenêtre du jour n'est assez large -> SKIP le jour (remaining inchangé).
-    const shift = placeAndBuildShift(
-      iso,
-      startMin,
-      worked,
-      unavail,
-      prayer,
-      pauseMin,
-      brabant,
-      staggerRank,
-      closingFor,
-    );
-    if (!shift) continue;
-    shifts.push(shift);
-    // Plafond de fermeture : le shift a pu être ROGNÉ (fin plafonnée). On décompte
-    // les heures RÉELLEMENT posées (shift.hours) et non `worked`, pour que le
-    // reliquat non presté se reporte sur les jours suivants.
-    remaining -= shift.hours;
+  for (let v = 0; v < numVariants; v++) {
+    let remaining = weeklyHours;
+    while (remaining > EPS && dayIdx < available.length) {
+      const iso = available[dayIdx];
+      const want = Math.min(remaining, shiftHours);
+      if (want < EPS) break;
+      const shift = placeAndBuildShift(
+        iso,
+        cursor,
+        want,
+        unavail,
+        prayer,
+        pauseMin,
+        brabant,
+        staggerRank,
+        closingFor,
+      );
+      if (!shift) {
+        // Fenêtre trop courte depuis le curseur -> jour suivant, début par défaut.
+        dayIdx++;
+        cursor = startMin;
+        continue;
+      }
+      perVariant[v].push(shift);
+      remaining -= shift.hours;
+      const endMin = timeToMin(shift.end_time);
+      const closingMin = Math.min(DAY_MIN, closingFor(iso));
+      const reachedClosing = endMin >= closingMin - 1;
+      if (remaining <= EPS && !reachedClosing) {
+        // Quota atteint EN MILIEU DE JOURNÉE : le curseur reste ici -> la variante
+        // suivante enchaîne CE jour à cette heure (handoff exact).
+        cursor = endMin;
+        break;
+      }
+      // Jour « consommé » (fermeture atteinte ou shift plein posé) -> jour suivant.
+      dayIdx++;
+      cursor = startMin;
+    }
   }
 
-  // Tri chronologique pour l'affichage (le remplissage B enroule).
-  shifts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-  const total = shifts.reduce((s, x) => s + x.hours, 0);
-  return {
-    week_index: weekIndex,
-    week_start: weekStartISO,
-    week_end: addDaysISO(weekStartISO, 6),
-    shifts,
-    total_hours: Number(total.toFixed(2)),
-  };
+  return perVariant.map((shifts) => {
+    shifts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const total = shifts.reduce((s, x) => s + x.hours, 0);
+    return {
+      week_index: weekIndex,
+      week_start: weekStartISO,
+      week_end: addDaysISO(weekStartISO, 6),
+      shifts,
+      total_hours: Number(total.toFixed(2)),
+    };
+  });
 }
 
-function buildVariant(args: {
-  label: "A" | "B" | "C";
-  strategy: string;
-  rotationStart: number;
-  startDate: string;
-  weeks: number;
-  weeklyHours: number;
-  startMin: number;
-  shiftHours: number;
-  fixedOffDays: Set<number>;
-  unavail: ProposalUnavailability[];
-  prayer: ProposalPrayerPause;
-  pauseMin: number;
-  brabant: boolean;
-  staggerRank: number;
-  closingFor: ClosingResolver;
-}): ProposalVariant {
-  const weeksArr: ProposalWeek[] = [];
-  for (let w = 0; w < args.weeks; w++) {
-    weeksArr.push(
-      fillWeek({
-        weekIndex: w,
-        weekStartISO: addDaysISO(args.startDate, w * 7),
-        weeklyHours: args.weeklyHours,
-        startMin: args.startMin,
-        shiftHours: args.shiftHours,
-        fixedOffDays: args.fixedOffDays,
-        unavail: args.unavail,
-        prayer: args.prayer,
-        rotationStart: args.rotationStart,
-        pauseMin: args.pauseMin,
-        brabant: args.brabant,
-        staggerRank: args.staggerRank,
-        closingFor: args.closingFor,
-      }),
-    );
-  }
+/** Assemble une variante à partir de ses semaines déjà remplies. */
+function mkVariant(
+  label: "A" | "B" | "C",
+  strategy: string,
+  weeksArr: ProposalWeek[],
+): ProposalVariant {
   const total = weeksArr.reduce((s, w) => s + w.total_hours, 0);
-  return {
-    label: args.label,
-    strategy: args.strategy,
-    weeks: weeksArr,
-    total_hours: Number(total.toFixed(2)),
-  };
+  return { label, strategy, weeks: weeksArr, total_hours: Number(total.toFixed(2)) };
 }
 
 // ── Variante C « répartie sur toute la semaine » (spread) ────────────────────
@@ -952,63 +931,53 @@ export function generatePlanningProposal(input: {
 
   const startMin = timeToMin(startTime!);
 
-  // Karim 2026-07-11 : A/B/C SÉQUENTIELLES et complémentaires.
-  //   - A démarre au 1er jour dispo (rotation 0) et remplit le quota ;
-  //   - B est la SUITE EXACTE de A : rotation = nombre de jours de A (dpw) ;
-  //   - C est la SUITE EXACTE de B (rotation = 2×dpw)… SAUF si A et B couvrent
-  //     DÉJÀ l'intégralité des jours dispos de la semaine — dans ce cas SEULEMENT,
-  //     C devient une variante ALTERNATIVE (répartie sur toute la semaine) qui peut
-  //     mieux convenir au travailleur.
-  // `variantAOffset`/`variantBOffset` (application d'un modèle) restent prioritaires.
+  // Karim 2026-07-11 : A/B/C = FLUX D'HEURES CONTINU. B reprend au jour+heure EXACTS
+  // où A s'arrête (ex. A finit lundi 15:15 -> B commence lundi 15:15), C où B s'arrête.
+  // SAUF si A et B couvrent DÉJÀ toute la disponibilité de la semaine : alors C
+  // devient une variante ALTERNATIVE (répartie sur la semaine) qui peut mieux convenir.
   const dpw = daysNeeded(weeklyHours, shiftHours);
-  const offsetA = Number.isInteger(input.variantAOffset) ? (input.variantAOffset as number) : 0;
-  const offsetB = Number.isInteger(input.variantBOffset) ? (input.variantBOffset as number) : dpw;
-
-  // Couverture de référence : jours dispos de la 1re semaine (cas courant = mêmes
-  // dispos chaque semaine). A+B couvrent tout dès que 2×dpw ≥ nb de jours dispos.
   const reprAvailable = computeAvailableDays(input.startDate, fixedOffDays, unavail).length;
   const abCoverAll = reprAvailable > 0 && 2 * dpw >= reprAvailable;
+  const numSeq = abCoverAll ? 2 : 3;
 
-  const variantA = buildVariant({
-    label: "A",
-    strategy:
-      offsetA === 0
-        ? "Jours les plus tôt disponibles (remplit le quota à partir du 1er jour dispo)"
-        : `Remplissage décalé de ${offsetA} jour(s) dispo (modèle appliqué)`,
-    rotationStart: offsetA,
-    startDate: input.startDate,
-    weeks,
-    weeklyHours,
-    startMin,
-    shiftHours,
-    fixedOffDays,
-    unavail,
-    prayer,
-    pauseMin,
-    brabant,
-    staggerRank,
-    closingFor,
-  });
+  // Remplissage séquentiel semaine par semaine (le curseur horaire est propre à
+  // chaque semaine : chaque semaine repart de son 1er jour dispo).
+  const weeksA: ProposalWeek[] = [];
+  const weeksB: ProposalWeek[] = [];
+  const weeksC: ProposalWeek[] = [];
+  for (let w = 0; w < weeks; w++) {
+    const res = fillWeekSequential({
+      weekIndex: w,
+      weekStartISO: addDaysISO(input.startDate, w * 7),
+      weeklyHours,
+      startMin,
+      shiftHours,
+      fixedOffDays,
+      unavail,
+      prayer,
+      pauseMin,
+      brabant,
+      staggerRank,
+      closingFor,
+      numVariants: numSeq,
+    });
+    weeksA.push(res[0]);
+    weeksB.push(res[1]);
+    if (!abCoverAll) weeksC.push(res[2]);
+  }
 
-  const variantB = buildVariant({
-    label: "B",
-    strategy: "Suite exacte de A : reprend aux jours disponibles suivants (enroule si besoin)",
-    rotationStart: offsetB,
-    startDate: input.startDate,
-    weeks,
-    weeklyHours,
-    startMin,
-    shiftHours,
-    fixedOffDays,
-    unavail,
-    prayer,
-    pauseMin,
-    brabant,
-    staggerRank,
-    closingFor,
-  });
+  const variantA = mkVariant(
+    "A",
+    "Premières heures disponibles (remplit le quota à partir du 1er jour dispo)",
+    weeksA,
+  );
+  const variantB = mkVariant(
+    "B",
+    "Suite exacte de A : reprend au jour et à l'heure où A s'arrête",
+    weeksB,
+  );
 
-  // C : suite de B si des jours restent à couvrir ; sinon variante répartie.
+  // C : suite exacte de B si des heures restent ; sinon variante répartie alternative.
   let variantC: ProposalVariant;
   let cReducedMicro = false;
   if (abCoverAll) {
@@ -1029,30 +998,21 @@ export function generatePlanningProposal(input: {
     variantC = c.variant;
     cReducedMicro = c.reducedMicro;
   } else {
-    variantC = buildVariant({
-      label: "C",
-      strategy: "Suite exacte de B : reprend aux jours disponibles suivants (enroule si besoin)",
-      rotationStart: offsetB + dpw,
-      startDate: input.startDate,
-      weeks,
-      weeklyHours,
-      startMin,
-      shiftHours,
-      fixedOffDays,
-      unavail,
-      prayer,
-      pauseMin,
-      brabant,
-      staggerRank,
-      closingFor,
-    });
+    variantC = mkVariant(
+      "C",
+      "Suite exacte de B : reprend au jour et à l'heure où B s'arrête",
+      weeksC,
+    );
   }
 
   // Raison best-effort : proposition partielle (jours dispo insuffisants) ou
   // variantes identiques (pas de marge : jours dispo = jours nécessaires).
   const reasons: string[] = [];
+  // Tolérance 0.5h : le handoff horaire (A->B) peut laisser ~15 min de reliquat
+  // sans que ce soit une vraie semaine partielle. On ne signale que A et B (C est
+  // la QUEUE du flux, naturellement plus courte : ce n'est pas une anomalie).
   const anyPartial = [...variantA.weeks, ...variantB.weeks].some(
-    (w) => w.total_hours < weeklyHours - 0.01,
+    (w) => w.total_hours < weeklyHours - 0.5,
   );
   if (anyPartial) {
     reasons.push(
