@@ -129,13 +129,41 @@ export async function extractIdDocumentFromPdf(pdfBase64: string): Promise<Extra
   }
 }
 
+/** Ramène un doc_type (canonique OU texte libre du modèle) vers l'enum attendu.
+ *  Le modèle renvoie parfois « titre de séjour », « carte F », « verblijfstitel »… :
+ *  on les rattache à titre_sejour au lieu de laisser le champ vide. */
+function mapDocType(raw: unknown): ExtractedId["doc_type"] {
+  const s = String(raw ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+  if (!s || s === "null") return null;
+  if (["ci_belge", "titre_sejour", "passeport", "autre"].includes(s)) {
+    return s as ExtractedId["doc_type"];
+  }
+  // Ordre de priorité (attention : « carte d'identité » contient un « carte d » qui
+  // ressemble à une carte de séjour type D -> l'identité passe AVANT le motif lettre).
+  if (/passe?port/.test(s)) return "passeport";
+  if (/vreemdeling|etranger|foreigner/.test(s)) return "titre_sejour"; // carte pour étrangers
+  if (/identit|identiteit|\beid\b/.test(s)) return "ci_belge"; // carte d'identité belge / eID
+  // Titre / carte de séjour (FR/NL/EN), cartes A/B/C/F/K/L, annexes, permis.
+  if (
+    /sejour|verblijf|titre|residence|resident|permit|permis|bijlage|annexe|\bkaart\b|\bcarte\s+[a-flk]\b/.test(
+      s,
+    )
+  ) {
+    return "titre_sejour";
+  }
+  if (/belg/.test(s)) return "ci_belge";
+  return "autre";
+}
+
 /** Normalise la sortie brute du modèle en ExtractedId (commun images/PDF). */
 function mapExtractionOutput(rawOutput: unknown): ExtractedId {
   const o = (rawOutput ?? {}) as Record<string, unknown>;
   return {
-    doc_type: ["ci_belge", "titre_sejour", "passeport", "autre"].includes(String(o.doc_type))
-      ? (o.doc_type as ExtractedId["doc_type"])
-      : null,
+    doc_type: mapDocType(o.doc_type),
     first_name: strOrNull(o.first_name),
     last_name: strOrNull(o.last_name),
     full_name:

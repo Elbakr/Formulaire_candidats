@@ -5,6 +5,7 @@
 // (champs complétés, discordances à trancher, validité des documents).
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ScanLine, Loader2, Check, AlertTriangle, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,15 @@ import { extractEmployeeIdAction, type ExtractEmployeeIdResult } from "./id-extr
 export function IdExtractButton({ employeeId }: { employeeId: string }) {
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ExtractEmployeeIdResult | null>(null);
+  const router = useRouter();
 
   function run() {
     start(async () => {
       try {
         const r = await extractEmployeeIdAction(employeeId);
         setRes(r);
+        // Rafraîchit la fiche pour afficher les champs nouvellement complétés + états.
+        router.refresh();
         if (!r.extractOk && r.docsChecked === 0) {
           toast.error(r.extractError ?? "Aucune donnée à extraire.");
         } else if (r.discordances.length > 0) {
