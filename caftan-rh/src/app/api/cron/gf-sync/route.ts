@@ -37,10 +37,21 @@ export async function GET(request: NextRequest) {
 
   const stats = await syncGravityForms(gfSettings, admin as unknown as Parameters<typeof syncGravityForms>[1]);
 
+  // Karim 2026-07-11 : on distingue les ERREURS RÉELLES des notices bénignes de
+  // déduplication (doublons GF / re-candidatures intra-batch = normal, pas une
+  // panne). Le moniteur (gf-sync-health) ne s'appuie que sur les erreurs réelles
+  // et sur `last_sync_fetched` (entrées récupérées) pour éviter les faux positifs.
+  const realErrors = stats.errors.filter((e) => !/deduplique|in-batch/i.test(e));
+
   await admin
     .from("gf_settings")
-    .update({ last_synced_at: new Date().toISOString(), last_sync_count: stats.created })
+    .update({
+      last_synced_at: new Date().toISOString(),
+      last_sync_count: stats.created,
+      last_sync_fetched: stats.fetched,
+      last_sync_error_count: realErrors.length,
+    })
     .eq("id", 1);
 
-  return NextResponse.json({ ok: true, stats });
+  return NextResponse.json({ ok: true, stats, realErrors: realErrors.length });
 }
