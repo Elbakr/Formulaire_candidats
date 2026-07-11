@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
 import { TabletAccessForm } from "./tablet-access-form";
+import { AutoShiftGlobalForm } from "./auto-shift-global-form";
 import { getOutboundBaseUrl } from "@/lib/public-base-url";
 import { pushIsConfigured } from "@/lib/push-notify";
 
@@ -195,6 +196,15 @@ export default async function AdminSettingsPage() {
           Accès tablette planning
         </div>
         <TabletAccessForm initialToken={tabletToken} baseUrl={outboundBaseUrl} />
+      </Card>
+
+      <Card>
+        <AutoShiftGlobalForm
+          initialEffectiveAt={
+            (data as unknown as { auto_shift_global_effective_at: string | null } | null)
+              ?.auto_shift_global_effective_at ?? null
+          }
+        />
       </Card>
 
       <Card>

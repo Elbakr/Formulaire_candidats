@@ -18,6 +18,7 @@ import {
   type City,
 } from "@/lib/city";
 import { siteClosingTime } from "@/lib/scheduling/site-hours";
+import { isAutoShiftActiveFor } from "@/lib/auto-shift";
 
 export type TabletBreak = { start: string; end: string };
 export type TabletShift = {
@@ -27,6 +28,10 @@ export type TabletShift = {
   hours: number;
   pause?: { start: string; end: string } | null;
   breaks?: TabletBreak[];
+  /** Auto-Shift : shift d'AUJOURD'HUI (mis en avant sur la tablette). */
+  is_today?: boolean;
+  /** Auto-Shift : magasin du shift réel (nom lisible). */
+  site?: string | null;
 };
 export type TabletWeek = {
   week_index: number;
@@ -45,6 +50,10 @@ export type TabletPlanning = {
   // sites) ; `site_today` = site déjà signalé aujourd'hui (null sinon).
   default_city: TabletCity;
   site_today: string | null;
+  // Karim 2026-07-11 : mode d'affichage. 'variant' = variant coché (défaut) ;
+  // 'auto_shift' = planning RÉEL (shifts publiés), jour en cours mis en avant.
+  mode: "variant" | "auto_shift";
+  today: string; // date du jour (Europe/Brussels), pour le surlignage
 };
 
 // Ville tablette : 'bruxelles' | 'anvers' (jamais 'all' côté travailleur).
@@ -87,11 +96,16 @@ export async function resolvePlanningByCodeAction(
   const admin = createAdminClient();
   const { data: empRaw } = await admin
     .from("employees")
-    .select("id, full_name")
+    .select("id, full_name, auto_shift")
     .eq("planning_access_code", code)
     .maybeSingle();
-  const emp = empRaw as { id: string; full_name: string | null } | null;
+  const emp = empRaw as { id: string; full_name: string | null; auto_shift: boolean | null } | null;
   if (!emp) return generic;
+
+  // Karim 2026-07-11 : mode AUTO-SHIFT (individuel ou global) -> planning RÉEL.
+  if (await isAutoShiftActiveFor(admin, emp)) {
+    return { ok: true, planning: await buildAutoShiftPlanning(admin, emp) };
+  }
 
   const { data: propRaw } = await admin
     .from("planning_proposals")
@@ -148,7 +162,114 @@ export async function resolvePlanningByCodeAction(
       total_hours: totalHours,
       default_city,
       site_today,
+      mode: "variant",
+      today: brusselsToday(),
     },
+  };
+}
+
+// ── AUTO-SHIFT : planning RÉEL (shifts publiés) sur 3 semaines ────────────────
+// Karim 2026-07-11 : en mode Auto-Shift, la tablette montre le VRAI planning du
+// travailleur (table `shifts`) à partir du lundi de la semaine en cours, sur 3
+// semaines, avec le JOUR EN COURS mis en avant. Remplace l'affichage du variant.
+function mondayOfISO(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay(); // 0=Dim..6=Sam
+  const backToMonday = (dow + 6) % 7; // Lun=0
+  const base = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  base.setUTCDate(base.getUTCDate() - backToMonday);
+  return base.toISOString().slice(0, 10);
+}
+
+function addDaysISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
+async function buildAutoShiftPlanning(
+  admin: ReturnType<typeof createAdminClient>,
+  emp: { id: string; full_name: string | null },
+): Promise<TabletPlanning> {
+  const today = brusselsToday();
+  const weekStart = mondayOfISO(today);
+  const horizonEnd = addDaysISO(weekStart, 20); // 3 semaines (21 jours)
+
+  const { data: rows } = await admin
+    .from("shifts")
+    .select("date, start_time, end_time, break_minutes, site_id, location, status")
+    .eq("employee_id", emp.id)
+    .gte("date", weekStart)
+    .lte("date", horizonEnd)
+    .neq("status", "cancelled")
+    .order("date")
+    .order("start_time");
+  const shiftRows = ((rows ?? []) as Array<{
+    date: string;
+    start_time: string | null;
+    end_time: string | null;
+    break_minutes: number | null;
+    site_id: string | null;
+    location: string | null;
+    status: string | null;
+  }>);
+
+  // Noms des sites (site_id -> nom lisible).
+  const siteIds = Array.from(new Set(shiftRows.map((s) => s.site_id).filter((x): x is string => !!x)));
+  const nameById = new Map<string, string>();
+  if (siteIds.length) {
+    const { data: sites } = await admin.from("sites").select("id, name, code").in("id", siteIds);
+    for (const s of (sites ?? []) as Array<{ id: string; name: string | null; code: string | null }>) {
+      nameById.set(s.id, (s.name ?? s.code ?? "").trim());
+    }
+  }
+
+  const hhmm = (t: string | null): string => (t ? t.slice(0, 5) : "");
+  const toMin = (t: string | null): number => {
+    if (!t) return 0;
+    const [h, m] = t.slice(0, 5).split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  // 3 semaines (buckets), même si vides, pour montrer l'horizon.
+  const weeks: TabletWeek[] = [];
+  for (let w = 0; w < 3; w++) {
+    const ws = addDaysISO(weekStart, w * 7);
+    const we = addDaysISO(ws, 6);
+    const inWeek = shiftRows.filter((s) => s.date >= ws && s.date <= we);
+    const shifts: TabletShift[] = inWeek.map((s) => {
+      const worked = Math.max(0, toMin(s.end_time) - toMin(s.start_time) - (s.break_minutes ?? 0));
+      return {
+        date: s.date,
+        start_time: hhmm(s.start_time),
+        end_time: hhmm(s.end_time),
+        hours: Number((worked / 60).toFixed(2)),
+        is_today: s.date === today,
+        site: s.site_id ? nameById.get(s.site_id) ?? s.location ?? null : s.location ?? null,
+      };
+    });
+    weeks.push({
+      week_index: w,
+      week_start: ws,
+      week_end: we,
+      shifts,
+      total_hours: Number(shifts.reduce((a, x) => a + x.hours, 0).toFixed(2)),
+    });
+  }
+
+  const default_city = await resolveDefaultCity(admin, emp.id);
+  const site_today = await readTodayDeclaredSite(admin, emp.id);
+
+  return {
+    first_name: firstNameOf(emp.full_name),
+    variant: "A",
+    weeks,
+    total_hours: Number(weeks.reduce((a, w) => a + w.total_hours, 0).toFixed(2)),
+    default_city,
+    site_today,
+    mode: "auto_shift",
+    today,
   };
 }
 

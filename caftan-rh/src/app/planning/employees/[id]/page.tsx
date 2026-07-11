@@ -471,6 +471,7 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           overtimeCapable={!!(emp as { ot_eligible: boolean | null }).ot_eligible}
           firstName={((emp as { full_name: string }).full_name ?? "").trim().split(/\s+/)[0] || "le travailleur"}
           bookedDates={planningBookedDates}
+          autoShift={!!(emp as { auto_shift: boolean | null }).auto_shift}
         />
       </div>
 

@@ -3,6 +3,7 @@ import Script from "next/script";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { InstallPrompt } from "@/components/install-prompt";
+import { AutoShiftGlobalBanner } from "@/components/auto-shift-global-banner";
 import { PushActivationBanner } from "@/components/push-activation-banner";
 import { HashRecoveryRedirect } from "@/components/hash-recovery-redirect";
 import { SwNavigationListener } from "@/components/sw-navigation-listener";
@@ -59,6 +60,7 @@ export default function RootLayout({
     <html lang="fr" className={`${dmSans.variable} ${dmMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-canvas text-ink">
         <NavigationProgress />
+        <AutoShiftGlobalBanner />
         {children}
         <Toaster position="top-right" richColors closeButton />
         <HashRecoveryRedirect />

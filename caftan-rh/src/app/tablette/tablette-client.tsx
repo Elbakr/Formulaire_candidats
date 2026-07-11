@@ -48,6 +48,7 @@ const T = {
     declareSite: "Signaler mon site du jour",
     whereToday: "Où travailles-tu aujourd'hui ?",
     today: "Aujourd'hui",
+    live: "Planning en direct",
     back: "Retour",
     saved: "Enregistré",
     dayEndsAt: (t: string) => `Ta journée finit à ${t}`,
@@ -71,6 +72,7 @@ const T = {
     declareSite: "Mijn winkel van vandaag doorgeven",
     whereToday: "Waar werk je vandaag?",
     today: "Vandaag",
+    live: "Live planning",
     back: "Terug",
     saved: "Opgeslagen",
     dayEndsAt: (t: string) => `Je dag eindigt om ${t}`,
@@ -197,8 +199,14 @@ export function TabletteClient() {
         <header className="bg-ink text-white px-5 py-4 flex items-center gap-3 sticky top-0 z-10">
           <CalendarClock className="h-6 w-6 text-gold" />
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.18em] font-bold text-gold">
+            <div className="text-[11px] uppercase tracking-[0.18em] font-bold text-gold flex items-center gap-2">
               {t.myPlanning}
+              {planning.mode === "auto_shift" ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {t.live}
+                </span>
+              ) : null}
             </div>
             <div className="text-2xl font-bold truncate">{t.hello(planning.first_name)}</div>
           </div>
@@ -548,12 +556,25 @@ function KeyButton({
 function ShiftRow({ shift, lang }: { shift: TabletShift; lang: Lang }) {
   const t = T[lang];
   return (
-    <li className="px-5 py-3">
+    <li className={`px-5 py-3 ${shift.is_today ? "bg-gold-light/60 border-l-4 border-gold" : ""}`}>
       <div className="flex items-center gap-3">
-        <span className="font-semibold text-ink-2 w-28 shrink-0">{fmtDayLabel(shift.date, lang)}</span>
+        <span className={`font-semibold w-28 shrink-0 ${shift.is_today ? "text-gold-dark" : "text-ink-2"}`}>
+          {shift.is_today ? (
+            <span className="inline-block rounded-full bg-gold text-white text-[9px] font-bold uppercase px-1.5 py-0.5 mr-1 align-middle">
+              {t.today}
+            </span>
+          ) : null}
+          {fmtDayLabel(shift.date, lang)}
+        </span>
         <span className="font-mono text-xl font-bold text-ink">
           {shift.start_time} – {shift.end_time}
         </span>
+        {shift.site ? (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-ink-3">
+            <MapPin className="h-3.5 w-3.5" />
+            {shift.site}
+          </span>
+        ) : null}
         <span className="ml-auto font-mono text-ink-3">{shift.hours.toFixed(1)}h</span>
       </div>
       {shift.pause ? (
