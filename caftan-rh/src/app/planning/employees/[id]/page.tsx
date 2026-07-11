@@ -42,6 +42,7 @@ import { DimonaReminderBanner } from "./dimona-reminder-banner";
 import { DocExpiryReminderBanner } from "./doc-expiry-banner";
 import { ResidenceFields } from "./residence-fields";
 import { DocumentsEbookViewer } from "./documents-ebook";
+import { IdExtractButton } from "./id-extract-button";
 import { getEmployeeExpiringItems } from "@/lib/doc-expiry-reminder";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
@@ -375,6 +376,13 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
         items={docExpiryItems}
         reminderAt={(emp as { residence_doc_reminder_at: string | null }).residence_doc_reminder_at ?? null}
       />
+
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[11px] text-ink-3">
+          Extraction IA de la carte d&apos;identité + contrôle de conformité des documents (au cas par cas).
+        </p>
+        <IdExtractButton employeeId={id} />
+      </div>
 
       <ResidenceFields
         employeeId={id}

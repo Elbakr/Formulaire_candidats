@@ -7,7 +7,12 @@ import "server-only";
 // adapter en silence).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { extractIdDocumentFromPdf, type ExtractedId } from "@/lib/id-extraction";
+import {
+  extractIdDocumentFromPdf,
+  extractIdDocument,
+  type ExtractedId,
+  type ExtractResult,
+} from "@/lib/id-extraction";
 import { computeWorkAuthorization } from "@/lib/work-authorization";
 
 type SubjectKind = "employee" | "candidate";
@@ -207,6 +212,131 @@ export async function extractAndUpdateAllIdCards(
   }
 
   return res;
+}
+
+// ── Extraction PAR FICHE (un seul travailleur, à la demande admin) ───────────
+// Karim 2026-07-11 : bouton fiche « Extraire (IA) ». Lit la DERNIÈRE carte d'identité
+// (PDF ou image) du travailleur, COMPLÈTE les champs manquants et SIGNALE les
+// discordances — jamais d'écrasement silencieux. Rétro-actif : marche pour tous les
+// travailleurs existants ayant déjà déposé une CI.
+export type ExtractOneResult = {
+  ok: boolean;
+  error?: string;
+  filledFields: number;
+  filled: string[]; // champs complétés (clés)
+  discordances: Discordance[];
+  workAuthorization?: string | null;
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  full_name: "nom complet",
+  birth_date: "date de naissance",
+  nrn: "n° registre national",
+  nationality: "nationalité",
+  residence_doc_type: "type de titre de séjour",
+  residence_doc_expiry: "date d'expiration du titre",
+  residence_doc_number: "n° du titre de séjour",
+};
+export function frFieldLabel(key: string): string {
+  return FIELD_LABEL[key] ?? key;
+}
+
+export async function extractAndUpdateOneIdCard(
+  admin: SupabaseClient,
+  employeeId: string,
+): Promise<ExtractOneResult> {
+  const empty = (error: string): ExtractOneResult => ({
+    ok: false,
+    error,
+    filledFields: 0,
+    filled: [],
+    discordances: [],
+  });
+
+  // 1. Dernière carte d'identité déposée.
+  const { data: docsRaw } = await admin
+    .from("documents")
+    .select("storage_path, mime_type, created_at")
+    .eq("kind", "id_card")
+    .eq("employee_id", employeeId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const doc = (docsRaw ?? [])[0] as { storage_path: string; mime_type: string | null } | undefined;
+  if (!doc?.storage_path) return empty("Aucune carte d'identité déposée pour ce travailleur.");
+
+  // 2. Fiche.
+  const { data: empRaw } = await admin.from("employees").select(SELECT).eq("id", employeeId).maybeSingle();
+  const row = empRaw as SubjectRow | null;
+  if (!row) return empty("Travailleur introuvable.");
+
+  // 3. Extraction (PDF ou image).
+  let ex: ExtractResult;
+  try {
+    const { data: blob, error } = await admin.storage.from("documents").download(doc.storage_path);
+    if (error || !blob) return empty("Carte d'identité introuvable dans le stockage.");
+    const b64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
+    const isPdf = /pdf/i.test(doc.mime_type ?? "") || doc.storage_path.toLowerCase().endsWith(".pdf");
+    ex = isPdf
+      ? await extractIdDocumentFromPdf(b64)
+      : await extractIdDocument([{ base64: b64, mime: doc.mime_type ?? "image/jpeg" }]);
+  } catch (e) {
+    return empty((e as Error).message);
+  }
+  if (!ex.ok) return empty(ex.error);
+  const d = ex.data;
+
+  // 4. Complète / signale (même logique que le batch).
+  const discordances: Discordance[] = [];
+  const patch: Record<string, unknown> = {};
+  const filled: string[] = [];
+  const consider = (
+    field: keyof SubjectRow,
+    existing: string | null,
+    extractedVal: string | null,
+    same: (a: string, b: string) => boolean,
+  ) => {
+    if (!extractedVal) return;
+    if (!existing) {
+      patch[field] = extractedVal;
+      filled.push(field as string);
+    } else if (!same(existing, extractedVal)) {
+      discordances.push({
+        subjectId: row.id,
+        kind: "employee",
+        name: row.full_name ?? "?",
+        field: field as string,
+        existing: String(existing),
+        extracted: String(extractedVal),
+      });
+    }
+  };
+  consider("full_name", row.full_name, d.full_name, (a, b) => sameName(a, b));
+  consider("birth_date", row.birth_date, d.birth_date, (a, b) => iso10(a) === iso10(b));
+  consider("nrn", row.nrn, d.nrn, (a, b) => digits(a) === digits(b));
+  consider("nationality", row.nationality, d.nationality, (a, b) => norm(a) === norm(b));
+  consider("residence_doc_type", row.residence_doc_type, d.doc_type, (a, b) => norm(a) === norm(b));
+  consider("residence_doc_expiry", row.residence_doc_expiry, d.expiry_date, (a, b) => iso10(a) === iso10(b));
+  consider("residence_doc_number", row.residence_doc_number, d.doc_number, (a, b) => norm(a) === norm(b));
+
+  const finalNat = (patch.nationality as string) ?? row.nationality;
+  let workAuthorization: string | null = null;
+  if (finalNat) {
+    workAuthorization = computeWorkAuthorization({
+      nationality: finalNat,
+      expiry: (patch.residence_doc_expiry as string) ?? row.residence_doc_expiry,
+      docType: (patch.residence_doc_type as string) ?? row.residence_doc_type,
+    }).status;
+    patch.work_authorization = workAuthorization;
+  }
+  patch.id_extracted_at = new Date().toISOString();
+
+  try {
+    await admin.from("employees").update(patch).eq("id", row.id);
+  } catch (e) {
+    return empty(`Mise à jour de la fiche échouée : ${(e as Error).message}`);
+  }
+
+  return { ok: true, filledFields: filled.length, filled, discordances, workAuthorization };
 }
 
 /** Corps texte du résultat batch (pour la notif admin). */
