@@ -324,23 +324,17 @@ function placeAndBuildShift(
     // On ne démarre jamais AVANT l'heure de début par défaut ; on ne fait que
     // décaler plus tard pour contourner une indispo antérieure.
     const start = Math.max(desiredStartMin, win.start);
-    if (start >= win.end) continue; // fenêtre entièrement avant le début souhaité
-    const span = shiftSpanMin(iso, start, workedMin, prayer, pauseMin);
-    if (start + span <= win.end && start + span <= DAY_MIN) {
-      // La fenêtre (indispos) contient le shift PLEIN. On applique le plafond de
-      // fermeture : si la fin dépasse la fermeture, on réduit les heures pour
-      // finir à la fermeture (pauses = offset FIXE, donc rognage direct sur le
-      // travaillé). `addition` = durée des pauses ajoutées à la fin.
-      if (start >= closingMin) return null; // fermé avant même de démarrer
-      const addition = span - workedMin;
-      let placeMin = workedMin;
-      if (start + span > closingMin) {
-        placeMin = closingMin - start - addition;
-      }
-      // Trop peu de marge avant la fermeture pour un vrai shift depuis ce début.
-      if (placeMin < MIN_SHIFT_MIN) return null;
-      return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, closingFor);
-    }
+    // Fin MAXIMALE possible dans cette fenêtre : bornée par l'indispo (win.end),
+    // la fermeture du site et minuit.
+    const hardEnd = Math.min(win.end, closingMin, DAY_MIN);
+    if (start >= hardEnd) continue; // pas de place dans cette fenêtre depuis `start`
+    // Pauses = offset FIXE (durée = span(worked) - worked). On ROGNE les heures
+    // travaillées à ce qui tient avant `hardEnd` au lieu de rejeter le jour : un
+    // shift trop long (ex. créneau fermeture) est simplement raccourci.
+    const addition = shiftSpanMin(iso, start, workedMin, prayer, pauseMin) - workedMin;
+    const placeMin = Math.min(workedMin, hardEnd - start - addition);
+    if (placeMin < MIN_SHIFT_MIN) continue; // trop peu de place ici -> fenêtre suivante
+    return buildShift(iso, start, placeMin / 60, prayer, pauseMin, brabant, staggerRank, closingFor);
   }
   return null;
 }
@@ -719,6 +713,7 @@ function buildCoverageExtras(args: {
   startDate: string;
   weeks: number;
   weeklyHours: number;
+  startMin: number;
   shiftHours: number;
   fixedOffDays: Set<number>;
   unavail: ProposalUnavailability[];
@@ -731,7 +726,7 @@ function buildCoverageExtras(args: {
   base: ProposalVariant[]; // A/B/C déjà générés
 }): ProposalVariant[] {
   const {
-    startDate, weeks, weeklyHours, shiftHours, fixedOffDays, unavail,
+    startDate, weeks, weeklyHours, startMin, shiftHours, fixedOffDays, unavail,
     prayer, pauseMin, brabant, staggerRank, closingFor, siteCode, base,
   } = args;
   if (weeklyHours <= 0 || shiftHours <= 0) return [];
@@ -787,54 +782,61 @@ function buildCoverageExtras(args: {
   const maxExtra = Math.max(0, COVERAGE_TOTAL_CAP - base.length);
   if (maxExtra === 0) return [];
 
-  // Bin-packing : UN SEUL shift par jour et par variant, remplit ~quota hebdo par
-  // variant. On ne met jamais deux créneaux du même jour dans la même variante
-  // (un travailleur ne fait pas 2 shifts/jour) — ils vont dans des variantes
-  // différentes, de sorte que l'UNION couvre matin ET fermeture de chaque jour.
-  type Bundle = { items: Array<Anchor & { worked: number }>; rem: number; days: Set<number> };
-  const bundles: Bundle[] = [];
-  for (const a of anchors) {
-    let placed = false;
-    for (const b of bundles) {
-      if (b.rem >= 0.25 && !b.days.has(a.dayOffset)) {
-        const worked = Math.min(shiftHours, b.rem);
-        b.items.push({ ...a, worked });
-        b.rem -= worked;
-        b.days.add(a.dayOffset);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      if (bundles.length >= maxExtra) break; // plafond atteint -> best-effort
-      const worked = Math.min(shiftHours, weeklyHours);
-      bundles.push({ items: [{ ...a, worked }], rem: weeklyHours - worked, days: new Set([a.dayOffset]) });
-    }
-  }
-
+  // Karim 2026-07-11 : chaque variant d'appoint est un PLANNING COMPLET (quota hebdo
+  // ENTIER). Il INCLUT le créneau non couvert (« graine » : matin ou fermeture d'un
+  // jour), puis remplit le RESTE du quota sur les autres jours dispos au début par
+  // défaut. Ainsi TOUS les variants couvrent 100 % des heures contractuelles, et
+  // l'union couvre l'ouverture→fermeture.
   const LABELS = ["D", "E", "F", "G", "H", "I", "J", "K", "L"];
-  return bundles.slice(0, maxExtra).map((bundle, i) => {
+  const variants: ProposalVariant[] = [];
+  for (const anchor of anchors) {
+    if (variants.length >= maxExtra) break;
     const weeksArr: ProposalWeek[] = [];
     for (let w = 0; w < weeks; w++) {
       const ws = addDaysISO(startDate, w * 7);
+      const available = computeAvailableDays(ws, fixedOffDays, unavail);
       const shifts: ProposalShift[] = [];
-      for (const it of bundle.items) {
-        const iso = addDaysISO(ws, it.dayOffset);
-        const wm = Math.round(it.worked * 60);
-        // MATIN : démarre à l'ouverture. FERMETURE : démarre pour FINIR à la
-        // fermeture cible (calé sur les heures réelles de ce créneau).
-        let startMin = OPEN_MIN;
-        if (it.kind === "closing") {
-          const closeMin = coverageClose(iso);
-          const span = shiftSpanMin(iso, Math.max(OPEN_MIN, closeMin - wm), wm, prayer, pauseMin);
-          startMin = Math.max(OPEN_MIN, closeMin - span);
+      const used = new Set<string>();
+      let remaining = weeklyHours;
+
+      // 1) GRAINE : le créneau non couvert (matin à l'ouverture, ou fermeture calée
+      //    pour finir à la fermeture cible).
+      const seedIso = addDaysISO(ws, anchor.dayOffset);
+      if (available.includes(seedIso)) {
+        const want = Math.min(shiftHours, remaining);
+        let seedStart = OPEN_MIN;
+        if (anchor.kind === "closing") {
+          const closeMin = coverageClose(seedIso);
+          const wm = Math.round(want * 60);
+          const span = shiftSpanMin(seedIso, Math.max(OPEN_MIN, closeMin - wm), wm, prayer, pauseMin);
+          seedStart = Math.max(OPEN_MIN, closeMin - span);
         }
-        const shift = placeAndBuildShift(
-          iso, startMin, it.worked, unavail, prayer, pauseMin, brabant, staggerRank,
+        const seed = placeAndBuildShift(
+          seedIso, seedStart, want, unavail, prayer, pauseMin, brabant, staggerRank,
           (d) => coverageClose(d),
         );
-        if (shift) shifts.push(shift);
+        if (seed) {
+          shifts.push(seed);
+          used.add(seedIso);
+          remaining -= seed.hours;
+        }
       }
+
+      // 2) REMPLIT LE RESTE du quota sur les autres jours dispos (début par défaut).
+      for (const iso of available) {
+        if (remaining <= 0.25) break;
+        if (used.has(iso)) continue;
+        const want = Math.min(shiftHours, remaining);
+        const shift = placeAndBuildShift(
+          iso, startMin, want, unavail, prayer, pauseMin, brabant, staggerRank, closingFor,
+        );
+        if (shift) {
+          shifts.push(shift);
+          used.add(iso);
+          remaining -= shift.hours;
+        }
+      }
+
       shifts.sort((x, y) =>
         x.date < y.date ? -1 : x.date > y.date ? 1 : x.start_time < y.start_time ? -1 : 1,
       );
@@ -846,8 +848,15 @@ function buildCoverageExtras(args: {
         total_hours: Number(shifts.reduce((s, x) => s + x.hours, 0).toFixed(2)),
       });
     }
-    return mkVariant(LABELS[i] ?? `V${base.length + i + 1}`, "Créneaux d'appoint pour couvrir l'ouverture→fermeture", weeksArr);
-  });
+    variants.push(
+      mkVariant(
+        LABELS[variants.length] ?? `V${base.length + variants.length + 1}`,
+        "Planning complet incluant un créneau ouverture→fermeture d'appoint",
+        weeksArr,
+      ),
+    );
+  }
+  return variants;
 }
 
 // ── RENFORT / heures supplémentaires (helper pur) ────────────────────────────
@@ -1114,6 +1123,7 @@ export function generatePlanningProposal(input: {
     startDate: input.startDate,
     weeks,
     weeklyHours,
+    startMin,
     shiftHours,
     fixedOffDays,
     unavail,
