@@ -6,7 +6,7 @@
 // cadre puis compressées (JPEG) ; le serveur les fusionne sur UNE seule page PDF.
 
 import { useState, useTransition } from "react";
-import { Loader2, IdCard, Check, Upload, RefreshCw, Camera } from "lucide-react";
+import { Loader2, IdCard, Check, Upload, RefreshCw, Camera, Sparkles, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { IdCardCamera } from "@/components/id-card-camera";
 import {
@@ -15,9 +15,19 @@ import {
   saveIdCardTokenAction,
   type IdCardPayload,
 } from "@/lib/id-card-actions";
+import { extractIdCardTokenAction, type WorkInfo } from "@/lib/id-extraction-actions";
+import type { ExtractedId } from "@/lib/id-extraction";
 
 type Kind = "admin" | "me" | "token";
 type Side = "recto" | "verso";
+
+/** Champs identité extraits, remontés au formulaire parent pour pré-remplissage. */
+export type IdExtractedFields = {
+  full_name: string | null;
+  birth_date: string | null;
+  nrn: string | null;
+  nationality: string | null;
+};
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
@@ -50,11 +60,15 @@ export function IdCardUpload({
   employeeId,
   token,
   existing,
+  onExtracted,
 }: {
   kind: Kind;
   employeeId?: string;
   token?: string;
   existing?: { fileName: string; at: string } | null;
+  /** Karim 2026-07-11 : pré-remplissage du formulaire à partir de l'extraction IA
+   *  (self-service token uniquement). Le travailleur confirme ensuite les champs. */
+  onExtracted?: (fields: IdExtractedFields) => void;
 }) {
   const [recto, setRecto] = useState<string | null>(null);
   const [verso, setVerso] = useState<string | null>(null);
@@ -63,6 +77,31 @@ export function IdCardUpload({
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
   const [replace, setReplace] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [extracted, setExtracted] = useState<{ data: ExtractedId; work: WorkInfo } | null>(null);
+
+  async function runExtraction(payload: IdCardPayload) {
+    if (kind !== "token" || !token) return;
+    setAnalyzing(true);
+    try {
+      const r = await extractIdCardTokenAction(token, payload);
+      if (r.ok) {
+        setExtracted({ data: r.data, work: r.work });
+        onExtracted?.({
+          full_name: r.data.full_name,
+          birth_date: r.data.birth_date,
+          nrn: r.data.nrn,
+          nationality: r.data.nationality,
+        });
+        toast.success("Carte analysée — vérifie et confirme les infos pré-remplies.");
+      }
+      // En cas d'échec d'extraction : silencieux (le PDF est déjà enregistré).
+    } catch {
+      /* non bloquant */
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   async function onCameraCapture(which: Side, dataUrl: string) {
     setCameraFor(null);
@@ -98,6 +137,10 @@ export function IdCardUpload({
             : await saveIdCardMeAction(payload);
       if (r.ok) {
         toast.success("Carte d'identité enregistrée (PDF).");
+        // Karim 2026-07-11 : extraction IA + contrôle validité/droit au travail
+        // (self-service token). Le PDF est déjà sauvé ; l'analyse pré-remplit et
+        // escalade côté admin si besoin.
+        if (kind === "token") await runExtraction(payload);
         setDone(true);
         setRecto(null);
         setVerso(null);
@@ -131,9 +174,65 @@ export function IdCardUpload({
   }
 
   if (done) {
+    const w = extracted?.work;
+    const d = extracted?.data;
+    const expiryWarn = w && w.daysToExpiry != null && w.daysToExpiry < 60;
     return (
-      <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex items-center gap-2 text-sm font-semibold text-emerald-800">
-        <Check className="h-4 w-4" /> Carte d&apos;identité enregistrée (PDF recto/verso).
+      <div className="space-y-2">
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex items-center gap-2 text-sm font-semibold text-emerald-800">
+          <Check className="h-4 w-4" /> Carte d&apos;identité enregistrée (PDF recto/verso).
+        </div>
+        {analyzing ? (
+          <div className="rounded-lg border border-line bg-surface p-3 flex items-center gap-2 text-sm text-ink-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Analyse du document en cours…
+          </div>
+        ) : extracted ? (
+          <div className="rounded-lg border border-line bg-white p-3 space-y-1.5">
+            <div className="flex items-center gap-2 text-sm font-bold text-ink">
+              <Sparkles className="h-4 w-4 text-gold-dark" /> Infos lues sur ta carte
+            </div>
+            <p className="text-[11px] text-ink-3">
+              Vérifie et <strong>corrige si besoin</strong> les champs pré-remplis ci-dessous, puis confirme.
+            </p>
+            <ul className="text-[12px] text-ink-2 space-y-0.5">
+              {d?.full_name ? <li>Nom : <strong>{d.full_name}</strong></li> : null}
+              {d?.birth_date ? <li>Naissance : <strong>{d.birth_date}</strong></li> : null}
+              {d?.nationality ? <li>Nationalité : <strong>{d.nationality}</strong></li> : null}
+              {d?.expiry_date ? (
+                <li className={expiryWarn ? "text-amber-700 font-semibold" : ""}>
+                  Validité du document : <strong>{d.expiry_date}</strong>
+                  {w?.daysToExpiry != null
+                    ? w.daysToExpiry < 0
+                      ? " — EXPIRÉ"
+                      : w.daysToExpiry < 60
+                        ? ` — expire dans ${w.daysToExpiry} j`
+                        : ""
+                    : ""}
+                </li>
+              ) : null}
+            </ul>
+            {w ? (
+              <div
+                className={`mt-1 rounded-md p-2 text-[11px] flex items-start gap-1.5 ${
+                  w.status === "ue"
+                    ? "bg-emerald-50 text-emerald-800"
+                    : "bg-amber-50 text-amber-800"
+                }`}
+              >
+                {w.status === "ue" ? (
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                ) : (
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                )}
+                <span>
+                  {w.status === "ue"
+                    ? "Droit au travail confirmé (UE/EEE/Suisse)."
+                    : "Le service RH va vérifier ton droit au travail et te recontacter si un document est nécessaire."}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }

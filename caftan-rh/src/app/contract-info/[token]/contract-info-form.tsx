@@ -5,7 +5,7 @@ import { Loader2, CheckCircle2, Check, Sparkles, Globe } from "lucide-react";
 import { IbanField } from "@/components/iban-field";
 import { submitContractInfoAction, autosaveContractInfoAction } from "./actions";
 import { UnavailabilitiesStep } from "./unavailabilities-step";
-import { IdCardUpload } from "@/components/id-card-upload";
+import { IdCardUpload, type IdExtractedFields } from "@/components/id-card-upload";
 import { BirthDatePicker } from "@/components/birth-date-picker";
 import { reverseGeocodeAction } from "@/lib/geocode-actions";
 import { isBePostalCode, localBeCity, lookupBeCity } from "@/lib/be-postal";
@@ -595,6 +595,24 @@ export function ContractInfoForm({
     setValues((v) => ({ ...v, [key]: val }));
   }
 
+  // Karim 2026-07-11 : pré-remplissage depuis l'extraction IA de la CI. On REMPLIT
+  // pour que le travailleur VÉRIFIE/CONFIRME (jamais écrit sans qu'il le voie). On
+  // n'écrase pas un champ que le travailleur a déjà saisi lui-même (editedRef).
+  function applyExtracted(f: IdExtractedFields) {
+    const fill = (key: string, val: string | null, save = true) => {
+      if (!val) return;
+      if (editedRef.current.has(key)) return; // ne pas écraser une saisie manuelle
+      setField(key, val, false);
+      if (save) void autosave(key, val);
+    };
+    fill("full_name", f.full_name);
+    fill("birth_date", f.birth_date);
+    fill("nrn", f.nrn);
+    // nationalité : déjà persistée côté serveur par l'extraction ; on l'affiche
+    // seulement (pas dans la liste auto-save du token).
+    fill("nationality", f.nationality, false);
+  }
+
   const ibanRaw = values.iban ?? "";
   const ibanStatus: "empty" | "ok" | "bad" =
     ibanRaw.trim() === "" ? "empty" : ibanIsValid(ibanRaw) ? "ok" : "bad";
@@ -786,7 +804,7 @@ export function ContractInfoForm({
           <p className="text-[13px] text-ink-2 leading-relaxed mb-2">
             {t.id_card_body}
           </p>
-          <IdCardUpload kind="token" token={token} existing={idCardExisting} />
+          <IdCardUpload kind="token" token={token} existing={idCardExisting} onExtracted={applyExtracted} />
         </div>
         <UnavailabilitiesStep token={token} initialItems={initialUnavailabilities} onDone={finish} />
         {/* Karim 2026-07-05 : la « case pour ajouter quelque chose » vit ICI, à la
