@@ -19,6 +19,7 @@ import {
 } from "@/lib/city";
 import { siteClosingTime } from "@/lib/scheduling/site-hours";
 import { isAutoShiftActiveFor } from "@/lib/auto-shift";
+import { pickVariantForToday } from "@/lib/pick-variant";
 
 export type TabletBreak = { start: string; end: string };
 export type TabletShift = {
@@ -183,52 +184,6 @@ export async function resolvePlanningByCodeAction(
   };
 }
 
-// ── AUTO-VARIANT : choix du variant qui colle le mieux à AUJOURD'HUI ──────────
-type PropForPick = { variant_a: unknown; variant_b: unknown; variant_c: unknown };
-
-function pickVariantForToday(prop: PropForPick, today: string): "A" | "B" | "C" {
-  const entries: Array<{ label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] } | null }> = [
-    { label: "A", v: prop.variant_a as { weeks?: TabletWeek[] } | null },
-    { label: "B", v: prop.variant_b as { weeks?: TabletWeek[] } | null },
-    { label: "C", v: prop.variant_c as { weeks?: TabletWeek[] } | null },
-  ].filter((e) => e.v) as Array<{ label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] } }>;
-  if (entries.length === 0) return "A";
-
-  const hoursOn = (v: { weeks?: TabletWeek[] }, date: string): number => {
-    let h = 0;
-    for (const w of v.weeks ?? []) for (const s of w.shifts ?? []) if (s.date === date) h += s.hours ?? 0;
-    return h;
-  };
-  const soonest = (v: { weeks?: TabletWeek[] }): string | null => {
-    let best: string | null = null;
-    for (const w of v.weeks ?? [])
-      for (const s of w.shifts ?? [])
-        if (s.date >= today && (best === null || s.date < best)) best = s.date;
-    return best;
-  };
-
-  // 1) Variant(s) avec un shift AUJOURD'HUI -> le plus d'heures aujourd'hui, puis A>B>C.
-  const withToday = entries
-    .map((e) => ({ ...e, h: hoursOn(e.v, today) }))
-    .filter((e) => e.h > 0.01);
-  if (withToday.length) {
-    withToday.sort((a, b) => b.h - a.h || a.label.localeCompare(b.label));
-    return withToday[0].label;
-  }
-
-  // 2) Sinon : variant dont le PROCHAIN shift est le plus proche.
-  const withSoon = entries
-    .map((e) => ({ ...e, d: soonest(e.v) }))
-    .filter((e): e is { label: "A" | "B" | "C"; v: { weeks?: TabletWeek[] }; d: string } => !!e.d);
-  if (withSoon.length) {
-    withSoon.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.label.localeCompare(b.label)));
-    return withSoon[0].label;
-  }
-
-  // 3) Fallback : A.
-  return entries[0].label;
-}
-
 /** Recopie les semaines en marquant le shift du jour (surlignage tablette). */
 function markToday(weeks: TabletWeek[], today: string): TabletWeek[] {
   return (weeks ?? []).map((w) => ({
@@ -262,7 +217,9 @@ async function buildAutoShiftPlanning(
   emp: { id: string; full_name: string | null },
 ): Promise<TabletPlanning> {
   const today = brusselsToday();
-  const weekStart = mondayOfISO(today);
+  // Karim 2026-07-11 : fenêtre CENTRÉE — lundi de la semaine DERNIÈRE -> 3 semaines
+  // (passée · en cours · prochaine), aujourd'hui au milieu.
+  const weekStart = addDaysISO(mondayOfISO(today), -7);
   const horizonEnd = addDaysISO(weekStart, 20); // 3 semaines (21 jours)
 
   const { data: rows } = await admin

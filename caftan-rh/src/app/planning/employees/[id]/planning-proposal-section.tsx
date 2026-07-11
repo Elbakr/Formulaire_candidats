@@ -94,17 +94,18 @@ function addDaysISO(iso: string, n: number): string {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
 }
 
-function tomorrowISO(): string {
-  return addDaysISO(todayISO(), 1);
+/** Lundi de la semaine d'une date ISO (semaine lun→dim). */
+function mondayOfISO(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
 }
 
-/** Prochain lundi (si aujourd'hui est lundi -> lundi suivant). */
-function nextMondayISO(): string {
-  const t = todayISO();
-  const [y, m, d] = t.split("-").map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Dim..6=Sam
-  const delta = ((1 - dow + 7) % 7) || 7;
-  return addDaysISO(t, delta);
+/** Défaut CENTRÉ : lundi de la semaine DERNIÈRE -> 3 semaines = passée/en cours/
+ *  prochaine, avec aujourd'hui au milieu. */
+function centeredStartISO(): string {
+  return addDaysISO(mondayOfISO(todayISO()), -7);
 }
 
 function fmtDayLabel(iso: string): string {
@@ -148,6 +149,8 @@ export function PlanningProposalSection({
   bookedDates,
   autoShift,
   autoVariant,
+  tabletMode,
+  tabletActiveVariant,
 }: {
   employeeId: string;
   proposal: CurrentProposal;
@@ -161,10 +164,14 @@ export function PlanningProposalSection({
   autoShift: boolean;
   /** `employees.auto_variant` — Auto-Variant (tablette = variant du jour auto). */
   autoVariant: boolean;
+  /** Mode réellement affiché sur la tablette AUJOURD'HUI (calculé serveur). */
+  tabletMode: "auto_shift" | "auto_variant" | "variant";
+  /** Variant réellement affiché (null en Auto-Shift). */
+  tabletActiveVariant: "A" | "B" | "C" | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [startDate, setStartDate] = useState<string>(proposal?.start_date ?? tomorrowISO());
+  const [startDate, setStartDate] = useState<string>(proposal?.start_date ?? centeredStartISO());
   const [templateId, setTemplateId] = useState<string>("");
   const [recurrence, setRecurrence] = useState<string>("none");
   const [pending, startTransition] = useTransition();
@@ -298,6 +305,8 @@ export function PlanningProposalSection({
             ou elle sera générée automatiquement à la signature du contrat.
           </div>
         ) : (
+          <>
+            <TabletActiveBanner mode={tabletMode} variant={tabletActiveVariant} />
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
             <VariantCard
               employeeId={employeeId}
@@ -309,6 +318,7 @@ export function PlanningProposalSection({
               isDefault={defaultVariant === "A"}
               onSetDefault={() => onSelectDefault("A")}
               savingDefault={savingDefault}
+              isActiveOnTablet={tabletMode !== "auto_shift" && tabletActiveVariant === "A"}
             />
             <VariantCard
               employeeId={employeeId}
@@ -320,6 +330,7 @@ export function PlanningProposalSection({
               isDefault={defaultVariant === "B"}
               onSetDefault={() => onSelectDefault("B")}
               savingDefault={savingDefault}
+              isActiveOnTablet={tabletMode !== "auto_shift" && tabletActiveVariant === "B"}
             />
             {proposal.variant_c ? (
               <VariantCard
@@ -333,6 +344,7 @@ export function PlanningProposalSection({
                 isDefault={defaultVariant === "C"}
                 onSetDefault={() => onSelectDefault("C")}
                 savingDefault={savingDefault}
+                isActiveOnTablet={tabletMode !== "auto_shift" && tabletActiveVariant === "C"}
               />
             ) : (
               <div className="rounded-lg border border-dashed border-line p-3 flex items-center justify-center text-center text-[11px] text-ink-3 italic">
@@ -341,6 +353,7 @@ export function PlanningProposalSection({
               </div>
             )}
           </div>
+          </>
         )}
 
         {proposal ? (
@@ -471,20 +484,20 @@ export function PlanningProposalSection({
                 onChange={(e) => setStartDate(e.target.value)}
                 className="w-full px-2 py-1.5 border border-line rounded text-sm bg-surface focus:border-gold outline-none"
               />
-              {/* Karim 2026-07-11 : raccourcis de date de début sous le champ. */}
+              {/* Karim 2026-07-11 : raccourcis PAR SEMAINE (lundi). Défaut centré :
+                  semaine dernière -> aujourd'hui au milieu des 3 semaines. */}
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {[
-                  { label: "Demain", value: tomorrowISO() },
-                  { label: "Aujourd'hui", value: todayISO() },
-                  { label: "Lundi prochain", value: nextMondayISO() },
-                  { label: "Dans 1 semaine", value: addDaysISO(todayISO(), 7) },
+                  { label: "Sem. dernière (centré)", value: addDaysISO(mondayOfISO(todayISO()), -7) },
+                  { label: "Cette semaine", value: mondayOfISO(todayISO()) },
+                  { label: "Sem. prochaine", value: addDaysISO(mondayOfISO(todayISO()), 7) },
                 ].map((p) => (
                   <button
                     key={p.label}
                     type="button"
-                    onClick={() => setStartDate(p.value)}
+                    onClick={() => setStartDate(mondayOfISO(p.value))}
                     className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                      startDate === p.value
+                      mondayOfISO(startDate) === p.value
                         ? "border-gold bg-gold-light/70 text-gold-dark font-bold"
                         : "border-line text-ink-2 hover:border-gold/60"
                     }`}
@@ -493,7 +506,11 @@ export function PlanningProposalSection({
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-ink-3 mt-1">Défaut : demain.</p>
+              <p className="text-[10px] text-ink-3 mt-1">
+                Défaut : <strong>semaine dernière</strong> — 3 semaines (passée · en cours · prochaine),
+                aujourd&apos;hui au milieu. Les semaines commencent toujours le <strong>lundi</strong>
+                {" "}(la date est recalée sur le lundi).
+              </p>
             </div>
 
             <div>
@@ -551,6 +568,45 @@ export function PlanningProposalSection({
   );
 }
 
+// Bannière : ce que le travailleur voit RÉELLEMENT sur la tablette maintenant.
+function TabletActiveBanner({
+  mode,
+  variant,
+}: {
+  mode: "auto_shift" | "auto_variant" | "variant";
+  variant: "A" | "B" | "C" | null;
+}) {
+  const isShift = mode === "auto_shift";
+  const isAuto = mode === "auto_variant";
+  return (
+    <div
+      className={`rounded-md border p-2.5 mb-3 flex items-start gap-2 ${
+        isShift
+          ? "border-emerald-300 bg-emerald-50"
+          : isAuto
+            ? "border-indigo-300 bg-indigo-50"
+            : "border-gold/40 bg-gold-light/40"
+      }`}
+    >
+      <Tablet className="h-4 w-4 shrink-0 mt-0.5 text-ink-2" />
+      <p className="text-[11px] text-ink-2 leading-snug">
+        <strong>Affiché en ce moment sur la tablette :</strong>{" "}
+        {isShift ? (
+          "le planning RÉEL du jour (mode Auto-Shift)."
+        ) : isAuto ? (
+          <>
+            la <strong>variante {variant}</strong> — mode Auto-Variant (celle qui colle à aujourd&apos;hui).
+          </>
+        ) : (
+          <>
+            la <strong>variante {variant}</strong> (variante cochée par défaut).
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function VariantCard({
   employeeId,
   variant,
@@ -563,6 +619,7 @@ function VariantCard({
   isDefault,
   onSetDefault,
   savingDefault,
+  isActiveOnTablet = false,
 }: {
   employeeId: string;
   variant: ProposalVariant;
@@ -575,6 +632,8 @@ function VariantCard({
   isDefault: boolean;
   onSetDefault: () => void;
   savingDefault: boolean;
+  /** Ce variant est-il celui RÉELLEMENT affiché sur la tablette aujourd'hui ? */
+  isActiveOnTablet?: boolean;
 }) {
   const [saving, startSave] = useTransition();
 
@@ -606,9 +665,19 @@ function VariantCard({
   return (
     <div
       className={`rounded-lg border overflow-hidden transition-colors ${
-        isDefault ? "border-gold ring-1 ring-gold/40" : "border-line"
+        isActiveOnTablet
+          ? "border-indigo-500 ring-2 ring-indigo-400/60 shadow-md"
+          : isDefault
+            ? "border-gold ring-1 ring-gold/40"
+            : "border-line"
       }`}
     >
+      {isActiveOnTablet ? (
+        <div className="bg-indigo-600 text-white px-3 py-1 text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+          📱 Affiché en ce moment sur la tablette
+        </div>
+      ) : null}
       {/* PHASE 2 : case à cocher « planning par défaut visible sur la tablette ». */}
       <label
         className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer border-b border-line ${

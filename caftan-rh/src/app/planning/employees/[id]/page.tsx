@@ -29,6 +29,8 @@ import { DangerZone } from "./danger-zone";
 import { EmployeeQuotaCard } from "./quota-card";
 import { EmployeeAvailabilitySection } from "./availability-section";
 import { PlanningProposalSection, type CurrentProposal, type PlanningTemplateLite } from "./planning-proposal-section";
+import { isGlobalAutoShiftActive } from "@/lib/auto-shift";
+import { pickVariantForToday } from "@/lib/pick-variant";
 import { PlanningTabletAccessSection } from "./planning-tablet-access";
 import { InviteEmployeeButton } from "./invite-button";
 import { ClearWeekButton } from "@/app/planning/calendar/clear-week-button";
@@ -201,6 +203,28 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
     }
   } catch {
     /* non bloquant */
+  }
+
+  // Karim 2026-07-11 : mode d'affichage ACTIF de la tablette (pour surligner sur la
+  // fiche le variant réellement affiché — preuve que ça marche).
+  const todayBxl = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
+  const empAutoShift = !!(emp as { auto_shift: boolean | null }).auto_shift;
+  const empAutoVariant = !!(emp as { auto_variant: boolean | null }).auto_variant;
+  let tabletMode: "auto_shift" | "auto_variant" | "variant" = "variant";
+  let tabletActiveVariant: "A" | "B" | "C" | null = null;
+  try {
+    const globalAS = await isGlobalAutoShiftActive();
+    if (empAutoShift || globalAS) {
+      tabletMode = "auto_shift";
+    } else if (empAutoVariant && planningProposal) {
+      tabletMode = "auto_variant";
+      tabletActiveVariant = pickVariantForToday(planningProposal, todayBxl);
+    } else {
+      tabletMode = "variant";
+      tabletActiveVariant = planningProposal?.selected_variant ?? "A";
+    }
+  } catch {
+    /* défaut variant */
   }
 
   // Onboarding (best effort, ne pas casser la page si vide)
@@ -473,6 +497,8 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
           bookedDates={planningBookedDates}
           autoShift={!!(emp as { auto_shift: boolean | null }).auto_shift}
           autoVariant={!!(emp as { auto_variant: boolean | null }).auto_variant}
+          tabletMode={tabletMode}
+          tabletActiveVariant={tabletActiveVariant}
         />
       </div>
 

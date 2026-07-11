@@ -197,6 +197,15 @@ async function loadPrayerPause(admin: SupabaseClient): Promise<ProposalPrayerPau
  *                   (override heure/durée/heures + répartition), tout en
  *                   RE-VÉRIFIANT dispos/off/indispo/pause vendredi du travailleur.
  */
+/** Lundi de la semaine d'une date ISO "YYYY-MM-DD" (semaine lun→dim). */
+function mondayOfISO(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  const dow = dt.getUTCDay(); // 0=Dim..6=Sam
+  dt.setUTCDate(dt.getUTCDate() - ((dow + 6) % 7)); // recule jusqu'au lundi
+  return dt.toISOString().slice(0, 10);
+}
+
 export async function regeneratePlanningProposal(
   admin: SupabaseClient,
   employeeId: string,
@@ -262,7 +271,9 @@ export async function regeneratePlanningProposal(
       defaultStartTime: t?.default_start_time ?? emp.default_start_time,
       defaultShiftHours: t?.default_shift_hours ?? emp.default_shift_hours,
       unavailabilities,
-      startDate: opts.startDate,
+      // Karim 2026-07-11 : les semaines commencent TOUJOURS un LUNDI -> on cale la
+      // date de début sur le lundi de sa semaine (peu importe le jour fourni).
+      startDate: mondayOfISO(opts.startDate),
       fixedOffDays: emp.fixed_off_days,
       weeks: t?.weeks ?? 3,
       prayerPause,
