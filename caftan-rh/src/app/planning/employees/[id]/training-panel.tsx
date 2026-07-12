@@ -2,7 +2,8 @@
 // lecture, motivation, examens, cohérence lecture↔examen, pouls, bilan de sortie, et
 // une RECOMMANDATION de renouvellement (non bloquante). Server component.
 
-import { GraduationCap, Star } from "lucide-react";
+import Link from "next/link";
+import { GraduationCap, Star, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { createAdminClient } from "@/lib/supabase/server";
 import { computeTrainingScore } from "@/lib/training/score";
@@ -56,7 +57,10 @@ export async function TrainingPanel({ employeeId }: { employeeId: string }) {
       <div className="flex items-center gap-2 text-sm font-bold text-ink">
         <GraduationCap className="h-4 w-4 text-gold-dark" />
         Formation & aide au renouvellement
-        <span className="ml-auto text-[11px] font-normal text-ink-3">
+        <Link href="/admin/training" className="ml-auto inline-flex items-center gap-1 text-[11px] font-normal text-gold-dark hover:underline">
+          <Pencil className="h-3 w-3" /> Éditer le manuel
+        </Link>
+        <span className="text-[11px] font-normal text-ink-3">
           Section {s.currentSeq}/{s.total}{s.status === "done" ? " · terminée 🎓" : ""}
         </span>
       </div>
