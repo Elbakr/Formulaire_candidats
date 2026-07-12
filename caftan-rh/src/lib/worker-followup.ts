@@ -811,6 +811,7 @@ async function deliverFollowup(
   copy: Copy,
   fullName: string | null,
   to: string,
+  manual = false,
 ): Promise<{ sent: boolean; reason?: string }> {
   const { sendAppMail } = await import("@/lib/app-mail");
   const res = await sendAppMail({
@@ -820,7 +821,7 @@ async function deliverFollowup(
     body: copy.text,
     htmlBody: copy.html,
     bccHr: true,
-    automated: true,
+    automated: !manual, // MANUEL -> non taggé -> passe le kill-switch
     source: SOURCE,
     employeeId,
   });
@@ -839,11 +840,13 @@ export async function sendWorkerFollowup(
   employeeId: string,
   milestone: string,
   phase: Phase,
+  opts?: { manual?: boolean }, // Karim 2026-07-12 : envoi MANUEL fiche (automated:false)
 ): Promise<{ sent: boolean; reason?: string }> {
+  const manual = opts?.manual === true;
   try {
     const c = await loadContact(admin, employeeId);
     if (!c) return { sent: false, reason: "pas d'email travailleur" };
-    if (await isAlreadySent(admin, employeeId, milestone)) {
+    if (!manual && (await isAlreadySent(admin, employeeId, milestone))) {
       return { sent: false, reason: "déjà envoyé (anti-doublon)" };
     }
     let copy: Copy;
@@ -853,7 +856,7 @@ export async function sendWorkerFollowup(
     } else {
       copy = buildPhase1Copy(c.lang, c.prenom, milestone);
     }
-    return await deliverFollowup(admin, employeeId, milestone, phase, copy, c.fullName, c.email);
+    return await deliverFollowup(admin, employeeId, milestone, phase, copy, c.fullName, c.email, manual);
   } catch (e) {
     return { sent: false, reason: (e as Error).message };
   }

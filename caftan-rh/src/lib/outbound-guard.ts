@@ -43,23 +43,18 @@ export interface BlockedOutboundInfo {
 // `worker_onboarding_sheet`). Envoi automatique assumé par Karim, comme le mail de
 // bienvenue.
 //
-// Karim 2026-07-08 : 4e exception — les mails d'ACCOMPAGNEMENT PAR PALIERS envoyés
-// automatiquement au travailleur tout au long de son parcours (source
-// `worker_followup`) : Phase 1 tous les 7 jours (J+7…J+28), puis Phase 2 tous les
-// 10 jours (dès J+38). Envoi automatique assumé par Karim, comme le welcome et la
-// fiche d'onboarding.
-// Karim 2026-07-08 : 5e exception — la RELANCE AUTOMATIQUE du questionnaire
-// d'accueil (source `onboarding_reminder`) envoyée par le cron onboarding-followup
-// quand le nouveau travailleur n'a pas complété son mini-questionnaire après 24h.
-// Envoi automatique assumé par Karim, comme le welcome et la fiche d'onboarding.
-// (Le guide conduite `document_ack_request` reste un envoi MANUEL automated:false
+// Karim 2026-07-12 (RESSERRAGE) : SEUL le mail lié à la SIGNATURE DU CONTRAT reste
+// automatique côté travailleur (`worker_welcome_questionnaire`, envoyé juste après
+// la signature). Tous les AUTRES mails travailleur repassent en BOUTONS MANUELS sur
+// la fiche admin -> retirés de la liste blanche : `worker_onboarding_sheet`,
+// `worker_followup`, `onboarding_reminder` (désormais bloqués en AUTO ; l'admin les
+// envoie à la main depuis la fiche, avec automated:false). Le récap+confirmation
+// CANDIDAT (`candidate_recap_confirm`) reste (c'est un candidat, pas un travailleur).
+// (Le guide conduite `document_ack_request` est déjà un envoi MANUEL automated:false
 // -> jamais concerné par le kill-switch, donc non listé ici.)
 const AUTO_ALLOWED_SOURCES = new Set<string>([
   "candidate_recap_confirm",
   "worker_welcome_questionnaire",
-  "worker_onboarding_sheet",
-  "worker_followup",
-  "onboarding_reminder",
 ]);
 
 /**

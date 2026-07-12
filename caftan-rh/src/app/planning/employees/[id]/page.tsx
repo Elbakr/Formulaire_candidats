@@ -43,6 +43,7 @@ import { DocExpiryReminderBanner } from "./doc-expiry-banner";
 import { ResidenceFields } from "./residence-fields";
 import { DocumentsEbookViewer } from "./documents-ebook";
 import { IdExtractButton } from "./id-extract-button";
+import { WorkerMailsPanel } from "./worker-mails-panel";
 import { getEmployeeExpiringItems } from "@/lib/doc-expiry-reminder";
 import { SalaryAdvanceSection } from "./salary-advance-section";
 import { EmployeeStickyHeader } from "./employee-sticky-header";
@@ -395,6 +396,8 @@ export default async function EmployeeDetailPage(props: PageProps<"/planning/emp
       />
 
       {workerDocs.length > 0 ? <DocumentsEbookViewer docs={workerDocs} /> : null}
+
+      <WorkerMailsPanel employeeId={id} />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Button asChild variant="ghost" size="sm">

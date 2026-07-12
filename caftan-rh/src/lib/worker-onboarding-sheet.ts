@@ -195,7 +195,9 @@ export async function sendWorkerOnboardingSheet(
   admin: SupabaseClient,
   employeeId: string,
   languageCode?: string | null,
+  opts?: { manual?: boolean }, // Karim 2026-07-12 : envoi MANUEL fiche (automated:false)
 ): Promise<{ sent: boolean; reason?: string }> {
+  const manual = opts?.manual === true;
   try {
     // 1) Fiche employé : email + nom.
     const { data: empRow } = await admin
@@ -211,16 +213,19 @@ export async function sendWorkerOnboardingSheet(
     if (!emp) return { sent: false, reason: "employé introuvable" };
     if (!emp.email) return { sent: false, reason: "pas d'email travailleur" };
 
-    // 2) ANTI-DOUBLON : fiche déjà envoyée pour ce travailleur ?
-    const { data: already } = await admin
-      .from("outbound_mails")
-      .select("id")
-      .eq("employee_id", employeeId)
-      .eq("source", SOURCE)
-      .eq("status", "sent")
-      .limit(1)
-      .maybeSingle();
-    if (already) return { sent: false, reason: "déjà envoyé (anti-doublon)" };
+    // 2) ANTI-DOUBLON : fiche déjà envoyée pour ce travailleur ? (ignoré en manuel :
+    //    l'admin peut re-déclencher volontairement depuis la fiche).
+    if (!manual) {
+      const { data: already } = await admin
+        .from("outbound_mails")
+        .select("id")
+        .eq("employee_id", employeeId)
+        .eq("source", SOURCE)
+        .eq("status", "sent")
+        .limit(1)
+        .maybeSingle();
+      if (already) return { sent: false, reason: "déjà envoyé (anti-doublon)" };
+    }
 
     // 3) Token DURABLE « Signaler à la direction » (généré si absent, n'expire pas).
     let reportUrl: string | null = null;
@@ -244,7 +249,7 @@ export async function sendWorkerOnboardingSheet(
       body: copy.text,
       htmlBody: copy.html,
       bccHr: true,
-      automated: true,
+      automated: !manual, // MANUEL -> non taggé -> passe le kill-switch
       source: SOURCE,
       employeeId,
     });

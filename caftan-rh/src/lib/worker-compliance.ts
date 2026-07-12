@@ -210,6 +210,7 @@ export async function sendOnboardingReminder(
     fullName: string | null;
     preInterviewToken: string;
     languageCode?: string | null;
+    manual?: boolean; // Karim 2026-07-12 : envoi MANUEL fiche (automated:false)
   },
 ): Promise<{ ok: boolean; error?: string }> {
   const { preInterviewPublicUrl } = await import("@/lib/pre-interview");
@@ -225,7 +226,7 @@ export async function sendOnboardingReminder(
     body: copy.text,
     htmlBody: copy.html,
     bccHr: true,
-    automated: true, // relance auto -> source whitelistée requise
+    automated: input.manual !== true, // MANUEL -> non taggé -> passe le kill-switch
     source: ONBOARDING_REMINDER_SOURCE,
     employeeId: input.employeeId,
   });
