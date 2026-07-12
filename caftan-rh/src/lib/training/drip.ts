@@ -7,7 +7,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getOutboundBaseUrl } from "@/lib/public-base-url";
+import { getNeutralBaseUrl } from "@/lib/public-base-url";
 import { sendAppMail } from "@/lib/app-mail";
 
 export const TRAINING_SOURCE = "training_drip";
@@ -102,7 +102,7 @@ export async function sendTrainingModule(
   if (!e?.email) return { ok: false, error: "pas d'email travailleur" };
   const lang: "fr" | "nl" = e.preferred_language === "nl" ? "nl" : "fr";
   const prenom = firstName(e.full_name);
-  const link = `${getOutboundBaseUrl()}/former/${enr.token}`;
+  const link = `${getNeutralBaseUrl()}/former/${enr.token}`;
   const isExam = mod.kind === "exam";
   const title = (lang === "nl" ? mod.title_nl : mod.title_fr) || mod.title_fr;
 

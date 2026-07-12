@@ -6,7 +6,7 @@
 import { requireRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { ensureEnrollment, sendTrainingModule } from "@/lib/training/drip";
-import { getOutboundBaseUrl } from "@/lib/public-base-url";
+import { getNeutralBaseUrl } from "@/lib/public-base-url";
 import { revalidatePath } from "next/cache";
 
 export async function startTrainingAction(
@@ -23,5 +23,5 @@ export async function startTrainingAction(
   const r = await sendTrainingModule(admin, employeeId, seqToSend);
   if (!r.ok && !r.done) return { ok: false, error: r.error ?? "Envoi impossible." };
   revalidatePath(`/planning/employees/${employeeId}`);
-  return { ok: true, link: `${getOutboundBaseUrl()}/former/${enr.token}` };
+  return { ok: true, link: `${getNeutralBaseUrl()}/former/${enr.token}` };
 }

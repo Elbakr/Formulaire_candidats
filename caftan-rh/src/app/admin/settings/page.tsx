@@ -6,14 +6,13 @@ import { Card } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
 import { TabletDevicesManager, type TabletDevice } from "./tablet-devices-manager";
 import { AutoShiftGlobalForm } from "./auto-shift-global-form";
-import { getOutboundBaseUrl } from "@/lib/public-base-url";
+import { getNeutralBaseUrl } from "@/lib/public-base-url";
 import { pushIsConfigured } from "@/lib/push-notify";
 
 export default async function AdminSettingsPage() {
   await requireRole(["admin"]);
   const supabase = await createClient();
   const { data } = await supabase.from("org_settings").select("*").eq("id", 1).maybeSingle();
-  const outboundBaseUrl = getOutboundBaseUrl();
   // Tablettes planning (A..G) — via service role (table hors RLS utilisateur).
   const { data: tabletRows } = await createAdminClient()
     .from("tablet_devices")
@@ -211,7 +210,7 @@ export default async function AdminSettingsPage() {
         <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2">
           Accès tablettes planning (A…G)
         </div>
-        <TabletDevicesManager initial={tabletDevices} baseUrl={outboundBaseUrl} />
+        <TabletDevicesManager initial={tabletDevices} baseUrl={getNeutralBaseUrl()} />
       </Card>
 
       <Card>

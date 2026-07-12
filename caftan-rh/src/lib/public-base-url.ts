@@ -122,3 +122,14 @@ export function getOutboundBaseUrl(): string {
   }
   return STABLE_PROD_URL;
 }
+
+/**
+ * Base NEUTRE/OPAQUE pour les liens montrés au TRAVAILLEUR (formation, tablettes) :
+ * un alias .vercel.app sans mention « caftan » (Karim 2026-07-12). Défaut = base
+ * normale si non configurée.
+ */
+export function getNeutralBaseUrl(): string {
+  const neutral = sanitizeUrl(process.env.NEUTRAL_PUBLIC_URL || "");
+  if (neutral && !isUnreachableForExternal(neutral)) return neutral;
+  return getOutboundBaseUrl();
+}

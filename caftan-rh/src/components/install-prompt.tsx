@@ -6,7 +6,9 @@ import { Download, Share, X } from "lucide-react";
 
 // Karim 2026-07-05 : routes PUBLIQUES / candidat (liens token, embauche primaire) où
 // l'on NE montre PAS l'invite d'installation PWA ni les notifs push (pas leur rôle).
-const PUBLIC_ROUTE_RE = /^\/(contract-info|sign|sign-termination|pre-interview|postuler|renewal)(\/|$)/;
+// Karim 2026-07-12 : + formation (/former, /bilan, /pouls), tablette (/t) et pages
+// token travailleur (/confirmer, /upload, /signaler) — aucune popup sur ces écrans.
+const PUBLIC_ROUTE_RE = /^\/(contract-info|sign|sign-termination|pre-interview|postuler|renewal|former|bilan|pouls|t|confirmer|upload|signaler)(\/|$)/;
 export function isPublicCandidateRoute(pathname: string | null): boolean {
   return !!pathname && PUBLIC_ROUTE_RE.test(pathname);
 }
