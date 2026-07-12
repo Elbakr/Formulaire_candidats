@@ -48,6 +48,17 @@ async function isValidDeviceToken(token: string): Promise<boolean> {
   // à toute énumération. Comparaison stricte, aucun fallback si NULL en base.
   if (t.length < 24) return false;
   const admin = createAdminClient();
+
+  // 1) Jetons MULTI-TABLETTES (A..G) — table tablet_devices (actifs uniquement).
+  const { data: dev } = await admin
+    .from("tablet_devices")
+    .select("id")
+    .eq("token", t)
+    .eq("active", true)
+    .maybeSingle();
+  if (dev) return true;
+
+  // 2) Compat : ancien jeton unique org_settings.tablet_device_token (tablette A).
   const { data } = await admin
     .from("org_settings")
     .select("tablet_device_token")

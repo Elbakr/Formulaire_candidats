@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { CalendarOff, ChevronRight, MapPin, Sliders, Bell, Store, CalendarHeart, Snowflake, Cpu, CalendarCheck } from "lucide-react";
 import { requireRole } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
-import { TabletAccessForm } from "./tablet-access-form";
+import { TabletDevicesManager, type TabletDevice } from "./tablet-devices-manager";
 import { AutoShiftGlobalForm } from "./auto-shift-global-form";
 import { getOutboundBaseUrl } from "@/lib/public-base-url";
 import { pushIsConfigured } from "@/lib/push-notify";
@@ -13,9 +13,13 @@ export default async function AdminSettingsPage() {
   await requireRole(["admin"]);
   const supabase = await createClient();
   const { data } = await supabase.from("org_settings").select("*").eq("id", 1).maybeSingle();
-  const tabletToken =
-    (data as unknown as { tablet_device_token: string | null } | null)?.tablet_device_token ?? null;
   const outboundBaseUrl = getOutboundBaseUrl();
+  // Tablettes planning (A..G) — via service role (table hors RLS utilisateur).
+  const { data: tabletRows } = await createAdminClient()
+    .from("tablet_devices")
+    .select("code, label, token, active")
+    .order("code", { ascending: true });
+  const tabletDevices = (tabletRows ?? []) as TabletDevice[];
   const pushReady = pushIsConfigured();
   return (
     <div className="space-y-4">
@@ -193,9 +197,9 @@ export default async function AdminSettingsPage() {
 
       <Card>
         <div className="px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-ink-3 bg-surface-2">
-          Accès tablette planning
+          Accès tablettes planning (A…G)
         </div>
-        <TabletAccessForm initialToken={tabletToken} baseUrl={outboundBaseUrl} />
+        <TabletDevicesManager initial={tabletDevices} baseUrl={outboundBaseUrl} />
       </Card>
 
       <Card>
