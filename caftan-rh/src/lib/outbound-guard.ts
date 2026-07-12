@@ -52,9 +52,17 @@ export interface BlockedOutboundInfo {
 // CANDIDAT (`candidate_recap_confirm`) reste (c'est un candidat, pas un travailleur).
 // (Le guide conduite `document_ack_request` est déjà un envoi MANUEL automated:false
 // -> jamais concerné par le kill-switch, donc non listé ici.)
+// Karim 2026-07-12 : le PROGRAMME DE FORMATION des recrues (grand manuel gamifié)
+// est un envoi AUTOMATIQUE assumé (jour 1 à 9h puis chaque jour) — exception
+// explicitement demandée, au même titre que le welcome. Sources : `training_drip`
+// (sections + examens), `training_exit_survey` (bilan de fin), `training_sentiment`
+// (prise de pouls périodique).
 const AUTO_ALLOWED_SOURCES = new Set<string>([
   "candidate_recap_confirm",
   "worker_welcome_questionnaire",
+  "training_drip",
+  "training_exit_survey",
+  "training_sentiment",
 ]);
 
 /**

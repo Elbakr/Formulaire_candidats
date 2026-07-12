@@ -87,7 +87,7 @@ jobs:
           MAP['0 18 * * *']='digest?slot=evening'
           MAP['0 17 * * 5']='weekly-rating-reminder clock-weekly-variance'
           MAP['0 5 * * *']='cdd-renewal-scan'
-          MAP['0 * * * *']='reinforcement-expire force-close-orphans gf-sync-health incident-manager interview-reminder'
+          MAP['0 * * * *']='reinforcement-expire force-close-orphans gf-sync-health incident-manager interview-reminder training-drip'
           MAP['0 6 * * 0']='auto-plan-weekly'
           MAP['0 2 * * *']='clock-selfie-purge'
           MAP['0 1 * * *']='pre-interview-video-purge'
