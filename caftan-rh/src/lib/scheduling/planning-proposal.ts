@@ -469,13 +469,12 @@ function computeAvailableDays(
 
 const MIN_SHIFT_MIN = 15; // plancher technique (fallback) : pas de micro-shift < 15 min
 
-// ── Conformité belge (Karim 2026-07-11) ──────────────────────────────────────
-// Un shift ne peut PAS être inférieur à 3 h (règle de conformité). EXCEPTION : les
-// ÉTUDIANTS peuvent prester des mini-shifts (on les motive dès qu'ils ont un petit
-// moment de libre) -> plancher abaissé. Le minimum d'heures/semaine (13 h, hors
-// étudiant) est VÉRIFIÉ et signalé dans `reason` (jamais forcé en silence).
-const CONFORM_MIN_SHIFT_MIN = 3 * 60; // 3 h — shift minimum conforme (non-étudiant)
-const STUDENT_MIN_SHIFT_MIN = 30; // étudiant : mini-shift autorisé (30 min)
+// ── Conformité belge (Karim 2026-07-11, corrigé 2026-07-12) ──────────────────
+// AUCUN shift ne peut être inférieur à 3 h — POUR TOUS (y compris les étudiants :
+// « le travailleur n'a pas le droit à moins de 3 heures »). Le minimum d'heures par
+// SEMAINE (13 h) garde, lui, l'exemption étudiant (un étudiant peut totaliser moins
+// d'heures) ; il est VÉRIFIÉ et signalé dans `reason` (jamais forcé en silence).
+const CONFORM_MIN_SHIFT_MIN = 3 * 60; // 3 h — shift minimum conforme (TOUS)
 const MIN_WEEKLY_HOURS = 13; // minimum légal d'heures/semaine (hors étudiant)
 
 // ── Remplissage SÉQUENTIEL d'UNE semaine, curseur horaire A -> B -> C ─────────
@@ -762,8 +761,9 @@ export function generatePlanningProposal(input: {
   const weeks = input.weeks ?? 3;
   const isStudent = input.isStudent === true;
   const notBefore = input.notBeforeDate ? input.notBeforeDate.slice(0, 10) : null;
-  // Shift minimum conforme : 3 h (non-étudiant), abaissé pour les étudiants.
-  const minShiftMin = isStudent ? STUDENT_MIN_SHIFT_MIN : CONFORM_MIN_SHIFT_MIN;
+  // Shift minimum conforme : 3 h POUR TOUS (étudiants compris). L'exemption étudiant
+  // ne concerne QUE le minimum d'heures/semaine (13 h), pas la durée d'un shift.
+  const minShiftMin = CONFORM_MIN_SHIFT_MIN;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
   const fixedOffDays = new Set<number>((input.fixedOffDays ?? []).filter((n) => n >= 0 && n <= 6));
   const unavail = input.unavailabilities ?? [];
@@ -784,6 +784,10 @@ export function generatePlanningProposal(input: {
 
   const weeklyHours = Number(input.weeklyHours ?? 0);
   const shiftHours = Number(input.defaultShiftHours ?? 0);
+  // Karim 2026-07-12 : la durée EFFECTIVE d'un shift est plafonnée au minimum
+  // conforme (3 h). Si le shift par défaut est réglé sous 3 h, on le remonte à 3 h
+  // au lieu de ne rien pouvoir placer (aucun shift < 3 h autorisé).
+  const effShiftHours = Math.max(shiftHours, minShiftMin / 60);
   const startTime =
     input.defaultStartTime && /^\d{2}:\d{2}/.test(input.defaultStartTime)
       ? input.defaultStartTime.slice(0, 5)
@@ -830,7 +834,7 @@ export function generatePlanningProposal(input: {
   // AUCUNE variante d'appoint/partielle. On en génère assez pour tuiler toute la
   // semaine disponible (davantage de choix pour les petits volumes), plafond 12.
   const week0Avail = computeAvailableDays(input.startDate, fixedOffDays, unavail, notBefore);
-  const capacityH = week0Avail.length * shiftHours; // capacité approx. de la semaine
+  const capacityH = week0Avail.length * effShiftHours; // capacité approx. de la semaine
   // +1 : une variante de plus que le strict « tuilage » pour offrir un choix
   // supplémentaire (le dédoublonnage retire ensuite les doublons exacts).
   const numVariants = Math.min(
@@ -853,7 +857,7 @@ export function generatePlanningProposal(input: {
       weekStartISO,
       weeklyHours,
       startMin,
-      shiftHours,
+      shiftHours: effShiftHours,
       fixedOffDays,
       unavail,
       prayer,
