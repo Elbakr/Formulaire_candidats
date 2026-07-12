@@ -38,6 +38,7 @@ type EmpRow = {
   default_pause_minutes: number | null;
   fixed_off_days: number[] | null;
   contract_type: string | null;
+  start_date: string | null;
 };
 
 // Magasins « Brabant » (rue de Brabant, Schaerbeek) — non-chevauchement des pauses
@@ -220,7 +221,7 @@ export async function regeneratePlanningProposal(
   try {
     const { data: empRaw } = await admin
       .from("employees")
-      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, default_pause_minutes, fixed_off_days, contract_type")
+      .select("id, full_name, weekly_hours, default_start_time, default_shift_hours, default_pause_minutes, fixed_off_days, contract_type, start_date")
       .eq("id", employeeId)
       .maybeSingle();
     const emp = empRaw as EmpRow | null;
@@ -267,14 +268,27 @@ export async function regeneratePlanningProposal(
     // le moteur RE-VÉRIFIE off/indispo/pause vendredi pour CE travailleur et CETTE
     // date de début (les dates concrètes ne viennent jamais du modèle).
     const t = opts.template ?? null;
+
+    // Karim 2026-07-12 : PLANCHER de date. Le 1er jour proposé ne peut JAMAIS être
+    // antérieur à (a) la date SÉLECTIONNÉE à la génération, ni (b) le DÉBUT DE
+    // CONTRAT s'il est renseigné. La semaine est calée au lundi pour l'alignement,
+    // mais aucun jour AVANT ce plancher n'est proposé (semaine 0 tronquée si besoin).
+    const selectedDay = opts.startDate.slice(0, 10);
+    const contractStart = emp.start_date ? emp.start_date.slice(0, 10) : null;
+    const notBeforeDate = contractStart && contractStart > selectedDay ? contractStart : selectedDay;
+
     const proposal = generatePlanningProposal({
+      // Karim 2026-07-12 : la semaine 0 est calée sur le lundi DU PLANCHER (pas de la
+      // date sélectionnée), pour que ce plancher tombe dans la semaine 0 et n'y vide
+      // pas les shifts (sinon la proposition serait vide quand le contrat démarre plus
+      // tard). Le plancher tronque ensuite les jours antérieurs de cette semaine.
       weeklyHours: t?.weekly_hours ?? emp.weekly_hours,
       defaultStartTime: t?.default_start_time ?? emp.default_start_time,
       defaultShiftHours: t?.default_shift_hours ?? emp.default_shift_hours,
       unavailabilities,
-      // Karim 2026-07-11 : les semaines commencent TOUJOURS un LUNDI -> on cale la
-      // date de début sur le lundi de sa semaine (peu importe le jour fourni).
-      startDate: mondayOfISO(opts.startDate),
+      // Karim 2026-07-11 : les semaines commencent TOUJOURS un LUNDI. Calé sur le
+      // lundi du PLANCHER (max date sélectionnée / début de contrat).
+      startDate: mondayOfISO(notBeforeDate),
       fixedOffDays: emp.fixed_off_days,
       weeks: t?.weeks ?? 3,
       prayerPause,
@@ -291,6 +305,8 @@ export async function regeneratePlanningProposal(
       siteClosings,
       // Conformité : étudiant -> mini-shifts autorisés + exempté du min 13 h/sem.
       isStudent: /tudiant/i.test(emp.contract_type ?? ""),
+      // Aucun jour proposé avant la date sélectionnée ni avant le début de contrat.
+      notBeforeDate,
     });
 
     // Échelonnement Brabant : la table `shifts` ne stocke pas les fenêtres de

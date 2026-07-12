@@ -454,11 +454,16 @@ function computeAvailableDays(
   weekStartISO: string,
   fixedOffDays: Set<number>,
   unavail: ProposalUnavailability[],
+  notBeforeDate?: string | null, // Karim 2026-07-12 : aucun jour AVANT cette date
 ): string[] {
   const days: string[] = [];
   for (let i = 0; i < 7; i++) days.push(addDaysISO(weekStartISO, i));
+  const floor = notBeforeDate ? notBeforeDate.slice(0, 10) : null;
   return days.filter(
-    (iso) => !isFixedOff(iso, fixedOffDays) && !isFullDayBlocked(iso, unavail),
+    (iso) =>
+      (!floor || iso >= floor) &&
+      !isFixedOff(iso, fixedOffDays) &&
+      !isFullDayBlocked(iso, unavail),
   );
 }
 
@@ -505,6 +510,7 @@ function fillWeekSequential(args: {
   closingFor: ClosingResolver;
   numVariants: number;
   minShiftMin: number; // shift minimum conforme (3 h non-étudiant, plus bas étudiant)
+  notBeforeDate: string | null; // aucun jour proposé avant cette date
 }): ProposalWeek[] {
   const {
     weekIndex,
@@ -521,10 +527,11 @@ function fillWeekSequential(args: {
     closingFor,
     numVariants,
     minShiftMin,
+    notBeforeDate,
   } = args;
   const minShiftH = minShiftMin / 60;
 
-  const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail);
+  const available = computeAvailableDays(weekStartISO, fixedOffDays, unavail, notBeforeDate);
   const perVariant: ProposalShift[][] = Array.from({ length: numVariants }, () => []);
   const EPS = 0.25; // 15 min : ni quota résiduel ni shift en dessous.
 
@@ -747,9 +754,14 @@ export function generatePlanningProposal(input: {
    *  (< 3 h) et exempte du minimum de 13 h/semaine. Défaut false = régime conforme
    *  (shift ≥ 3 h, min 13 h/sem signalé). */
   isStudent?: boolean;
+  /** Karim 2026-07-12 : PLANCHER de date — aucun jour proposé AVANT cette date
+   *  ("YYYY-MM-DD"). = max(date sélectionnée à la génération, début de contrat). Le
+   *  1er jour d'une semaine calée au lundi ne peut donc pas être antérieur à ce jour. */
+  notBeforeDate?: string | null;
 }): PlanningProposal {
   const weeks = input.weeks ?? 3;
   const isStudent = input.isStudent === true;
+  const notBefore = input.notBeforeDate ? input.notBeforeDate.slice(0, 10) : null;
   // Shift minimum conforme : 3 h (non-étudiant), abaissé pour les étudiants.
   const minShiftMin = isStudent ? STUDENT_MIN_SHIFT_MIN : CONFORM_MIN_SHIFT_MIN;
   const prayer = input.prayerPause ?? DEFAULT_PROPOSAL_PRAYER_PAUSE;
@@ -817,7 +829,7 @@ export function generatePlanningProposal(input: {
   // ET couvrent CHACUNE 100 % du quota hebdomadaire (enroulement si besoin). Il n'y a
   // AUCUNE variante d'appoint/partielle. On en génère assez pour tuiler toute la
   // semaine disponible (davantage de choix pour les petits volumes), plafond 12.
-  const week0Avail = computeAvailableDays(input.startDate, fixedOffDays, unavail);
+  const week0Avail = computeAvailableDays(input.startDate, fixedOffDays, unavail, notBefore);
   const capacityH = week0Avail.length * shiftHours; // capacité approx. de la semaine
   // +1 : une variante de plus que le strict « tuilage » pour offrir un choix
   // supplémentaire (le dédoublonnage retire ensuite les doublons exacts).
@@ -851,6 +863,7 @@ export function generatePlanningProposal(input: {
       closingFor,
       numVariants,
       minShiftMin,
+      notBeforeDate: notBefore,
     });
     seq.forEach((week, v) => weeksByVariant[v].push(week));
   }
