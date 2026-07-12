@@ -8,7 +8,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Rocket, ThumbsUp, Loader2, Send, MessageSquarePlus, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { confirmModuleAction, submitTrainingFeedbackAction, submitExamAction } from "./actions";
+import { confirmModuleAction, submitTrainingFeedbackAction, submitExamAction, setTrainingRhythmAction } from "./actions";
 
 export type ExamQuestionView = {
   q_fr: string;
@@ -35,6 +35,7 @@ export function FormerClient({
   examQuestions,
   confirmed,
   initialLang,
+  initialRhythm,
 }: {
   token: string;
   total: number;
@@ -42,6 +43,7 @@ export function FormerClient({
   examQuestions: ExamQuestionView[];
   confirmed: boolean;
   initialLang: "fr" | "nl";
+  initialRhythm: "daily" | "spread30";
 }) {
   const [lang, setLang] = useState<"fr" | "nl">(initialLang);
   const [pending, start] = useTransition();
@@ -164,6 +166,48 @@ export function FormerClient({
 
         {/* Champ commentaire / anomalie — TOUJOURS disponible */}
         <FeedbackBox token={token} seq={mod.seq} t={t} />
+
+        {/* Choix du rythme */}
+        <RhythmControl token={token} initial={initialRhythm} lang={lang} />
+      </div>
+    </div>
+  );
+}
+
+function RhythmControl({ token, initial, lang }: { token: string; initial: "daily" | "spread30"; lang: "fr" | "nl" }) {
+  const [rhythm, setRhythm] = useState<"daily" | "spread30">(initial);
+  const [pending, start] = useTransition();
+  const tt =
+    lang === "nl"
+      ? { title: "Mijn tempo", daily: "1 per dag", spread: "Rustiger (± 30 dagen)", saved: "Tempo opgeslagen." }
+      : { title: "Mon rythme", daily: "1 par jour", spread: "Plus étalé (± 30 jours)", saved: "Rythme enregistré." };
+  function choose(r: "daily" | "spread30") {
+    if (r === rhythm) return;
+    setRhythm(r);
+    start(async () => {
+      const res = await setTrainingRhythmAction(token, r);
+      if (res.ok) toast.success(tt.saved);
+      else {
+        setRhythm(rhythm);
+        toast.error(res.error ?? "Erreur");
+      }
+    });
+  }
+  return (
+    <div className="rounded-2xl bg-white/5 border border-white/10 p-3">
+      <div className="text-canvas/80 text-[12px] font-semibold mb-2">⚙️ {tt.title}</div>
+      <div className="flex gap-2">
+        {([["daily", tt.daily], ["spread30", tt.spread]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            disabled={pending}
+            onClick={() => choose(key)}
+            className={`flex-1 rounded-lg py-2 text-[12px] font-semibold transition-colors ${rhythm === key ? "bg-gold text-ink" : "bg-white/10 text-canvas/70"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
 
   const { data: enrRaw } = await admin
     .from("training_enrollments")
-    .select("id, employee_id, current_seq, status, bound_secret")
+    .select("id, employee_id, current_seq, status, bound_secret, rhythm")
     .eq("token", token)
     .maybeSingle();
   const enr = enrRaw as {
@@ -33,6 +33,7 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
     current_seq: number;
     status: string;
     bound_secret: string | null;
+    rhythm: string;
   } | null;
   if (!enr) notFound();
 
@@ -137,6 +138,7 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
       examQuestions={examQuestions}
       confirmed={confirmed}
       initialLang={lang}
+      initialRhythm={enr.rhythm === "spread30" ? "spread30" : "daily"}
     />
   );
 }

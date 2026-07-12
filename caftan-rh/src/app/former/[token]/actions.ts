@@ -150,6 +150,20 @@ export async function submitExamAction(
   return { ok: true, score, total };
 }
 
+/** Le travailleur choisit son RYTHME : 'daily' (1/jour) ou 'spread30' (étalé). */
+export async function setTrainingRhythmAction(
+  token: string,
+  rhythm: "daily" | "spread30",
+): Promise<{ ok: boolean; error?: string }> {
+  const t = (token ?? "").trim();
+  if (t.length < 12) return { ok: false, error: "Lien invalide." };
+  if (rhythm !== "daily" && rhythm !== "spread30") return { ok: false, error: "Rythme invalide." };
+  const admin = createAdminClient();
+  const { error } = await admin.from("training_enrollments").update({ rhythm }).eq("token", t);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 export async function submitTrainingFeedbackAction(
   token: string,
   seq: number | null,
