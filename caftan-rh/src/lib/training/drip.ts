@@ -106,24 +106,67 @@ export async function sendTrainingModule(
   const isExam = mod.kind === "exam";
   const title = (lang === "nl" ? mod.title_nl : mod.title_fr) || mod.title_fr;
 
+  const nameSuffix = prenom ? `, ${prenom}` : "";
   const subject =
     lang === "nl"
       ? isExam
-        ? `Kleine toets 🧩 — ${title}`
-        : `Je opleiding van vandaag 📘 — ${title}`
+        ? `🧩 Klein uitdaginkje voor jou — ${title}`
+        : `📘 Je opleiding van vandaag is er${nameSuffix} !`
       : isExam
-        ? `Petit examen 🧩 — ${title}`
-        : `Ta formation du jour 📘 — ${title}`;
+        ? `🧩 Un petit défi rien que pour toi — ${title}`
+        : `📘 Ta formation du jour est arrivée${nameSuffix} !`;
+
+  const c = lang === "nl"
+    ? {
+        hi: `Hallo ${prenom || "collega"},`,
+        lead: isExam
+          ? "Klaar voor een klein, leuk uitdaginkje? 🧩 Het helpt je vooruit — geen stress, gewoon eerlijk antwoorden."
+          : "Fijn dat je er bent! 🎉 Hier is je korte sectie van vandaag — concreet en meteen bruikbaar in de winkel.",
+        card: title,
+        cta: isExam ? "De toets starten" : "Mijn sectie openen",
+        ps: "Duurt maar 2 minuten. Veel plezier! 🚀",
+        sign: "Het team van Caftan Factory Group",
+      }
+    : {
+        hi: prenom ? `Bonjour ${prenom},` : "Bonjour,",
+        lead: isExam
+          ? "Prêt(e) pour un petit défi sympa ? 🧩 Ça t'aide à progresser — pas de stress, réponds simplement avec sincérité."
+          : "Content(e) de t'accompagner ! 🎉 Voici ta courte section du jour — concrète et utile tout de suite en magasin.",
+        card: title,
+        cta: isExam ? "Commencer l'examen" : "Ouvrir ma section",
+        ps: "Ça te prend 2 minutes. Bonne lecture ! 🚀",
+        sign: "L'équipe Caftan Factory Group",
+      };
+
+  const htmlBody = `<div style="margin:0;padding:0;background:#f6f5f2;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f5f2;padding:24px 12px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,.06);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<tr><td style="background:#1a1a1a;padding:22px 28px;"><div style="color:#c8a24a;font-weight:800;font-size:13px;letter-spacing:.5px;">CAFTAN FACTORY — FORMATION</div><div style="color:#ffffff;font-size:20px;font-weight:800;margin-top:4px;">🎓 ${title}</div></td></tr>
+<tr><td style="padding:24px 28px 8px;color:#1a1a1a;font-size:15px;line-height:1.5;">
+<p style="margin:0 0 10px;">${c.hi}</p>
+<p style="margin:0 0 18px;color:#444;">${c.lead}</p>
+<div style="text-align:center;margin:22px 0;">
+<a href="${link}" style="display:inline-block;background:#c8a24a;color:#ffffff;text-decoration:none;font-weight:800;font-size:16px;padding:14px 30px;border-radius:10px;">${c.cta} →</a>
+</div>
+<p style="margin:10px 0 0;color:#888;font-size:13px;text-align:center;">${c.ps}</p>
+</td></tr>
+<tr><td style="padding:16px 28px 26px;color:#999;font-size:13px;">${c.sign} 💛</td></tr>
+</table>
+<div style="max-width:480px;color:#b8b8b8;font-size:11px;margin-top:12px;text-align:center;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">Ce lien t'est personnel et lié à ton téléphone.</div>
+</td></tr></table></div>`;
+
   const body =
     lang === "nl"
-      ? `Hallo ${prenom || "collega"},\n\n${isExam ? "Tijd voor een kleine toets" : "Hier is je sectie van vandaag"}: « ${title} ».\n\n👉 Open ze hier (2 minuten):\n${link}\n\nVeel plezier! 🚀\nCaftan Factory Group`
-      : `Bonjour ${prenom || ""},\n\n${isExam ? "C'est l'heure d'un petit examen" : "Voici ta section du jour"} : « ${title} ».\n\n👉 Ouvre-la ici (2 minutes) :\n${link}\n\nBonne lecture ! 🚀\nCaftan Factory Group`;
+      ? `${c.hi}\n\n${c.lead}\n\n${c.cta}: ${link}\n\n${c.ps}\n${c.sign}`
+      : `${c.hi}\n\n${c.lead}\n\n${c.cta} : ${link}\n\n${c.ps}\n${c.sign}`;
 
   const res = await sendAppMail({
     to: e.email,
     toName: e.full_name ?? undefined,
     subject,
     body,
+    htmlBody,
     automated: true, // envoi AUTO assumé -> source whitelistée
     source: TRAINING_SOURCE,
     employeeId,

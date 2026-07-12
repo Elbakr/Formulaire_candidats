@@ -4,8 +4,11 @@
 
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
 import { FormerClient, type TrainingModuleView } from "./former-client";
+import { FormerEnrolling, FormerDenied } from "./former-gate";
+import { sha256, FORM_BIND_COOKIE } from "./binding";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +23,16 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
 
   const { data: enrRaw } = await admin
     .from("training_enrollments")
-    .select("employee_id, current_seq, status")
+    .select("id, employee_id, current_seq, status, bound_secret")
     .eq("token", token)
     .maybeSingle();
-  const enr = enrRaw as { employee_id: string; current_seq: number; status: string } | null;
+  const enr = enrRaw as {
+    id: string;
+    employee_id: string;
+    current_seq: number;
+    status: string;
+    bound_secret: string | null;
+  } | null;
   if (!enr) notFound();
 
   const { data: empRaw } = await admin
@@ -33,6 +42,17 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
     .maybeSingle();
   const emp = empRaw as { full_name: string | null; preferred_language: string | null } | null;
   const lang: "fr" | "nl" = emp?.preferred_language === "nl" ? "nl" : "fr";
+  const prenom = (emp?.full_name ?? "").trim().split(/\s+/)[0] ?? "";
+
+  // VERROUILLAGE APPAREIL : 1re ouverture -> lie cet appareil ; sinon exige le cookie.
+  if (!enr.bound_secret) {
+    return <FormerEnrolling token={token} firstName={prenom} lang={lang} />;
+  }
+  const cookieStore = await cookies();
+  const secret = cookieStore.get(`${FORM_BIND_COOKIE}_${enr.id}`)?.value ?? "";
+  if (!secret || sha256(secret) !== enr.bound_secret) {
+    return <FormerDenied lang={lang} />;
+  }
 
   const { data: maxRow } = await admin
     .from("training_modules")
