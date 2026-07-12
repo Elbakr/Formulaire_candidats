@@ -784,10 +784,6 @@ export function generatePlanningProposal(input: {
 
   const weeklyHours = Number(input.weeklyHours ?? 0);
   const shiftHours = Number(input.defaultShiftHours ?? 0);
-  // Karim 2026-07-12 : la durée EFFECTIVE d'un shift est plafonnée au minimum
-  // conforme (3 h). Si le shift par défaut est réglé sous 3 h, on le remonte à 3 h
-  // au lieu de ne rien pouvoir placer (aucun shift < 3 h autorisé).
-  const effShiftHours = Math.max(shiftHours, minShiftMin / 60);
   const startTime =
     input.defaultStartTime && /^\d{2}:\d{2}/.test(input.defaultStartTime)
       ? input.defaultStartTime.slice(0, 5)
@@ -834,6 +830,16 @@ export function generatePlanningProposal(input: {
   // AUCUNE variante d'appoint/partielle. On en génère assez pour tuiler toute la
   // semaine disponible (davantage de choix pour les petits volumes), plafond 12.
   const week0Avail = computeAvailableDays(input.startDate, fixedOffDays, unavail, notBefore);
+  // Karim 2026-07-12 : la durée EFFECTIVE d'un shift n'est PAS bloquée au shift par
+  // défaut. Elle est (a) au moins 3 h (conforme), (b) au moins ce qu'il faut pour
+  // ATTEINDRE LE QUOTA sur les jours dispos (`weeklyHours / jours dispos`) — sinon un
+  // temps plein à 6 h de shift sur 6 jours plafonnerait à 36 h au lieu de 38 h. Bornée
+  // à ~9,5 h (fenêtre max d'un magasin) ; le plafond de fermeture rogne au besoin.
+  const daysForQuota = Math.max(1, week0Avail.length);
+  const effShiftHours = Math.min(
+    9.5,
+    Math.max(shiftHours, minShiftMin / 60, weeklyHours / daysForQuota),
+  );
   const capacityH = week0Avail.length * effShiftHours; // capacité approx. de la semaine
   // +1 : une variante de plus que le strict « tuilage » pour offrir un choix
   // supplémentaire (le dédoublonnage retire ensuite les doublons exacts).
