@@ -65,7 +65,7 @@ export async function ComplianceSection({ employeeId }: { employeeId: string }) 
           ) : null}
         </h2>
         <p className="text-[10px] text-ink-3 mt-0.5">
-          Suivi INTERNE (jamais communiqué au travailleur) : accusé de réception du guide conduite et journal des manquements.
+          Suivi INTERNE (jamais communiqué au travailleur) : accusé de réception du <strong>grand manuel</strong> (guide de conduite) et journal des manquements.
         </p>
       </div>
 
@@ -74,15 +74,15 @@ export async function ComplianceSection({ employeeId }: { employeeId: string }) 
         <div className="flex items-center gap-2 flex-wrap">
           {ack?.confirmed_at ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-success font-semibold">
-              <ShieldCheck className="w-4 h-4" /> Guide confirmé le {fmtDateTime(ack.confirmed_at)}
+              <ShieldCheck className="w-4 h-4" /> Grand manuel confirmé le {fmtDateTime(ack.confirmed_at)}
             </span>
           ) : ack?.sent_at ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 font-semibold">
-              <Clock className="w-4 h-4" /> Envoyé le {fmtDateTime(ack.sent_at)} — pas encore confirmé
+              <Clock className="w-4 h-4" /> Grand manuel envoyé le {fmtDateTime(ack.sent_at)} — pas encore confirmé
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-sm text-ink-3">
-              <Send className="w-4 h-4" /> Guide conduite non envoyé
+              <Send className="w-4 h-4" /> Grand manuel (guide de conduite) non envoyé
             </span>
           )}
           <div className="ml-auto">
