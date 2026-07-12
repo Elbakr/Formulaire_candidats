@@ -87,12 +87,24 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
 
   const { data: modRaw } = await admin
     .from("training_modules")
-    .select("seq, kind, category, title_fr, title_nl, body_fr, body_nl, exam_level")
+    .select("seq, kind, category, title_fr, title_nl, body_fr, body_nl, exam_level, questions")
     .eq("seq", seq)
     .eq("is_active", true)
     .maybeSingle();
-  const mod = modRaw as TrainingModuleView | null;
-  if (!mod) notFound();
+  const modFull = modRaw as (TrainingModuleView & { questions: unknown }) | null;
+  if (!modFull) notFound();
+  const { questions: rawQuestions, ...mod } = modFull;
+
+  // Questions d'examen SANS les bonnes réponses (jamais exposées au client).
+  const examQuestions =
+    mod.kind === "exam" && Array.isArray(rawQuestions)
+      ? (rawQuestions as Array<Record<string, unknown>>).map((q) => ({
+          q_fr: String(q.q_fr ?? ""),
+          q_nl: q.q_nl ? String(q.q_nl) : null,
+          choices_fr: Array.isArray(q.choices_fr) ? (q.choices_fr as string[]) : [],
+          choices_nl: Array.isArray(q.choices_nl) ? (q.choices_nl as string[]) : null,
+        }))
+      : [];
 
   const { data: ev } = await admin
     .from("training_events")
@@ -102,5 +114,14 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
     .maybeSingle();
   const confirmed = !!(ev as { confirmed_at: string | null } | null)?.confirmed_at;
 
-  return <FormerClient token={token} total={total} module={mod} confirmed={confirmed} initialLang={lang} />;
+  return (
+    <FormerClient
+      token={token}
+      total={total}
+      module={mod}
+      examQuestions={examQuestions}
+      confirmed={confirmed}
+      initialLang={lang}
+    />
+  );
 }

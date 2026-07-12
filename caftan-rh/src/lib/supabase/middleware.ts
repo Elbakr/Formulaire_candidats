@@ -33,6 +33,13 @@ const PUBLIC_ROUTES = [
   // Karim 2026-06-13 : page "completer mon dossier" (infos manquantes) a TOKEN.
   // Remplace l'ancien magic link casse. Le travailleur remplit sans compte.
   "/contract-info",
+  // Karim 2026-07-12 : FORMATION du travailleur (grand manuel gamifie) a TOKEN.
+  // Le travailleur n'a PAS encore d'espace/compte a ce stade -> pages publiques,
+  // le lien est verrouille sur son appareil (cookie + empreinte) dans la page.
+  // /former (sections + examens), /bilan (fin de cycle), /pouls (prise de pouls).
+  "/former",
+  "/bilan",
+  "/pouls",
   // Karim 2026-07-09 (Phase 3) : tablette PARTAGEE en magasin. Page publique :
   // le travailleur saisit son CODE PERSONNEL (clavier numerique) pour voir SON
   // planning par defaut en lecture seule. La resolution est un server action

@@ -6,9 +6,16 @@
 // lecture (ouverture -> confirmation) pour le profilage.
 
 import { useRef, useState, useTransition } from "react";
-import { Rocket, ThumbsUp, Loader2, Send, MessageSquarePlus, CheckCircle2 } from "lucide-react";
+import { Rocket, ThumbsUp, Loader2, Send, MessageSquarePlus, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { confirmModuleAction, submitTrainingFeedbackAction } from "./actions";
+import { confirmModuleAction, submitTrainingFeedbackAction, submitExamAction } from "./actions";
+
+export type ExamQuestionView = {
+  q_fr: string;
+  q_nl: string | null;
+  choices_fr: string[];
+  choices_nl: string[] | null;
+};
 
 export type TrainingModuleView = {
   seq: number;
@@ -25,12 +32,14 @@ export function FormerClient({
   token,
   total,
   module: mod,
+  examQuestions,
   confirmed,
   initialLang,
 }: {
   token: string;
   total: number;
   module: TrainingModuleView;
+  examQuestions: ExamQuestionView[];
   confirmed: boolean;
   initialLang: "fr" | "nl";
 }) {
@@ -121,11 +130,9 @@ export function FormerClient({
           <h1 className="text-xl font-bold text-ink mt-0.5">{title}</h1>
           <div className="mt-3 text-[15px] text-ink-2 leading-relaxed whitespace-pre-line">{body}</div>
 
-          {isExam ? (
-            <p className="mt-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[13px] p-3">{t.examSoon}</p>
-          ) : null}
-
-          {waiting ? (
+          {isExam && examQuestions.length > 0 && !waiting ? (
+            <ExamQuiz token={token} seq={mod.seq} questions={examQuestions} lang={lang} startRef={startRef} />
+          ) : waiting ? (
             <div className="mt-5 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center">
               <CheckCircle2 className="h-7 w-7 text-emerald-600 mx-auto" />
               <div className="font-bold text-emerald-800 mt-1">{t.waitTitle}</div>
@@ -158,6 +165,100 @@ export function FormerClient({
         {/* Champ commentaire / anomalie — TOUJOURS disponible */}
         <FeedbackBox token={token} seq={mod.seq} t={t} />
       </div>
+    </div>
+  );
+}
+
+function ExamQuiz({
+  token,
+  seq,
+  questions,
+  lang,
+  startRef,
+}: {
+  token: string;
+  seq: number;
+  questions: ExamQuestionView[];
+  lang: "fr" | "nl";
+  startRef: React.MutableRefObject<number>;
+}) {
+  const [answers, setAnswers] = useState<number[]>(() => questions.map(() => -1));
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ score: number; total: number } | null>(null);
+
+  const allAnswered = answers.every((a) => a >= 0);
+  const tt =
+    lang === "nl"
+      ? { submit: "Mijn antwoorden versturen", res: "Jouw resultaat", bravo: "Knap gedaan! 🎉", ok: "Goed bezig! 👍", low: "Geen zorgen, je leert bij 💪", next: "Volgende sectie morgen om 9u." }
+      : { submit: "Envoyer mes réponses", res: "Ton résultat", bravo: "Excellent ! 🎉", ok: "Bien joué ! 👍", low: "Pas de souci, tu progresses 💪", next: "Prochaine section demain à 9h." };
+
+  function submit() {
+    if (!allAnswered) return;
+    const readingSeconds = Math.max(1, Math.round((Date.now() - startRef.current) / 1000));
+    start(async () => {
+      const r = await submitExamAction(token, seq, answers, readingSeconds);
+      if (!r.ok) {
+        toast.error(r.error ?? "Erreur");
+        return;
+      }
+      setResult({ score: r.score ?? 0, total: r.total ?? questions.length });
+    });
+  }
+
+  if (result) {
+    const pct = result.total > 0 ? Math.round((result.score / result.total) * 100) : 0;
+    const msg = pct >= 80 ? tt.bravo : pct >= 50 ? tt.ok : tt.low;
+    return (
+      <div className="mt-5 rounded-xl bg-emerald-50 border border-emerald-200 p-5 text-center">
+        <Sparkles className="h-7 w-7 text-emerald-600 mx-auto" />
+        <div className="text-sm text-emerald-800/80 mt-1">{tt.res}</div>
+        <div className="text-3xl font-extrabold text-emerald-800">
+          {result.score}/{result.total}
+        </div>
+        <div className="font-bold text-emerald-800 mt-1">{msg}</div>
+        <p className="text-[13px] text-emerald-800/70 mt-2">{tt.next}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 space-y-4">
+      {questions.map((q, qi) => {
+        const label = (lang === "nl" ? q.q_nl : q.q_fr) || q.q_fr;
+        const choices = (lang === "nl" ? q.choices_nl : q.choices_fr) || q.choices_fr;
+        return (
+          <div key={qi} className="rounded-xl border border-line p-3">
+            <div className="text-[14px] font-semibold text-ink mb-2">
+              {qi + 1}. {label}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {choices.map((ch, ci) => {
+                const active = answers[qi] === ci;
+                return (
+                  <button
+                    key={ci}
+                    type="button"
+                    onClick={() => setAnswers((a) => a.map((v, i) => (i === qi ? ci : v)))}
+                    className={`text-left rounded-lg border px-3 py-2 text-[14px] transition-colors ${
+                      active ? "border-gold bg-gold-light/60 font-semibold text-ink" : "border-line hover:bg-surface-2 text-ink-2"
+                    }`}
+                  >
+                    {ch}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        onClick={submit}
+        disabled={pending || !allAnswered}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-ink text-canvas font-bold py-3 active:scale-[0.98] transition-all disabled:opacity-50"
+      >
+        {pending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+        {tt.submit}
+      </button>
     </div>
   );
 }

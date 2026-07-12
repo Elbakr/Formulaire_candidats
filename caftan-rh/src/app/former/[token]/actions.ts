@@ -73,6 +73,83 @@ export async function confirmModuleAction(
   return r;
 }
 
+/** Corrige l'examen côté serveur (les bonnes réponses ne quittent jamais le serveur),
+ *  enregistre le résultat, avance la formation, et envoie le RAPPORT à l'admin. */
+export async function submitExamAction(
+  token: string,
+  seq: number,
+  answers: number[],
+  readingSeconds: number | null,
+): Promise<{ ok: boolean; score?: number; total?: number; error?: string }> {
+  const who = await resolveEmployee(token);
+  if (!who) return { ok: false, error: "Lien invalide." };
+  const admin = createAdminClient();
+
+  const { data: modRaw } = await admin
+    .from("training_modules")
+    .select("questions, exam_level, title_fr")
+    .eq("seq", seq)
+    .maybeSingle();
+  const mod = modRaw as { questions: Array<{ correct: number }> | null; exam_level: number | null; title_fr: string } | null;
+  const questions = mod?.questions ?? [];
+  if (!Array.isArray(questions) || questions.length === 0) return { ok: false, error: "Examen indisponible." };
+
+  let score = 0;
+  questions.forEach((q, i) => {
+    if (Number(answers?.[i]) === Number(q.correct)) score += 1;
+  });
+  const total = questions.length;
+
+  await admin.from("training_exam_results").insert({
+    employee_id: who.employeeId,
+    module_seq: seq,
+    level: mod?.exam_level ?? null,
+    score,
+    total,
+    answers: answers ?? [],
+  });
+
+  // Avance la formation (marque la section faite + programme la suivante à 9h).
+  await confirmAndMaybeAdvance(admin, who.employeeId, seq, { eager: false, readingSeconds });
+
+  // RAPPORT à l'admin (mail + notif interne) — Karim veut chaque résultat.
+  const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+  try {
+    const { data: org } = await admin.from("org_settings").select("org_email").eq("id", 1).maybeSingle();
+    const to = (org as { org_email?: string | null } | null)?.org_email || "hr@caftanfactory.com";
+    const { sendAppMail } = await import("@/lib/app-mail");
+    await sendAppMail({
+      to,
+      subject: `Formation — résultat examen niveau ${mod?.exam_level ?? "?"} : ${who.name ?? "travailleur"} (${score}/${total})`,
+      body:
+        `Rapport d'examen (formation)\n\n` +
+        `Travailleur : ${who.name ?? who.employeeId}\n` +
+        `Examen : niveau ${mod?.exam_level ?? "?"} — « ${mod?.title_fr ?? ""} »\n` +
+        `Score : ${score}/${total} (${pct}%)\n\n` +
+        `Fiche : /planning/employees/${who.employeeId}`,
+      source: "training_exam_report",
+      employeeId: who.employeeId,
+    });
+  } catch {
+    /* non bloquant */
+  }
+  try {
+    const { notifyRoles } = await import("@/lib/notify");
+    await notifyRoles(["admin", "rh"], {
+      kind: "training_exam_result",
+      title: `Examen niveau ${mod?.exam_level ?? "?"} — ${who.name ?? "travailleur"} : ${score}/${total}`,
+      body: `Score ${pct}% à l'examen « ${mod?.title_fr ?? ""} ».`,
+      link: `/planning/employees/${who.employeeId}`,
+      data: { employee_id: who.employeeId, module_seq: seq, score, total },
+    });
+  } catch {
+    /* non bloquant */
+  }
+
+  revalidatePath(`/former/${token}`);
+  return { ok: true, score, total };
+}
+
 export async function submitTrainingFeedbackAction(
   token: string,
   seq: number | null,
