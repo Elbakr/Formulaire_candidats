@@ -79,7 +79,11 @@ export async function sendTrainingModule(
   admin: SupabaseClient,
   employeeId: string,
   seq: number,
+  opts?: { onScreen?: boolean }, // Karim 2026-07-12 : « hâte d'apprendre » -> la
+  // section s'affiche À L'ÉCRAN instantanément -> PAS de mail (redondant). On avance
+  // juste l'inscription. Le mail ne sert qu'à l'envoi quotidien de 9h (hors écran).
 ): Promise<{ ok: boolean; done?: boolean; error?: string }> {
+  const onScreen = opts?.onScreen === true;
   const enr = await ensureEnrollment(admin, employeeId);
   if (!enr) return { ok: false, error: "inscription impossible" };
 
@@ -99,7 +103,7 @@ export async function sendTrainingModule(
 
   const { data: emp } = await admin.from("employees").select("email, full_name, preferred_language, end_date, status").eq("id", employeeId).maybeSingle();
   const e = emp as { email: string | null; full_name: string | null; preferred_language: string | null; end_date: string | null; status: string | null } | null;
-  if (!e?.email) return { ok: false, error: "pas d'email travailleur" };
+  if (!e) return { ok: false, error: "travailleur introuvable" };
 
   // Karim 2026-07-12 : plus AUCUN envoi après le terme du contrat (le lien meurt).
   const todayBxl = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
@@ -107,6 +111,11 @@ export async function sendTrainingModule(
     await admin.from("training_enrollments").update({ status: "expired", next_send_at: null }).eq("employee_id", employeeId);
     return { ok: false, error: "contrat terminé — lien clôturé" };
   }
+
+  // Envoi du MAIL uniquement en mode « courrier » (drip 9h). En mode ÉCRAN (« hâte
+  // d'apprendre »), on n'envoie rien : le travailleur voit déjà la suite.
+  if (!onScreen) {
+  if (!e.email) return { ok: false, error: "pas d'email travailleur" };
   const lang: "fr" | "nl" = e.preferred_language === "nl" ? "nl" : "fr";
   const prenom = firstName(e.full_name);
   const link = `${getNeutralBaseUrl()}/former/${enr.token}`;
@@ -181,8 +190,10 @@ export async function sendTrainingModule(
   if (res && (res as { ok?: boolean }).ok === false) {
     return { ok: false, error: (res as { error?: string }).error ?? "envoi KO" };
   }
+  } // fin if (!onScreen)
 
-  // Journalise l'envoi (upsert : ne réécrase pas confirmed_at si renvoi).
+  // Journalise la « livraison » (mail OU affichage écran) : upsert, ne réécrase pas
+  // confirmed_at si renvoi. Marque sent_at -> le cron ne renverra pas cette section.
   await admin.from("training_events").upsert(
     { employee_id: employeeId, module_seq: seq, sent_at: new Date().toISOString() },
     { onConflict: "employee_id,module_seq" },
@@ -219,7 +230,9 @@ export async function confirmAndMaybeAdvance(
   );
 
   if (opts.eager) {
-    return await sendTrainingModule(admin, employeeId, seq + 1);
+    // « Hâte d'apprendre » : la section suivante s'affiche À L'ÉCRAN (reload) -> on
+    // avance SANS envoyer de mail (ce serait redondant, le travailleur est devant).
+    return await sendTrainingModule(admin, employeeId, seq + 1, { onScreen: true });
   }
   // Rythme quotidien : la suivante partira au prochain 9h (cron). On s'assure juste
   // que next_send_at est bien programmé.
