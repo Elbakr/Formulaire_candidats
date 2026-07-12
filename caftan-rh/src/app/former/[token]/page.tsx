@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
+import { isAdminSession } from "@/lib/auth";
 import { FormerClient, type TrainingModuleView } from "./former-client";
 import { FormerEnrolling, FormerDenied, FormerClosed } from "./former-gate";
 import { sha256, FORM_BIND_COOKIE } from "./binding";
@@ -54,13 +55,18 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
   }
 
   // VERROUILLAGE APPAREIL : 1re ouverture -> lie cet appareil ; sinon exige le cookie.
-  if (!enr.bound_secret) {
-    return <FormerEnrolling token={token} firstName={prenom} lang={lang} />;
-  }
-  const cookieStore = await cookies();
-  const secret = cookieStore.get(`${FORM_BIND_COOKIE}_${enr.id}`)?.value ?? "";
-  if (!secret || sha256(secret) !== enr.bound_secret) {
-    return <FormerDenied lang={lang} />;
+  // Karim 2026-07-12 : l'ADMIN connecté CONTOURNE le verrou (preview/test), quel que
+  // soit l'appareil.
+  const isAdmin = await isAdminSession();
+  if (!isAdmin) {
+    if (!enr.bound_secret) {
+      return <FormerEnrolling token={token} firstName={prenom} lang={lang} />;
+    }
+    const cookieStore = await cookies();
+    const secret = cookieStore.get(`${FORM_BIND_COOKIE}_${enr.id}`)?.value ?? "";
+    if (!secret || sha256(secret) !== enr.bound_secret) {
+      return <FormerDenied lang={lang} />;
+    }
   }
 
   const { data: maxRow } = await admin
