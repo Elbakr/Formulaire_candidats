@@ -46,6 +46,23 @@ export function FormerEnrolling({ token, firstName, lang }: { token: string; fir
   );
 }
 
+export function FormerClosed({ lang }: { lang: "fr" | "nl" }) {
+  const t =
+    lang === "nl"
+      ? { title: "Je opleiding is afgesloten 🎓", body: "Bedankt voor je inzet en het gedeelde werk. Deze opleidingsinhoud is niet langer toegankelijk.", hint: "We wensen je het allerbeste voor de toekomst. 💛" }
+      : { title: "Ta formation est clôturée 🎓", body: "Merci pour ton implication et le travail partagé. Le contenu de la formation n'est plus accessible.", hint: "On te souhaite le meilleur pour la suite. 💛" };
+  return (
+    <div className="min-h-[100dvh] bg-ink flex items-center justify-center p-6">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl">
+        <div className="text-4xl">🎓</div>
+        <h1 className="text-lg font-bold text-ink mt-2">{t.title}</h1>
+        <p className="mt-1.5 text-sm text-ink-2">{t.body}</p>
+        <p className="mt-3 text-[12px] text-ink-3">{t.hint}</p>
+      </div>
+    </div>
+  );
+}
+
 export function FormerDenied({ lang }: { lang: "fr" | "nl" }) {
   const t =
     lang === "nl"

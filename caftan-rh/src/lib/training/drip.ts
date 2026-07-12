@@ -97,9 +97,16 @@ export async function sendTrainingModule(
     return { ok: true, done: true };
   }
 
-  const { data: emp } = await admin.from("employees").select("email, full_name, preferred_language").eq("id", employeeId).maybeSingle();
-  const e = emp as { email: string | null; full_name: string | null; preferred_language: string | null } | null;
+  const { data: emp } = await admin.from("employees").select("email, full_name, preferred_language, end_date, status").eq("id", employeeId).maybeSingle();
+  const e = emp as { email: string | null; full_name: string | null; preferred_language: string | null; end_date: string | null; status: string | null } | null;
   if (!e?.email) return { ok: false, error: "pas d'email travailleur" };
+
+  // Karim 2026-07-12 : plus AUCUN envoi après le terme du contrat (le lien meurt).
+  const todayBxl = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
+  if ((e.end_date && e.end_date.slice(0, 10) < todayBxl) || e.status === "archived") {
+    await admin.from("training_enrollments").update({ status: "expired", next_send_at: null }).eq("employee_id", employeeId);
+    return { ok: false, error: "contrat terminé — lien clôturé" };
+  }
   const lang: "fr" | "nl" = e.preferred_language === "nl" ? "nl" : "fr";
   const prenom = firstName(e.full_name);
   const link = `${getNeutralBaseUrl()}/former/${enr.token}`;

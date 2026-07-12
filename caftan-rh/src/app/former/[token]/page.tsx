@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
 import { FormerClient, type TrainingModuleView } from "./former-client";
-import { FormerEnrolling, FormerDenied } from "./former-gate";
+import { FormerEnrolling, FormerDenied, FormerClosed } from "./former-gate";
 import { sha256, FORM_BIND_COOKIE } from "./binding";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +37,21 @@ export default async function FormerPage({ params }: { params: Promise<{ token: 
 
   const { data: empRaw } = await admin
     .from("employees")
-    .select("full_name, preferred_language")
+    .select("full_name, preferred_language, end_date, status")
     .eq("id", enr.employee_id)
     .maybeSingle();
-  const emp = empRaw as { full_name: string | null; preferred_language: string | null } | null;
+  const emp = empRaw as { full_name: string | null; preferred_language: string | null; end_date: string | null; status: string | null } | null;
   const lang: "fr" | "nl" = emp?.preferred_language === "nl" ? "nl" : "fr";
   const prenom = (emp?.full_name ?? "").trim().split(/\s+/)[0] ?? "";
+
+  // Karim 2026-07-12 : le lien MEURT au terme du contrat — plus AUCUN accès au contenu
+  // (protection du savoir-faire : pas de fuite du « modus operandi »). Fermé aussi si
+  // le travailleur n'est plus actif ou si la formation est marquée expirée.
+  const todayBxl = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Brussels" });
+  const contractEnded = !!emp?.end_date && emp.end_date.slice(0, 10) < todayBxl;
+  if (contractEnded || emp?.status === "archived" || enr.status === "expired") {
+    return <FormerClosed lang={lang} />;
+  }
 
   // VERROUILLAGE APPAREIL : 1re ouverture -> lie cet appareil ; sinon exige le cookie.
   if (!enr.bound_secret) {
