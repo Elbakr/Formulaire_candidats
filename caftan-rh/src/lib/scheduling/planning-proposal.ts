@@ -849,56 +849,86 @@ export function generatePlanningProposal(input: {
   );
 
   const LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
-  const strategyFor = (i: number): string =>
-    i === 0
-      ? "Premières heures disponibles (remplit le quota à partir du 1er jour dispo)"
-      : `Suite exacte de ${LABELS[i - 1]} : reprend au jour et à l'heure où ${LABELS[i - 1]} s'arrête (100 % du quota)`;
 
-  // Remplit chaque semaine avec N variantes séquentielles, puis assemble par variante.
-  const weeksByVariant: ProposalWeek[][] = Array.from({ length: numVariants }, () => []);
-  for (let w = 0; w < weeks; w++) {
-    const weekStartISO = addDaysISO(input.startDate, w * 7);
-    const seq = fillWeekSequential({
-      weekIndex: w,
-      weekStartISO,
-      weeklyHours,
-      startMin,
-      shiftHours: effShiftHours,
-      fixedOffDays,
-      unavail,
-      prayer,
-      pauseMin,
-      brabant,
-      staggerRank,
-      closingFor,
-      numVariants,
-      minShiftMin,
-      notBeforeDate: notBefore,
-    });
-    seq.forEach((week, v) => weeksByVariant[v].push(week));
+  // Karim 2026-07-12 : ANCRES D'HEURE DE DÉBUT (matin / milieu / soir). Quand un
+  // travailleur utilise tous ses jours (temps plein sans marge), on ne peut pas varier
+  // les JOURS -> on varie l'HEURE de début pour (a) proposer plusieurs choix et (b)
+  // COUVRIR la journée d'ouverture (un variant du matin ET un variant du soir qui
+  // finit à la fermeture). Chaque variant reste à 100 % du quota.
+  const openMin = startMin;
+  const workedMinEff = Math.round(effShiftHours * 60);
+  const closingsList = week0Avail.map((iso) => Math.min(DAY_MIN, closingFor(iso)));
+  const minClose = closingsList.length ? Math.min(...closingsList) : DAY_MIN;
+  const spanEff = workedMinEff + pauseMin; // heures + pauses quotidiennes (approx.)
+  const lateStart = Math.max(openMin, minClose - spanEff); // départ pour finir à la fermeture
+  const midStart = Math.round((openMin + lateStart) / 2);
+  const anchors: number[] = [];
+  for (const a of [openMin, midStart, lateStart]) {
+    if (!anchors.some((x) => Math.abs(x - a) < 60)) anchors.push(a); // écart mini 60 min
+  }
+  const anchorStrategy = (a: number): string =>
+    a <= openMin + 30
+      ? "Créneaux du MATIN (démarre à l'ouverture)"
+      : lateStart > openMin + 30 && a >= lateStart - 30
+        ? "Créneaux du SOIR (couvre la fermeture)"
+        : "Créneaux de milieu de journée";
+
+  const buildAnchorWeeks = (anchor: number, count: number): ProposalWeek[][] => {
+    const wbv: ProposalWeek[][] = Array.from({ length: count }, () => []);
+    for (let w = 0; w < weeks; w++) {
+      const weekStartISO = addDaysISO(input.startDate, w * 7);
+      const seq = fillWeekSequential({
+        weekIndex: w,
+        weekStartISO,
+        weeklyHours,
+        startMin: anchor,
+        shiftHours: effShiftHours,
+        fixedOffDays,
+        unavail,
+        prayer,
+        pauseMin,
+        brabant,
+        staggerRank,
+        closingFor,
+        numVariants: count,
+        minShiftMin,
+        notBeforeDate: notBefore,
+      });
+      seq.forEach((week, v) => wbv[v].push(week));
+    }
+    return wbv;
+  };
+
+  // MATIN = variété PRINCIPALE (jours différents), doit atteindre 100 % du quota.
+  // MILIEU + SOIR = 1 variante de COUVERTURE chacune (best-effort : le vendredi
+  // (pause prière) + la fermeture peuvent raccourcir un shift du soir).
+  type Raw = { weeks: ProposalWeek[]; anchor: number; primary: boolean };
+  const raws: Raw[] = [];
+  for (const wk of buildAnchorWeeks(openMin, numVariants)) raws.push({ weeks: wk, anchor: openMin, primary: true });
+  for (const anchor of anchors.filter((a) => a !== openMin)) {
+    const one = buildAnchorWeeks(anchor, 1);
+    if (one[0]) raws.push({ weeks: one[0], anchor, primary: false });
   }
 
-  // Assemble, puis DÉDUPLIQUE les variantes identiques (même suite exacte de shifts).
   const allVariants: ProposalVariant[] = [];
+  const coverageLabels = new Set<string>(); // variantes soir/milieu : non flaggées sous-quota
   const seenSig = new Set<string>();
-  for (let i = 0; i < numVariants; i++) {
-    const v = mkVariant(LABELS[i] ?? `V${i + 1}`, strategyFor(i), weeksByVariant[i]);
-    if ((v.weeks[0]?.shifts.length ?? 0) === 0) continue; // variante vide -> ignorer
-    const sig = JSON.stringify(
-      v.weeks.map((wk) => wk.shifts.map((s) => `${s.date}|${s.start_time}|${s.end_time}`)),
-    );
+  for (const rv of raws) {
+    if (allVariants.length >= COVERAGE_TOTAL_CAP) break;
+    if ((rv.weeks[0]?.shifts.length ?? 0) === 0) continue;
+    const sig = JSON.stringify(rv.weeks.map((w) => w.shifts.map((s) => `${s.date}|${s.start_time}|${s.end_time}`)));
     if (seenSig.has(sig)) continue;
     seenSig.add(sig);
-    allVariants.push(v);
+    const label = LABELS[allVariants.length] ?? `V${allVariants.length + 1}`;
+    allVariants.push(mkVariant(label, anchorStrategy(rv.anchor), rv.weeks));
+    if (!rv.primary) coverageLabels.add(label);
   }
-  // Ré-étiquette A, B, C… dans l'ordre après dédup.
-  allVariants.forEach((v, i) => {
-    v.label = LABELS[i] ?? `V${i + 1}`;
-    v.strategy = strategyFor(i);
-  });
-  // Le type garantit A/B/C : si la dédup a trop réduit (aucune marge), complète.
+  // Le type garantit A/B/C : si moins de 3 variantes DISTINCTES (agenda complet, aucune
+  // marge), on complète par un placeholder au message CLAIR (pas « paramètres manquants »).
   while (allVariants.length < 3) {
-    allVariants.push(emptyVariant(LABELS[allVariants.length] ?? `V${allVariants.length + 1}`));
+    const e = emptyVariant(LABELS[allVariants.length] as "A" | "B" | "C");
+    e.strategy = "Aucune autre répartition possible (tous les jours sont déjà utilisés)";
+    allVariants.push(e);
   }
 
   const variantA = allVariants[0];
@@ -913,13 +943,15 @@ export function generatePlanningProposal(input: {
   // normal, pas un sous-quota. On ignore donc week_index 0 quand il est tronqué.
   const week0Truncated = notBefore != null && notBefore > input.startDate;
   const reasons: string[] = [];
-  const anyPartial = allVariants.some((v) =>
-    v.weeks.some(
-      (wk) =>
-        !(week0Truncated && wk.week_index === 0) &&
-        wk.shifts.length > 0 &&
-        wk.total_hours < weeklyHours - 0.5,
-    ),
+  const anyPartial = allVariants.some(
+    (v) =>
+      !coverageLabels.has(v.label) && // les variantes de COUVERTURE (soir/milieu) non flaggées
+      v.weeks.some(
+        (wk) =>
+          !(week0Truncated && wk.week_index === 0) &&
+          wk.shifts.length > 0 &&
+          wk.total_hours < weeklyHours - 0.5,
+      ),
   );
   if (anyPartial) {
     reasons.push(
