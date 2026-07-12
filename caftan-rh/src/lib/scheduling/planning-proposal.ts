@@ -907,9 +907,19 @@ export function generatePlanningProposal(input: {
   const variants_extra = allVariants.slice(3);
 
   // Raison best-effort : semaines partielles (jours dispo insuffisants) ou peu de marge.
+  // Karim 2026-07-12 : on NE FLAGGE PAS la 1re semaine si elle est TRONQUÉE par le
+  // plancher (date sélectionnée / début de contrat en milieu ou fin de semaine) — ex.
+  // un contrat qui débute un dimanche a une 1re « semaine » d'un seul jour : c'est
+  // normal, pas un sous-quota. On ignore donc week_index 0 quand il est tronqué.
+  const week0Truncated = notBefore != null && notBefore > input.startDate;
   const reasons: string[] = [];
   const anyPartial = allVariants.some((v) =>
-    v.weeks.some((wk) => wk.shifts.length > 0 && wk.total_hours < weeklyHours - 0.5),
+    v.weeks.some(
+      (wk) =>
+        !(week0Truncated && wk.week_index === 0) &&
+        wk.shifts.length > 0 &&
+        wk.total_hours < weeklyHours - 0.5,
+    ),
   );
   if (anyPartial) {
     reasons.push(
