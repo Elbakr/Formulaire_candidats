@@ -390,6 +390,13 @@ export async function regenerateAllPlanningProposals(
   const summary: BatchGenerateSummary = { total: employees.length, ok: 0, failed: [], alerts: [] };
   const CONCURRENCY = 4; // limite pour ne pas saturer la DB / le temps d'exécution cron
 
+  // Karim 2026-07-12 : le batch GLOBAL part TOUJOURS du LUNDI de la semaine (semaines
+  // pleines), peu importe le jour où il est déclenché. Sinon un déclenchement en
+  // milieu/fin de semaine tronque la semaine 0 (plancher = today) et fait remonter de
+  // fausses alertes « sous-quota » pour tout le monde. Le début de contrat reste
+  // respecté par employé (plancher `max(lundi, start_date)` dans regenerate...).
+  const batchStart = mondayOfISO(opts.startDate);
+
   for (let i = 0; i < employees.length; i += CONCURRENCY) {
     const chunk = employees.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
@@ -397,7 +404,7 @@ export async function regenerateAllPlanningProposals(
         const name = emp.full_name ?? emp.id;
         try {
           const res = await regeneratePlanningProposal(admin, emp.id, {
-            startDate: opts.startDate,
+            startDate: batchStart,
             generatedBy: opts.generatedBy,
             scheduleRecurrence: opts.scheduleRecurrence ?? "weekly",
           });
