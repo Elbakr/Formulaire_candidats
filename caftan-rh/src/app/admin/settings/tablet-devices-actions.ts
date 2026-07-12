@@ -22,13 +22,32 @@ export async function regenerateTabletDeviceAction(
   if (!c) return { error: "Code tablette manquant." };
   const admin = createAdminClient();
   const token = newToken();
+  // Nouveau jeton -> on DÉLIE l'appareil (le prochain appareil qui ouvre s'enrôle).
   const { error } = await admin
     .from("tablet_devices")
-    .update({ token, active: true })
+    .update({ token, active: true, bound_secret: null, bound_at: null })
     .eq("code", c);
   if (error) return { error: error.message };
   revalidatePath("/admin/settings");
   return { ok: true, token };
+}
+
+/** Réinitialise le VERROUILLAGE APPAREIL : la tablette pourra être ré-enrôlée sur un
+ *  nouvel appareil (remplacement/perte). Le lien reste le même. */
+export async function resetTabletBindingAction(
+  code: string,
+): Promise<{ ok?: true; error?: string }> {
+  await requireRole(["admin"]);
+  const c = (code ?? "").trim().toUpperCase();
+  if (!c) return { error: "Code tablette manquant." };
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("tablet_devices")
+    .update({ bound_secret: null, bound_at: null })
+    .eq("code", c);
+  if (error) return { error: error.message };
+  revalidatePath("/admin/settings");
+  return { ok: true };
 }
 
 /** Active / désactive une tablette (désactivé = lien 404). */

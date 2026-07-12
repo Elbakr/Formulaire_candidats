@@ -11,9 +11,12 @@
 
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth";
 import { TabletteClient } from "../../tablette/tablette-client";
+import { TabletEnroll, TabletDenied } from "./tablet-gate";
+import { sha256, TABLET_BIND_COOKIE_PREFIX } from "./binding";
 
 export const dynamic = "force-dynamic";
 
@@ -42,32 +45,34 @@ export async function generateMetadata({
   };
 }
 
-async function isValidDeviceToken(token: string): Promise<boolean> {
-  const t = (token ?? "").trim();
-  // Jeton base64url ~43 chars ; on rejette d'emblée le trivial pour couper court
-  // à toute énumération. Comparaison stricte, aucun fallback si NULL en base.
-  if (t.length < 24) return false;
-  const admin = createAdminClient();
+type DeviceRow = { code: string; bound_secret: string | null };
 
-  // 1) Jetons MULTI-TABLETTES (A..G) — table tablet_devices (actifs uniquement).
-  const { data: dev } = await admin
+/** Résout la tablette (active) pour ce jeton, ou null. */
+async function resolveTablet(token: string): Promise<DeviceRow | null> {
+  const t = (token ?? "").trim();
+  if (t.length < 24) return null;
+  const admin = createAdminClient();
+  const { data } = await admin
     .from("tablet_devices")
-    .select("id")
+    .select("code, bound_secret")
     .eq("token", t)
     .eq("active", true)
     .maybeSingle();
-  if (dev) return true;
+  return (data as DeviceRow | null) ?? null;
+}
 
-  // 2) Compat : ancien jeton unique org_settings.tablet_device_token (tablette A).
+/** Compat : ancien jeton unique org_settings.tablet_device_token (avant multi-tablettes). */
+async function isLegacyToken(token: string): Promise<boolean> {
+  const t = (token ?? "").trim();
+  if (t.length < 24) return false;
+  const admin = createAdminClient();
   const { data } = await admin
     .from("org_settings")
     .select("tablet_device_token")
     .eq("id", 1)
     .maybeSingle();
-  const configured =
-    (data as { tablet_device_token: string | null } | null)?.tablet_device_token ?? null;
-  if (!configured) return false; // aucun jeton -> refus public
-  return configured === t;
+  const configured = (data as { tablet_device_token: string | null } | null)?.tablet_device_token ?? null;
+  return !!configured && configured === t;
 }
 
 export default async function TabletTokenPage({
@@ -76,11 +81,31 @@ export default async function TabletTokenPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const valid = await isValidDeviceToken(token);
-  if (!valid) {
-    // Admin connecté : accès preview autorisé quel que soit le jeton.
-    const admin = await isAdminSession();
-    if (!admin) notFound();
+  const admin = await isAdminSession();
+
+  const tablet = await resolveTablet(token);
+
+  // Jeton inconnu / inactif -> compat ancien jeton unique, sinon 404 (sauf admin preview).
+  if (!tablet) {
+    if (admin) return <TabletteClient />;
+    if (await isLegacyToken(token)) return <TabletteClient />;
+    notFound();
   }
-  return <TabletteClient />;
+
+  // Admin connecté : preview direct, sans enrôler cet appareil.
+  if (admin) return <TabletteClient />;
+
+  // VERROUILLAGE APPAREIL :
+  //  - pas encore enrôlée -> écran d'activation (lie CET appareil).
+  //  - enrôlée + cookie de CET appareil correspond -> accès.
+  //  - enrôlée + cookie absent/différent (autre appareil) -> refus.
+  if (!tablet.bound_secret) {
+    return <TabletEnroll token={token} />;
+  }
+  const c = await cookies();
+  const secret = c.get(`${TABLET_BIND_COOKIE_PREFIX}${tablet.code}`)?.value ?? "";
+  if (secret && sha256(secret) === tablet.bound_secret) {
+    return <TabletteClient />;
+  }
+  return <TabletDenied />;
 }

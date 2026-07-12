@@ -17,9 +17,21 @@ export default async function AdminSettingsPage() {
   // Tablettes planning (A..G) — via service role (table hors RLS utilisateur).
   const { data: tabletRows } = await createAdminClient()
     .from("tablet_devices")
-    .select("code, label, token, active")
+    .select("code, label, token, active, bound_secret")
     .order("code", { ascending: true });
-  const tabletDevices = (tabletRows ?? []) as TabletDevice[];
+  const tabletDevices = ((tabletRows ?? []) as Array<{
+    code: string;
+    label: string | null;
+    token: string;
+    active: boolean;
+    bound_secret: string | null;
+  }>).map((r): TabletDevice => ({
+    code: r.code,
+    label: r.label,
+    token: r.token,
+    active: r.active,
+    bound: !!r.bound_secret,
+  }));
   const pushReady = pushIsConfigured();
   return (
     <div className="space-y-4">

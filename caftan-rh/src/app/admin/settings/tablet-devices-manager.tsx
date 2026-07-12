@@ -4,7 +4,7 @@
 // lien /t/<jeton> unique + copie 1-clic + régénérer + activer/désactiver. + ajout.
 
 import { useState, useTransition } from "react";
-import { Tablet, Copy, RefreshCw, Check, Plus, Power } from "lucide-react";
+import { Tablet, Copy, RefreshCw, Check, Plus, Power, Lock, Unlock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +12,16 @@ import {
   regenerateTabletDeviceAction,
   setTabletDeviceActiveAction,
   addTabletDeviceAction,
+  resetTabletBindingAction,
 } from "./tablet-devices-actions";
 
-export type TabletDevice = { code: string; label: string | null; token: string; active: boolean };
+export type TabletDevice = {
+  code: string;
+  label: string | null;
+  token: string;
+  active: boolean;
+  bound: boolean; // true = déjà enrôlée sur un appareil
+};
 
 export function TabletDevicesManager({
   initial,
@@ -49,8 +56,19 @@ export function TabletDevicesManager({
     start(async () => {
       const r = await regenerateTabletDeviceAction(code);
       if (r.error || !r.token) return toast.error(r.error ?? "Échec.");
-      setDevices((d) => d.map((x) => (x.code === code ? { ...x, token: r.token!, active: true } : x)));
+      setDevices((d) => d.map((x) => (x.code === code ? { ...x, token: r.token!, active: true, bound: false } : x)));
       toast.success(`Nouveau lien pour la tablette ${code}. Reconfigure-la.`);
+    });
+  }
+
+  function resetBinding(code: string) {
+    if (pending) return;
+    if (!confirm(`Réinitialiser l'appareil de la tablette ${code} ? Le lien reste le même mais pourra être ré-enrôlé sur un NOUVEL appareil (remplacement/perte).`)) return;
+    start(async () => {
+      const r = await resetTabletBindingAction(code);
+      if (r.error) return toast.error(r.error);
+      setDevices((d) => d.map((x) => (x.code === code ? { ...x, bound: false } : x)));
+      toast.success(`Tablette ${code} déliée : le prochain appareil qui ouvre le lien s'enrôlera.`);
     });
   }
 
@@ -69,7 +87,7 @@ export function TabletDevicesManager({
     start(async () => {
       const r = await addTabletDeviceAction(code);
       if (r.error || !r.token) return toast.error(r.error ?? "Échec.");
-      setDevices((d) => [...d, { code, label: null, token: r.token!, active: true }].sort((a, b) => a.code.localeCompare(b.code)));
+      setDevices((d) => [...d, { code, label: null, token: r.token!, active: true, bound: false }].sort((a, b) => a.code.localeCompare(b.code)));
       setNewCode("");
       toast.success(`Tablette ${code} ajoutée.`);
     });
@@ -104,6 +122,15 @@ export function TabletDevicesManager({
               </span>
               <span className="text-[12px] font-semibold">Tablette {d.code}</span>
               {d.label ? <span className="text-[11px] text-ink-3">· {d.label}</span> : null}
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 ${
+                  d.bound ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                }`}
+                title={d.bound ? "Verrouillée sur un appareil" : "Pas encore enrôlée : le 1er appareil qui ouvre le lien la verrouille"}
+              >
+                {d.bound ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
+                {d.bound ? "Appareil verrouillé" : "Libre (à activer)"}
+              </span>
               {!d.active ? <span className="text-[10px] font-bold text-danger">DÉSACTIVÉE</span> : null}
             </div>
             <div className="flex items-stretch gap-2">
@@ -134,6 +161,12 @@ export function TabletDevicesManager({
                 <Power className="h-3.5 w-3.5 mr-1" />
                 {d.active ? "Désactiver" : "Activer"}
               </Button>
+              {d.bound ? (
+                <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => resetBinding(d.code)}>
+                  <Unlock className="h-3.5 w-3.5 mr-1" />
+                  Réinitialiser l&apos;appareil
+                </Button>
+              ) : null}
             </div>
           </div>
         ))}
