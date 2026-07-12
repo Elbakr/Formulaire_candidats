@@ -10,6 +10,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { ensureEnrollment, sendTrainingModule } from "@/lib/training/drip";
+import { runTrainingLifecycle } from "@/lib/training/lifecycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -75,5 +76,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, enrolled, sent, completed: done, errors });
+  // 3) Cycle de vie : prises de pouls (15 j, contrats < 3 mois) + bilan de sortie
+  //    (10-15 j avant fin de contrat). Une seule fois chacun (dédup en base).
+  let lifecycle = { pouls: 0, exit: 0, errors: [] as string[] };
+  try {
+    lifecycle = await runTrainingLifecycle(admin);
+  } catch (e) {
+    errors.push(`lifecycle: ${(e as Error).message}`);
+  }
+
+  return NextResponse.json({ ok: true, enrolled, sent, completed: done, lifecycle, errors });
 }
