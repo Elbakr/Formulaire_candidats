@@ -1,5 +1,5 @@
-﻿https://autumn-camel-dot-institute.trycloudflare.com
+﻿https://assessments-ericsson-reno-fairfield.trycloudflare.com
 
-Tunnel actif depuis 2026-07-15 12:44.
+Tunnel actif depuis 2026-07-15 12:45.
 Mis a jour automatiquement par scripts/tunnel-keeper.ps1.
 Bookmark cette page, l URL ici est toujours la bonne.
